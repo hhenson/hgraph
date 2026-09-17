@@ -207,6 +207,7 @@ namespace hgraph::python_bridge
         mutable std::uint64_t                              last_compiled_generation{0};
         mutable std::optional<CompiledSubGraph>             retained_compilation;
         mutable bool                                        retained_compilation_realtime{false};
+        mutable std::string                                 retained_compilation_component;
     };
 
     struct PyPort
@@ -244,6 +245,7 @@ namespace hgraph::python_bridge
     struct PyNodeRecord
     {
         nb::object fn;
+        std::string recordable_id{};
     };
 }  // namespace hgraph::python_bridge
 

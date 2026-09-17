@@ -11,6 +11,7 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -497,6 +498,118 @@ namespace hgraph
             rollback.release();
             observers.notify_insert(slot);
             return {.slot = slot, .inserted = true, .constructed = true};
+        }
+
+        /** Plan a complete fresh checkpoint import in O(capacity) time.
+         *
+         * Each subsequent restore_key_at_slot must follow live_slots order.
+         * Arranging the free stack once makes those imports O(1) apart from
+         * key hashing/copying, without adding an index to ordinary mutations.
+         * Once imported, the remaining stack is exactly free_slots. Failed
+         * key construction leaves the next planned slot available for retry.
+         */
+        void prepare_checkpoint_restore(std::span<const size_t> live_slots,
+                                        std::span<const size_t> free_slots) {
+            if (live_slots.size() > npos - free_slots.size()) {
+                throw std::invalid_argument("KeySlotStore checkpoint capacity overflows");
+            }
+            const size_t capacity = live_slots.size() + free_slots.size();
+            if (m_size != 0 || has_pending_erase() || slot_capacity() > capacity) {
+                throw std::invalid_argument("KeySlotStore checkpoint planning requires fresh storage");
+            }
+            std::vector<bool> seen(capacity, false);
+            for (const auto slots : {live_slots, free_slots}) {
+                for (const size_t slot : slots) {
+                    if (slot >= capacity || seen[slot]) {
+                        throw std::invalid_argument("KeySlotStore checkpoint slots are not a partition");
+                    }
+                    seen[slot] = true;
+                }
+            }
+            std::vector<size_t> order;
+            order.reserve(capacity);
+            order.insert(order.end(), free_slots.begin(), free_slots.end());
+            order.insert(order.end(), live_slots.rbegin(), live_slots.rend());
+            reserve_to(capacity);
+            m_free_slots.swap(order);
+        }
+
+        /** Import one live checkpoint key at its recorded slot.
+         *
+         * This cold-path operation is for reconstructing new storage. It
+         * refuses occupied slots and duplicate keys. Structural observers
+         * receive normal capacity and insertion events so their payloads
+         * are constructed, but no time-series notification is generated.
+         * Bulk callers use prepare_checkpoint_restore to avoid a free-list
+         * search for each key; unplanned arbitrary-slot imports are linear.
+         */
+        void restore_key_at_slot(size_t slot, const ValueView &key) {
+            require_value_binding();
+            if (slot == npos) { throw std::invalid_argument("KeySlotStore checkpoint slot is invalid"); }
+            if (!key.has_value()) { throw std::invalid_argument("KeySlotStore checkpoint requires a live key"); }
+            if (slot_constructed(slot)) { throw std::invalid_argument("KeySlotStore checkpoint slot is occupied"); }
+            if (find_stored_slot(key) != npos) {
+                throw std::invalid_argument("KeySlotStore checkpoint key is already present");
+            }
+            reserve_to(slot + 1);
+            const auto free = !m_free_slots.empty() && m_free_slots.back() == slot
+                ? std::prev(m_free_slots.end())
+                : std::find(m_free_slots.begin(), m_free_slots.end(), slot);
+            if (free == m_free_slots.end()) {
+                throw std::logic_error("KeySlotStore checkpoint slot is not free");
+            }
+            const size_t free_index = static_cast<size_t>(free - m_free_slots.begin());
+            m_free_slots.erase(free);
+            auto rollback_free = ::hgraph::make_scope_exit([&]() noexcept {
+                m_free_slots.insert(m_free_slots.begin() + static_cast<std::ptrdiff_t>(free_index), slot);
+            });
+            void *destination = key_storage.slot_memory(slot);
+            m_value_binding.default_construct_at(destination);
+            auto rollback_value = ::hgraph::make_scope_exit([&]() noexcept {
+                m_value_binding.destroy_at(destination);
+                key_storage.mark_free(slot);
+            });
+            m_value_binding.ops_ref().copy_assign_from(
+                m_value_binding, destination, key.binding(), key.data());
+            key_storage.mark_staged(slot);
+            m_index->insert(slot);
+            static_cast<void>(key_storage.mark_live(slot));
+            ++m_size;
+            rollback_value.release();
+            rollback_free.release();
+            observers.notify_insert(slot);
+        }
+
+        /** Free-slot order after the next ordinary pending-erase flush.
+         * Capturing a completed cycle normalizes removed keys to absent;
+         * the returned LIFO order preserves the next insertion's identity.
+         */
+        [[nodiscard]] std::vector<size_t> checkpoint_free_slots() const {
+            std::vector<size_t> result = m_free_slots;
+            result.reserve(result.size() + m_pending_erase_count);
+            std::vector<bool> erased(slot_capacity(), false);
+            for (const size_t slot : m_pending_erase_slots) {
+                if (slot_pending_erase(slot) && !erased[slot]) {
+                    result.push_back(slot);
+                    erased[slot] = true;
+                }
+            }
+            return result;
+        }
+
+        /** Restore the exact free-slot complement after importing live keys. */
+        void restore_free_slots(std::span<const size_t> slots) {
+            if (has_pending_erase() || slots.size() != slot_capacity() - m_size) {
+                throw std::invalid_argument("KeySlotStore checkpoint free-slot count is inconsistent");
+            }
+            std::vector<bool> seen(slot_capacity(), false);
+            for (const size_t slot : slots) {
+                if (slot >= slot_capacity() || slot_constructed(slot) || seen[slot]) {
+                    throw std::invalid_argument("KeySlotStore checkpoint free-slot order is inconsistent");
+                }
+                seen[slot] = true;
+            }
+            m_free_slots.assign(slots.begin(), slots.end());
         }
 
         /**

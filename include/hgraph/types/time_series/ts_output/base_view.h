@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_OUTPUT_BASE_VIEW_H
 
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
 #include <hgraph/util/date_time.h>
 #include <cstddef>
@@ -147,6 +148,12 @@ namespace hgraph
         void bind_forwarding_target_sampled(const TSOutputView &source) const;
         void clear_forwarding_target() const;
         void clear_forwarding_target_sampled() const;
+
+        /** Clock-only alias image. The semantic owner records target topology separately. */
+        [[nodiscard]] TSCheckpointImage checkpoint_forwarding() const;
+        void validate_checkpoint_forwarding(const TSCheckpointImage &image) const;
+        /** Quietly rebuild a forwarding tree against the restored topology source. */
+        void restore_checkpoint_forwarding(const TSOutputView &source, const TSCheckpointImage &image) const;
 
         /** Register / remove an observer at this view's TSData level. */
         void subscribe(Notifiable *observer) const;

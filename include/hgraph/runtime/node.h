@@ -13,6 +13,7 @@
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/node_error.h>
 #include <hgraph/runtime/node_fwd.h>
+#include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/runtime/node_type_ref.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
@@ -149,6 +150,9 @@ namespace hgraph
     struct HGRAPH_CLASS_EXPORT NodeOps
     {
         const void *context{nullptr};
+        const NodeCheckpointOps *checkpoint_ops{&unsupported_node_checkpoint_ops()};
+        const NodeCheckpointIdentity &(*checkpoint_identity_impl)(const void *, const void *) noexcept = nullptr;
+        bool (*owns_output_impl)(const void *, const void *) noexcept = nullptr;
 
         void (*attach_graph_impl)(const void *context, void *memory, GraphValue *graph,
                                   std::size_t node_index) = nullptr;
@@ -276,6 +280,10 @@ namespace hgraph
     class HGRAPH_CLASS_EXPORT NodeView
     {
       public:
+        [[nodiscard]] const NodeCheckpointIdentity &checkpoint_identity() const noexcept;
+        [[nodiscard]] const NodeCheckpointOps &checkpoint_ops() const noexcept;
+        /** True when this instance owns its output, including builder overrides. */
+        [[nodiscard]] bool owns_output() const noexcept;
         NodeView() noexcept;
         explicit NodeView(NodePtr pointer) noexcept;
         NodeView(NodeTypeRef type, void *memory) noexcept;
@@ -451,6 +459,8 @@ namespace hgraph
 
         NodeBuilder &label(std::string label);
         [[nodiscard]] std::string_view label() const noexcept;
+        NodeBuilder &checkpoint_identity(NodeCheckpointIdentity identity);
+        [[nodiscard]] const NodeCheckpointIdentity &checkpoint_identity() const noexcept;
 
         /** Override the input endpoint annotation for this node instance.
          *  A fixed structural source bound to a ``SIGNAL`` slot specializes
@@ -536,6 +546,7 @@ namespace hgraph
         ValueStorageVariant    output_value_storage_{
             ValueStorageVariant::Native};
         std::string            label_{};
+        NodeCheckpointIdentity checkpoint_identity_{};
         Value                  scalars_{};
     };
 

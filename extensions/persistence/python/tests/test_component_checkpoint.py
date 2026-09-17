@@ -1,0 +1,305 @@
+"""Completed-day component recovery through the native persistence contract."""
+
+import hgraph as hg
+import hgraph_persistence as persistence
+import pytest
+
+
+class RunningState(hg.TimeSeriesSchema):
+    total: hg.TS[int]
+
+
+@hg.compute_node
+def running_total(ts: hg.TS[int], state: hg.RECORDABLE_STATE[RunningState] = None) -> hg.TS[int]:
+    if ts.value == -999:
+        raise RuntimeError("strategy computation failed")
+    value = (state.total.value if state.total.valid else 0) + ts.value
+    state.total.value = value
+    return value
+
+
+@running_total.start
+def running_total_start(state: hg.RECORDABLE_STATE[RunningState] = None):
+    if not state.total.valid:
+        state.total.value = 0
+
+
+@running_total.stop
+def running_total_stop(state: hg.RECORDABLE_STATE[RunningState] = None):
+    if state.total.value < 0:
+        raise RuntimeError("strategy stop failed")
+
+
+@hg.component(recordable_id="strategy")
+def strategy(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts, __recordable_id__="total")
+
+
+@hg.component(recordable_id="mapped-strategy")
+def mapped_strategy(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+    return hg.map_(running_total, ts)
+
+
+def run_day(store, key, values, *, restore=None, start=0, end=None, revision="1"):
+    end = start + len(values) if end is None else end
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(
+            store, "strategy", key, restore, revision=revision, global_state=state)
+        return hg.eval_node(
+            strategy, values, __start_time__=hg.MIN_ST + hg.MIN_TD * start,
+            __end_time__=hg.MIN_ST + hg.MIN_TD * end)
+
+
+def test_completed_day_restores_hidden_state_without_a_recovery_tick(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    assert run_day(store, "day-one", [1, 2]) == [1, 3]
+    assert store.contains("day-one")
+
+    # New store and GlobalState instances use only the explicitly selected
+    # on-disk predecessor. The first resumed cycle has no fresh input.
+    reopened = persistence.ComponentCheckpointStore(tmp_path)
+    assert run_day(reopened, "day-two", [None, 3],
+                   restore="day-one", start=2) == [None, 6]
+    assert reopened.contains("day-two")
+
+
+def test_failed_day_does_not_publish_and_previous_day_can_be_retried(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    assert run_day(store, "day-one", [1, 2]) == [1, 3]
+    with pytest.raises(RuntimeError, match="strategy computation failed"):
+        run_day(store, "day-two", [3, -999],
+                restore="day-one", start=2)
+    assert not store.contains("day-two")
+    assert run_day(store, "day-two", [3, 4],
+                   restore="day-one", start=2) == [6, 10]
+
+
+def test_failed_stop_does_not_publish(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with pytest.raises(RuntimeError, match="strategy stop failed"):
+        run_day(store, "failed", [-1])
+    assert not store.contains("failed")
+
+
+def test_hidden_state_change_is_saved_even_without_a_public_output(tmp_path):
+    @hg.compute_node
+    def hidden_total(ts: hg.TS[int], state: hg.RECORDABLE_STATE[RunningState] = None) -> hg.TS[int]:
+        state.total.value = (state.total.value if state.total.valid else 0) + ts.value
+        if ts.value != 5:
+            return state.total.value
+
+    @hg.component(recordable_id="hidden-output")
+    def component(ts: hg.TS[int]) -> hg.TS[int]:
+        return hidden_total(ts)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "hidden-output", "one", global_state=state)
+        assert hg.eval_node(component, [1, 5],
+                            __end_time__=hg.MIN_ST + 2 * hg.MIN_TD) == [1, None]
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "hidden-output", "two", "one", global_state=state)
+        assert hg.eval_node(component, [2],
+                            __start_time__=hg.MIN_ST + 2 * hg.MIN_TD,
+                            __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == [8]
+
+
+def test_recovery_refuses_missing_revision_or_duplicate_checkpoint(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    assert run_day(store, "day-one", [1]) == [1]
+    with pytest.raises(RuntimeError, match="already exists"):
+        run_day(store, "day-one", [2])
+    with pytest.raises(RuntimeError, match="not found"):
+        run_day(store, "missing-result", [2], restore="missing", start=1)
+    with pytest.raises(RuntimeError):
+        run_day(store, "changed-result", [2], restore="day-one", start=1,
+                revision="changed-strategy-code")
+    assert not store.contains("missing-result")
+    assert not store.contains("changed-result")
+
+
+def test_mapped_membership_and_child_state_survive_silent_restart_and_removal(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+
+    def mapped_day(key, values, start, previous=None):
+        # Emit future deltas through the normal runtime source. eval_node's
+        # list pre-conversion validates REMOVE against a fresh temporary TSD,
+        # before component recovery can restore its ingress baseline.
+        @hg.generator
+        def future_inputs() -> hg.TSD[str, hg.TS[int]]:
+            for offset, value in enumerate(values):
+                if value is not None:
+                    yield hg.MIN_ST + (start + offset) * hg.MIN_TD, value
+
+        @hg.graph
+        def application() -> hg.TSD[str, hg.TS[int]]:
+            return mapped_strategy(future_inputs())
+
+        with hg.GlobalState() as state:
+            persistence.configure_component_recovery(
+                store, "mapped-strategy", key, previous, global_state=state)
+            return hg.eval_node(
+                application,
+                __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                __end_time__=hg.MIN_ST + (start + len(values)) * hg.MIN_TD)
+
+    assert mapped_day("one", [{"a": 1, "b": 10}, {"a": 2}], 0) == [
+        {"a": 1, "b": 10}, {"a": 3}]
+    assert mapped_day("two", [None, {"b": 5}, {"a": hg.REMOVE}],
+                      2, "one") == [None, {"b": 15}, {"a": hg.REMOVE}]
+    assert mapped_day("three", [{"a": 4, "b": 1}], 5, "two") == [
+        {"a": 4, "b": 16}]
+
+
+@pytest.mark.parametrize("injectable", [hg.STATE, hg.SCHEDULER, hg.CLOCK, hg.GlobalState, hg.NODE])
+def test_checkpoint_eligibility_uses_actual_python_injectables(tmp_path, injectable):
+    @hg.compute_node
+    def unsupported(ts: hg.TS[int], resource: injectable = None) -> hg.TS[int]:
+        return ts.value
+
+    @hg.component(recordable_id="unsupported")
+    def component(ts: hg.TS[int]) -> hg.TS[int]:
+        return unsupported(ts)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "unsupported", "day", global_state=state)
+        with pytest.raises((RuntimeError, ValueError), match="unsupported"):
+            hg.eval_node(component, [1], __end_time__=hg.MIN_ST + hg.MIN_TD)
+    assert not store.contains("day")
+
+
+@pytest.mark.parametrize("phase", ["eval", "start", "stop"])
+def test_checkpoint_refuses_undeclared_closure_state(tmp_path, phase):
+    captured = [0]
+
+    @hg.compute_node
+    def stateless(ts: hg.TS[int]) -> hg.TS[int]:
+        return ts.value
+
+    @hg.compute_node
+    def hidden(ts: hg.TS[int]) -> hg.TS[int]:
+        captured[0] += ts.value
+        return captured[0]
+
+    def lifecycle():
+        captured[0] += 1
+
+    node = hidden if phase == "eval" else stateless
+    if phase != "eval":
+        getattr(node, phase)(lifecycle)
+
+    @hg.component(recordable_id="closure")
+    def component(ts: hg.TS[int]) -> hg.TS[int]:
+        return node(ts)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "closure", "day", global_state=state)
+        with pytest.raises((RuntimeError, ValueError), match="captured closure state"):
+            hg.eval_node(component, [1], __end_time__=hg.MIN_ST + hg.MIN_TD)
+    assert not store.contains("day")
+
+
+def test_duplicate_explicit_node_identity_is_rejected(tmp_path):
+    @hg.component(recordable_id="duplicate")
+    def duplicate(ts: hg.TS[int]) -> hg.TS[int]:
+        first = running_total(ts, __recordable_id__="same")
+        second = running_total(ts + ts, __recordable_id__="same")
+        return first + second
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "duplicate", "day", global_state=state)
+        with pytest.raises((RuntimeError, ValueError), match="duplicate"):
+            hg.eval_node(duplicate, [1], __end_time__=hg.MIN_ST + hg.MIN_TD)
+    assert not store.contains("day")
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_error_capture_cannot_hide_failure_or_drop_managed_node_ownership(tmp_path, mapped):
+    if mapped:
+        @hg.component(recordable_id="caught-error")
+        def component(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+            result = hg.map_(running_total, ts)
+            hg.exception_time_series(result)
+            return result
+
+        values = [{"a": 1}]
+    else:
+        @hg.component(recordable_id="caught-error")
+        def component(ts: hg.TS[int]) -> hg.TS[int]:
+            result = running_total(ts)
+            hg.exception_time_series(result)
+            return result
+
+        values = [1]
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "caught-error", "day", global_state=state)
+        with pytest.raises((RuntimeError, ValueError), match="error capture is unsupported"):
+            hg.eval_node(component, values, __end_time__=hg.MIN_ST + hg.MIN_TD)
+    assert not store.contains("day")
+
+
+def test_stateless_python_scalar_configuration_is_checked_on_restore(tmp_path):
+    @hg.compute_node
+    def multiply(ts: hg.TS[int], factor: int) -> hg.TS[int]:
+        return ts.value * factor
+
+    @hg.component(recordable_id="scalar-config")
+    def component(ts: hg.TS[int], factor: int) -> hg.TS[int]:
+        return multiply(ts, factor)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "scalar-config", "one", global_state=state)
+        assert hg.eval_node(component, [2], factor=3,
+                            __end_time__=hg.MIN_ST + hg.MIN_TD) == [6]
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "scalar-config", "two", "one", global_state=state)
+        with pytest.raises(RuntimeError, match="incompatible"):
+            hg.eval_node(component, [2], factor=4,
+                         __start_time__=hg.MIN_ST + hg.MIN_TD,
+                         __end_time__=hg.MIN_ST + hg.MIN_TD * 2)
+    assert not store.contains("two")
+
+
+@pytest.mark.parametrize("kind", ["freeze", "until_true", "python_until_true"])
+def test_passivated_inputs_remain_passive_after_durable_restart(tmp_path, kind):
+    @hg.compute_node
+    def python_until_true(value: hg.TS[bool]) -> hg.TS[bool]:
+        if value.value:
+            value.make_passive()
+        return value.value
+
+    if kind == "freeze":
+        @hg.component(recordable_id="activity-strategy")
+        def component(predicate: hg.TS[bool], value: hg.TS[int]) -> hg.TS[int]:
+            return hg.freeze(predicate, value)
+
+        first_inputs = ([False, True], [1, 2])
+        next_inputs = ([False, False], [3, 4])
+        first_output = [1, 2]
+    else:
+        @hg.component(recordable_id="activity-strategy")
+        def component(value: hg.TS[bool]) -> hg.TS[bool]:
+            return python_until_true(value) if kind == "python_until_true" else hg.until_true(value)
+
+        first_inputs = ([False, True],)
+        next_inputs = ([False, False],)
+        first_output = [False, True]
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "activity-strategy", "one", global_state=state)
+        assert hg.eval_node(component, *first_inputs,
+                            __end_time__=hg.MIN_ST + 2 * hg.MIN_TD) == first_output
+    reopened = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(reopened, "activity-strategy", "two", "one", global_state=state)
+        assert hg.eval_node(component, *next_inputs,
+                            __start_time__=hg.MIN_ST + 2 * hg.MIN_TD,
+                            __end_time__=hg.MIN_ST + 4 * hg.MIN_TD) is None
+    assert reopened.contains("two")

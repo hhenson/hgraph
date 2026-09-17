@@ -19,6 +19,7 @@
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/manifest/schema_descriptor.h>
 
 namespace nb = nanobind;
 using namespace hgraph;
@@ -109,6 +110,72 @@ struct PyCallShape {
     names.remove_prefix(comma + 1);
   }
   return shape;
+}
+
+/** Python adapter state consists only of call leases and caches when the
+ * actual user signatures do not request STATE or runtime services. Validate
+ * those signatures while wiring a checkpointed component; the native bridge's
+ * broad injectable tuple is not the user's semantic state contract. */
+[[nodiscard]] std::string py_checkpoint_signature(const NodeBuilder &builder) {
+  const nb::gil_scoped_acquire gil;
+  const auto scalars = builder.scalars().view().as_bundle();
+  manifest::CanonicalWriter writer;
+  for (const auto phase : {std::string_view{}, std::string_view{"start_"},
+                           std::string_view{"stop_"}}) {
+    const std::string prefix{phase};
+    const bool enabled = prefix.empty() ||
+        scalars[prefix + "enabled"].checked_as<Bool>();
+    writer.varint(enabled);
+    if (!enabled) { continue; }
+    const auto config = scalars[prefix + "config"].checked_as<Str>();
+    for (const char marker : parse_py_call_shape(config).layout) {
+      if (std::string_view{"tuaTUARosi"}.find(marker) == std::string_view::npos) {
+        throw std::invalid_argument(
+            "component checkpoint: Python node signature requires unsupported "
+            "local state or runtime services (layout marker '" +
+            std::string{marker} + "')");
+      }
+    }
+    writer.string_field(config);
+    const auto function = scalars[prefix + "fn"].checked_as<PyNodeRef>();
+    if (function.record != nullptr &&
+        nb::hasattr(function.record->fn, "__closure__") &&
+        !function.record->fn.attr("__closure__").is_none()) {
+      throw std::invalid_argument(
+          "component checkpoint: Python callbacks with captured closure state are unsupported; "
+          "declare scalar arguments or RECORDABLE_STATE instead");
+    }
+    if (function.record == nullptr ||
+        !nb::hasattr(function.record->fn, "__module__") ||
+        !nb::hasattr(function.record->fn, "__qualname__")) {
+      throw std::invalid_argument(
+          "component checkpoint: Python callbacks require a stable module and qualified name");
+    }
+    writer.string_field(nb::cast<std::string>(function.record->fn.attr("__module__")));
+    writer.string_field(nb::cast<std::string>(function.record->fn.attr("__qualname__")));
+    const auto values = scalars[prefix + "scalars"].as_list();
+    writer.varint(values.size());
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      auto value = values[index].as_any().get();
+      manifest::append_value_descriptor(writer, value.schema());
+      manifest::encode_manifest_scalar(writer, value);
+    }
+  }
+  const auto &bytes = writer.bytes();
+  return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
+
+[[nodiscard]] const NodeCheckpointOps &py_managed_checkpoint_ops() noexcept {
+  static const NodeCheckpointOps ops{
+      .supported = true,
+      .signature_impl = &py_checkpoint_signature,
+      .id_impl = [](const NodeBuilder &builder) {
+        const auto values = builder.scalars().view().as_bundle();
+        const auto function = values["fn"].checked_as<PyNodeRef>();
+        return function.record == nullptr ? std::string{} : function.record->recordable_id;
+      },
+  };
+  return ops;
 }
 
 /**
@@ -779,6 +846,9 @@ struct py_compute_node {
       "hgraph.python.compute";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -875,6 +945,9 @@ struct py_fast_compute_node {
       "hgraph.python.compute.fast";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1021,6 +1094,9 @@ struct py_compute_recordable_node {
       "hgraph.python.compute_recordable";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,

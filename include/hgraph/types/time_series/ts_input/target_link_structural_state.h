@@ -56,6 +56,9 @@ namespace hgraph::detail
 
         void (*before_move_assignment_source)(TSInputTargetLinkStorage &owner) noexcept;
         void (*resubscribe_after_move_assignment)(TSInputTargetLinkStorage &owner) noexcept;
+        /** Cold checkpoint operations must neither allocate during capture nor notify during import. */
+        DateTime (*checkpoint_key_set_time)(const TSInputTargetLinkStorage &owner);
+        void (*restore_key_set_time)(TSInputTargetLinkStorage &owner, DateTime time);
     };
 
     /** Raw-storage access selected alongside the storage plan. */

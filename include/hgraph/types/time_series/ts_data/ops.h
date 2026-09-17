@@ -25,6 +25,12 @@ namespace hgraph
     struct TSDDataOps;
     struct IndexedTSDataOps;
     struct TSWDataOps;
+    struct TSCheckpointOps;
+
+    namespace ts_checkpoint_detail
+    {
+        [[nodiscard]] HGRAPH_EXPORT const TSCheckpointOps &unsupported_checkpoint_ops() noexcept;
+    }
 
     namespace detail
     {
@@ -274,6 +280,9 @@ namespace hgraph
         // recover a representation from ``kind``.
         const TSCurrentStateOps *current_state_ops{
             &ts_current_state_detail::missing_current_state_ops()};
+        /** Quiet checkpoint policy selected by the concrete owning strategy. */
+        const TSCheckpointOps *checkpoint_ops{
+            &ts_checkpoint_detail::unsupported_checkpoint_ops()};
 
         const TSDataLayout *(*layout_impl)(const void *context) = &ts_data_detail::missing_layout;
         const TSDataTracking *(*tracking_impl)(const void *context,

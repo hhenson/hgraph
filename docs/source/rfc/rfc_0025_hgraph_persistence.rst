@@ -508,6 +508,15 @@ Acceptance criteria
 Implementation status
 ---------------------
 
+Checkpoints 6 and 7 now have a restricted completed-day component path:
+core owns endpoint images, quiet restore before start, stable keyed slots,
+supported map children, and successful-run lifecycle coordination. The
+extension owns an immutable single-object checkpoint codec/store and native
+and Python configuration. See :doc:`../user_guide/component_recovery` for
+the supported boundary and executable process-restart example. Full-graph
+recovery, online snapshots, general scheduler/reference/dynamic-owner
+recovery, and input-tail journals remain future RFC 0023 work.
+
 Checkpoint 1 (this RFC, the ownership revisions, and the symbol
 inventory) landed as documentation only; no runtime behaviour changed.
 

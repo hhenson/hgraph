@@ -25,6 +25,15 @@ namespace
         static void           eval(In<"in", TS<Int>> in, Out<TS<Int>> out) { out.set(in.value() + 1); }
     };
 
+    struct TimedAddOneGraph
+    {
+        static constexpr auto name = "timed_add_one_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return wire<AddOne>(w, input);
+        }
+    };
+
     struct ConstantSource
     {
         static constexpr auto name              = "eval_node_constant_source";
@@ -445,4 +454,20 @@ TEST_CASE("eval_node: scalar-lifted TSBs compose inside a native bundle schema")
 
     CHECK_OUTPUT(testing::eval_node<PassThroughLiftedOrderState>(values<Value>(state)),
                  values<Value>(state));
+}
+
+TEST_CASE("eval_node: explicit simulation bounds align output to the supplied start")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    const DateTime start = MIN_ST + std::chrono::days{1};
+    CHECK_OUTPUT(
+        eval_node_with_options<TimedAddOneGraph>(
+            {.start_time = start, .end_time = start + 2 * MIN_TD},
+            values<Int>(3, none, 8)),
+        values<Int>(4, none));
+    CHECK_THROWS_AS(
+        eval_node_with_options<TimedAddOneGraph>(
+            {.start_time = start, .end_time = start}, values<Int>(1)),
+        std::invalid_argument);
 }

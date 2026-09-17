@@ -1,5 +1,6 @@
 #include <hgraph/runtime/diagnostic_path.h>
 #include <hgraph/runtime/executor.h>
+#include <hgraph/runtime/component_checkpoint.h>
 
 #include "registry_snapshot_detail.h"
 
@@ -593,8 +594,16 @@ namespace hgraph
             state.set_evaluation_time(state.start_time);
 
             auto graph = state.graph.view();
+            ComponentRecoverySession recovery{graph, state.start_time, state.end_time,
+                std::is_same_v<Storage, SimulationExecutorStorage>};
+            if (recovery.active()) { state.lifecycle_observers.add(&recovery); }
+            auto remove_recovery = make_scope_exit([&] {
+                if (recovery.active()) { state.lifecycle_observers.remove(&recovery); }
+            });
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
+                recovery.prepare(graph);
                 graph.start(state.start_time);
+                recovery.complete_start();
             });
             auto stop_graph = UnwindCleanupGuard([&] {
                 if (state.cleanup_on_error || std::uncaught_exceptions() == 0)
@@ -668,7 +677,9 @@ namespace hgraph
                 }
             }
 
+            if (!state.stop_requested.load(std::memory_order_acquire)) { recovery.capture(graph); }
             stop_graph.complete();
+            recovery.commit();
         }
 
         void simulation_run_impl(const void *, const GraphExecutorView &executor)

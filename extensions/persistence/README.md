@@ -38,3 +38,37 @@ unchanged `hgraph` imports.
 Runnable Python examples for direct record/replay, transparent component
 modes, and keyed time-series storage are in
 [`python/examples`](python/examples/README.md).
+
+`ComponentCheckpointStore` stores a complete eligible component image under
+one immutable key. `configure_component_recovery(store, component_id,
+checkpoint_key, restore_key=None, revision="1", global_state=state)` selects
+the previous completed day and the next key before wiring. The runtime captures
+the component before stop and publishes only after a successful bounded run
+and successful teardown. Recovery quietly restores outputs, declared recorded
+state, and supported keyed map membership before new input is evaluated.
+Inputs must come directly from pull sources used exclusively by the component.
+Each run supplies future events for its interval; recovery restores the source
+endpoint baseline, while the caller remains responsible for its input cursor.
+
+Each image is one Arrow frame containing versioned topology and endpoint
+metadata plus schema-directed value payloads. The whole frame is encoded before
+the native store publishes it through its immutable object operation. Encoding
+must round-trip without changing scalar values; unsupported payloads, including
+non-finite JSON numbers, fail before publication. There is
+no mutable latest pointer: applications select an exact predecessor and use a
+new key for every completed day. Filesystem and S3 durability follow the native
+object store's guarantees; this does not coordinate external sink transactions
+or external input acknowledgements.
+
+The initial contract is deterministic simulation within a component, using
+declared `RECORDABLE_STATE` for semantic user-node state. Unsupported services,
+ordinary user `STATE`, captured Python closure state, schedulers, endpoint
+representations, and dynamic owners are refused explicitly. Error capture is
+also refused so a failed evaluation cannot be committed as a completed day.
+Python callback identity includes module, qualified
+name, input policy and scalar arguments. The application must change `revision`
+when its strategy code changes. Explicit `__recordable_id__` values identify
+Python nodes inside a configured component and must be unique there.
+
+See [`completed_days.py`](python/examples/completed_days.py) for a runnable
+example that restores day one in a new process and computes day two.

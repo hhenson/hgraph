@@ -11,6 +11,7 @@
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <cstdint>
@@ -2044,6 +2045,144 @@ TEST_CASE("TSInput structural activation survives an unbound target link")
 
     active_set.make_passive();
     active_dict.make_passive();
+}
+
+TEST_CASE("TSInput activity checkpoints preserve packed static paths and quiet structural subscriptions", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *scalar = registry.ts(integer);
+    const auto *dict = registry.tsd(integer, scalar);
+    const auto *packed = registry.tsb("CheckpointActivityPacked", {{"scalar", scalar}, {"dict", dict}});
+    const auto *root = registry.tsb("CheckpointActivityRoot", {{"args", packed}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root,
+        TSEndpointSchema::non_peered(root, {TSEndpointSchema::non_peered(packed,
+            {TSEndpointSchema::peered(scalar), TSEndpointSchema::peered(dict)})}))};
+    TSOutput scalar_output{*scalar};
+    TSOutput dict_output{*dict};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    auto args = view.indexed_child_at(0);
+    auto a = args.indexed_child_at(0);
+    auto b = args.indexed_child_at(1);
+    a.bind_output(scalar_output.view(MIN_ST));
+    b.bind_output(dict_output.view(MIN_ST));
+    args.make_active();
+    a.make_active();
+    b.make_structural_active();
+    auto image = view.checkpoint_activity();
+    CHECK(image == std::vector<TSInputActivityEntry>{{{0}, TSInputActivityMode::Value},
+        {{0, 0}, TSInputActivityMode::Value}, {{0, 1}, TSInputActivityMode::Structural}});
+    args.make_passive();
+    image = view.checkpoint_activity();
+
+    view.make_active();
+    a.make_passive();
+    b.make_active();
+    REQUIRE_FALSE(view.restore_checkpoint_activity(image));
+    CHECK_FALSE(view.active());
+    CHECK_FALSE(args.active());
+    CHECK(a.active());
+    CHECK(b.active());
+    CHECK(notifier.notified.empty());
+    CHECK(view.checkpoint_activity() == image);
+
+    const Value key{std::int32_t{1}};
+    const Value other_key{std::int32_t{2}};
+    const Value value{std::int32_t{10}};
+    auto update = [&](const Value &k, DateTime time) {
+        auto output_view = dict_output.view(time);
+        auto dictionary = output_view.as_dict();
+        auto mutation = dictionary.begin_mutation(time);
+        auto child = mutation.at(k.view());
+        auto value_mutation = child.begin_mutation(time);
+        REQUIRE(value_mutation.copy_value_from(value.view()));
+    };
+    update(key, MIN_ST);
+    REQUIRE(notifier.notified == std::vector<DateTime>{MIN_ST});
+    notifier.notified.clear();
+    update(key, MIN_ST + MIN_TD);
+    CHECK(notifier.notified.empty());
+    auto next = input.view(&notifier, MIN_ST + MIN_TD);
+    // A new value on a passive/value-excluded observation cannot preserve a
+    // bootstrap schedule when restoring a structural-only subscription.
+    CHECK_FALSE(next.restore_checkpoint_activity(image));
+    CHECK(notifier.notified.empty());
+    update(other_key, MIN_ST + 2 * MIN_TD);
+    CHECK(notifier.notified == std::vector<DateTime>{MIN_ST + 2 * MIN_TD});
+}
+
+TEST_CASE("TSInput activity checkpoint validation is complete before replacing subscriptions", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *root = registry.tsb("CheckpointActivityValidation", {{"ts", scalar}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root,
+        TSEndpointSchema::non_peered(root, {TSEndpointSchema::peered(scalar)}))};
+    TSOutput output{*scalar};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    auto child = view.indexed_child_at(0);
+    child.bind_output(output.view(MIN_ST));
+    child.make_active();
+    const auto original = view.checkpoint_activity();
+    const std::vector<std::vector<TSInputActivityEntry>> invalid{
+        {{{0}, TSInputActivityMode::Value}, {{0}, TSInputActivityMode::Value}},
+        {{{1}, TSInputActivityMode::Value}},
+        {{{0, 0}, TSInputActivityMode::Value}},
+        {{{0}, static_cast<TSInputActivityMode>(0)}},
+        {{{0}, TSInputActivityMode::Structural}},
+    };
+    for (const auto &image : invalid)
+    {
+        CHECK_THROWS_AS(view.restore_checkpoint_activity(image), std::invalid_argument);
+        CHECK(view.checkpoint_activity() == original);
+    }
+    set_output(output, 1, MIN_ST);
+    notifier.notified.clear();
+    CHECK_FALSE(view.restore_checkpoint_activity({}));
+    CHECK(view.checkpoint_activity().empty());
+    CHECK(notifier.notified.empty());
+}
+
+TEST_CASE("TSInput activity checkpoints refuse active descendants inside peered targets", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *bundle = registry.tsb("CheckpointActivityTarget", {{"ts", scalar}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*bundle, TSEndpointSchema::peered(bundle))};
+    TSOutput output{*bundle};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    view.bind_output(output.view(MIN_ST));
+    auto child = view.indexed_child_at(0);
+    child.make_active();
+    CHECK_THROWS_WITH(view.checkpoint_activity(), Catch::Matchers::ContainsSubstring("nested target activity"));
+    CHECK_FALSE(view.restore_checkpoint_activity({}));
+    CHECK_FALSE(child.active());
+    CHECK(view.checkpoint_activity().empty());
+    CHECK(notifier.notified.empty());
+}
+
+TEST_CASE("TSInput activity checkpoints distinguish owned structural observations", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *set = registry.tss(registry.register_scalar<std::int32_t>("int32"));
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*set, TSEndpointSchema::local(set))};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    view.make_structural_active();
+    const auto image = view.checkpoint_activity();
+    REQUIRE(image == std::vector<TSInputActivityEntry>{{{}, TSInputActivityMode::Structural}});
+    view.make_active();
+    CHECK(view.checkpoint_activity() == std::vector<TSInputActivityEntry>{{{}, TSInputActivityMode::Value}});
+    CHECK_FALSE(view.restore_checkpoint_activity(image));
+    CHECK(view.checkpoint_activity() == image);
+    CHECK(notifier.notified.empty());
 }
 
 TEST_CASE("TSInput endpoint operations preserve published structural state semantics")

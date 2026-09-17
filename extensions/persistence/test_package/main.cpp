@@ -1,8 +1,11 @@
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/component_checkpoint_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/persistence/recording_store.h>
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/component.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/frame.h>
@@ -15,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -25,6 +29,54 @@ namespace
 {
     namespace hg = hgraph;
     namespace hgp = hgraph::persistence;
+
+    struct WindowStrategy
+    {
+        static hg::Port<hg::TS<hg::Float>> compose(hg::Wiring &w,
+                                                  hg::NamedPort<"ts", hg::TS<hg::Float>> input)
+        {
+            auto window = hg::wire<hg::stdlib::to_window>(w, input, hg::Int{3}, hg::Int{1});
+            return hg::wire<hg::stdlib::sum_>(w, window).as<hg::TS<hg::Float>>();
+        }
+    };
+    struct WindowComponent
+    {
+        static hg::Port<hg::TS<hg::Float>> compose(hg::Wiring &w, hg::Port<hg::TS<hg::Float>> input)
+        {
+            return hg::stdlib::component<WindowStrategy>(w, "consumer-window", input);
+        }
+    };
+    struct SelectReference
+    {
+        static void eval(hg::In<"ts", hg::TS<hg::Int>> input,
+                         hg::In<"fallback", hg::TS<hg::Int>> fallback,
+                         hg::Out<hg::REF<hg::TS<hg::Int>>> out)
+        {
+            out.set(input.value() < 0 ? fallback.reference() : input.reference());
+        }
+    };
+    struct ReadReference
+    {
+        static void eval(hg::In<"ts", hg::TS<hg::Int>> input, hg::Out<hg::TS<hg::Int>> out)
+        {
+            out.set(input.value());
+        }
+    };
+    struct ReferenceStrategy
+    {
+        static hg::Port<hg::TS<hg::Int>> compose(hg::Wiring &w, hg::NamedPort<"ts", hg::TS<hg::Int>> input)
+        {
+            auto fallback = hg::wire<hg::stdlib::const_>(w, hg::Int{42}).as<hg::TS<hg::Int>>();
+            return hg::wire<ReadReference>(w, hg::wire<SelectReference>(w, input, fallback));
+        }
+    };
+    struct ReferenceComponent
+    {
+        static hg::Port<hg::TS<hg::Int>> compose(hg::Wiring &w, hg::Port<hg::TS<hg::Int>> input)
+        {
+            return hg::stdlib::component<ReferenceStrategy>(w, "consumer-reference", input);
+        }
+    };
 
     void require(bool condition, const char *what)
     {
@@ -138,6 +190,71 @@ namespace
         require(store.list("consumer/", {}, 10).objects.size() == 2,
                 "installed object store listed its ordered namespace");
     }
+
+    void check_component_checkpoint_contract()
+    {
+        hgp::ComponentCheckpointStore store;
+        hg::ComponentCheckpoint image;
+        image.component_id = "consumer";
+        image.graph_signature = "revision-1";
+        image.cut = hg::MIN_ST;
+        image.completed_until = hg::MIN_ST + hg::MIN_TD;
+        hg::NodeCheckpointImage node;
+        node.id = "state";
+        hg::TSCheckpointImage state;
+        state.schema = hg::schema_descriptor<hg::TS<hg::Int>>::ts_meta();
+        state.last_modified_time = hg::MIN_ST;
+        state.payload = hg::Value{hg::Int{42}};
+        node.recordable_state = std::move(state);
+        image.graph.nodes.push_back(std::move(node));
+        store.write("consumer/day-one", image);
+        const auto recovered = store.read("consumer/day-one");
+        require(recovered.graph.nodes.at(0).recordable_state->payload == hg::Value{hg::Int{42}},
+                "installed checkpoint SDK restores hidden state");
+        hg::GlobalContext context;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer",
+                                          "consumer/day-two", "consumer/day-one");
+        require(hg::component_recovery_selected(context.state().view(), "consumer"),
+                "installed checkpoint configuration reaches the core runtime");
+    }
+
+    void check_component_window_restart()
+    {
+        hg::GlobalContext context;
+        hgp::ComponentCheckpointStore store;
+        const auto next = hg::MIN_ST + hg::MIN_TD * 2;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-window", "window-one");
+        const auto first = hg::testing::eval_node_with_options<WindowComponent>(
+            {.start_time = hg::MIN_ST, .end_time = next},
+            std::vector<std::optional<hg::Float>>{2., 4.});
+        require(first == std::vector<std::optional<hg::Float>>{2., 6.},
+                "installed window graph evaluates before checkpointing");
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-window", "window-two", "window-one");
+        const auto second = hg::testing::eval_node_with_options<WindowComponent>(
+            {.start_time = next, .end_time = next + hg::MIN_TD * 2},
+            std::vector<std::optional<hg::Float>>{std::nullopt, 8.});
+        require(second == std::vector<std::optional<hg::Float>>{std::nullopt, 14.},
+                "installed component boundary and window restore quietly and continue");
+    }
+
+    void check_component_reference_restart()
+    {
+        hg::GlobalContext context;
+        hgp::ComponentCheckpointStore store;
+        const auto next = hg::MIN_ST + hg::MIN_TD * 2;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-reference", "reference-one");
+        const auto first = hg::testing::eval_node_with_options<ReferenceComponent>(
+            {.start_time = hg::MIN_ST, .end_time = next},
+            std::vector<std::optional<hg::Int>>{3, -1});
+        require(first == std::vector<std::optional<hg::Int>>{3, 42},
+                "installed component selects an internal reference before checkpointing");
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-reference", "reference-two", "reference-one");
+        const auto second = hg::testing::eval_node_with_options<ReferenceComponent>(
+            {.start_time = next, .end_time = next + hg::MIN_TD * 3},
+            std::vector<std::optional<hg::Int>>{std::nullopt, 7, -1});
+        require(second == std::vector<std::optional<hg::Int>>{std::nullopt, 7, 42},
+                "installed ordinal reference codec restores quietly and permits later retargeting");
+    }
 }  // namespace
 
 int main()
@@ -178,6 +295,9 @@ int main()
         require(hgp::segment_key("k", 2) == "k.2", "segment key shape");
 
         check_object_store_contract();
+        check_component_checkpoint_contract();
+        check_component_window_restart();
+        check_component_reference_restart();
 
         // The store and the protocol exist for the operators built on them:
         // run those operators in a graph.
