@@ -664,67 +664,77 @@ one encode, one write, one read, one decode and one ``apply_delta`` per changed
 output, plus a barrier.
 
 That cost is per *changed* value, and deltas are already the unit, so a sparse
-cycle is cheap. It is emphatically not free, and the prototype
-(``prototypes/dmap/``, branch ``prototype/dmap-experiments``) has now measured
-the crossover rather than leaving it to assertion. On a 128-core Linux host,
-``dmap_`` time as a ratio of ``map_`` time (lower is better, < 1.00 is a win):
+cycle is cheap. It is emphatically not free, and it has been measured rather
+than asserted (``tests/cpp/distributed_perf.cpp``; raw JSON in
+``benchmarks/results/dmap-crossover-20260917-*.json``).
+
+**The answer is a single number: how much work one child does per tick.**
+``dmap_`` breaks even at roughly **0.6 microseconds of child work per key per
+tick**, and the figure is the same on a 128-core Linux host and a laptop, which
+is what one would expect of a ratio between two costs that both scale with the
+processor.
+
+``dmap_`` over processes as a ratio of ``map_`` (lower is better, best worker
+count of 1/2/4/8; 128-core Linux, GCC 14.3 ``-O3``):
 
 .. list-table::
    :header-rows: 1
 
-   * - keys
-     - per-key work
-     - 1 worker
-     - 2
-     - 4
-     - 8
-     - 16
-   * - 64
-     - trivial
-     - 14.2x
-     - 14.5x
-     - 14.4x
-     - 14.9x
-     - 16.8x
-   * - 64
-     - ~60us
-     - 0.88
-     - 0.56
-     - 0.31
-     - 0.18
-     - **0.14**
-   * - 256
-     - trivial
-     - 5.2x
-     - 5.0x
-     - 4.9x
-     - 5.1x
-     - 5.7x
-   * - 256
-     - ~60us
-     - 1.00
-     - 0.51
-     - 0.26
-     - 0.15
-     - **0.12**
+   * - child work per key
+     - 64 keys
+     - 256 keys
+   * - 0 (an empty child)
+     - 2.52x
+     - 2.09x
+   * - 0.15 us
+     - 2.01x
+     - 1.69x
+   * - 0.6 us
+     - 1.39x
+     - **1.00x**
+   * - 2.4 us
+     - **0.66**
+     - **0.52**
+   * - 18 us
+     - **0.21**
+     - **0.20**
 
-Best observed **8.3x faster** (12.9s to 1.6s); worst observed **37x slower**
-(trivial children on macOS). Three conclusions worth fixing in the contract:
+Conclusions, which belong in the contract rather than in a benchmark file:
 
-* **Trivial children are hopeless, and more keys does not rescue them.** 64
-  keys costs 14x and 256 keys costs 5x -- both unusable. The overhead is per
-  cycle and per worker, not per key, so scaling the key count does not amortise
-  it. This is the case a wiring-time warning should probably catch.
-* **One worker is never worth it** (0.88 to 1.42 across every shape): overhead
-  with no parallelism bought.
-* **Returns flatten beyond 8 workers**, because the barrier waits for the
-  slowest worker and the parent still serialises every delta itself. That
-  points at the parent's own encode/decode loop as the next thing to attack,
-  ahead of the transport.
+* **A trivial child is hopeless, and more keys does not rescue it.** The
+  overhead is per cycle and per worker, not per key. This is the case a
+  wiring-time warning should probably catch.
+* **One worker is never worth it** (1.05x to 4.2x across every shape): overhead
+  with no parallelism bought. The ratio at one worker is a clean reading of what
+  distribution *costs* before it buys anything.
+* **Above the crossover it scales close to linearly**, reaching 0.20x at eight
+  workers — a 5x speed-up where the children are expensive enough.
+* **Eight workers is often worse than four at 64 keys** and better at 256: the
+  barrier waits for the slowest worker, and a worker with eight keys is mostly
+  overhead. Worker count should follow key count, not core count.
+* **In-process workers are always slower than ``map_``** (1.03x to 5.2x). That
+  is the point of the mode, not a defect: it is the model's overhead with the
+  parallelism removed, so it prices the machinery separately from the win.
+* **Starting a worker costs 7-14 ms on Linux and 100-113 ms on macOS**, once.
+  Both are paid on the first cycle rather than at graph start, because
+  ``posix_spawn`` and ``CreateProcess`` return when the child exists rather than
+  when it is ready.
 
-The measurement carries pickle's cost, not RFC 0017's; re-measuring after the
-codec lands is required before any of these numbers are quoted as the codec's.
-Raw JSON is committed beside the summary (``benchmark-raw-evidence``).
+The parent still captures, encodes and applies every delta itself, serially,
+which is what flattens the curve at high worker counts. That points at the
+parent's own loop as the next thing to attack, ahead of the transport.
+
+Every point was checked against ``map_``'s own result, and all 80 agreed: a
+fast wrong answer is worthless, so the checksum is printed with the timing.
+
+.. note::
+
+   An **earlier table here reported the v0 Python prototype** (pickle over a
+   pipe, under the GIL) and showed 14x for trivial children and 0.14 at 16
+   workers. Those numbers describe a different program and have been replaced.
+   The shape of the conclusion survived — trivial children lose badly, one
+   worker never pays, returns flatten — which is some evidence the prototype was
+   measuring the model rather than Python.
 
 Shared memory for the delta payloads is the obvious optimisation and is
 deliberately not in v1: it should be chosen against a measured baseline, not
@@ -812,7 +822,8 @@ The differential criterion is primary; everything else supports it.
 #. **Native and Python.** C++ behavioural tests in the extension's suite plus
    the Python surface, per the parity acceptance rule
    (``developer_guide/parity_matrix.rst``).
-#. **Benchmarks.** The crossover point reported, raw JSON committed.
+#. **Benchmarks.** The crossover point reported, raw JSON committed. *Done:
+   see* Performance and memory *above.*
 
 Implementation status
 ---------------------
@@ -874,8 +885,9 @@ Still open: **2 (scheduling)** — a self-scheduling child is supported by the
 design and by ``next_scheduled_time`` in the reply, but is not yet asserted
 end to end through ``dmap_``; **3 (prepare is a phase)** is moot, since routing
 through a source node removed the need for a prepare phase (see the note
-above); **8 (Python)** and **9 (benchmarks against the C++ path)** are not
-started. Worker restart, rebalancing and the RFC 0022 manifest check are
+above); **8 (Python)** is not started. **9 (benchmarks)** is done: the
+crossover is measured and the raw JSON committed (see *Performance and
+memory*). Worker restart, rebalancing and the RFC 0022 manifest check are
 deferred as described above.
 
 A **validated v0 prototype** also exists on branch
