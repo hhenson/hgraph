@@ -902,6 +902,29 @@ namespace hgraph::stdlib
             }
         };
 
+        /** getitem_ over a MAP-scalar with an explicit fallback. */
+        struct getitem_map_scalar_default_impl : getitem_map_scalar_impl
+        {
+            static constexpr auto name = "getitem_map_scalar_default";
+
+            static void eval(In<"ts", TS<ScalarVar<"T">>> ts, In<"key", TS<ScalarVar<"K">>> key,
+                             In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
+                             Out<TS<ScalarVar<"E">>> out)
+            {
+                const auto map = ts.base().value().as_map();
+                const auto key_value = key.base().value();
+                const ValueView value = [&] {
+                    if (map.contains(key_value)) { return map.at(key_value); }
+                    const auto &fallback = default_value.base();
+                    return fallback.valid() ? fallback.value() : ValueView{};
+                }();
+                if (!value.has_value()) { return; }
+                const auto &erased = static_cast<const TSOutputView &>(out);
+                auto mutation = erased.begin_mutation(erased.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(value));
+            }
+        };
+
         /** frozendict merge (bit_or: rhs entries win). */
         struct merge_maps_impl
         {

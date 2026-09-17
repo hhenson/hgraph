@@ -48,6 +48,10 @@ def test_getitem_frozendict():
     assert eval_node(getitem_, [frozendict({1: 10, 2: 20})], [2]) == [20]
 
 
+def test_getitem_frozendict_default():
+    assert eval_node(getitem_, [frozendict({1: 10}), None], [1, 2], [None, -1]) == [10, -1]
+
+
 def test_and_frozendicts():
     @graph
     def app(lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[bool]:

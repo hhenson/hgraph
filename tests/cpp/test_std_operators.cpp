@@ -649,6 +649,18 @@ namespace
         }
     };
 
+    struct MapGetitemDefaultGraph
+    {
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Str>> key,
+                                       Port<TS<Float>> default_value)
+        {
+            auto values = wire<stdlib::const_, TS<Map<Str, Float>>>(
+                w, stdlib::make_map<Str, Float>({{Str{"KRW"}, Float{1.0}}}));
+            return wire<stdlib::getitem_>(w, values, key, default_value)
+                .as<TS<Float>>();
+        }
+    };
+
     struct SplitToPairGraph
     {
         static constexpr auto  name = "split_to_pair_graph";
@@ -3006,6 +3018,16 @@ TEST_CASE("std operators: min_ and max_ support binary scalar operands")
     CHECK_OUTPUT(eval_node<stdlib::max_>(values<Date>(ymd(2020, 1, 1), ymd(2020, 1, 10)),
                                          values<Date>(ymd(2020, 1, 3), ymd(2020, 1, 5))),
                  values<Date>(ymd(2020, 1, 3), ymd(2020, 1, 10)));
+}
+
+TEST_CASE("std operators: map getitem uses an explicit default for a missing key")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<MapGetitemDefaultGraph>(
+                     values<Str>(Str{"KRW"}, Str{"USD"}),
+                     values<Float>(none, Float{10000.0})),
+                 values<Float>(Float{1.0}, Float{10000.0}));
 }
 
 TEST_CASE("std operators: scalar container aggregate overloads resolve by kind and element type")

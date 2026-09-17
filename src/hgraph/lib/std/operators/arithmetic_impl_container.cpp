@@ -18,6 +18,7 @@ namespace hgraph::stdlib
         register_overload<sub_, arithmetic_impl_detail::diff_maps_impl>();
         register_overload<sub_, arithmetic_impl_detail::remove_list_items_impl>();
         register_overload<getitem_, arithmetic_impl_detail::getitem_map_scalar_impl>();
+        register_overload<getitem_, arithmetic_impl_detail::getitem_map_scalar_default_impl>();
         register_overload<and_, arithmetic_impl_detail::container_truthy_impl<true>>();
         register_overload<or_, arithmetic_impl_detail::container_truthy_impl<false>>();
         register_overload<len_, arithmetic_impl_detail::len_container_impl>();
