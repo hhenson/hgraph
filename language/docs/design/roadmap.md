@@ -370,8 +370,9 @@ re-audited on one date.
 The compiler has crossed the gate for starting Stage G: the complete core
 inventory can be generated and the first pure-composition candidates can be
 selected. That does not mean the compiler is feature-complete or that every
-core implementation is expressible; roughly 15% of `lib/std` is expressible
-today (#767, "Readiness").
+core implementation is expressible; the [catalogue](../../stdlib/catalogue/README.md)
+records the current counts per disposition (the 2026-09-07 review estimated
+15%; PR #953 authored 62 of 210 identities).
 
 | Surface | Status | Fail-closed boundary or named blocker |
 | --- | --- | --- |
@@ -429,12 +430,12 @@ issue and updates the matrix above in the same change.
 | # | Item | Status |
 | --- | --- | --- |
 | 1 | Parser: bound the applied-constructor look-ahead so comparisons parse | [PR #768](https://github.com/hhenson/hgraph/pull/768) |
-| 2 | Checker enforcement: rolling, list, and map shape rules, the approved injectable list, runtime-block placement, and the temporal arithmetic table move into `type_check.cpp`; backend copies removed | open |
-| 3 | Shared IR guards: `control_flow.cpp` diagnoses once, no diagnostic string duplicated across backends, one reserved-name table, concise `map` lambda parity | in flight |
-| 4 | Tests: `hgl test` for every example with a `test`, the embedded temporal `if` pinned, direct-wiring refs, generics, and windows, dynamic-traversal ticks, REPL smoke gating, wired `stdlib/examples/invalid/` fixtures | in flight |
-| 5 | Documentation reconciliation: this matrix, the corrected language reference, and the stale claims listed in the issue | in flight |
+| 2 | Checker enforcement: rolling, list, and map shape rules, the approved injectable list, runtime-block placement, and the temporal arithmetic table move into `type_check.cpp`; backend copies removed | [PR #780](https://github.com/hhenson/hgraph/pull/780); item 2b (the temporal arithmetic table) waits for emitter support of temporal arithmetic in runtime bodies |
+| 3 | Shared IR guards: `control_flow.cpp` diagnoses once, no diagnostic string duplicated across backends, one reserved-name table, concise `map` lambda parity | [PR #783](https://github.com/hhenson/hgraph/pull/783) |
+| 4 | Tests: `hgl test` for every example with a `test`, the embedded temporal `if` pinned, direct-wiring refs, generics, and windows, dynamic-traversal ticks, REPL smoke gating, wired `stdlib/examples/invalid/` fixtures | [PR #782](https://github.com/hhenson/hgraph/pull/782) |
+| 5 | Documentation reconciliation: this matrix, the corrected language reference, and the stale claims listed in the issue | [PR #781](https://github.com/hhenson/hgraph/pull/781) |
 | 6 | Design records: error model, `i64` division, overflow, and NaN, string operators, first-tick validity, descriptor `kind` naming, `elements`/`values` alias policy, type-keyword callees, normative grammar; hgraph-side asks promoted to RFCs | open |
-| 7 | Stage G on-ramp: the inventory, the five first candidates, then the ranked blockers | open |
+| 7 | Stage G on-ramp: the inventory, the five first candidates, then the ranked blockers | [PR #953](https://github.com/hhenson/hgraph/pull/953): checked catalogue, 62 authored identities; blockers B1–B6 ranked in the [catalogue](../../stdlib/catalogue/README.md) and defined in the [requirements ledger](migration-requirements.md) |
 
 ## Prototype checkpoint (2026-09-06)
 

@@ -21971,14 +21971,14 @@
           "marker": "map_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 429
+          "line": 432
         },
         {
           "name": "map_",
           "marker": "map_sink_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 438
+          "line": 441
         }
       ],
       "registration_sites": [
@@ -25120,7 +25120,7 @@
           "marker": "mesh_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 466
+          "line": 469
         }
       ],
       "registration_sites": [

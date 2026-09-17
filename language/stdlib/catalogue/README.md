@@ -287,4 +287,5 @@ python tools/hgl_catalogue.py --check
 python tools/hgl_catalogue.py --refresh-registry
 ```
 
-See [the design record](../../docs/design/migration-catalogue.md). PR #801 is reference material only.
+See [the design record](../../docs/design/migration-catalogue.md) and the
+[requirements ledger](../../docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.

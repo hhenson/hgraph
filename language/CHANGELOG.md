@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Record the standard-library migration requirements ledger
+  (`docs/design/migration-requirements.md`): the `HGL-MIG-001`–`015` and
+  `HGL-LIB-001`–`004` identifiers the catalogue cites, each mapped to its
+  catalogue blocker, accepted record and open decision. PR #801 is closed;
+  the roadmap's corrective-programme table now links the merged PRs.
 - Keep implementation-only constraints on `impl fn`: the executable HGL
   operator contracts no longer expose their candidates' native delegation
   requirements, and the guides distinguish public semantic constraints from
