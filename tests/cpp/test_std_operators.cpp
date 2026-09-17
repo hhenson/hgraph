@@ -763,6 +763,94 @@ namespace
         }
     };
 
+    /** convert[TSD[K, TSD[...]]](key, inner): the entry is a whole nested
+        dictionary, not a leaf (parity #818 item 2.7). */
+    struct ConvertKeyValueToNestedDictGraph
+    {
+        static constexpr auto name = "convert_key_value_to_nested_dict_graph";
+
+        static Port<TSD<Str, TSD<Str, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TSD<Str, TS<Int>>> inner)
+        {
+            return wire<stdlib::convert, TSD<Str, TSD<Str, TS<Int>>>>(w, key, inner);
+        }
+    };
+
+    /** convert[TS[Int|Float|Bool]](TS[Str]): the parsing overloads
+        ``cast_`` lowers to (parity #818 item 2.5). */
+    struct ParseStringToIntGraph
+    {
+        static constexpr auto name = "parse_string_to_int_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Int>>(w, ts).as<TS<Int>>();
+        }
+    };
+
+    struct ParseStringToFloatGraph
+    {
+        static constexpr auto name = "parse_string_to_float_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Float>>(w, ts).as<TS<Float>>();
+        }
+    };
+
+    struct StringToBoolGraph
+    {
+        static constexpr auto name = "string_to_bool_graph";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Bool>>(w, ts).as<TS<Bool>>();
+        }
+    };
+
+    /** take(ts, timedelta): the duration form (parity #818 item 2.4). */
+    struct TakeByTimeGraph
+    {
+        static constexpr auto name = "take_by_time_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD * 2).as<TS<Int>>();
+        }
+    };
+
+    struct TakeByTimeDictGraph
+    {
+        static constexpr auto name = "take_by_time_dict_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    /** The NAMED set spellings over dictionaries (parity #818 item 2.3). */
+    template <typename Operator>
+    struct NamedSetOverDictsGraph
+    {
+        static constexpr auto name = "named_set_over_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b)
+        {
+            return wire<Operator>(w, a, b).template as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct UnionOverThreeDictsGraph
+    {
+        static constexpr auto name = "union_over_three_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b,
+            Port<TSD<Str, TS<Int>>> c)
+        {
+            return wire<stdlib::union_>(w, a, b, c).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct CombineTsdReferenceTopologyGraph
     {
         static constexpr auto name = "combine_tsd_reference_topology_graph";
@@ -1720,6 +1808,129 @@ TEST_CASE("std operators: a converted entry ticks again when its value re-sends"
                  values<Value>(dict_delta<Str, TS<Int>>({{"b", 19}}), none));
 }
 
+TEST_CASE("std operators: a converted dictionary entry may be a whole nested dictionary")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph declares the value as REF[TIME_SERIES_TYPE], so any
+    // time series may be the entry. Requiring a leaf rejected the nested
+    // spelling at wiring, and the fuzzer that found it had to route around
+    // through map_ (parity #818 item 2.7). A TSD entry also refuses a generic
+    // whole-value write -- its child notifications run through TSParentLink --
+    // so the copy goes through the dictionary mutation view.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToNestedDictGraph>(
+                     values<Str>(Str{"k"}),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
+                 values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
+                     {{"k", dict_delta<Str, TS<Int>>({{"a", 1}})}})));
+}
+
+TEST_CASE("std operators: the named set spellings work over dictionaries")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph registers the whole named family over dictionaries as
+    // well as sets. Only the BITWISE spellings reached the TSD binaries here,
+    // so union(a, b) was rejected at wiring while bit_or(a, b) evaluated
+    // (parity #818 item 2.3).
+    const auto lhs = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"c", 3}}));
+    const auto rhs = values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}, {"c", 4}}));
+
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::union_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::intersection_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::symmetric_difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}})));
+
+    // The fold is pairwise and n-ary, which is what upstream's three-input
+    // answer shows.
+    CHECK_OUTPUT(eval_node<UnionOverThreeDictsGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
+}
+
+TEST_CASE("std operators: take accepts a duration as well as a count")
+{
+    stdlib::register_standard_operators();
+
+    // The window opens at the SOURCE'S FIRST TICK rather than at graph start,
+    // and the source passivates once it moves beyond the span -- upstream's
+    // take_by_time, whose count spelling the count overload already had
+    // (parity #818 item 2.4).
+    CHECK_OUTPUT(eval_node<TakeByTimeGraph>(values<Int>(1, 2, 3, 4, 5)),
+                 values<Int>(1, 2, 3, none, none));
+
+    // Any other shape forwards the delta, for the same reason the count form
+    // gives: a whole-value apply would re-publish unchanged entries.
+    CHECK_OUTPUT(eval_node<TakeByTimeDictGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                                   dict_delta<Str, TS<Int>>({{"b", 2}}),
+                                   dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                               dict_delta<Str, TS<Int>>({{"b", 2}}), none));
+}
+
+TEST_CASE("std operators: convert parses a string into a number")
+{
+    stdlib::register_standard_operators();
+
+    // cast_(int, ts) lowers to convert, and released hgraph spells the body
+    // tp(ts.value), so the accepted text is Python's: surrounding whitespace
+    // and a sign are allowed, underscores only between digits, and a float
+    // additionally takes inf/nan. Only the PARSING overload was missing --
+    // an unparseable string already raised on both sides (parity #818 item
+    // 2.5).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"12"}, Str{" 12 "}, Str{"-3"}, Str{"+3"}, Str{"1_000"})),
+                 values<Int>(12, 12, -3, 3, 1000));
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1.5"}, Str{"1e3"}, Str{"-2.5"}, Str{".5"})),
+                 values<Float>(1.5, 1000.0, -2.5, 0.5));
+
+    // bool of a string is emptiness, as Python has it.
+    CHECK_OUTPUT(eval_node<StringToBoolGraph>(values<Str>(Str{"x"}, Str{""})),
+                 values<bool>(true, false));
+
+    // Everything Python rejects is still rejected.
+    for (const Str &text : {Str{"1.5"}, Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(text)));
+    }
+    // A float rejects the same spellings bar its own literal. "0x10" is the
+    // one the parser has to turn away itself: strtod reads a hex float and
+    // Python's float() does not.
+    for (const Str &text : {Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}, Str{"1.5.5"},
+                            Str{"1e"}, Str{"."}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToFloatGraph>(values<Str>(text)));
+    }
+
+    // The word's ends parse: the most negative Int has no positive
+    // counterpart, so the SIGNED text is parsed rather than the magnitude
+    // and then negated (review).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"-9223372036854775808"}, Str{"9223372036854775807"})),
+                 values<Int>(std::numeric_limits<Int>::min(), std::numeric_limits<Int>::max()));
+
+    // Past them is the RULED deviation, not a gap: released hgraph reads the
+    // literal into a Python unbounded integer, and this runtime raises rather
+    // than carry Python integer semantics into the value layer (issue #810
+    // item 4.7).
+    CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(Str{"9223372036854775808"})));
+
+    // A float SATURATES instead, which is what Python's parser does:
+    // float("1e400") is inf and float("1e-400") is 0.0, both representable.
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1e400"}, Str{"-1e400"}, Str{"1e-400"})),
+                 values<Float>(std::numeric_limits<Float>::infinity(),
+                               -std::numeric_limits<Float>::infinity(), 0.0));
+}
+
 TEST_CASE("std operators: convert round trips numeric values through native Any")
 {
     stdlib::register_standard_operators();
@@ -2518,7 +2729,18 @@ TEST_CASE("std operators: comparison operators support ordering and cmp_")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::ne_>(values<Int>(1, 2), values<Int>(1, 3)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Int>(2, 4)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Float>(1.0, 5.0), values<Float>(2.0, 4.0)),
+                 values<Bool>(true, false));
+
+    // The mixed int/float form is a deliberate SUPERSET: released hgraph
+    // declares both operands as one TIME_SERIES_TYPE and refuses this at
+    // wiring. Overload dispatch picks a kernel declared over the two operand
+    // types -- nothing coerces an operand on the way in (parity_matrix.rst,
+    // "Accepted deviations").
     CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::gt_>(values<Float>(1.0, 5.0), values<Int>(2, 4)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::eq_>(values<Float>(2.0), values<Int>(2)), values<Bool>(true));
     CHECK_OUTPUT(eval_node<stdlib::ge_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"a"})),
                  values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<stdlib::cmp_>(values<Int>(1, 2, 3), values<Int>(2, 2, 1)),

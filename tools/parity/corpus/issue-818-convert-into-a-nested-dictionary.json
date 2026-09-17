@@ -1,0 +1,25 @@
+{
+  "description": "Issue #818 item 2.7: convert into a NESTED TSD. Upstream declares the conversion's value as REF[TIME_SERIES_TYPE], so any time series may be the entry; requiring a leaf rejected this at wiring, and the element_or_whole draw of PR #804 had to route around it through map_.",
+  "features": [
+    "declaration:nested-collection",
+    "shape:TSD"
+  ],
+  "id": "issue-818-convert-into-a-nested-dictionary",
+  "inputs": {
+    "key": [
+      "k",
+      null,
+      "j"
+    ],
+    "value": [
+      1,
+      2,
+      2
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "nested_collection"
+  },
+  "schema_version": 1,
+  "template": "declaration_shape"
+}

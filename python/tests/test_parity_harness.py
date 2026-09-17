@@ -1685,8 +1685,10 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
                 "bool", "int", "float", "date", "datetime", "timedelta",
                 "tsd", "tuple_int", "tuple_str",
             )
+        # D4 was the missing string parsing overload, registered under issue
+        # #818 item 2.5, so a string source is drawn again.
         if operation == "cast_":
-            assert input_type in ("int", "float")
+            assert input_type in ("int", "float", "str")
         if operation == "ln":
             assert all(
                 tick is None or tick > 0 for tick in recipe.inputs["ts"]
@@ -1716,8 +1718,11 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
 
     for recipe in generated("stream_shape"):
         parameters = recipe.parameters
-        # D10 take with a timedelta; N4 drop with a timedelta.
-        if parameters["operation"] in ("drop", "take"):
+        # N4 drop with a timedelta: released hgraph emits the buffered value
+        # at the cycle the window expires even when nothing ticked there.
+        # D10 (take with a timedelta) was the MISSING OVERLOAD and is fixed,
+        # so take draws both spellings again (issue #818 item 2.4).
+        if parameters["operation"] == "drop":
             assert "period_micros" not in parameters
         # D11 to_window withholding until min_count values are buffered.
         if parameters["operation"] == "to_window":
@@ -1730,8 +1735,10 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
 
     for recipe in generated("set_operator"):
         # N1 a three-input intersection/symmetric_difference folds with a
-        # zero the released package cannot resolve for a TSS.
-        if len(recipe.inputs) > 2:
+        # zero the released package cannot resolve FOR A TSS. A dictionary
+        # fold never reaches that zero and does work upstream, so the
+        # restriction applies to the set shape only (issue #818 item 2.3).
+        if len(recipe.inputs) > 2 and recipe.parameters.get("shape", "tss") == "tss":
             assert recipe.parameters["operation"] == "union"
 
     # index_of recomputes to the same index on most histories, which is the

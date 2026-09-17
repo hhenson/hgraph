@@ -1992,6 +1992,23 @@ namespace hgraph::stdlib
             }
         };
 
+        /** The TSD spellings of the named set operators. Released hgraph
+            registers the whole family over dictionaries as well as sets, and
+            only the BITWISE spellings reached the TSD binaries here, so
+            ``union``/``intersection``/``symmetric_difference``/``difference``
+            over two dictionaries were rejected at wiring (parity #818 item
+            2.3). The fold is pairwise, which is what upstream's answers show
+            for three inputs. */
+        [[nodiscard]] inline bool all_args_are_tsd(OperatorCallContext context)
+        {
+            if (context.args.empty()) { return false; }
+            for (std::size_t index = 0; index < context.args.size(); ++index)
+            {
+                if (!time_series_arg_matches<AnyTSD>(context, index)) { return false; }
+            }
+            return true;
+        }
+
         [[nodiscard]] inline bool all_args_are_tss(OperatorCallContext context)
         {
             if (context.args.empty()) { return false; }
@@ -2059,6 +2076,68 @@ namespace hgraph::stdlib
                     acc = wire<collection_impl_detail::intersection_tss_binary>(w, acc, Port<void>{w, ts[i]});
                 }
                 return acc.erased();
+            }
+        };
+
+        /** ``union(*ts)`` / ``intersection(*ts)`` /
+            ``symmetric_difference(*ts)`` over DICTIONARIES, folded pairwise
+            like their TSS siblings. */
+        template <typename Binary, fixed_string OperatorName, fixed_string NodeName>
+        struct tsd_set_fold
+        {
+            static constexpr auto name = NodeName.value;
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return all_args_are_tsd(context);
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            {
+                resolve_output_to_first_arg(resolution, context);
+            }
+
+            static WiringPortRef compose(Wiring &w, VarIn<"ts", TsVar<"S">> ts)
+            {
+                if (ts.empty())
+                {
+                    throw std::invalid_argument(
+                        std::string{OperatorName.value} + ": requires at least one input");
+                }
+                Port<void> acc{w, ts[0]};
+                for (std::size_t i = 1; i < ts.size(); ++i)
+                {
+                    acc = wire<Binary>(w, acc, Port<void>{w, ts[i]});
+                }
+                return acc.erased();
+            }
+        };
+
+        /** ``difference(lhs, rhs)`` over dictionaries: BINARY only, which is
+            the arity released hgraph supports ("Difference between multiple
+            items is not supported"). */
+        struct difference_tsd_fold
+        {
+            static constexpr auto name = "difference_tsd_fold";
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return all_args_are_tsd(context);
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            {
+                resolve_output_to_first_arg(resolution, context);
+            }
+
+            static WiringPortRef compose(Wiring &w, VarIn<"ts", TsVar<"S">> ts)
+            {
+                if (ts.empty()) { throw std::invalid_argument("difference: requires at least one input"); }
+                if (ts.size() == 1) { return ts[0]; }
+                if (ts.size() > 2) { throw std::invalid_argument("difference: more than two inputs is not supported"); }
+                Port<void> out = wire<collection_impl_detail::difference_tsd_binary>(
+                    w, Port<void>{w, ts[0]}, Port<void>{w, ts[1]});
+                return out.erased();
             }
         };
 

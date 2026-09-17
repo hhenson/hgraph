@@ -1,5 +1,5 @@
 {
-  "source_fingerprint": "147db77d181bd4ccfdb46fe27d4d3057872a5fb00ba7a6c0b2d7cf92d4fa43d3",
+  "source_fingerprint": "78f0b6a26d08a48934cf3bfabb8bae288c1e0e048061835059e1c68eaa95ef2f",
   "operators": {
     "__apply_value_callable": [
       {
@@ -5377,6 +5377,31 @@
           {
             "name": "ts",
             "kind": "temporal",
+            "type": "TS[str]",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 1,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[bool]",
+        "id": "convert:607ca49d393d"
+      },
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
             "type": "TS[tuple[~K, ...]]",
             "default": false,
             "carrier": null
@@ -5642,6 +5667,56 @@
         "kwargs_type": null,
         "output": "TS[date]",
         "id": "convert:aa38f56d10c0"
+      },
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "TS[str]",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 1,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[float]",
+        "id": "convert:ad32b4ede007"
+      },
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "TS[str]",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 1,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[int]",
+        "id": "convert:b5b4eea5cf51"
       },
       {
         "parameters": [
@@ -6812,6 +6887,31 @@
       }
     ],
     "difference": [
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "~S",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": true,
+        "positional_count": 0,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "~__out__",
+        "id": "difference:05822dabb0a3"
+      },
       {
         "parameters": [
           {
@@ -11628,6 +11728,31 @@
       }
     ],
     "intersection": [
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "~S",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": true,
+        "positional_count": 0,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "~__out__",
+        "id": "intersection:05822dabb0a3"
+      },
       {
         "parameters": [
           {
@@ -25129,9 +25254,66 @@
         "kwargs_type": null,
         "output": "~__out__",
         "id": "symmetric_difference:05822dabb0a3"
+      },
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "~S",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": true,
+        "positional_count": 0,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "~__out__",
+        "id": "symmetric_difference:05822dabb0a3"
       }
     ],
     "take": [
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "~S",
+            "default": false,
+            "carrier": null
+          },
+          {
+            "name": "count",
+            "kind": "scalar",
+            "type": "timedelta",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 2,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "~S",
+        "id": "take:4c767af3eb3c"
+      },
       {
         "parameters": [
           {
@@ -25195,6 +25377,38 @@
         "kwargs_type": null,
         "output": "~S",
         "id": "take:8b9441794484"
+      },
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "TS[~T]",
+            "default": false,
+            "carrier": null
+          },
+          {
+            "name": "count",
+            "kind": "scalar",
+            "type": "timedelta",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 2,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[~T]",
+        "id": "take:9f370632a785"
       },
       {
         "parameters": [
@@ -26237,6 +26451,31 @@
       }
     ],
     "union": [
+      {
+        "parameters": [
+          {
+            "name": "ts",
+            "kind": "temporal",
+            "type": "~S",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": true,
+        "positional_count": 0,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "~__out__",
+        "id": "union:05822dabb0a3"
+      },
       {
         "parameters": [
           {

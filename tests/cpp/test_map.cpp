@@ -42,6 +42,15 @@
 #include <typeindex>
 #include <vector>
 
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<Map<Str, Map<Int, Float>>>>
+        : bundle_ts_harness<TS<Map<Str, Map<Int, Float>>>>
+    {
+    };
+}
+
 namespace
 {
     using namespace hgraph;
@@ -2568,6 +2577,107 @@ namespace
         }
     };
 
+    using RemovalMapValue = TS<Map<Int, Float>>;
+    using RemovalInner = TSD<Int, TS<Float>>;
+    using RemovalPartition = TSB<"RemovalPartition", Field<"raw", RemovalInner>, Field<"kept", TS<Int>>>;
+
+    Value removal_map(std::initializer_list<std::pair<Int, Float>> entries)
+    {
+        auto &factory = ValuePlanFactory::instance();
+        MapBuilder builder{factory.type_for(scalar_descriptor<Int>::value_meta()),
+                           factory.type_for(scalar_descriptor<Float>::value_meta())};
+        for (const auto &[key, value] : entries) { builder.set_item(key, value); }
+        return builder.build();
+    }
+
+    Value removal_partitions(std::optional<Value> inner)
+    {
+        auto &factory = ValuePlanFactory::instance();
+        MapBuilder builder{factory.type_for(scalar_descriptor<Str>::value_meta()),
+                           factory.type_for(scalar_descriptor<Map<Int, Float>>::value_meta())};
+        if (inner)
+        {
+            const Value key{Str{"A"}};
+            builder.set_item(key.view(), inner->view());
+        }
+        return builder.build();
+    }
+
+    struct KeepRemovalValueG
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Float>>)
+        {
+            return wire<stdlib::const_, TS<Bool>>(w, true);
+        }
+    };
+
+    struct RemovalPartitionG
+    {
+        static Port<RemovalPartition> compose(Wiring &w, Port<RemovalMapValue> input)
+        {
+            auto empty = wire<stdlib::const_, RemovalMapValue>(w, removal_map({}));
+            auto current = wire<stdlib::default_>(w, input, empty);
+            auto dict = wire<stdlib::convert, RemovalInner>(w, current);
+            auto matches = wire<stdlib::map_>(w, fn<KeepRemovalValueG>(), dict);
+            auto raw = wire<stdlib::filter_tsd_by_matches>(w, dict, matches);
+            return stdlib::to_tsb<RemovalPartition>(
+                w, raw, wire<stdlib::const_, TS<Int>>(w, Int{1}));
+        }
+    };
+
+    struct RemovalRawG
+    {
+        static Port<RemovalInner> compose(Wiring &w, Port<RemovalPartition> value)
+        {
+            return wire<stdlib::getattr_>(w, value, Str{"raw"}).as<RemovalInner>();
+        }
+    };
+
+    struct ProjectedRemovedCount
+    {
+        static void eval(In<"dict", TSD<Str, RemovalInner>> dict, Out<TS<Int>> out)
+        {
+            auto inner = dict.at(Str{"A"});
+            std::vector<Int> keys;
+            for (const auto key : inner.removed_keys()) { keys.push_back(key.checked_as<Int>()); }
+            std::vector<Int> item_keys;
+            for (const auto [key, child] : inner.removed_items())
+            {
+                static_cast<void>(child);
+                item_keys.push_back(key.checked_as<Int>());
+            }
+            CHECK(item_keys == keys);
+            std::size_t value_count = 0;
+            for ([[maybe_unused]] const auto child : inner.removed_values()) { ++value_count; }
+            CHECK(value_count == keys.size());
+            out.set(static_cast<Int>(keys.size()));
+        }
+    };
+
+    enum class RemovalProjection { Mapped, Attribute };
+
+    template <RemovalProjection Projection, bool ObserveRemovals>
+    struct ProjectRemovalG
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Map<Str, Map<Int, Float>>>> snapshots)
+        {
+            auto input = wire<stdlib::convert, TSD<Str, RemovalMapValue>>(w, snapshots);
+            auto keys = wire<stdlib::const_, TSS<Str>>(w, set_delta<Str>({"A"s}, {}));
+            auto partitions = wire<stdlib::map_>(w, fn<RemovalPartitionG>(), input,
+                                                arg<"__keys__">(keys));
+            Port<void> projected = [&]() -> Port<void>
+            {
+                if constexpr (Projection == RemovalProjection::Attribute)
+                {
+                    return wire<stdlib::getattr_>(w, partitions, Str{"raw"});
+                }
+                else { return wire<stdlib::map_>(w, fn<RemovalRawG>(), partitions); }
+            }();
+            if constexpr (ObserveRemovals) { return wire<ProjectedRemovedCount>(w, projected); }
+            else { return wire<stdlib::len_>(w, wire<stdlib::collapse_keys>(w, projected)).as<TS<Int>>(); }
+        }
+    };
+
     using MappedDictBundle =
         TSB<"MappedDictBundle", Field<"direct", TSD<Str, TS<Int>>>,
             Field<"copy", TSD<Str, TS<Int>>>>;
@@ -3516,4 +3626,29 @@ TEST_CASE("map_: a user overload may select on the wired function identity")
         (eval_node<stdlib::map_, TSD<Str, TS<Int>>>(fn<AddOneG>(), input)),
         values<Value>(dict_delta<Str, TS<Int>>(
             {{Str{"a"}, 2}, {Str{"b"}, 3}})));
+}
+
+TEST_CASE("map_: projected dictionary removals survive an unchanged bundle field endpoint")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(
+        removal_partitions(removal_map({{1, 1.0}, {2, 2.0}})),
+        removal_partitions(removal_map({{2, 2.0}})),
+        removal_partitions(std::nullopt),
+        removal_partitions(removal_map({{1, 3.0}})),
+        removal_partitions(std::nullopt));
+    SECTION("mapped projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
+    SECTION("attribute projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
 }
