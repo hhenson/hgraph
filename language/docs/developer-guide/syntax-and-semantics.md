@@ -1847,11 +1847,16 @@ as cached adaptor handles, are not `state`; they belong to a separate resource
 concept that is still to be designed.
 
 An `inject` declaration requests compiler-approved runtime selectors without
-adding parameters to the callable contract. Each generated hook requests only
-the selectors it uses. Unknown capabilities and use from an unsupported phase
-are diagnostics. `out` is a special injectable inferred from the result type;
-it is invalid on an outputless function and is initially available only during
-evaluation, not in `start` or `stop`.
+adding parameters to the callable contract: `out`, `logger`, `clock` and
+`scheduler`. Each generated hook requests only the selectors it uses. Unknown
+capabilities and use from an unsupported phase are diagnostics. `out` is a
+special injectable inferred from the result type; it is invalid on an
+outputless function and is initially available only during evaluation, not in
+`start` or `stop`. The clock and scheduler methods, the `scheduled()` handler
+selector, and the `passivate`/`activate` statements are fixed by
+[ADR 0010](../design/decisions/0010-lifecycle-capabilities.md); `scheduled`,
+`passivate` and `activate` are intrinsic names. A runtime function without
+temporal parameters must inject `scheduler`.
 
 `start` runs once after replay-aware state initialization. `stop` runs once at
 teardown. State storage and injected capabilities are runtime-owned and are

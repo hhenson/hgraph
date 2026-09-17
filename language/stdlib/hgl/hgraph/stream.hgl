@@ -1,11 +1,60 @@
-# Parallel scalar stream domains. Structural delta forwarding and input
-# passivation are tracked separately in the migration catalogue.
+# Parallel scalar stream domains. Structural delta forwarding is tracked
+# separately in the migration catalogue.
 module hgraph.std part stream
 
 operator sample<T>(signal: signal, ts: T) -> T
 operator drop<T>(ts: T, const count: i64 = 1) -> T
 operator dedup<T>(ts: T) -> T
 operator filter_<T>(condition: bool, ts: T) -> T
+operator take<T>(ts: T, const count: i64 = 1) -> T
+operator freeze<T>(predicate: bool, ts: T) -> T
+operator until_true(ts: bool) -> bool
+
+# Input activity and the node scheduler (ADR 0010). These bodies mirror the
+# native nodes tick for tick; a restored exhausted `take` passivates on its
+# first evaluation rather than in `start`, because a start block cannot
+# reach the temporal inputs.
+impl fn take<T>(ts: T, const count: i64 = 1) -> T {
+    state seen: i64 = 0
+    when {
+        let index = seen + 1
+        if count <= 0 || index > count {
+            passivate(ts)
+        } else {
+            seen = index
+            if index >= count {
+                passivate(ts)
+            }
+            return ts
+        }
+    }
+}
+
+impl fn freeze<T>(predicate: bool, ts: T) -> T {
+    when valid(predicate) {
+        if predicate {
+            passivate(predicate)
+            passivate(ts)
+            if valid(ts) {
+                return ts
+            }
+        } else if modified(ts) && valid(ts) {
+            return ts
+        }
+    }
+}
+
+impl fn until_true(ts: bool) -> bool {
+    when {
+        if ts {
+            passivate(ts)
+        }
+        return ts
+    }
+}
+
+# `schedule` remains native-only until HGL can represent its non-recordable
+# tick counter and its positive-delay validation in start (ADR 0008/0010).
 
 impl fn sample<T>(signal: signal, ts: T) -> T {
     when modified(signal) && valid(signal, ts) {
@@ -47,7 +96,11 @@ instantiate sample<bool>, sample<i64>, sample<f64>, sample<str>,
     drop<bool>, drop<i64>, drop<f64>, drop<str>,
     drop<date>, drop<time>, drop<datetime>, drop<duration>,
     filter_<bool>, filter_<i64>, filter_<f64>, filter_<str>,
-    filter_<date>, filter_<time>, filter_<datetime>, filter_<duration>
+    filter_<date>, filter_<time>, filter_<datetime>, filter_<duration>,
+    take<bool>, take<i64>, take<f64>, take<str>,
+    take<date>, take<time>, take<datetime>, take<duration>,
+    freeze<bool>, freeze<i64>, freeze<f64>, freeze<str>,
+    freeze<date>, freeze<time>, freeze<datetime>, freeze<duration>
 
 impl fn dedup(ts: bool) -> bool {
     state have_last: bool = false
@@ -141,6 +194,18 @@ impl fn dedup(ts: duration) -> duration {
 }
 
 test {
+    fn first_two(ts: i64) -> i64 => take(ts, 2)
+    fn frozen(predicate: bool, ts: i64) -> i64 => freeze(predicate, ts)
+    fn latched(ts: bool) -> bool => until_true(ts)
+    test take_passivates_after_count {
+        assert eval(first_two, ts: [1, 2, 3, 4]) == [1, 2, _, _]
+    }
+    test freeze_holds_the_last_value_once_true {
+        assert eval(frozen, predicate: [false, false, true, false], ts: [1, 2, 3, 4]) == [1, 2, 3, _]
+    }
+    test until_true_stops_listening_once_true {
+        assert eval(latched, ts: [false, false, true, false]) == [false, false, true, _]
+    }
     fn sample_integer(signal: bool, ts: i64) -> i64 => sample(signal, ts)
     fn drop_integer(ts: i64, const count: i64 = 1) -> i64 => drop(ts, count)
     fn dedup_integer(ts: i64) -> i64 => dedup(ts)

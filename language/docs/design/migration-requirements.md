@@ -34,22 +34,22 @@ implies that every operator family using it has migrated.
 | MIG-002 parameter packs | implemented | B6 | [ADR 0007](decisions/0007-parameter-packs.md); stack #889–#897 merged 2026-09-11/12 | A runtime function accepts one aggregate pack input. |
 | MIG-003 algebraic properties | implemented, scoped | — | [Operators](operators.md) | Claims are not optimizer permissions; inverse/group/field vocabulary deferred. |
 | MIG-004 scalar/native boundary | partial | B1, B3 | [Native interface](native-interface.md), [ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md), [native surface](native-surface-proposal.md) | Owned non-scalar native results; imported atomic types; typed view shapes. |
-| MIG-005 recordable state | partial | B4 | [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) settles cache vs state | Generic state without a default; sparse state; queues and windows; owned native state construction. |
+| MIG-005 recordable state | partial | B2, B4 | [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) settles cache vs state | Generic state without a default; sparse state; queues and windows; non-recordable cache declarations; owned native state construction. |
 | MIG-006 collection mutation | implemented, node scope | B4 | [Language model](language-model.md#function-abstraction), typed C++ wrappers (#881–#885) | Graph-form mutation; live structural-child writes. |
 | MIG-007 delta forwarding | open | B4 | — | Type-preserving delta value versus a dedicated forwarding effect. |
 | MIG-008 output resolution | partial | B3 | Constraint language in [functions](../user-guide/functions.md#requirements-and-type-constraints) | Dependent output schemas and imported resolver metadata. |
 | MIG-009 operator identity | partial | — (LIB-001) | Symbol mapping in [Operators](operators.md#fixed-symbol-to-name-mapping); imported-operator checkpoints 1–3 in the [roadmap](roadmap.md#imported-operator-migration-checkpoints) | Binding a compiled body to an imported production identity; keyword-colliding native names. |
 | MIG-010 implementation arity | partial | B6 | Pack cardinality (#891–#892), ranking in ADR 0007 | Fixed candidates refining a pack contract; implementation-specific scalar parameters. |
 | MIG-011 higher-order forms | partial | B6 | [Switch](switch.md), [Iteration](iteration.md), temporal `if` lowering | Explicit `switch` implementation; general map/reduce/mesh callable contracts. |
-| MIG-012 effects and capabilities | partial | B1, B2, B5 | Descriptor phase/effect/ownership metadata ([native interface](native-interface.md#descriptor-is-the-contract)); throwing evaluation calls ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)) | Resources, additional approved effects, a closed vocabulary shared with descriptors. |
+| MIG-012 effects and capabilities | partial | B1, B2, B5 | Descriptor phase/effect/ownership metadata ([native interface](native-interface.md#descriptor-is-the-contract)); throwing evaluation calls ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)); clock and scheduler ([ADR 0010](decisions/0010-lifecycle-capabilities.md)) | Resources, additional approved effects, a closed vocabulary shared with descriptors. |
 | MIG-013 library metadata | open | — | — | Structured documentation, defaults, stability and compatibility metadata on HGL declarations. |
-| MIG-014 empty input policies | open | B2 (LIB-002) | The gap is recorded in the [language model](language-model.md#function-abstraction) | A source form for an explicitly empty activation/validity set. |
+| MIG-014 empty input policies | partial | B2 (LIB-002) | [ADR 0010](decisions/0010-lifecycle-capabilities.md) admits scheduled handlers with an empty activation set | A source form for an explicitly empty validity set. |
 | MIG-015 generic publication | partial | B3 | `instantiate` with retained `_` slots; typed native views read live metadata | Who materializes open downstream types and how a body reads a resolver-selected generic. |
 
 | Library blocker | Maps to | What it blocks |
 | --- | --- | --- |
 | LIB-001 parallel identity | MIG-009 | Every compiled `hgraph.std.*` / `hgraph.operators.*` body registers as a parallel identity, never as the production overload. |
-| LIB-002 startup and never-valid inputs | MIG-014, B2 | Collection operators cannot schedule a first result or observe a bound-but-invalid input; `when {}` defaults cannot express it. |
+| LIB-002 startup and never-valid inputs | MIG-014, B2 | Startup scheduling is available; observing bound-but-invalid inputs still needs an explicitly empty validity set. |
 | LIB-003 retained rolling extents | MIG-015, B3 | A retained rolling size lowers to an any-window pattern and cannot materialize the concrete input schema. |
 | LIB-004 bundle metadata | MIG-015, B3 | TSB size/emptiness is schema metadata and needs a graph-level metadata operation rather than a live-view projection. |
 
@@ -124,10 +124,13 @@ and never leak to sibling implementations.
 Source-native evaluation functions remain non-blocking. ADR 0009 admits
 `throws` and the descriptor's `translated` policy under hgraph's node error
 model; functions without `throws` remain `noexcept`. Owned scalar results are
-admitted, while owned non-scalar results remain B1. Resource and scheduler
-capabilities remain B2. A C++ body is not permission to publish a contract the
-descriptor cannot enforce: the vocabulary must be closed and shared between
-HGL source, descriptors and the backend-neutral runtime specification.
+admitted, while owned non-scalar results remain B1. ADR 0010 implements the
+clock and scheduler capabilities, scheduled activation, and evaluation-time
+input activity. Non-recordable storage, input access in lifecycle hooks, and
+external resource ownership remain B2. A C++ body is not permission to publish
+a contract the descriptor cannot enforce: the vocabulary must be closed and
+shared between HGL source, descriptors and the backend-neutral runtime
+specification.
 
 ### MIG-013: library documentation and compatibility metadata
 
@@ -167,9 +170,9 @@ in them are not derivable from the headers and are kept:
   reference reselection, which is why the catalogue keeps it under B4.
 - Bodies proposed for `sample`, `filter_`, `dedup`, `drop`, `null_sink`,
   `pass_through`, `min_` and `max_` have graduated into compiled source.
-  `take` did not: the native node makes its input passive once the count is
-  reached, and HGL has no activation-control contract (B2). `debug_print`
-  did not: logger formatting of an arbitrary value is B5.
+  `take` now has a scalar slice using evaluation-time passivation (ADR 0010);
+  passivating a restored exhausted counter during `start` remains B2.
+  `debug_print` remains blocked: logger formatting of an arbitrary value is B5.
 
 ## Definition of migrated
 

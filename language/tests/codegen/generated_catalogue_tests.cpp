@@ -68,6 +68,16 @@ TEST_CASE("catalogue scalar bodies preserve sparse and repeated native ticks", "
                       Catch::Matchers::ContainsSubstring("mod_: division by zero"));
 }
 
+TEST_CASE("catalogue lifecycle bodies passivate exactly as the native nodes do", "[codegen][catalogue][lifecycle]") {
+    register_catalogue();
+    check_parity<standard::until_true, stdlib::until_true>(values<Bool>(false, false, true, false, true));
+    check_parity<standard::freeze, stdlib::freeze>(values<Bool>(false, false, true, false), values<Int>(1, 2, 3, 4));
+    check_parity<standard::freeze, stdlib::freeze>(values<Bool>(none, true, false), values<Int>(1, none, 3));
+    check_parity<standard::take, stdlib::take>(values<Int>(1, 2, 3, 4), Int{2});
+    check_parity<standard::take, stdlib::take>(values<Int>(1, none, 3, 4), Int{2});
+    check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
+}
+
 TEST_CASE("catalogue checked kernels raise exactly as the native operators do", "[codegen][catalogue][throws]") {
     register_catalogue();
     check_parity<scalar::pow_, stdlib::pow_>(values<Int>(2, 3, none, -2), values<Int>(10, none, 2, 3));

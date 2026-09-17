@@ -1,0 +1,95 @@
+# Runtime lifecycle capabilities: the node scheduler, the evaluation clock,
+# and input activity (ADR 0010).
+
+module examples.lifecycle_capabilities
+
+# A scheduler-driven source. It has no temporal input: the start block asks
+# for evaluation in the starting cycle, and each evaluation schedules the
+# next one until the count is reached. `when scheduled()` runs only on the
+# node's own alarm; with no `modified(...)` in any handler the activation set
+# is explicitly empty.
+export fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
+    state ticks: i64 = 0
+    inject scheduler
+
+    start {
+        if ticks < max_ticks {
+            scheduler.schedule(0s)
+        }
+    }
+
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay)
+        }
+        return ticks
+    }
+}
+
+# Input activity: forward the first `count` ticks, then stop listening to the
+# input. The input keeps its value and validity; it just no longer activates
+# this node.
+export fn first_ticks(value: i64, const count: i64) -> i64 {
+    state seen: i64 = 0
+
+    when modified(value) && valid(value) {
+        if seen >= count {
+            passivate(value)
+        } else {
+            seen += 1
+            if seen >= count {
+                passivate(value)
+            }
+            return value
+        }
+    }
+}
+
+# The evaluation clock reads the engine's current evaluation time.
+export fn stamped(value: i64) -> datetime {
+    inject clock
+
+    when modified(value) && valid(value) {
+        return clock.evaluation_time()
+    }
+}
+
+# A bare handler has an implicit modified() predicate. With no inputs it
+# never fires, even when start requests an evaluation.
+export fn dormant() -> bool {
+    inject scheduler
+    start { scheduler.schedule(0s) }
+    when { return true }
+}
+
+# Only the alarm activates this node; sample remains passive between alarms.
+export fn scheduled_sample(sample: i64, const delay: duration) -> i64 {
+    inject clock, scheduler
+    start { scheduler.schedule(delay) }
+    when scheduled() {
+        if scheduler.is_scheduled() {
+            return sample
+        }
+    }
+}
+
+# The control input wakes the node to resume listening to value.
+export fn controlled(value: i64, enabled: bool) -> i64 {
+    when modified(enabled) && valid(enabled) {
+        if enabled {
+            activate(value)
+        } else {
+            passivate(value)
+        }
+    }
+    when modified(value) && valid(value, enabled) && enabled { return value }
+}
+
+# Absolute scheduling and capability result types are compiled, not merely
+# accepted by hgl check.
+export fn at_time(const alarm: datetime) -> datetime {
+    inject clock, scheduler
+    start { scheduler.schedule_at(alarm, false) }
+    when scheduled() { return clock.evaluation_time() }
+}

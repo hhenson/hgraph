@@ -348,6 +348,8 @@ hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hg
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
+hgl_add_module(hgl_lifecycle_fixture STATIC HGL ../examples/lifecycle-capabilities.hgl)
+hgl_apply_warnings(hgl_lifecycle_fixture)
 hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
 add_library(hgl_native_scalar_dependency INTERFACE)
@@ -400,6 +402,7 @@ set(_hgl_generated_test_sources
     codegen/generated_value_function_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
+    codegen/generated_lifecycle_tests.cpp
     codegen/generated_core_native_tests.cpp
     codegen/generated_standard_library_tests.cpp
     codegen/generated_catalogue_tests.cpp
@@ -417,6 +420,7 @@ set(_hgl_generated_test_libraries
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
+    hgl_lifecycle_fixture
     hgl_reference_fixture
     hgl_native_scalar_import_fixture
     hgl_inline_native_consumer_fixture

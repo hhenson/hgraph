@@ -96,23 +96,32 @@ namespace hgraph_::std_
         // stream.hgl:8
         using filter_ = hgraph::Operator<"hgraph.std.filter_", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
                                          hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:170
+        // stream.hgl:9
+        using take = hgraph::Operator<"hgraph.std.take", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Scalar<"count", hgraph::Int>,
+                                      hgraph::Out<hgraph::TsVar<"T">>>;
+        // stream.hgl:10
+        using freeze = hgraph::Operator<"hgraph.std.freeze", hgraph::In<"predicate", hgraph::TS<hgraph::Bool>>,
+                                        hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
+        // stream.hgl:11
+        using until_true = hgraph::Operator<"hgraph.std.until_true", hgraph::In<"ts", hgraph::TS<hgraph::Bool>>,
+                                            hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+        // stream.hgl:235
         using dedup_float =
             hgraph::Operator<"hgraph.std.dedup_float", hgraph::In<"ts", hgraph::TS<hgraph::Float>>,
                              hgraph::In<"abs_tol", hgraph::TS<hgraph::Float>>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:183
+        // stream.hgl:248
         using sum = hgraph::Operator<"hgraph.std.sum", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:184
+        // stream.hgl:249
         using sum_reset = hgraph::Operator<"hgraph.std.sum_reset", hgraph::In<"ts", hgraph::TsVar<"T">>,
                                            hgraph::In<"reset", hgraph::TS<hgraph::Bool>>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:185
+        // stream.hgl:250
         using mean =
             hgraph::Operator<"hgraph.std.mean", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:186
+        // stream.hgl:251
         using min_ = hgraph::Operator<"hgraph.std.min_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:187
+        // stream.hgl:252
         using max_ = hgraph::Operator<"hgraph.std.max_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:370
+        // stream.hgl:435
         using tick_count =
             hgraph::Operator<"hgraph.std.tick_count", hgraph::In<"ts", hgraph::SIGNAL>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
         // temporal.hgl:4

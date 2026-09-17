@@ -912,15 +912,19 @@
       ]
     },
     "freeze": {
-      "status": "blocked",
+      "status": "implemented-slice",
       "priority": 1,
-      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-      "completed_domains": [],
+      "reason": "Eight scalar domains: forward until the predicate is true, then passivate both inputs (ADR 0010). Remaining: structural delta forwarding and the callable-predicate compositions.",
+      "completed_domains": [
+        "Eight scalar domains with passivation on the predicate."
+      ],
       "blockers": [
-        "B2"
+        "B4",
+        "B6"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/stream.h"
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "from_data_frame": {
@@ -2207,13 +2211,14 @@
     "schedule": {
       "status": "blocked",
       "priority": 1,
-      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "reason": "Clock and scheduler capabilities are available (ADR 0010), but the native schedule counter uses non-recordable State<Int>. HGL state is recordable; cache declarations and positive-delay validation in start remain required before a parity implementation can be admitted.",
       "completed_domains": [],
       "blockers": [
         "B2"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/stream.h"
+        "include/hgraph/lib/std/operators/impl/stream_impl.h",
+        "language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md"
       ]
     },
     "second": {
@@ -2415,15 +2420,19 @@
       ]
     },
     "take": {
-      "status": "blocked",
+      "status": "implemented-slice",
       "priority": 1,
-      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-      "completed_domains": [],
+      "reason": "Eight scalar domains with `passivate` once the count is reached (ADR 0010). Remaining: structural delta forwarding, the reset and by-time overloads, and passivating a restored exhausted counter in `start` (a start block cannot reach the inputs).",
+      "completed_domains": [
+        "Eight scalar domains with passivation at the count."
+      ],
       "blockers": [
-        "B2"
+        "B2",
+        "B4"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/stream.h"
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "temporal_bucket": {
@@ -2657,15 +2666,18 @@
       ]
     },
     "until_true": {
-      "status": "blocked",
+      "status": "implemented-slice",
       "priority": 1,
-      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-      "completed_domains": [],
+      "reason": "Boolean body that passivates its input once true (ADR 0010). Remaining: the value-callable and wired-function predicate overloads.",
+      "completed_domains": [
+        "Boolean body with passivation once true."
+      ],
       "blockers": [
-        "B2"
+        "B6"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/stream.h"
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "valid": {
@@ -2767,9 +2779,9 @@
     },
     "B2": {
       "priority": 1,
-      "summary": "Lifecycle and activation: startup output/schedule_on_start, mutable input activity, scheduler/clock and external resource ownership are not all admitted in runtime HGL. Emission-only imitations would lose native behavior.",
+      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector (explicitly empty activation set, scheduler-driven sources) and passivate/activate are admitted (ADR 0010). Still missing: buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
       "evidence": [
-        "language/docs/design/roadmap.md",
+        "language/docs/design/decisions/0010-lifecycle-capabilities.md",
         "include/hgraph/lib/std/operators/impl/stream_impl.h",
         "include/hgraph/lib/std/operators/impl/control_impl.h"
       ]

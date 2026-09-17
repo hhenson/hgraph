@@ -2390,18 +2390,77 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
                                  "    when modified(value) { out = value }\n"
                                  "}\n")
               .find("injectable: 'banana' is not an approved runtime capability") != std::string::npos);
-    CHECK(completion_diagnostics("module checks.inject_clock\n"
+    // ADR 0010: clock and scheduler are implemented capabilities.
+    CHECK(completes("module checks.inject_clock\n"
+                    "fn f(value: f64) -> f64 {\n"
+                    "    inject out, clock, scheduler\n"
+                    "    when modified(value) { if clock.evaluation_time() > @2020-01-01T00:00Z { out = value } }\n"
+                    "    when scheduled() {\n"
+                    "        scheduler.schedule(1s)\n"
+                    "        passivate(value)\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.scheduled_needs_scheduler\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when scheduled() { out = value }\n"
+                                 "}\n")
+              .find("injectable: 'scheduled' requires 'inject scheduler'") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.scheduled_outside_when\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, scheduler\n"
+                                 "    when modified(value) { if scheduled() { out = value } }\n"
+                                 "}\n")
+              .find("'scheduled' is only valid in a function-level 'when' condition") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.passivate_projection\n"
+                                 "fn f(value: map<str, f64>) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) { passivate(key_set(value)) }\n"
+                                 "}\n")
+              .find("'passivate' takes a temporal parameter of this function, not a projection") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.scheduler_method\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, scheduler\n"
+                                 "    when modified(value) { scheduler.schedule(1) }\n"
+                                 "}\n")
+              .find("scheduler.schedule delay") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.clock_method\n"
                                  "fn f(value: f64) -> f64 {\n"
                                  "    inject out, clock\n"
-                                 "    when modified(value) { out = value }\n"
+                                 "    when modified(value) { out = clock.wall() }\n"
                                  "}\n")
-              .find("injectable: the 'clock' injectable is agreed but not implemented yet") != std::string::npos);
+              .find("'clock.wall' is not a capability method") != std::string::npos);
     CHECK(completion_diagnostics("module checks.inject_outputless\n"
                                  "fn f(value: f64) {\n"
                                  "    inject out\n"
                                  "    when modified(value) { out = value }\n"
                                  "}\n")
               .find("injectable: 'out' requires a function output") != std::string::npos);
+}
+
+TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lifecycle]") {
+    CHECK(completion_diagnostics("module checks.unscheduled_source\n"
+                                 "fn source(const value: i64) -> i64 { when { return value } }\n")
+              .find("injectable: a runtime function without temporal parameters must 'inject scheduler'") != std::string::npos);
+    CHECK(completes("module checks.scheduled_source\n"
+                    "fn source() -> bool {\n"
+                    "    inject scheduler\n"
+                    "    start { scheduler.schedule(0s) }\n"
+                    "    when scheduled() { return true }\n"
+                    "}\n"));
+}
+
+TEST_CASE("typed HIR rejects input activity in lifecycle hooks", "[ir][typed][lifecycle]") {
+    for (const std::string hook : {"start", "stop"}) {
+        for (const std::string operation : {"passivate", "activate"}) {
+            const std::string source = "module checks.activity_hook\n"
+                                       "fn f(value: i64) -> i64 {\n    " + hook + " { " + operation +
+                                       "(value) }\n    when { return value }\n}\n";
+            INFO(source);
+            CHECK(completion_diagnostics(source).find("phase: '" + operation +
+                  "' needs temporal inputs, which are unavailable during " + hook) != std::string::npos);
+        }
+    }
 }
 
 TEST_CASE("typed HIR constrains functional output mutations", "[ir][typed][collection][mutation]") {
