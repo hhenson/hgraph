@@ -28,6 +28,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <unordered_map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,17 +57,22 @@ namespace hgraph
       public:
         using WriteFn = void (*)(const BinaryConverter &, const ValueView &, std::string &);
         using ReadFn  = Value (*)(const BinaryConverter &, BinaryReader &);
+        using HashFn = std::uint64_t (*)(const BinaryConverter &, const ValueView &);
 
         void write(const ValueView &view, std::string &out) const { write_(*this, view, out); }
         [[nodiscard]] Value read(BinaryReader &reader) const { return read_(*this, reader); }
 
         WriteFn                              write_{nullptr};
         ReadFn                               read_{nullptr};
+        HashFn                               hash_{nullptr};
         const ValueTypeMetaData             *meta{nullptr};
         ValueTypeRef                         binding{nullptr};
         /** Byte width of a trivially copyable atom; 0 when not one. */
         std::size_t                          atom_size{0};
+        bool                                 realization_bound{false};
         std::vector<const BinaryConverter *> children{};   ///< element / (key, value) / fields
+        std::unordered_map<const ValueTypeMetaData *, const BinaryConverter *> write_alternatives{};
+        std::unordered_map<std::string_view, const BinaryConverter *> read_alternatives{};
     };
 
     /**
@@ -75,6 +82,30 @@ namespace hgraph
      * keeps the result.
      */
     [[nodiscard]] HGRAPH_EXPORT const BinaryConverter &binary_converter(const ValueTypeMetaData *meta);
+
+    /** Immutable, run-owned binary plan. Captures closed Bundle alternatives
+     * and retains the realization that owns their storage bindings. Resolve
+     * once at wiring/start and use its lock-free read/write methods per tick.
+     */
+    class HGRAPH_CLASS_EXPORT BoundBinaryConverter
+    {
+      public:
+        BoundBinaryConverter() noexcept = default;
+        [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
+        [[nodiscard]] ValueTypeRef binding() const noexcept;
+        /** Stable process-independent hash for worker assignment. */
+        [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
+        void write(const ValueView &view, std::string &out) const;
+        [[nodiscard]] Value read(BinaryReader &reader) const;
+
+      private:
+        struct Impl;
+        explicit BoundBinaryConverter(std::shared_ptr<const Impl> impl) : impl_(std::move(impl)) {}
+        std::shared_ptr<const Impl> impl_{};
+        friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+    };
+
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
 
     /** Clear the interned converters (registry reset). */
     HGRAPH_EXPORT void clear_binary_converters() noexcept;

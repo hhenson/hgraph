@@ -124,6 +124,27 @@ namespace hgraph_test
      */
     inline constexpr const char *awkward_recipe_name = "hgraph test recipe \"with\" spaces";
 
+    using PreparedRow = TSB<"DistributedPreparedRow", Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
+
+    struct PreparedAdd
+    {
+        static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<Int>> rhs,
+                         In<"offset", TS<Int>> offset, Out<TS<Int>> out)
+        { out.set(lhs.value() + rhs.value() + offset.value()); }
+    };
+    struct PreparedKeyOnly
+    {
+        static void eval(In<"key", TS<Str>> key, Out<TS<Str>> out)
+        { out.set(key.value() + "!"); }
+    };
+    struct PreparedBundleIdentity
+    {
+        static Port<PreparedRow> compose(Wiring &, Port<PreparedRow> value) { return value; }
+    };
+    inline constexpr const char *prepared_add_name = "prepared: add \"quoted\"";
+    inline constexpr const char *prepared_keys_name = "prepared: keys";
+    inline constexpr const char *prepared_bundle_name = "prepared: bundle";
+
     /** Register what a worker process may be asked to build. */
     void register_distributed_test_recipes();
 }  // namespace hgraph_test

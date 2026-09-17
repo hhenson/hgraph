@@ -33,6 +33,19 @@ def _active_global_state():
             "compatibility surface that is removed in 1.0."
         )
     return state
+def _with_worker_wiring_state(state, callback, *args):
+    """Bind graph injectables to a callback-scoped native worker seed."""
+    previous = getattr(_global_state_local, "state", None)
+    _global_state_local.state = state
+    try:
+        return callback(*args)
+    finally:
+        if previous is None:
+            del _global_state_local.state
+        else:
+            _global_state_local.state = previous
+
+
 _GLOBAL_MISSING = object()
 _GRAPH_LOGGER_KEY = "__hgraph_graph_logger__"
 _GRAPH_LOGGER_FORMATTER_KEY = "__hgraph_graph_logger_formatter__"

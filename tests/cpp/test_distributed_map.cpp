@@ -711,9 +711,11 @@ namespace {
 struct PreparedMapGraph {
     static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> masks) {
         auto input = wire<Spread>(w, masks);
-        auto plan = prepare_distributed_map(fn<RunningTotalG>(), input.erased().schema);
-        plan.config.hosting = WorkerHosting::InProcess;
-        plan.config.workers = 3;
+        WorkerPoolConfig config;
+        config.hosting = WorkerHosting::InProcess;
+        config.workers = 3;
+        const DistributedMapInput descriptor{input.erased().schema};
+        auto plan = prepare_distributed_map_pool(fn<RunningTotalG>(), {&descriptor, 1}, {}, config);
         auto out = wire_distributed_map(w, input.erased(),
             std::make_shared<const DistributedMapPlan>(std::move(plan)));
         return wire<Digest>(w, out);
@@ -726,4 +728,61 @@ TEST_CASE("dmap_: prepared native wiring shares the worker pool semantics") {
     stdlib::register_standard_operators();
     auto actual = eval_node<PreparedMapGraph>(values<Int>(1, 3, 1));
     CHECK(actual == std::vector<std::optional<Int>>{1, 6, 7});
+}
+
+namespace
+{
+    struct InvalidateMappedValue
+    {
+        static void eval(In<"value", TS<Int>> value, DateTime now, Out<TS<Int>> out)
+        {
+            if (value.value() >= 0) out.set(value.value());
+            else
+            {
+                auto mutation = out.begin_mutation(now);
+                static_cast<void>(mutation.invalidate());
+            }
+        }
+    };
+
+    struct ObserveMappedListValidity
+    {
+        static void eval(In<"list", TSL<TS<Int>, 1>, InputValidity::Unchecked> list,
+                         Out<TS<Str>> out)
+        {
+            out.set(list[0].valid() ? std::to_string(list[0].value()) : Str{"invalid"});
+        }
+    };
+
+    template <bool Distributed>
+    struct FixedListInvalidationGraph
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TSL<TS<Int>, 1>> input)
+        {
+            Port<TSL<TS<Int>, 1>> result;
+            if constexpr (Distributed)
+            {
+                const DistributedMapInput descriptor{input.erased().schema};
+                WorkerPoolConfig config;
+                config.hosting = WorkerHosting::InProcess;
+                config.workers = 3;
+                auto plan = prepare_distributed_map_pool(fn<InvalidateMappedValue>(), {&descriptor, 1}, {}, config);
+                result = wire_distributed_map(w, input.erased(),
+                    std::make_shared<const DistributedMapPlan>(std::move(plan))).as<TSL<TS<Int>, 1>>();
+            }
+            else result = wire<stdlib::map_>(w, fn<InvalidateMappedValue>(), input).template as<TSL<TS<Int>, 1>>();
+            return wire<ObserveMappedListValidity>(w, result);
+        }
+    };
+}
+
+TEST_CASE("dmap_: fixed list transports final-child invalidation and recovery")
+{
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(list_delta<TS<Int>>({10}), list_delta<TS<Int>>({-1}),
+                                     list_delta<TS<Int>>({20}));
+    const auto expected = eval_node<FixedListInvalidationGraph<false>>(input);
+    CHECK_OUTPUT(expected, values<Str>("10", "invalid", "20"));
+    CHECK_OUTPUT(eval_node<FixedListInvalidationGraph<true>>(input), expected);
 }

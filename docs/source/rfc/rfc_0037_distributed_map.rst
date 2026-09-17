@@ -570,16 +570,15 @@ only a *name*:
   time from values only the caller has, such as a Python closure or lambda,
   cannot be reconstructed. Importable module-level Python callables are
   supported by the Python bootstrap described above.
-* The child takes **no wiring-time configuration**. A recipe reconstructs the
-  child from its type alone, so a kernel parameterised by a scalar the caller
-  chose has no way to receive it; the parameter must be part of the type, or
-  travel as a time series. v1 also passes exactly one multiplexed ``TSD``
-  input and no broadcast arguments.
+* The original registered scalar-only recipe reconstructs a child from its
+  type alone. Prepared recipes extend that contract with an explicit partition
+  group/count. The Python bootstrap also transports portable scalar
+  configuration and schema descriptors, supporting named/multiple inputs and
+  broadcasts without transporting executable code.
 
-These constraints preserve RFC 0022's rule that a manifest does not transport
-code. Supporting caller-selected scalar configuration would require an
-explicit bootstrap contract and agreement checks; it would not make arbitrary
-closures or live resources reconstructible.
+A manifest still does not transport code. The expanded bootstrap identifies
+importable code and immutable values; it does not make arbitrary closures or
+live resources reconstructible.
 
 A quoting note, because it cost a Windows-only failure: the name travels in
 ``argv``, and ``typeid(...).name()`` is a compact mangled string under the
@@ -897,14 +896,20 @@ worker that cannot be started and one that closes without replying.
 
 **2 (scheduling)** is covered end to end by native and Python self-scheduling
 children. **3 (prepare is a phase)** is moot: staging through a source node
-removed the need for a prepare phase. **8 (Python)** now has an initial binding
-for one ``TSD[K, TS[V]]`` input and a scalar-TS child result, with importable
-module-level graphs/nodes reconstructed in fresh Python interpreters. The
-caller and worker share the native worker pool, binary protocol and executor;
-only bootstrap and callback adaptation are Python-specific. This is a subset
-of the full call-shape parity proposed above: multiple inputs, explicit key
-sets and custom partition policies remain future work. See
-:doc:`../user_guide/distributed_map` for the supported API and limits.
+removed the need for a prepare phase. **8 (Python)** uses the same native map
+classification, partitioned child plans, worker pool and binary transfer as
+C++. Dictionary and list mappings support named/multiple inputs, scalar
+configuration, broadcast/pass-through arguments, key controls, sinks and
+recursive time-series boundary types. Importable Python children are rebuilt
+in fresh interpreters; closures, parent resources and code serialization
+remain outside the process contract. See :doc:`../user_guide/distributed_map`
+for the public API and process constraints.
+
+The expanded boundary protocol preserves invalid dictionary membership,
+partial structures, list extent and window history. It supersedes the
+canonical-delta-only transfer for prepared plans. Legacy scalar-only native
+recipes retain their original transfer API and its documented invalid-key
+limitation; new clients should use prepared plans.
 
 **9 (benchmarks)** is done: the native crossover is measured and the raw JSON
 committed (see *Performance and memory*). Those native timings do not measure

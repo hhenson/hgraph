@@ -5,6 +5,12 @@
 // wrong value in a child graph rather than as a decode error.
 
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/frame.h>
+#include <hgraph/types/series.h>
+#include <hgraph/types/temporal.h>
+#include <arrow/api.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
@@ -142,6 +148,9 @@ TEST_CASE("binary codec: temporal and composite boundary values round trip")
 {
     check_atom(DateTime{TimeDelta{123456}});
     check_atom(TimeDelta{7654});
+    check_atom(Time{});
+    check_atom(Time{45'296'000'789});
+    check_atom(Time{86'399'999'999});
     auto &registry = TypeRegistry::instance();
     const auto *integer = registry.register_scalar<Int>("int");
     const auto *text = registry.register_scalar<Str>("str");
@@ -158,4 +167,224 @@ TEST_CASE("binary codec: temporal and composite boundary values round trip")
     MapBuilder map{registry.scalar_type<Str>(), registry.scalar_type<Int>()};
     map.set_item(Value{Str{"key"}}.view(), Value{Int{8}}.view());
     check_round_trip(map.build());
+}
+
+TEST_CASE("binary codec: named time zones use names rather than process handles")
+{
+    const ZoneId zone{"Europe/London"};
+    check_atom(zone);
+    check_atom(ZoneId{});
+    const auto bytes = to_binary_string(Value{zone}.view());
+    CHECK(bytes.find("Europe/London") != std::string::npos);
+    const auto zoned = ZonedDateTime::from_resolved(Instant{Duration{1234567}}, zone, 3600);
+    check_atom(zoned);
+    check_atom(ZonedDateTime{});
+    CHECK(to_binary_string(Value{zoned}.view()).find("Europe/London") != std::string::npos);
+}
+
+TEST_CASE("binary codec: Frame and Series IPC owns decoded data and preserves Arrow metadata")
+{
+    arrow::Int64Builder builder;
+    REQUIRE(builder.Append(42).ok());
+    REQUIRE(builder.AppendNull().ok());
+    REQUIRE(builder.Append(-7).ok());
+    const auto array = builder.Finish().ValueOrDie();
+    const auto schema = arrow::schema({arrow::field("value", arrow::int64())},
+                                      arrow::key_value_metadata({"client"}, {"retained"}));
+    const Frame frame{arrow::Table::Make(schema, {std::make_shared<arrow::ChunkedArray>(array)})};
+    Value decoded;
+    {
+        auto bytes = to_binary_string(Value{frame}.view());
+        decoded = from_binary_string(scalar_descriptor<Frame>::value_meta(), bytes);
+        bytes.assign(bytes.size(), 'x');
+    }
+    REQUIRE(decoded.view().checked_as<Frame>().table);
+    CHECK(decoded.view().checked_as<Frame>().table->Equals(*frame.table, true));
+    const auto series = from_binary_string(scalar_descriptor<Series>::value_meta(),
+                                          to_binary_string(Value{Series{array}}.view()));
+    REQUIRE(series.view().checked_as<Series>().array);
+    CHECK(series.view().checked_as<Series>().array->Equals(array));
+    CHECK_FALSE(from_binary_string(scalar_descriptor<Frame>::value_meta(),
+                                  to_binary_string(Value{Frame{}}.view())).view().checked_as<Frame>().has_value());
+    CHECK_FALSE(from_binary_string(scalar_descriptor<Series>::value_meta(),
+                                  to_binary_string(Value{Series{}}.view())).view().checked_as<Series>().has_value());
+    const Series empty{arrow::MakeArrayOfNull(arrow::int64(), 0).ValueOrDie()};
+    const auto empty_decoded = from_binary_string(scalar_descriptor<Series>::value_meta(),
+                                                  to_binary_string(Value{empty}.view()));
+    REQUIRE(empty_decoded.view().checked_as<Series>().array);
+    CHECK(empty_decoded.view().checked_as<Series>().array->length() == 0);
+}
+
+TEST_CASE("binary codec: typed Frame and Series retain their declared schemas")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *rows = registry.bundle("BinaryFrameRow", {{"value", scalar_descriptor<Int>::value_meta()}});
+    const auto *schema = registry.frame(rows);
+    arrow::Int64Builder builder;
+    REQUIRE(builder.Append(9).ok());
+    const auto array = builder.Finish().ValueOrDie();
+    const Frame frame{arrow::Table::Make(arrow::schema({arrow::field("value", arrow::int64())}),
+                                       {std::make_shared<arrow::ChunkedArray>(array)})};
+    const Value value{ValuePlanFactory::instance().type_for(schema), &frame};
+    const auto decoded = from_binary_string(schema, to_binary_string(value.view()));
+    CHECK(decoded.schema() == schema);
+    CHECK(decoded.view().checked_as<Frame>().table->Equals(*frame.table));
+    const auto *series_schema = registry.series(scalar_descriptor<Int>::value_meta());
+    const Series series{array};
+    const Value typed_series{ValuePlanFactory::instance().type_for(series_schema), &series};
+    const auto decoded_series = from_binary_string(series_schema, to_binary_string(typed_series.view()));
+    CHECK(decoded_series.schema() == series_schema);
+    CHECK(decoded_series.view().checked_as<Series>().array->Equals(array));
+}
+
+TEST_CASE("binary codec: nullable list and map values preserve unset entries")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto integer = registry.scalar_type<Int>();
+    const auto *nullable = registry.nullable_tuple(integer.schema());
+    ListBuilder list{integer, *nullable};
+    list.push_back(Int{1});
+    list.push_back_unset();
+    list.push_back(Int{3});
+    const auto value = list.build();
+    check_round_trip(value);
+    const auto decoded = from_binary_string(nullable, to_binary_string(value.view()));
+    CHECK_FALSE(decoded.as_list().at(1).has_value());
+    MapBuilder map{registry.scalar_type<Str>(), integer};
+    map.set_item_unset(Value{Str{"missing"}}.view());
+    map.set_item(Value{Str{"value"}}.view(), Value{Int{7}}.view());
+    check_round_trip(map.build());
+}
+
+TEST_CASE("binary codec: Owned and Shared bundles transport their values")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *plain = registry.bundle("BinaryIndirect", {{"id", scalar_descriptor<Int>::value_meta()}});
+    BundleBuilder builder{ValuePlanFactory::instance().type_for(plain)};
+    builder.set("id", Value{Int{7}});
+    const auto source = builder.build();
+    for (const auto *schema : {registry.owned(plain), registry.shared(plain)})
+    {
+        const auto binding = ValuePlanFactory::instance().type_for(schema);
+        const Value value{binding, source.view()};
+        const auto decoded = from_binary_string(schema, to_binary_string(value.view()));
+        CHECK(decoded.as_bundle()["id"].checked_as<Int>() == 7);
+        CHECK(decoded.view().concrete().data() != value.view().concrete().data());
+    }
+}
+
+TEST_CASE("binary codec: queues and rotated ring buffers preserve logical order")
+{
+    const auto integer = TypeRegistry::instance().scalar_type<Int>();
+    CyclicBufferBuilder ring{integer, 2};
+    ring.push_back(Int{1});
+    ring.push_back(Int{2});
+    ring.push_back(Int{3});
+    check_round_trip(ring.build());
+    QueueBuilder queue{integer, 3};
+    queue.push(Int{10});
+    queue.push(Int{20});
+    check_round_trip(queue.build());
+}
+
+TEST_CASE("binary codec: bound plans retain separate closed Bundle realizations")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *text = scalar_descriptor<Str>::value_meta();
+    const auto *base = registry.bundle("binary.test", "Base", {{"id", integer}}, {}, true);
+    const auto *first = registry.bundle("binary.test", "First", {{"id", integer}, {"label", text}}, {base});
+    auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    BoundBinaryConverter first_plan;
+    {
+        const TypeRealizationScope scope{first_snapshot.get()};
+        first_plan = bind_binary_converter(base);
+    }
+    const auto *second = registry.bundle("binary.test", "Second", {{"id", integer}, {"quantity", integer}}, {base});
+    auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+    BoundBinaryConverter second_plan;
+    {
+        const TypeRealizationScope scope{second_snapshot.get()};
+        second_plan = bind_binary_converter(base);
+    }
+    BundleBuilder first_builder{first_snapshot->exact_type_for(first)};
+    first_builder.set("id", Value{Int{7}});
+    first_builder.set("label", Value{Str{"complete derived payload"}});
+    const auto first_value = first_builder.build();
+    BundleBuilder second_builder{second_snapshot->exact_type_for(second)};
+    second_builder.set("id", Value{Int{8}});
+    second_builder.set("quantity", Value{Int{99}});
+    const auto second_value = second_builder.build();
+    std::string first_bytes;
+    first_plan.write(first_value.view(), first_bytes);
+    BinaryReader first_reader{first_bytes};
+    auto first_decoded = second_plan.read(first_reader);
+    CHECK(first_decoded.view().concrete().schema() == first);
+    CHECK(first_decoded.view().concrete().as_bundle()["label"].checked_as<Str>() == "complete derived payload");
+    std::string second_bytes;
+    second_plan.write(second_value.view(), second_bytes);
+    BinaryReader second_reader{second_bytes};
+    CHECK_THROWS_WITH(first_plan.read(second_reader), Catch::Matchers::ContainsSubstring("captured realization"));
+    CHECK_THROWS_WITH(first_plan.write(second_value.view(), first_bytes), Catch::Matchers::ContainsSubstring("captured realization"));
+    const auto locks_before = type_system_lock_count();
+    for (int i = 0; i < 8; ++i)
+    {
+        std::string bytes;
+        second_plan.write(second_value.view(), bytes);
+        BinaryReader reader{bytes};
+        const auto decoded = second_plan.read(reader);
+        const auto quantity = decoded.view().concrete().as_bundle()["quantity"].checked_as<Int>();
+        CHECK(quantity == 99);
+    }
+    CHECK(type_system_lock_count() == locks_before);
+    CHECK(binary_converter(base).binding == ValuePlanFactory::instance().type_for(base));
+}
+
+TEST_CASE("binary codec: portable hashes ignore container insertion order and floating zero sign")
+{
+    const auto integer = TypeRegistry::instance().scalar_type<Int>();
+    SetBuilder left{integer};
+    SetBuilder right{integer};
+    for (const Int item : {1, 2, 3}) left.insert(Value{item}.view());
+    for (const Int item : {3, 2, 1}) right.insert(Value{item}.view());
+    const auto a = left.build();
+    const auto b = right.build();
+    const auto set_codec = bind_binary_converter(a.schema());
+    CHECK(a.view() == b.view());
+    CHECK(set_codec.portable_hash(a.view()) == set_codec.portable_hash(b.view()));
+    MapBuilder first{integer, integer};
+    MapBuilder second{integer, integer};
+    for (const Int item : {1, 2, 3}) first.set_item(Value{item}.view(), Value{item * 2}.view());
+    for (const Int item : {3, 2, 1}) second.set_item(Value{item}.view(), Value{item * 2}.view());
+    const auto first_map = first.build();
+    const auto second_map = second.build();
+    const auto map_codec = bind_binary_converter(first_map.schema());
+    CHECK(map_codec.portable_hash(first_map.view()) == map_codec.portable_hash(second_map.view()));
+    const auto floats = bind_binary_converter(scalar_descriptor<Float>::value_meta());
+    CHECK(floats.portable_hash(Value{Float{0.0}}.view()) == floats.portable_hash(Value{Float{-0.0}}.view()));
+    const auto zone = Value{ZoneId{"Europe/London"}};
+    const auto zones = bind_binary_converter(zone.schema());
+    std::uint64_t name_hash = 14695981039346656037ULL;
+    for (const unsigned char character : std::string_view{"Europe/London"})
+        name_hash = (name_hash ^ character) * 1099511628211ULL;
+    CHECK(zones.portable_hash(zone.view()) == name_hash);
+}
+
+TEST_CASE("binary codec: temporal ranges encode semantic endpoints without padding")
+{
+    const auto start = Instant{Duration{100}};
+    const auto end = Instant{Duration{200}};
+    check_atom(InstantRange{});
+    check_atom(InstantRange::all());
+    check_atom(InstantRange::from(start));
+    check_atom(InstantRange::until(end, Boundary::Closed));
+    check_atom(InstantRange::bounded(start, end, Boundary::Open, Boundary::Closed));
+    check_atom(InstantRangeSet{InstantRange::bounded(start, end)});
+    check_atom(CivilDateRange::all());
+    check_atom(CivilDateRangeSet{});
+    CHECK(to_binary_string(Value{InstantRange{}}.view()).size() == 1);
+    const auto ranges = bind_binary_converter(scalar_descriptor<InstantRange>::value_meta());
+    const auto value = Value{InstantRange::bounded(start, end)};
+    const auto decoded = from_binary_string(value.schema(), to_binary_string(value.view()));
+    CHECK(ranges.portable_hash(value.view()) == ranges.portable_hash(decoded.view()));
 }

@@ -26,6 +26,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/distributed_protocol.h>
+#include <hgraph/runtime/distributed_boundary.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/graph.h>
@@ -36,6 +37,14 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<distributed::BoundaryTransferPtr>
+    {
+        static constexpr std::string_view value{"hgraph.distributed.boundary_transfer"};
+    };
+}
 
 namespace hgraph::distributed
 {
@@ -82,6 +91,34 @@ namespace hgraph::distributed
             Value delta = capture_delta(ts.base());
             if (!delta_is_observable(ts.base(), delta.view())) { return; }
             gs.set(slot.value(), std::move(delta));
+        }
+    };
+
+    /** Lossless materialized transport, selected once at wiring time. */
+    struct HGRAPH_CLASS_EXPORT boundary_transfer_source_impl
+    {
+        static constexpr auto name = boundary_source_name;
+        static void eval(Scalar<"slot", Str> slot, Scalar<"transfer", BoundaryTransferPtr> transfer,
+                         TypeArg<"tp", TsVar<"S">, AutoResolve>, GlobalStateView gs, Out<TsVar<"S">> out)
+        {
+            const auto staged = gs.get(slot.value());
+            if (!staged.has_value()) return;
+            transfer.value()->apply(out, staged);
+            gs.erase(slot.value());
+        }
+    };
+
+    struct HGRAPH_CLASS_EXPORT boundary_transfer_sink_impl
+    {
+        static constexpr auto name = boundary_sink_name;
+        static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Scalar<"slot", Str> slot,
+                         Scalar<"transfer", BoundaryTransferPtr> transfer,
+                         Scalar<"group", Int> group, Scalar<"groups", Int> groups,
+                         TypeArg<"tp", TsVar<"S">, AutoResolve>, GlobalStateView gs)
+        {
+            if (!ts.modified()) return;
+            gs.set(slot.value(), transfer.value()->capture(ts.base(), false,
+                static_cast<std::size_t>(group.value()), static_cast<std::size_t>(groups.value())));
         }
     };
 

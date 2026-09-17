@@ -303,7 +303,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
         user_callable=gfn)
 
 
-def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
+def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_observer=None):
     """Bind wiring-time scalar parameters into a Python mapped callable.
 
     Native nested graphs expose only time-series boundaries. Python scalar
@@ -331,7 +331,7 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
             inspect.Parameter.VAR_KEYWORD) for parameter in parameters):
         return _as_wired(func), args, kwargs
 
-    key_arg = kwargs.get("__key_arg__") or default_key_arg
+    key_arg = kwargs.get("__key_arg__", default_key_arg)
     takes_key = bool(parameters and parameters[0].name == key_arg)
     call_parameters = parameters[1:] if takes_key else parameters
     callable_signature = signature.replace(parameters=call_parameters)
@@ -374,6 +374,8 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         name: value for name, value in kwargs.items()
         if name.startswith("__")
     }
+    if binding_observer is not None:
+        binding_observer(tuple(input_names), scalar_bindings)
     wrapped = None
     cache = (_wired_fn_cache(func)
              if hasattr(func, "_wired_fn_cache") else None)

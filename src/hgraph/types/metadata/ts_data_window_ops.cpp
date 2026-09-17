@@ -848,6 +848,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.full_impl        = nullptr;
                 ops.push_impl        = &window_push;
                 ops.clear_impl       = &window_clear;
+                ops.replace_samples_impl = &window_replace_samples;
                 ops.cleared_time_impl = &window_cleared_time;
                 ops.evicted_time_impl    = &window_evicted_time;
                 ops.evicted_element_impl = &window_evicted_element;
@@ -1080,6 +1081,39 @@ namespace hgraph::ts_data_plan_factory_detail
             static void window_clear(const void *context, void *memory, DateTime modified_time)
             {
                 storage<Storage>(window_mutable_value_memory(context, memory)).clear_values(modified_time);
+            }
+
+            static void window_replace_samples(const void *context, void *memory,
+                                                const ValueView &source,
+                                                std::span<const DateTime> times,
+                                                DateTime modified_time)
+            {
+                const auto *self = ctx(context);
+                if (!source.has_value() || source.schema()->value_kind() != ValueTypeKind::List ||
+                    source.schema()->element_type != self->schema->value_type)
+                    throw std::invalid_argument("TSW sample replacement requires a list of its element type");
+                const auto values = source.as_indexed_view();
+                if (values.size() != times.size())
+                    throw std::invalid_argument("TSW sample values and times disagree");
+                if constexpr (std::is_same_v<Storage, SizeTSWindowStorage>)
+                    if (values.size() > self->schema->period())
+                        throw std::invalid_argument("TSW sample replacement exceeds its period");
+                DateTime previous = MIN_DT;
+                for (std::size_t index = 0; index < times.size(); ++index)
+                {
+                    if (!values.at(index).has_value() || times[index] == MIN_DT || times[index] < previous ||
+                        times[index] > modified_time)
+                        throw std::invalid_argument("TSW sample replacement has invalid chronological samples");
+                    previous = times[index];
+                }
+                if constexpr (std::is_same_v<Storage, TimeTSWindowStorage>)
+                    if (times.size() > 1 &&
+                        static_cast<std::uint64_t>(times.back().time_since_epoch().count()) -
+                            static_cast<std::uint64_t>(times.front().time_since_epoch().count()) >
+                        static_cast<std::uint64_t>(self->schema->time_range().count()))
+                        throw std::invalid_argument("TSW sample replacement exceeds its time range");
+                storage<Storage>(window_mutable_value_memory(context, memory))
+                    .restore_checkpoint(values, times);
             }
 
             [[nodiscard]] static bool window_copy_value_from(const void *context, void *memory,

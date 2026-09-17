@@ -26,6 +26,7 @@
 #include <hgraph/runtime/executor.h>
 #include <hgraph/util/date_time.h>
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +68,36 @@ namespace hgraph::distributed
 
     /** Every registered key, sorted -- for a diagnostic that can say what IS available. */
     [[nodiscard]] HGRAPH_EXPORT std::vector<std::string> registered_worker_recipes();
+
+    /** A native prepared graph and the boundary its factory wires. */
+    struct PreparedWorkerPlan
+    {
+        GraphBuilder child{};
+        BoundarySlots slots{};
+    };
+
+    /** Program-lifetime factory for one partition of a native mapped graph.
+     * Only the registered name and partition numbers cross the process
+     * boundary. Both programs link the same factory implementation.
+     */
+    struct PreparedWorkerRecipe
+    {
+        PreparedWorkerPlan (*build)(std::size_t group, std::size_t groups){nullptr};
+        [[nodiscard]] bool valid() const noexcept { return build != nullptr; }
+    };
+
+    /** Re-registering the same function pointer is idempotent; replacing a
+     * live recipe under the same name is an error. Lookup pointers stay valid
+     * when further recipes are registered.
+     */
+    HGRAPH_EXPORT void register_prepared_worker_recipe(std::string key, PreparedWorkerRecipe recipe);
+    [[nodiscard]] HGRAPH_EXPORT const PreparedWorkerRecipe *prepared_worker_recipe(std::string_view key);
+
+    /** Encode a factory name and validated partition into the worker argv
+     * recipe field. Length-prefixing keeps arbitrary names unambiguous.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string prepared_worker_recipe_key(
+        std::string_view name, std::size_t group, std::size_t groups);
 
     /**
      * Serve cycles from ``channel`` until the caller closes it.

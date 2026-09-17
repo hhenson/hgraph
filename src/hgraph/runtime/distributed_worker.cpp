@@ -10,6 +10,7 @@
 #include <charconv>
 #include <cstdint>
 #include <optional>
+#include <map>
 #include <stdexcept>
 #include <string_view>
 
@@ -27,6 +28,55 @@ namespace hgraph::distributed
             // unable to serve anything it could serve a moment earlier.
             static RecipeTable table;
             return table;
+        }
+
+        using PreparedRecipeTable = std::map<std::string, PreparedWorkerRecipe, std::less<>>;
+
+        PreparedRecipeTable &prepared_recipes()
+        {
+            static PreparedRecipeTable table;
+            return table;
+        }
+
+        constexpr std::string_view prepared_prefix{"@hgraph-prepared:1:"};
+
+        struct PreparedSelection
+        {
+            std::string_view name;
+            std::size_t group;
+            std::size_t groups;
+        };
+
+        std::size_t partition_number(std::string_view text)
+        {
+            std::size_t value{};
+            const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+            if (text.empty() || error != std::errc{} || end != text.data() + text.size())
+                throw std::invalid_argument("distributed worker: invalid prepared recipe partition");
+            return value;
+        }
+
+        std::optional<PreparedSelection> prepared_selection(std::string_view key)
+        {
+            if (!key.starts_with(prepared_prefix)) return {};
+            key.remove_prefix(prepared_prefix.size());
+            auto separator = key.find(':');
+            if (separator == key.npos)
+                throw std::invalid_argument("distributed worker: malformed prepared recipe");
+            const auto length = partition_number(key.substr(0, separator));
+            key.remove_prefix(separator + 1);
+            if (length == 0 || length >= key.size() || key[length] != ':')
+                throw std::invalid_argument("distributed worker: malformed prepared recipe name");
+            const auto name = key.substr(0, length);
+            key.remove_prefix(length + 1);
+            separator = key.find(':');
+            if (separator == key.npos)
+                throw std::invalid_argument("distributed worker: malformed prepared recipe partition");
+            const auto group = partition_number(key.substr(0, separator));
+            const auto groups = partition_number(key.substr(separator + 1));
+            if (groups == 0 || group >= groups)
+                throw std::invalid_argument("distributed worker: invalid prepared recipe partition");
+            return PreparedSelection{name, group, groups};
         }
 
         [[nodiscard]] bool same(const WorkerRecipe &left, const WorkerRecipe &right) noexcept
@@ -90,6 +140,28 @@ namespace hgraph::distributed
         for (const auto &entry : recipes()) { keys.push_back(entry.first); }
         std::sort(keys.begin(), keys.end());
         return keys;
+    }
+
+    void register_prepared_worker_recipe(std::string key, PreparedWorkerRecipe recipe)
+    {
+        if (key.empty() || !recipe.valid())
+            throw std::invalid_argument("distributed worker: prepared recipe needs a name and factory");
+        const auto [entry, inserted] = prepared_recipes().emplace(std::move(key), recipe);
+        if (!inserted && entry->second.build != recipe.build)
+            throw std::invalid_argument("distributed worker: prepared recipe name already has a different factory");
+    }
+
+    const PreparedWorkerRecipe *prepared_worker_recipe(std::string_view key)
+    {
+        const auto entry = prepared_recipes().find(key);
+        return entry == prepared_recipes().end() ? nullptr : &entry->second;
+    }
+
+    std::string prepared_worker_recipe_key(std::string_view name, std::size_t group, std::size_t groups)
+    {
+        if (name.empty() || groups == 0 || group >= groups)
+            throw std::invalid_argument("distributed worker: invalid prepared recipe name or partition");
+        return fmt::format("{}{}:{}:{}:{}", prepared_prefix, name.size(), name, group, groups);
     }
 
     void serve_worker(PipeEndpoint &channel, const WorkerRecipe &recipe, DateTime start_time,
@@ -162,7 +234,9 @@ namespace hgraph::distributed
         if (!requested) { return false; }
 
         const WorkerRecipe *recipe = worker_recipe(key);
-        if (recipe == nullptr)
+        const auto selection = recipe == nullptr ? prepared_selection(key) : std::nullopt;
+        const auto *prepared = selection ? prepared_worker_recipe(selection->name) : nullptr;
+        if (recipe == nullptr && prepared == nullptr)
         {
             throw std::invalid_argument(fmt::format(
                 "distributed worker: no recipe named '{}' is registered in this program. The "
@@ -176,8 +250,17 @@ namespace hgraph::distributed
         }
 
         PipeEndpoint channel = PipeEndpoint::adopt(read_handle, write_handle);
-        serve_worker(channel, *recipe, DateTime{TimeDelta{start_micros}},
-                     DateTime{TimeDelta{end_micros}});
+        if (prepared != nullptr)
+        {
+            auto plan = prepared->build(selection->group, selection->groups);
+            serve_worker(channel, std::move(plan.child), plan.slots,
+                         DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}});
+        }
+        else
+        {
+            serve_worker(channel, *recipe, DateTime{TimeDelta{start_micros}},
+                         DateTime{TimeDelta{end_micros}});
+        }
         return true;
     }
 }  // namespace hgraph::distributed

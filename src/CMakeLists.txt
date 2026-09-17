@@ -4,6 +4,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/manifest/schema_descriptor.cpp
     hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
+    hgraph/runtime/distributed_boundary.cpp
     hgraph/runtime/distributed_process.cpp
     hgraph/runtime/distributed_protocol.cpp
     hgraph/runtime/distributed_transport.cpp
@@ -130,6 +131,7 @@ set(HGRAPH_WIRING_SOURCES
 )
 
 set(HGRAPH_STDLIB_SOURCES
+    hgraph/runtime/distributed_map_wiring.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp
     hgraph/lib/std/operators/arithmetic_impl.cpp

@@ -4281,7 +4281,9 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline WiringPortRef wire_fixed_map_tsl(Wiring &w, const WiredFn &func, bool takes_key,
-                                                              std::vector<WiringPortRef> ordered, bool output_required) {
+                                                              std::vector<WiringPortRef> ordered, bool output_required,
+                                                              TslMapPartition partition = {}) {
+            partition.validate();
             auto &registry = TypeRegistry::instance();
 
             // The first fixed TSL anchors the size; every same-size fixed TSL
@@ -4310,10 +4312,10 @@ namespace hgraph::stdlib
             const auto *key_ts   = registry.ts(key_meta);
 
             const TSValueTypeMetaData *empty_element_schema = nullptr;
-            if (size == 0) {
-                // No child is wired for a fixed-empty TSL, but compiling the
-                // child once against its projected schemas still validates
-                // both its inputs and whether it is a graph or sink.
+            if (partition.child_count(size) == 0) {
+                // Empty lists and workers with no assigned indices still
+                // compile the projected signature once to validate its inputs
+                // and discover the graph or sink output shape.
                 std::vector<const TSValueTypeMetaData *> schemas;
                 schemas.reserve(func.arity);
                 if (takes_key) { schemas.push_back(key_ts); }
@@ -4336,7 +4338,8 @@ namespace hgraph::stdlib
 
             std::vector<WiringPortRef> children;
             if (output_required) { children.reserve(size); }
-            for (std::size_t i = 0; i < size; ++i) {
+            for (std::size_t slot = 0; slot < partition.child_count(size); ++slot) {
+                const auto i = partition.logical_index(slot);
                 std::vector<WiringPortRef> args;
                 args.reserve(func.arity);
                 if (takes_key) {
@@ -4367,6 +4370,13 @@ namespace hgraph::stdlib
             if (!output_required) { return {}; }
             const TSValueTypeMetaData *element_schema = children.empty() ? empty_element_schema : children.front().schema;
             const auto *output_schema = registry.tsl(element_schema, size);
+            if (partition.count != 1)
+            {
+                std::vector<WiringPortRef> indexed(size, WiringPortRef::null_source(element_schema));
+                for (std::size_t slot = 0; slot < children.size(); ++slot)
+                    indexed[partition.logical_index(slot)] = std::move(children[slot]);
+                return WiringPortRef::structural_source(output_schema, std::move(indexed));
+            }
             return WiringPortRef::structural_source(output_schema, std::move(children));
         }
 
@@ -4477,7 +4487,8 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline WiringPortRef wire_dynamic_map_tsl(Wiring &w, const WiredFn &func, std::string_view key_arg,
                                                                 bool takes_index, std::vector<WiringPortRef> ordered,
-                                                                bool output_required) {
+                                                                bool output_required, TslMapPartition partition = {}) {
+            partition.validate();
             std::vector<const TSValueTypeMetaData *> ts_schemas;
             std::vector<std::uint8_t>                arg_tags;
             ts_schemas.reserve(ordered.size());
@@ -4493,6 +4504,7 @@ namespace hgraph::stdlib
             TslMapNodeSpec spec = compile_dynamic_tsl_map_child(func, takes_index, {ts_schemas.data(), ts_schemas.size()},
                                                                 {arg_tags.data(), arg_tags.size()}, output_schema, captured,
                                                                 external_services, &w);
+            spec.partition = partition;
             if ((output_schema != nullptr) != output_required) {
                 throw std::invalid_argument(output_required ? "map_: 'func' must produce an output"
                                                             : "map_sink_: 'func' must be a sink");
@@ -4526,7 +4538,7 @@ namespace hgraph::stdlib
                 {passive_materializers.data(), passive_materializers.size()});
             return w.add_node(std::type_index(typeid(dynamic_tsl_map_node_tag)), node_schema,
                               std::span<const WiringInputRef>{input_refs.data(), input_refs.size()},
-                              Value{MapCallConfig{func, Str{key_arg}, Str{}, arg_tags}}, [&]() {
+                              Value{MapCallConfig{func, Str{key_arg}, Str{}, arg_tags, partition.group, partition.count}}, [&]() {
                                   NodeTypeMetaData meta;
                                   meta.display_name  = "map_";
                                   meta.input_schema  = input_schema;
@@ -4542,7 +4554,9 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline WiringPortRef wire_map_tsl(Wiring &w, const WiredFn &func, std::string_view key_arg, bool takes_key,
-                                                        std::vector<WiringPortRef> ordered, bool output_required) {
+                                                        std::vector<WiringPortRef> ordered, bool output_required,
+                                                        TslMapPartition partition = {}) {
+            partition.validate();
             bool        found_collection = false;
             std::size_t size             = 0;
             for (const WiringPortRef &port : ordered) {
@@ -4558,8 +4572,8 @@ namespace hgraph::stdlib
                 }
             }
             if (!found_collection) { throw std::invalid_argument("map_: at least one input must be a TSL"); }
-            if (size == unbounded_tsl_size) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required); }
-            return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required);
+            if (size == unbounded_tsl_size) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required, partition); }
+            return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required, partition);
         }
 
         /** Bind the output var ``O`` for the resolver: ``TSL<OUT(func), SIZE>``. */

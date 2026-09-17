@@ -218,9 +218,16 @@ Each entry names the layer that owns the rule:
   ``time_series_value_equivalent`` (``endpoint_schema.h``) owns
   reference-transparent equivalence (RFC 0036; the count is that owner);
 * the runtime probing ``TSTypeKind::REF`` per tick, when a node's REF handling
-  mode is fixed when the node is built (held at zero since RFC 0036: a
+  mode is fixed when the node is built (RFC 0036: a
   structural hop goes through ``TSOutputView::through_reference()`` and the
-  shared-output capture reads the record its link wrote at bind);
+  shared-output capture reads the record its link wrote at bind). The one
+  counted exception is ``BoundaryTransfer::Plan`` construction in
+  ``runtime/distributed_boundary.cpp``: its exhaustive schema switch rejects
+  REF while compiling a materialized transport codec at wiring time. It does
+  not follow references or select REF behavior during capture/apply; input
+  binding owns materialization. A companion ratchet test pins this occurrence
+  to the constructor's rejection case, so the baseline of one does not allow
+  a new per-tick probe;
 * Python wiring choosing a type carrier by operator name, or keeping a shadow
   schema-to-Python-type dictionary, when the resolver and the registry own
   both (the dictionaries are gone since RFC 0033's PR C: the bridge's

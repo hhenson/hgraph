@@ -1,6 +1,5 @@
 """Bootstrap only; the native worker owns transport, execution and teardown."""
 import argparse
-import importlib
 import json
 import sys
 
@@ -16,16 +15,16 @@ def main():
         raise ValueError("worker import paths must be strings")
     sys.path[:] = paths
     recipe = json.loads(args.hgraph_worker_recipe)
-    func = importlib.import_module(recipe["module"])
-    for part in recipe["qualname"].split("."):
-        func = getattr(func, part)
-    from ._wiring._graph import _as_wired
-    from ._distributed import _load_type
-    from ._types import _value_type
+    from ._wiring._graph import _as_wired, _wrap_graph_fn
+    from ._distributed import _load_callable, _unpack_config
     import _hgraph
-    _hgraph.serve_distributed_worker(
-        _as_wired(func), _value_type(_load_type(recipe["key"])),
-        _value_type(_load_type(recipe["value"])), recipe["result"],
+    func = _load_callable(recipe)
+    if "input_names" in recipe:
+        wired = _wrap_graph_fn(func, input_names=recipe["input_names"],
+            scalar_bindings={name: _unpack_config(value) for name, value in recipe["scalars"].items()})
+    else:
+        wired = _as_wired(func)
+    _hgraph.serve_distributed_worker(wired, recipe,
         int(args.hgraph_worker_read), int(args.hgraph_worker_write),
         int(args.hgraph_worker_start), int(args.hgraph_worker_end))
 

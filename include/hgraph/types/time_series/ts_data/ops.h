@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <hgraph/types/value/value_view.h>
 #include <cstddef>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -164,6 +165,8 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool missing_window_full(const void *, const void *);
         HGRAPH_EXPORT void missing_window_push(const void *, void *, const ValueView &, DateTime);
         HGRAPH_EXPORT void missing_window_clear(const void *, void *, DateTime);
+        HGRAPH_EXPORT void missing_window_replace_samples(const void *, void *, const ValueView &,
+                                                           std::span<const DateTime>, DateTime);
 
         [[nodiscard]] Value empty_delta_atomic(const TSRoleTypeRef &binding);
         [[nodiscard]] Value empty_delta_tss(const TSRoleTypeRef &binding);
@@ -429,6 +432,14 @@ namespace hgraph
 
     struct TSDDataOps : TSSDataOps
     {
+        /** Membership deltas include keys whose children are invalid; the
+         * inherited added/removed surface describes value publication. */
+        bool (*membership_slot_added_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_slot_predicate;
+        std::size_t (*next_membership_added_slot_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_next_delta_slot;
+        std::size_t (*next_membership_removed_slot_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_next_delta_slot;
         /** True when the dictionary's structural delta window belongs to the supplied evaluation time. */
         bool (*structural_delta_current_impl)(const void *context, const void *memory,
                                               DateTime evaluation_time) =
@@ -550,6 +561,9 @@ namespace hgraph
 
     struct TSWDataOps : TSDataOps
     {
+        void (*replace_samples_impl)(const void *, void *, const ValueView &,
+                                      std::span<const DateTime>, DateTime) =
+            &ts_data_detail::missing_window_replace_samples;
         // Required window surface: defaults throw with the member's name so a
         // strategy that forgets an install fails loudly instead of crashing
         // through a null fn-ptr (audit finding, 2026-08-16).

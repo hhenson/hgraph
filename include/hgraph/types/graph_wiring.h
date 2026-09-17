@@ -822,6 +822,12 @@ namespace hgraph
     struct WiringOptions
     {
         bool is_realtime{false};
+        /** Disallow external event sources throughout this wiring tree.
+         * Externally driven workers advance solely on their caller's clock.
+         */
+        bool allow_push_sources{true};
+        /** Bind the active authoring GlobalContext; isolated workers opt out. */
+        bool inherit_global_context{true};
     };
 
     struct WiringObserverRegistry;
@@ -909,6 +915,8 @@ namespace hgraph
         [[nodiscard]] WiringKind kind() const noexcept;
         /** Whether this graph is being composed for a real-time executor. */
         [[nodiscard]] bool is_realtime() const noexcept;
+        /** Immutable composition policies, including isolated-worker restrictions. */
+        [[nodiscard]] WiringOptions options() const noexcept;
 
         /** User-facing label copied to the produced graph. */
         Wiring &label(std::string label);

@@ -1202,7 +1202,9 @@ struct Wiring::Impl {
                 std::vector<std::string> observer_path = {})
       : observers(std::move(observer_registry)),
         wiring_path(std::move(observer_path)), kind(wiring_kind),
-        is_realtime(options.is_realtime) {
+        is_realtime(options.is_realtime),
+        allow_push_sources(options.allow_push_sources),
+        inherit_global_context(options.inherit_global_context) {
     // The LIVE selected state, not a copy (ruling 2026-07-27): setters
     // invoked during wiring (set_record_replay_model, set_as_of, ...)
     // write into the selected GlobalState, and wiring-time reads must see
@@ -1215,7 +1217,7 @@ struct Wiring::Impl {
     // reads the same seed for operator resolution and realization policy;
     // child_wiring() rebinds a child to its parent's seed. A bridge seeds
     // through Wiring(GlobalState &) instead and never touches the context.
-    if (GlobalContext *context = GlobalContext::active()) {
+    if (GlobalContext *context = GlobalContext::active(); inherit_global_context && context != nullptr) {
       seed = context->seed();
       live_seeded = kind == WiringKind::TopLevel;
     }
@@ -1324,6 +1326,15 @@ struct Wiring::Impl {
   std::string graph_label{};
   WiringKind kind{WiringKind::TopLevel};
   const bool is_realtime{false};
+  const bool allow_push_sources{true};
+  const bool inherit_global_context{true};
+
+  void validate_node(const NodeBuilder &builder) const {
+    const auto *schema = builder.type().schema();
+    if (!allow_push_sources && schema != nullptr && schema->node_kind == NodeKind::PushSource) {
+      throw std::invalid_argument("Wiring: push sources are disabled for this graph and its nested children");
+    }
+  }
 };
 
 Wiring::Wiring(WiringKind kind, WiringOptions options)
@@ -1416,7 +1427,9 @@ bool Wiring::has_wiring_observers() const noexcept {
 
 Wiring Wiring::child_wiring() const {
   Wiring child{WiringKind::SubGraph,
-               WiringOptions{.is_realtime = impl_->is_realtime},
+               WiringOptions{.is_realtime = impl_->is_realtime,
+                             .allow_push_sources = impl_->allow_push_sources,
+                             .inherit_global_context = impl_->inherit_global_context},
                impl_->observers, impl_->wiring_path};
   // A child reads the root's seed for operator resolution (record/replay
   // configuration and the like) through the SAME shared binding, so the
@@ -1776,6 +1789,12 @@ WiringKind Wiring::kind() const noexcept { return impl_->kind; }
 
 bool Wiring::is_realtime() const noexcept { return impl_->is_realtime; }
 
+WiringOptions Wiring::options() const noexcept {
+  return {.is_realtime = impl_->is_realtime,
+          .allow_push_sources = impl_->allow_push_sources,
+          .inherit_global_context = impl_->inherit_global_context};
+}
+
 Wiring &Wiring::label(std::string label) {
   impl_->graph_label = std::move(label);
   return *this;
@@ -1960,6 +1979,7 @@ void Wiring::clear_pending_node_label() noexcept {
 WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
                                std::span<const WiringInputRef> inputs,
                                Value scalars) {
+  impl_->validate_node(builder);
   // Diagnostic label hint (issue #247): consumed before the wiring-observer
   // event so wiring-trace sees the label too.
   if (!impl_->pending_label.empty()) {
@@ -2044,6 +2064,7 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
 WiringPortRef Wiring::add_unique_node(std::type_index def, NodeBuilder builder,
                                       std::span<const WiringInputRef> inputs,
                                       Value scalars) {
+  impl_->validate_node(builder);
   auto add = [&]() -> WiringPortRef {
     builder.scalars(std::move(scalars));
     assign_checkpoint_identity(builder, inputs);
@@ -2716,6 +2737,7 @@ WiringPortRef Wiring::add_node(std::type_index def,
 
     NodeBuilder builder = make_builder(); // intern miss: only now pay for (and
                                           // register) the builder
+    impl_->validate_node(builder);
     // Deferred builders must consume the same one-shot diagnostic label as
     // ordinary builders.  Keyed nested nodes (map_/mesh_) use this overload,
     // so omitting it loses the enclosing user graph path even though the

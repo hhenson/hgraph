@@ -823,6 +823,13 @@ namespace hgraph::detail
             return TS_DATA_NO_CHILD_ID;
         }
 
+        [[nodiscard]] bool target_link_dict_membership_added(const void *context, const void *memory, std::size_t slot)
+        { return target_link_dict_view(context, memory).membership_slot_added(slot); }
+        [[nodiscard]] std::size_t target_link_dict_next_membership_added(const void *context, const void *memory, std::size_t previous)
+        { return target_link_dict_view(context, memory).next_membership_added_slot(previous); }
+        [[nodiscard]] std::size_t target_link_dict_next_membership_removed(const void *context, const void *memory, std::size_t previous)
+        { return target_link_dict_view(context, memory).next_membership_removed_slot(previous); }
+
         [[nodiscard]] const void *target_link_dict_child_at_slot(const void *context,
                                                                  const void *memory,
                                                                  std::size_t slot)
@@ -1148,9 +1155,41 @@ namespace hgraph::detail
             return target.as_window().full();
         }
 
-        void target_link_window_push(const void *, void *, const ValueView &, DateTime)
+        // Forwarded map outputs use input-role target links. The outer window
+        // mutation has already checked per-cycle push/clear ordering; dispatch
+        // into the owning target strategy and publish through its normal tracker.
+        template <typename Write>
+        void write_target_link_window(const void *context, void *memory, DateTime time, Write write)
         {
-            throw std::logic_error("TSInput target-link window mutation is not supported");
+            const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
+            if (link == nullptr || !link->target_output().bound())
+                throw std::logic_error("TSInput target-link window write requires a bound target output");
+            auto target = link->target_output().view(time);
+            auto data = target.data_view().borrowed_ref();
+            const auto &ops = static_cast<const TSWDataOps &>(data.ops());
+            auto mutation = target.begin_mutation(time);
+            write(ops, data.mutable_data());
+            mutation.mark_modified();
+        }
+
+        void target_link_window_push(const void *context, void *memory, const ValueView &value, DateTime time)
+        {
+            write_target_link_window(context, memory, time, [&](const TSWDataOps &ops, void *target) {
+                ops.push_impl(ops.context, target, value, time);
+            });
+        }
+        void target_link_window_clear(const void *context, void *memory, DateTime time)
+        {
+            write_target_link_window(context, memory, time, [&](const TSWDataOps &ops, void *target) {
+                ops.clear_impl(ops.context, target, time);
+            });
+        }
+        void target_link_window_replace_samples(const void *context, void *memory, const ValueView &values,
+                                                std::span<const DateTime> times, DateTime time)
+        {
+            write_target_link_window(context, memory, time, [&](const TSWDataOps &ops, void *target) {
+                ops.replace_samples_impl(ops.context, target, values, times, time);
+            });
         }
 
 
@@ -1392,6 +1431,9 @@ namespace hgraph::detail
             context->dict_ops.child_at_slot_impl = &target_link_dict_child_at_slot;
             context->dict_ops.slot_modified_impl = &target_link_dict_slot_modified;
             context->dict_ops.next_modified_slot_impl = &target_link_dict_next_modified_slot;
+            context->dict_ops.membership_slot_added_impl = &target_link_dict_membership_added;
+            context->dict_ops.next_membership_added_slot_impl = &target_link_dict_next_membership_added;
+            context->dict_ops.next_membership_removed_slot_impl = &target_link_dict_next_membership_removed;
             context->dict_ops.make_ts_values_range_impl = &target_link_dict_values_range;
             context->dict_ops.make_valid_keys_range_impl = &target_link_dict_valid_keys_range;
             context->dict_ops.make_valid_ts_values_range_impl = &target_link_dict_valid_values_range;
@@ -1528,6 +1570,8 @@ namespace hgraph::detail
                 context->ops.capacity_impl = &target_link_window_capacity;
                 context->ops.full_impl = &target_link_window_full;
                 context->ops.push_impl = &target_link_window_push;
+                context->ops.clear_impl = &target_link_window_clear;
+                context->ops.replace_samples_impl = &target_link_window_replace_samples;
                 context->ops.cleared_time_impl = &target_link_window_cleared_time;
                 context->ops.evicted_time_impl = &target_link_window_evicted_time;
                 context->ops.evicted_element_impl = &target_link_window_evicted_element;
@@ -1551,6 +1595,8 @@ namespace hgraph::detail
             context->ops.capacity_impl = &target_link_window_capacity;
             context->ops.full_impl = &target_link_window_full;
             context->ops.push_impl = &target_link_window_push;
+            context->ops.clear_impl = &target_link_window_clear;
+            context->ops.replace_samples_impl = &target_link_window_replace_samples;
             context->ops.cleared_time_impl = &target_link_window_cleared_time;
             context->ops.evicted_time_impl = &target_link_window_evicted_time;
             context->ops.evicted_element_impl = &target_link_window_evicted_element;

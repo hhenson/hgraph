@@ -425,8 +425,8 @@ int main()
     static_assert(GRAPH_OPS_ABI_VERSION == 9);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
-    // ABI 19 adds checkpoint reference fixup to endpoint images.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 19);
+    // ABI 20 adds timestamp-preserving window sample replacement.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 20);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);

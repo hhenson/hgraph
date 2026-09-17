@@ -276,6 +276,9 @@ namespace hgraph
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
                 dict_ops.next_modified_slot_impl = &next_modified_slot;
+                dict_ops.membership_slot_added_impl = &membership_added;
+                dict_ops.next_membership_added_slot_impl = &next_membership_added;
+                dict_ops.next_membership_removed_slot_impl = &next_membership_removed;
                 dict_ops.make_ts_values_range_impl = &ts_value_range<TSDProxyMapSurface::Live>;
                 dict_ops.make_valid_keys_range_impl = &set_range<TSDProxySetSurface::Live>;
                 dict_ops.make_valid_ts_values_range_impl = &ts_value_range<TSDProxyMapSurface::Live>;
@@ -715,6 +718,13 @@ namespace hgraph
                 return child_tracking != nullptr &&
                        child_tracking->last_modified_time == store.tracking().last_modified_time;
             }
+
+            [[nodiscard]] static bool membership_added(const void *, const void *memory, std::size_t slot)
+            { return source_available(memory) && source_dict(memory).membership_slot_added(slot); }
+            [[nodiscard]] static std::size_t next_membership_added(const void *, const void *memory, std::size_t previous)
+            { return source_available(memory) ? source_dict(memory).next_membership_added_slot(previous) : TS_DATA_NO_CHILD_ID; }
+            [[nodiscard]] static std::size_t next_membership_removed(const void *, const void *memory, std::size_t previous)
+            { return source_available(memory) ? source_dict(memory).next_membership_removed_slot(previous) : TS_DATA_NO_CHILD_ID; }
 
             [[nodiscard]] static std::size_t next_modified_slot(const void *context,
                                                                 const void *memory,

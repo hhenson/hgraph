@@ -2,74 +2,105 @@ Distributed maps
 ================
 
 ``hgraph.dmap_`` runs mapped child graphs in separate worker processes. Each
-worker hosts an ordinary native ``map_``; the parent sends changed inputs and
-drives the worker at graph evaluation times. Scheduled child work is propagated
-back to the parent. Python callbacks run in each worker's own interpreter.
+worker uses the native ``map_`` wiring and child lifecycle. The parent supplies
+evaluation times and propagates scheduled child work back into its own graph.
+Python callbacks run in each worker's interpreter.
 
 Define the child in an importable module, for example ``strategy_nodes.py``:
 
 .. code-block:: python
 
-   from hgraph import TS, compute_node
+   from hgraph import TS, graph
 
-   @compute_node
-   def expensive_value(ts: TS[int]) -> TS[int]:
-       return sum(i * ts.value for i in range(10000))
+   @graph
+   def notionals(price: TS[float], quantity: TS[int], multiplier: float = 1.0) -> TS[float]:
+       return price * quantity * multiplier
 
 Use it from a graph:
 
 .. code-block:: python
 
    from hgraph import TS, TSD, dmap_, graph
-   from strategy_nodes import expensive_value
+   from strategy_nodes import notionals
 
    @graph
-   def distributed(values: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
-       return dmap_(expensive_value, values, __workers__=4)
+   def distributed(prices: TSD[str, TS[float]], quantities: TSD[str, TS[int]]) -> TSD[str, TS[float]]:
+       return dmap_(notionals, prices, quantity=quantities,
+                    multiplier=100.0, __workers__=4)
 
-The current API accepts one ``TSD[K, TS[V]]`` input and a child returning
-``TS[R]``. A first parameter named ``key`` can receive ``TS[K]``, as with
-``map_``. Child state, key removal/recreation, self-scheduling, and quiet cycles
-use the native map implementation. Native graphs composed through Python and
-Python-authored compute nodes are both supported. Boundary values need a
-native binary codec; numeric, text, temporal and supported composite scalar
-values cross without per-cycle Python serialization.
+Call and data semantics
+-----------------------
 
-Workers start with the caller's Python executable and import paths. The child
-and its boundary type annotations must be importable by module-qualified name.
-Functions defined in ``__main__``, notebook-local functions, lambdas and closures
-are refused for process execution. Wrap a native operator in a module-level
-``@graph`` when using it as the child. Workers do not inherit the parent's
-runtime ``GlobalState`` or live Python objects.
+Positional and named arguments, wiring-time scalar configuration,
+``pass_through``, ``no_key``, ``__keys__``, ``__key_arg__`` and ``__label__``
+follow ``map_``. Dictionary keys use the same inferred union or explicit key
+set. Fixed and dynamic lists preserve original indices; whole-list and
+whole-dictionary arguments are broadcast when ``map_`` classifies them that
+way. An outputless child creates a distributed sink map and returns ``None``.
+The default worker count is two. ``in_process=True`` is an explicit diagnostic
+mode using the same worker plans and boundary transfer.
 
-``in_process=True`` runs the same worker plans locally for diagnostics. It is
-explicitly opt-in. Process execution remains the default. Worker evaluation
-errors fail the parent run; a failed worker stop also fails the run, and pool
-ownership releases the remaining workers during cleanup.
+Time-series boundaries support scalar ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed/dynamic
+``TSL``, ``TSB`` and ``TSW`` recursively. Transfers preserve invalid collection
+members, removals, list extent, partial bundles and window history. References
+are materialized into values at the boundary; child graphs may use references
+internally, but no pointer or binding into another process is transported.
 
-Current limits
---------------
+Ordinary ticks transfer changed data. New or rebound subtrees carry their
+current state once, including original window sample timestamps. Steady-state
+window updates transfer the sample/clear operation rather than copying the
+whole window. The parent captures and encodes common input changes once before
+fan-out. Transport volume scales with changed input data and worker count;
+each worker computes only its own mapped keys or indices. Large broadcast
+inputs still consume storage in every worker.
 
-Multiple inputs, broadcast inputs, explicit ``__keys__``, custom partition
-functions, and collection-shaped child outputs are not exposed by this first
-Python API. Push sources, parent services/contexts, checkpoint recovery,
-worker restart and rebalancing are unsupported. Stepped executors explicitly
-reject component-recovery configuration because they have no completed-day
-publication boundary.
+Portable scalar values include the supported native numeric, text, byte,
+temporal, enum and compound/collection types, Arrow frames and series, and
+owned/shared value payloads. Time zones cross by semantic identity, rather than
+process-local registry handles. Bound codec plans retain the graph's immutable
+type realization so derived compound values preserve their concrete fields.
+Unsupported live handles or opaque Python objects fail during wiring.
 
-The native canonical delta currently cannot preserve a newly added key whose
-value is still invalid. ``dmap_`` inherits that documented deviation from
-``map_``; see :doc:`../rfc/rfc_0037_distributed_map`. Distribution also incurs
-transport and encoding costs, so benchmark the actual child workload before
-choosing the worker count.
+Process constraints
+-------------------
+
+Workers use the caller's Python executable and import paths. A Python child
+must be a module-level importable graph/node; registered native operator names
+are also supported. Wiring-time scalar arguments must have a portable value
+encoding or an importable type recipe. Python code, closures and live objects
+are not pickled. Functions defined in ``__main__``, notebook-local functions
+and lambdas cannot be reconstructed by process workers.
+
+Workers do not inherit the parent's runtime ``GlobalState``, services,
+contexts, captured outer ports or live resources. Worker-local state remains
+available; keys beginning with ``__hgraph_distributed_`` are reserved for
+transport. Push sources, component
+checkpoint recovery, worker restart and rebalancing remain unsupported.
+Restrictions on valid child shapes imposed by ordinary ``map_`` also apply;
+for example, a shape refused by its dynamic-list implementation does not gain
+new semantics through distribution.
+
+Worker evaluation or stop errors fail the parent run. Pool cleanup releases
+remaining workers when a failure unwinds. Sink side effects occur in worker
+processes: their global ordering is not defined across partitions, and failure
+does not make external side effects transactional.
 
 Native embedding
 ----------------
 
-``hgraph/runtime/distributed_map_wiring.h`` exposes
-``prepare_distributed_map`` and ``wire_distributed_map`` for runtime-resolved
-native schemas and embedding frontends. Both use ``WorkerPool``. A prepared
-plan owns the compiled child and boundary; interpreter launch arguments and
-an optional executor phase runner supply frontend-specific bootstrap and GIL
-management. The existing ``dmap_impl`` and registered native-worker recipes
-remain supported.
+``hgraph/runtime/distributed_map_wiring.h`` exposes ``DistributedMapInput``,
+``prepare_distributed_map_pool`` and ``wire_distributed_map``. Descriptors retain
+the original argument names and map tags. Native and Python clients share
+these prepared plans, the worker pool, transport and executor.
+
+A native executable registers a ``PreparedWorkerRecipe`` whose function
+reconstructs one plan for a supplied group/count. ``bind_distributed_map_recipe``
+selects its name for every partition; ``run_worker_if_requested`` dispatches
+that factory when the executable starts as a worker. The application must link
+the same recipe registration into both programs. No captured factory closure
+is transported. An embedding frontend can instead supply its own executable
+bootstrap and call ``serve_worker`` with the reconstructed plan.
+
+Benchmark the actual child workload before choosing the worker count. The
+native benchmark corpus in :doc:`../rfc/rfc_0037_distributed_map` does not measure
+Python interpreter startup or Python callback costs.

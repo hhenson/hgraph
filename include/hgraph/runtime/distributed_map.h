@@ -112,7 +112,8 @@ namespace hgraph::distributed
             distributed_map_recipe_key<TKey, TValue, TResult>(fn<Kernel>()),
             WorkerRecipe{
                 +[]() -> GraphBuilder {
-                    return build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(fn<Kernel>());
+                    return build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(
+                        WiringOptions{.allow_push_sources = false, .inherit_global_context = false}, fn<Kernel>());
                 },
                 +[]() -> BoundarySlots {
                     return distributed_map_slots<TKey, TValue, TResult>();
@@ -173,6 +174,13 @@ namespace hgraph::distributed
             process_.channel().send(encode_request(slots, request));
         }
 
+        void dispatch_shared(const BoundarySlots &slots, const CycleRequest &request,
+                             std::string_view encoded)
+        {
+            if (host_ != nullptr) pending_ = serve_cycle(*host_, slots, request);
+            else process_.channel().send(encoded);
+        }
+
         [[nodiscard]] CycleReply collect(const BoundarySlots &slots)
         {
             if (host_ != nullptr) { return std::move(pending_); }
@@ -217,6 +225,9 @@ namespace hgraph::distributed
     class HGRAPH_CLASS_EXPORT WorkerPool
     {
       public:
+        WorkerPool(const WorkerPool &) = delete;
+        WorkerPool &operator=(const WorkerPool &) = delete;
+
         template <typename TKey, typename TValue, typename TResult>
         static std::unique_ptr<WorkerPool> build(const WiredFn &func, const WorkerPoolConfig &config)
         {
@@ -340,6 +351,63 @@ namespace hgraph::distributed
             for (auto &worker : workers_) { worker.stop(); }
         }
 
+        /** Prepared workers share a boundary but own disjoint mapped children. */
+        static std::unique_ptr<WorkerPool> build_partitioned(
+            std::span<const GraphBuilder> children, BoundarySlots slots,
+            std::span<const std::string> recipes, const WorkerPoolConfig &config,
+            GraphExecutorPhaseRunner phase_runner = {})
+        {
+            if (children.empty() || children.size() != config.workers || recipes.size() != children.size())
+                throw std::invalid_argument("dmap_: inconsistent worker plan inventory");
+            auto pool = std::unique_ptr<WorkerPool>{new WorkerPool{}};
+            pool->groups_ = children.size();
+            pool->slots_ = std::move(slots);
+            pool->workers_.reserve(children.size());
+            pool->output_extents_.resize(children.size());
+            for (std::size_t group = 0; group < children.size(); ++group)
+            {
+                reject_push_sources(children[group]);
+                if (config.hosting == WorkerHosting::InProcess)
+                {
+                    auto host = std::make_unique<DistributedChildHost>(children[group], config.end_time, phase_runner);
+                    host->start(config.start_time);
+                    pool->workers_.emplace_back(std::move(host));
+                }
+                else
+                {
+                    pool->workers_.emplace_back(spawn_worker(config.program, recipes[group], config.start_time,
+                                                            config.end_time, config.arguments));
+                }
+            }
+            return pool;
+        }
+
+        /** Capture each broadcast boundary once, then fan out before collecting.
+         * Cost is linear in changed data times the configured worker count;
+         * there is no repeated per-key search or reconstruction here.
+         */
+        template <typename Apply> DateTime exchange(const CycleRequest &request, Apply &&apply)
+        {
+            const auto encoded = encode_request(slots_, request);
+            for (auto &worker : workers_) { worker.dispatch_shared(slots_, request, encoded); }
+            DateTime next = MAX_DT;
+            for (std::size_t group = 0; group < workers_.size(); ++group)
+            {
+                auto reply = workers_[group].collect(slots_);
+                if (!reply.error.empty())
+                    throw std::runtime_error(fmt::format("dmap_: partition {} failed: {}", group, reply.error));
+                apply(group, reply);
+                next = std::min(next, reply.next_scheduled_time);
+            }
+            return next;
+        }
+
+        void output_extent(std::size_t worker, std::size_t size) { output_extents_.at(worker) = size; }
+        [[nodiscard]] std::size_t output_extent() const
+        {
+            return output_extents_.empty() ? 0 : *std::max_element(output_extents_.begin(), output_extents_.end());
+        }
+
       private:
         WorkerPool() = default;
 
@@ -361,7 +429,8 @@ namespace hgraph::distributed
             GraphBuilder child = [&] {
                 try
                 {
-                    return build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(func);
+                    return build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(
+                        WiringOptions{.allow_push_sources = false, .inherit_global_context = false}, func);
                 }
                 catch (const std::exception &error)
                 {
@@ -415,6 +484,7 @@ namespace hgraph::distributed
         }
 
         std::vector<DistributedWorker> workers_{};
+        std::vector<std::size_t>        output_extents_{};
         std::vector<GroupSelector>     selectors_{};
         BoundarySlots                  slots_{};
         std::size_t                    in_slot_{0};

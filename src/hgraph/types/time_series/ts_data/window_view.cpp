@@ -376,6 +376,16 @@ namespace hgraph
         cleared_ = true;
     }
 
+    void TSWDataMutationView::replace_samples(const ValueView &values, std::span<const DateTime> times)
+    {
+        const auto &ops = window_ops();
+        if (mutation_.modified(ops, current_mutation_time()))
+            throw std::logic_error("TSWDataMutationView::replace_samples allows one replacement per cycle");
+        ops.replace_samples_impl(ops.context, mutation_.mutable_data(ops), values, times,
+                                 current_mutation_time());
+        mutation_.mark_modified(ops);
+    }
+
     bool TSWDataMutationView::copy_value_from(const ValueView &source)
     {
         if (cleared(current_mutation_time()))

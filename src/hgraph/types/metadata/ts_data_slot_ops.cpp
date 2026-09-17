@@ -405,6 +405,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
                 result += dynamic_bitset_metrics(added_);
                 result += dynamic_bitset_metrics(removed_);
+                result += dynamic_bitset_metrics(membership_added_);
+                result += dynamic_bitset_metrics(membership_removed_);
                 const auto &ops = key_binding_.ops_ref();
                 for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
                 {
@@ -450,6 +452,12 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return next_delta_slot(removed_, previous);
             }
+            [[nodiscard]] bool membership_slot_added(std::size_t slot) const noexcept
+            { return slot < membership_added_.size() && membership_added_.test(slot); }
+            [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous) const noexcept
+            { return next_delta_slot(membership_added_, previous); }
+            [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous) const noexcept
+            { return next_delta_slot(membership_removed_, previous); }
             [[nodiscard]] bool slot_modified(std::size_t slot) const noexcept
             {
                 return slot < modified_.size() && modified_.test(slot);
@@ -527,6 +535,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto result = keys_.insert(key);
                 ensure_delta_capacity();
                 if (!result.inserted) { return {.slot = result.slot, .changed = false}; }
+                if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
+                else membership_added_.set(result.slot);
 
                 if (slot_removed(result.slot))
                 {
@@ -554,6 +564,8 @@ namespace hgraph::ts_data_plan_factory_detail
                                         : keys_.insert(key);
                 ensure_delta_capacity();
                 if (!result.inserted) { return {.slot = result.slot, .changed = false}; }
+                if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
+                else membership_added_.set(result.slot);
 
                 if (slot_removed(result.slot))
                 {
@@ -580,6 +592,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!keys_.remove_slot(slot)) { return {.slot = slot, .changed = false}; }
 
                 ensure_delta_capacity();
+                if (membership_added_.test(slot)) membership_added_.reset(slot);
+                else membership_removed_.set(slot);
                 if (slot_value_published(slot))
                 {
                     if (slot_added(slot)) { added_.reset(slot); }
@@ -604,6 +618,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!keys_.remove_slot(slot)) { return {.slot = slot, .changed = false}; }
 
                 ensure_delta_capacity();
+                if (membership_added_.test(slot)) membership_added_.reset(slot);
+                else membership_removed_.set(slot);
                 if (slot_value_published(slot))
                 {
                     if (slot_added(slot)) { added_.reset(slot); }
@@ -649,6 +665,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_.reset();
                 removed_.reset();
                 modified_.reset();
+                membership_added_.reset();
+                membership_removed_.reset();
                 delta_time_ = MIN_DT;
             }
 
@@ -708,6 +726,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_.resize(capacity);
                 removed_.resize(capacity);
                 modified_.resize(capacity);
+                membership_added_.resize(capacity);
+                membership_removed_.resize(capacity);
                 value_published_.resize(capacity);
             }
 
@@ -726,6 +746,8 @@ namespace hgraph::ts_data_plan_factory_detail
             sul::dynamic_bitset<>       added_{};
             sul::dynamic_bitset<>       removed_{};
             sul::dynamic_bitset<>       modified_{};
+            sul::dynamic_bitset<>       membership_added_{};
+            sul::dynamic_bitset<>       membership_removed_{};
             sul::dynamic_bitset<>       value_published_{};
             DateTime               delta_time_{MIN_DT};
         };
@@ -734,7 +756,8 @@ namespace hgraph::ts_data_plan_factory_detail
         // One reusable Value normalizes concrete closed-union leaves into the
         // preplanned key layout without per-operation allocation.
         static_assert(sizeof(TSSSlotStorage) <= 416);
-        static_assert(sizeof(TSDSlotStorage) <= 744);
+        // Two transient membership masks are separate from value publication.
+        static_assert(sizeof(TSDSlotStorage) <= 808);
 #endif
 
         struct TSSStoragePlanContext
@@ -1973,6 +1996,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &tsd_slot_modified;
                 dict_ops.next_modified_slot_impl = &tsd_next_modified_slot;
+                dict_ops.membership_slot_added_impl = &tsd_membership_slot_added;
+                dict_ops.next_membership_added_slot_impl = &tsd_next_membership_added_slot;
+                dict_ops.next_membership_removed_slot_impl = &tsd_next_membership_removed_slot;
                 dict_ops.make_ts_values_range_impl = &tsd_ts_values_range;
                 dict_ops.make_valid_keys_range_impl = &tsd_valid_keys_range;
                 dict_ops.make_valid_ts_values_range_impl = &tsd_valid_ts_values_range;
@@ -2334,6 +2360,13 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return storage<TSDSlotStorage>(memory).slot_modified(slot);
             }
+
+            [[nodiscard]] static bool tsd_membership_slot_added(const void *, const void *memory, std::size_t slot)
+            { return storage<TSDSlotStorage>(memory).membership_slot_added(slot); }
+            [[nodiscard]] static std::size_t tsd_next_membership_added_slot(const void *, const void *memory, std::size_t previous)
+            { return storage<TSDSlotStorage>(memory).next_membership_added_slot(previous); }
+            [[nodiscard]] static std::size_t tsd_next_membership_removed_slot(const void *, const void *memory, std::size_t previous)
+            { return storage<TSDSlotStorage>(memory).next_membership_removed_slot(previous); }
 
             [[nodiscard]] static std::size_t tsd_next_modified_slot(const void *, const void *memory,
                                                                     std::size_t previous)
