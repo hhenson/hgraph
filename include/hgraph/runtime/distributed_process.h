@@ -62,6 +62,8 @@ namespace hgraph::distributed
          * hung worker must not hang the caller (RFC 0037, failure handling).
          */
         int wait_for_exit();
+        /** Close and terminate a failed or timed-out worker, then reap it. */
+        void terminate() noexcept;
 
       private:
         friend HGRAPH_EXPORT WorkerProcess spawn_worker(std::string_view program,

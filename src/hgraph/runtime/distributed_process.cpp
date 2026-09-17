@@ -8,11 +8,15 @@
 #include <chrono>
 #include <cstdint>
 #include <stdexcept>
+#include <limits>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <cerrno>
@@ -101,6 +105,18 @@ namespace hgraph::distributed
 #endif
         }
     }  // namespace
+
+    void WorkerProcess::terminate() noexcept
+    {
+        channel_.close();
+        if (pid_ == 0) return;
+#ifdef _WIN32
+        (void)::TerminateProcess(static_cast<HANDLE>(process_handle_), 1);
+#else
+        (void)::kill(static_cast<pid_t>(pid_), SIGKILL);
+#endif
+        (void)fallback_on_exception(-1, [this] { return wait_for_exit(); });
+    }
 
     WorkerProcess::WorkerProcess(WorkerProcess &&other) noexcept
         : channel_(std::move(other.channel_)), pid_(std::exchange(other.pid_, 0))
@@ -226,23 +242,34 @@ namespace hgraph::distributed
         {
             fail("InitializeProcThreadAttributeList");
         }
+        auto delete_attributes = make_scope_exit([&] { ::DeleteProcThreadAttributeList(attributes); });
         if (::UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
-                                        sizeof(inherited), nullptr, nullptr) == 0)
+                                        (inherited[0] == inherited[1] ? sizeof(HANDLE) : sizeof(inherited)), nullptr, nullptr) == 0)
         {
-            ::DeleteProcThreadAttributeList(attributes);
             fail("UpdateProcThreadAttribute");
         }
 
-        STARTUPINFOEXA startup{};
-        startup.StartupInfo.cb = sizeof(STARTUPINFOEXA);
+        // Public program/argument strings are UTF-8. Convert the complete
+        // correctly quoted command once; the ANSI API corrupts Unicode paths.
+        if (command.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+            command.find('\0') != std::string::npos)
+            throw std::invalid_argument("distributed worker process: invalid command line");
+        const int wide_size = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, command.data(),
+                                                   static_cast<int>(command.size()), nullptr, 0);
+        if (wide_size == 0) fail("MultiByteToWideChar");
+        std::wstring wide_command(static_cast<std::size_t>(wide_size), L'\0');
+        if (::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, command.data(),
+                                 static_cast<int>(command.size()), wide_command.data(), wide_size) == 0)
+            fail("MultiByteToWideChar");
+        STARTUPINFOEXW startup{};
+        startup.StartupInfo.cb = sizeof(STARTUPINFOEXW);
         startup.lpAttributeList = attributes;
         PROCESS_INFORMATION created{};
 
         const BOOL started =
-            ::CreateProcessA(nullptr, command.data(), nullptr, nullptr, TRUE,
+            ::CreateProcessW(nullptr, wide_command.data(), nullptr, nullptr, TRUE,
                              EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &startup.StartupInfo,
                              &created);
-        ::DeleteProcThreadAttributeList(attributes);
         if (started == 0) { fail("CreateProcess"); }
         (void)::CloseHandle(created.hThread);
 

@@ -29,11 +29,13 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/wired_fn.h>
+#include <hgraph/util/scope.h>
 
 #include <fmt/format.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -145,6 +147,12 @@ namespace hgraph::distributed
         std::string   program{};
         /** Interpreter/bootstrap arguments preceding the native worker flags. */
         std::vector<std::string> arguments{};
+        /** Maximum wall-clock time for process dispatch plus its reply. */
+        std::chrono::milliseconds timeout{60000};
+        /** Send each prepared recipe as the first channel frame instead of argv.
+         * The worker receives the fixed marker @hgraph-channel-bootstrap:1.
+         */
+        bool recipe_over_channel{false};
     };
 
     /**
@@ -162,7 +170,14 @@ namespace hgraph::distributed
             : host_(std::move(host))
         {
         }
-        explicit DistributedWorker(WorkerProcess process) : process_(std::move(process)) {}
+        explicit DistributedWorker(WorkerProcess process,
+                                   std::chrono::milliseconds timeout = std::chrono::milliseconds{60000})
+            : process_(std::move(process)), timeout_(timeout)
+        {
+            if (timeout <= std::chrono::milliseconds::zero() || timeout > std::chrono::hours{24})
+                throw std::invalid_argument("dmap_: worker timeout must be positive and at most 24 hours");
+            deadline_ = std::chrono::steady_clock::now() + timeout_;
+        }
 
         void dispatch(const BoundarySlots &slots, const CycleRequest &request)
         {
@@ -171,29 +186,34 @@ namespace hgraph::distributed
                 pending_ = serve_cycle(*host_, slots, request);
                 return;
             }
-            process_.channel().send(encode_request(slots, request));
+            send(encode_request(slots, request));
         }
 
         void dispatch_shared(const BoundarySlots &slots, const CycleRequest &request,
                              std::string_view encoded)
         {
             if (host_ != nullptr) pending_ = serve_cycle(*host_, slots, request);
-            else process_.channel().send(encoded);
+            else send(encoded);
         }
 
         [[nodiscard]] CycleReply collect(const BoundarySlots &slots)
         {
             if (host_ != nullptr) { return std::move(pending_); }
+            auto failed = make_scope_exit([this] { process_.terminate(); });
             std::string payload;
-            if (!process_.channel().receive(payload))
+            if (!process_.channel().receive(payload, deadline_))
             {
                 // The worker went away between the request and the reply,
                 // which is the shape a crash takes from here.
                 throw std::runtime_error(fmt::format(
                     "dmap_: worker process {} closed the channel without replying", process_.pid()));
             }
-            return decode_reply(slots, payload);
+            auto reply = decode_reply(slots, payload);
+            failed.release();
+            return reply;
         }
+
+        void terminate() noexcept { process_.terminate(); }
 
         void stop()
         {
@@ -208,10 +228,19 @@ namespace hgraph::distributed
         }
 
       private:
+        void send(std::string_view payload)
+        {
+            deadline_ = std::chrono::steady_clock::now() + timeout_;
+            auto failed = make_scope_exit([this] { process_.terminate(); });
+            process_.channel().send(payload, deadline_);
+            failed.release();
+        }
         std::unique_ptr<DistributedChildHost> host_{};
         WorkerProcess                         process_{};
         /** In-process only: the reply ``dispatch`` already produced. */
         CycleReply                            pending_{};
+        std::chrono::milliseconds timeout_{60000};
+        PipeEndpoint::Deadline deadline_{PipeEndpoint::Deadline::max()};
     };
 
     /**
@@ -231,6 +260,7 @@ namespace hgraph::distributed
         template <typename TKey, typename TValue, typename TResult>
         static std::unique_ptr<WorkerPool> build(const WiredFn &func, const WorkerPoolConfig &config)
         {
+            validate_timeout(config);
             if (config.workers == 0)
             {
                 throw std::invalid_argument("dmap_ needs at least one worker");
@@ -255,8 +285,10 @@ namespace hgraph::distributed
             const WorkerPoolConfig &config, GraphExecutorPhaseRunner phase_runner = {})
         {
             if (config.workers == 0) { throw std::invalid_argument("dmap_ needs at least one worker"); }
+            validate_timeout(config);
             reject_push_sources(child);
             auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
+            UnwindCleanupGuard failed{[&pool] { pool->terminate(); }};
             pool->groups_ = config.workers;
             pool->workers_.reserve(config.workers);
             pool->slots_ = std::move(slots);
@@ -272,7 +304,7 @@ namespace hgraph::distributed
                 else
                 {
                     pool->workers_.emplace_back(spawn_worker(config.program, recipe, config.start_time,
-                                                            config.end_time, config.arguments));
+                                                            config.end_time, config.arguments), config.timeout);
                 }
                 pool->selectors_.push_back(GroupSelector{i, config.workers});
             }
@@ -304,6 +336,7 @@ namespace hgraph::distributed
         [[nodiscard]] DateTime evaluate(const TSInputView &in, const TSOutputView &out,
                                         DateTime now)
         {
+            UnwindCleanupGuard failed{[this] { terminate(); }};
             for (std::size_t group = 0; group < groups_; ++group)
             {
                 CycleRequest request;
@@ -357,9 +390,11 @@ namespace hgraph::distributed
             std::span<const std::string> recipes, const WorkerPoolConfig &config,
             GraphExecutorPhaseRunner phase_runner = {})
         {
+            validate_timeout(config);
             if (children.empty() || children.size() != config.workers || recipes.size() != children.size())
                 throw std::invalid_argument("dmap_: inconsistent worker plan inventory");
             auto pool = std::unique_ptr<WorkerPool>{new WorkerPool{}};
+            UnwindCleanupGuard failed_pool{[&pool] { pool->terminate(); }};
             pool->groups_ = children.size();
             pool->slots_ = std::move(slots);
             pool->workers_.reserve(children.size());
@@ -375,8 +410,15 @@ namespace hgraph::distributed
                 }
                 else
                 {
-                    pool->workers_.emplace_back(spawn_worker(config.program, recipes[group], config.start_time,
-                                                            config.end_time, config.arguments));
+                    const std::string_view recipe_key = config.recipe_over_channel
+                        ? std::string_view{"@hgraph-channel-bootstrap:1"} : std::string_view{recipes[group]};
+                    auto process = spawn_worker(config.program, recipe_key, config.start_time,
+                                                config.end_time, config.arguments);
+                    auto failed = make_scope_exit([&process] { process.terminate(); });
+                    if (config.recipe_over_channel)
+                        process.channel().send(recipes[group], std::chrono::steady_clock::now() + config.timeout);
+                    pool->workers_.emplace_back(std::move(process), config.timeout);
+                    failed.release();
                 }
             }
             return pool;
@@ -388,6 +430,7 @@ namespace hgraph::distributed
          */
         template <typename Apply> DateTime exchange(const CycleRequest &request, Apply &&apply)
         {
+            UnwindCleanupGuard failed{[this] { terminate(); }};
             const auto encoded = encode_request(slots_, request);
             for (auto &worker : workers_) { worker.dispatch_shared(slots_, request, encoded); }
             DateTime next = MAX_DT;
@@ -410,6 +453,15 @@ namespace hgraph::distributed
 
       private:
         WorkerPool() = default;
+        static void validate_timeout(const WorkerPoolConfig &config)
+        {
+            // Also bounds chrono arithmetic and platform millisecond waits.
+            if (config.timeout <= std::chrono::milliseconds::zero() ||
+                config.timeout > std::chrono::hours{24})
+                throw std::invalid_argument("dmap_: worker timeout must be positive and at most 24 hours");
+        }
+        void terminate() noexcept
+        { for (auto &worker : workers_) worker.terminate(); }
 
         /**
          * Wire the child, turning what a distributed worker cannot host into a

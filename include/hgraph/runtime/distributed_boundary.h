@@ -2,7 +2,7 @@
 #define HGRAPH_RUNTIME_DISTRIBUTED_BOUNDARY_H
 
 #include <hgraph/hgraph_export.h>
-#include <hgraph/types/value/value.h>
+#include <hgraph/types/value/binary_codec.h>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -26,7 +26,7 @@ namespace hgraph::distributed
     class HGRAPH_CLASS_EXPORT BoundaryTransfer
     {
       public:
-        explicit BoundaryTransfer(const TSValueTypeMetaData *schema);
+        explicit BoundaryTransfer(const TSValueTypeMetaData *schema, BinaryDecodeLimits limits = {});
         [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
         /** The transport envelope is an opaque byte string on every boundary. */
         [[nodiscard]] static const ValueTypeMetaData *payload_schema();
@@ -36,7 +36,11 @@ namespace hgraph::distributed
          * indices by ordinal. Children are never filtered recursively. */
         [[nodiscard]] Value capture(const TSInputView &input, bool full = false,
                                     std::size_t group = 0, std::size_t groups = 0) const;
-        /** merge retains entries belonging to other workers at the root.
+        /** Decode and validate the entire payload before changing any endpoint.
+         * Decode limits also bound sparse list extents, which can be much
+         * larger than their encoded payload. Allocation failure during commit
+         * is fatal to the run; this is not a rollback of runtime mutations.
+         * merge retains entries belonging to other workers at the root.
          * Root dynamic-list length is returned separately for the caller to
          * reconcile once every worker has replied. */
         void apply(const TSOutputView &output, const ValueView &payload, bool merge = false) const;
@@ -45,6 +49,7 @@ namespace hgraph::distributed
       private:
         struct Plan;
         std::shared_ptr<const Plan> plan_;
+        BinaryDecodeLimits limits_;
     };
     using BoundaryTransferPtr = std::shared_ptr<const BoundaryTransfer>;
 }

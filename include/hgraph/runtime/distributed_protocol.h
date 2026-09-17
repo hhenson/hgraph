@@ -20,6 +20,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/binary_codec.h>
 #include <hgraph/util/date_time.h>
 
 #include <cstddef>
@@ -35,6 +36,8 @@ namespace hgraph
 
 namespace hgraph::distributed
 {
+    inline constexpr std::size_t DEFAULT_MAX_FRAME_SIZE = 64 * 1024 * 1024;
+
     /** One boundary slot's value for one cycle. */
     struct HGRAPH_CLASS_EXPORT SlotDelta
     {
@@ -99,12 +102,12 @@ namespace hgraph::distributed
     [[nodiscard]] HGRAPH_EXPORT std::string encode_request(const BoundarySlots &slots,
                                                            const CycleRequest &request);
     [[nodiscard]] HGRAPH_EXPORT CycleRequest decode_request(const BoundarySlots &slots,
-                                                            std::string_view payload);
+                                                            std::string_view payload, BinaryDecodeLimits limits = {});
 
     [[nodiscard]] HGRAPH_EXPORT std::string encode_reply(const BoundarySlots &slots,
                                                          const CycleReply &reply);
     [[nodiscard]] HGRAPH_EXPORT CycleReply decode_reply(const BoundarySlots &slots,
-                                                        std::string_view payload);
+                                                        std::string_view payload, BinaryDecodeLimits limits = {});
 
     /**
      * Length-prefix one message for a byte stream.
@@ -114,16 +117,19 @@ namespace hgraph::distributed
      * than assuming one read yields one whole message -- which it will not,
      * for any message worth distributing.
      */
-    [[nodiscard]] HGRAPH_EXPORT std::string write_frame(std::string_view payload);
+    [[nodiscard]] HGRAPH_EXPORT std::string write_frame(std::string_view payload,
+                                                        std::size_t max_size = DEFAULT_MAX_FRAME_SIZE);
 
     /**
      * Extract one complete message from ``buffer``.
      *
      * Returns false when the buffer does not yet hold a whole message, leaving
-     * the out-parameters untouched.
+     * the out-parameters untouched. Malformed or oversized prefixes throw as
+     * soon as their length is known, before buffering a payload.
      */
     [[nodiscard]] HGRAPH_EXPORT bool read_frame(std::string_view buffer, std::string_view &payload,
-                                                std::size_t &consumed);
+                                                std::size_t &consumed,
+                                                std::size_t max_size = DEFAULT_MAX_FRAME_SIZE);
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_PROTOCOL_H

@@ -1,6 +1,7 @@
 """Python wiring for the native process-backed map operator."""
 import importlib
 import json
+import math
 import sys
 from typing import get_args, get_origin
 
@@ -114,7 +115,7 @@ def _load_callable(recipe):
     return result
 
 
-def dmap_(func, *args, __workers__=2, in_process=False, __label__=None,
+def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False, __label__=None,
           __keys__=None, __key_arg__=None, **kwargs):
     """Run map_ children in worker processes using the native map wiring rules.
 
@@ -127,6 +128,10 @@ def dmap_(func, *args, __workers__=2, in_process=False, __label__=None,
     from ._wiring._graph import _prepare_higher_order_call
     if isinstance(__workers__, bool) or not isinstance(__workers__, int) or __workers__ <= 0:
         raise ValueError("dmap_ needs a positive integer worker count")
+    if (isinstance(__worker_timeout__, bool) or not isinstance(__worker_timeout__, (int, float))
+            or __worker_timeout__ <= 0 or __worker_timeout__ > 86_400
+            or not math.isfinite(__worker_timeout__)):
+        raise ValueError("dmap_ __worker_timeout__ must be a finite positive number of seconds, at most 24 hours")
     recipe = {} if in_process else _callable_recipe(func)
     if __keys__ is not None:
         kwargs["__keys__"] = __keys__
@@ -140,13 +145,15 @@ def dmap_(func, *args, __workers__=2, in_process=False, __label__=None,
 
     wired, args, kwargs = _prepare_higher_order_call(
         func, args, kwargs, default_key_arg="key", binding_observer=record_bindings)
-    arguments = ["-m", "hgraph._distributed_worker", "--paths", json.dumps(sys.path)]
+    if not in_process:
+        recipe["paths"] = list(sys.path)
+    arguments = ["-m", "hgraph._distributed_worker"]
 
     def wire_call():
         result = _hgraph.distributed_map(
             _current_wiring(), wired, tuple(_unwrap(arg) for arg in args),
             {name: _unwrap(value) for name, value in kwargs.items()}, __workers__,
-            in_process, json.dumps(recipe), sys.executable, arguments)
+            in_process, json.dumps(recipe), sys.executable, arguments, __worker_timeout__)
         return None if result is None else WiringPort(result)
 
     if __label__:

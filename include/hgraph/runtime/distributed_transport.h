@@ -4,13 +4,12 @@
 // A connected pair of endpoints carrying framed messages (RFC 0037).
 //
 // The v1 barrier is synchronous -- the caller dispatches, then waits -- so
-// this is blocking read/write over a pre-connected pair and nothing more. No
-// event loop, no thread, no dependency: the whole transport is "move these
-// bytes", because the framing and the messages already exist above it.
+// this is synchronous read/write over a pre-connected pair with optional
+// absolute deadlines. No event loop, no thread, no dependency: framing and
+// message semantics already exist above this byte transport.
 //
-// Both platforms are a pair of one-way byte streams. POSIX gets them from
-// ``socketpair``, Windows from two anonymous pipes; the only difference is how
-// the pair is created, since blocking reads and writes are uniform afterwards.
+// POSIX uses socketpair and poll; Windows uses a duplex overlapped named pipe
+// so blocked writes and reads can both be cancelled when a deadline expires.
 // A future network transport is a different implementation of the same two
 // calls, not a change to anything above them.
 
@@ -18,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <string>
 #include <string_view>
 
@@ -34,6 +34,7 @@ namespace hgraph::distributed
     class HGRAPH_CLASS_EXPORT PipeEndpoint
     {
       public:
+        using Deadline = std::chrono::steady_clock::time_point;
         PipeEndpoint() noexcept = default;
         PipeEndpoint(const PipeEndpoint &)            = delete;
         PipeEndpoint &operator=(const PipeEndpoint &) = delete;
@@ -50,9 +51,11 @@ namespace hgraph::distributed
          * numeric handle survives ``exec``/``CreateProcess`` unchanged, so the
          * parent passes it in ``argv`` and the child adopts it here. On POSIX
          * the pair is one bidirectional descriptor and both arguments are the
-         * same number.
+         * same number. POSIX sockets are made nonblocking and SIGPIPE-safe
+         * before return; configuration failures throw after closing the owned
+         * handles.
          */
-        static PipeEndpoint adopt(std::int64_t read_handle, std::int64_t write_handle) noexcept;
+        static PipeEndpoint adopt(std::int64_t read_handle, std::int64_t write_handle);
 
         [[nodiscard]] std::int64_t native_read_handle() const noexcept;
         [[nodiscard]] std::int64_t native_write_handle() const noexcept;
@@ -62,15 +65,19 @@ namespace hgraph::distributed
          *
          * The spawner marks the CHILD's end and leaves its own unmarked, so
          * that only the intended end crosses. Windows needs this because an
-         * anonymous pipe handle passes ``CreateProcess`` only when it is
+         * pipe handle passes ``CreateProcess`` only when it is
          * marked inheritable and the call asks for inheritance; POSIX needs
          * the mirror image, clearing ``FD_CLOEXEC`` on the descriptor that is
          * meant to survive ``exec``.
          */
         void set_inheritable(bool inheritable) const;
 
-        /** Send one message, length-prefixed. Throws if the write fails. */
-        void send(std::string_view payload);
+        /** Send one message, length-prefixed. Throws on failure or deadline.
+         * A deadline covers the whole frame, not each individual write.
+         * After a timeout the channel must be closed: a partial frame may
+         * already have reached the peer. SIGPIPE is suppressed per socket.
+         */
+        void send(std::string_view payload, Deadline deadline = Deadline::max());
 
         /**
          * Receive one whole message.
@@ -79,8 +86,10 @@ namespace hgraph::distributed
          * not generally deliver. Returns false when the far end closed --
          * cleanly, with nothing partial buffered -- and throws when it closed
          * mid-message, because that is a truncated cycle rather than an end.
+         * The absolute deadline covers the whole frame, including partial
+         * reads; expiry throws without resetting the caller's deadline.
          */
-        [[nodiscard]] bool receive(std::string &payload);
+        [[nodiscard]] bool receive(std::string &payload, Deadline deadline = Deadline::max());
 
         void close() noexcept;
 

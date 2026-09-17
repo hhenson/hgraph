@@ -25,6 +25,7 @@
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/util/scope.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -38,15 +39,49 @@ namespace hgraph
 {
     struct ValueTypeMetaData;
 
-    /** A read cursor over an encoded buffer. */
+    /** Decode-wide limits, including zero-byte values and nested collections. */
+    struct BinaryDecodeLimits
+    {
+        std::uint64_t max_work{1'000'000};
+        std::size_t max_depth{256};
+    };
+
+    /** A read cursor. Subreaders borrow the parent's budget and cannot outlive it. */
     struct HGRAPH_CLASS_EXPORT BinaryReader
     {
-        std::string_view buffer{};
-        std::size_t      offset{0};
+        explicit BinaryReader(std::string_view bytes = {}, std::size_t at = 0,
+                              BinaryDecodeLimits limits = {}) noexcept
+            : buffer(bytes), offset(at), local_{limits} {}
 
-        [[nodiscard]] std::size_t remaining() const noexcept { return buffer.size() - offset; }
-        /** Consume ``count`` bytes, or throw when the buffer is short. */
+        std::string_view buffer{};
+        std::size_t offset{0};
+
+        [[nodiscard]] std::size_t remaining() const noexcept
+        { return offset <= buffer.size() ? buffer.size() - offset : 0; }
+        /** Consume bytes, or throw when the buffer is short. */
         [[nodiscard]] const std::byte *take(std::size_t count);
+        /** Charge work before allocating or iterating an untrusted count. */
+        void consume_work(std::uint64_t count);
+        /** Consume a bounded payload; its decoder shares this reader's budget. */
+        [[nodiscard]] BinaryReader subreader(std::size_t count);
+        /** Scope one recursive decoding step; charges work and bounds depth. */
+        [[nodiscard]] auto enter()
+        {
+            enter_value();
+            return make_scope_exit([this]() noexcept { --budget().depth; });
+        }
+
+      private:
+        struct Budget
+        {
+            BinaryDecodeLimits limits{};
+            std::uint64_t work{0};
+            std::size_t depth{0};
+        };
+        Budget local_{};
+        Budget *shared_{nullptr};
+        Budget &budget() noexcept { return shared_ ? *shared_ : local_; }
+        void enter_value();
     };
 
     /**
@@ -59,12 +94,19 @@ namespace hgraph
         using ReadFn  = Value (*)(const BinaryConverter &, BinaryReader &);
         using HashFn = std::uint64_t (*)(const BinaryConverter &, const ValueView &);
 
-        void write(const ValueView &view, std::string &out) const { write_(*this, view, out); }
-        [[nodiscard]] Value read(BinaryReader &reader) const { return read_(*this, reader); }
+        BinaryConverter() noexcept;
+        BinaryConverter(const BinaryConverter &) = default;
+        BinaryConverter &operator=(const BinaryConverter &) = default;
+        BinaryConverter(BinaryConverter &&other) noexcept;
+        BinaryConverter &operator=(BinaryConverter &&other) noexcept;
+        void swap(BinaryConverter &other) noexcept;
 
-        WriteFn                              write_{nullptr};
-        ReadFn                               read_{nullptr};
-        HashFn                               hash_{nullptr};
+        void write(const ValueView &view, std::string &out) const { write_(*this, view, out); }
+        [[nodiscard]] Value read(BinaryReader &reader) const;
+
+        WriteFn                              write_;
+        ReadFn                               read_;
+        HashFn                               hash_;
         const ValueTypeMetaData             *meta{nullptr};
         ValueTypeRef                         binding{nullptr};
         /** Byte width of a trivially copyable atom; 0 when not one. */
@@ -116,7 +158,7 @@ namespace hgraph
 
     /** Decode one value of ``meta`` from ``bytes``. */
     [[nodiscard]] HGRAPH_EXPORT Value from_binary_string(const ValueTypeMetaData *meta,
-                                                         std::string_view bytes);
+                                                         std::string_view bytes, BinaryDecodeLimits limits = {});
 
     // --- LEB128 -------------------------------------------------------------
     // Counts and lengths are varints because they are almost always small;

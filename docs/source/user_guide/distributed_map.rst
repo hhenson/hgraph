@@ -38,7 +38,13 @@ set. Fixed and dynamic lists preserve original indices; whole-list and
 whole-dictionary arguments are broadcast when ``map_`` classifies them that
 way. An outputless child creates a distributed sink map and returns ``None``.
 The default worker count is two. ``in_process=True`` is an explicit diagnostic
-mode using the same worker plans and boundary transfer.
+mode using the same worker plans and boundary transfer. Process workers have a
+finite 60-second response deadline by default. Set ``__worker_timeout__`` to a
+positive number of seconds (at most 24 hours) to adjust it; expiry terminates
+the affected worker and fails the run. This deadline applies to process
+communication, including bootstrap transfer, dispatch and reply collection;
+it cannot interrupt Python code while wiring in the parent or callbacks in
+``in_process`` diagnostic mode.
 
 Time-series boundaries support scalar ``TS``, ``SIGNAL``, ``TSS``, ``TSD``, fixed/dynamic
 ``TSL``, ``TSB`` and ``TSW`` recursively. Transfers preserve invalid collection
@@ -69,7 +75,23 @@ must be a module-level importable graph/node; registered native operator names
 are also supported. Wiring-time scalar arguments must have a portable value
 encoding or an importable type recipe. Python code, closures and live objects
 are not pickled. Functions defined in ``__main__``, notebook-local functions
-and lambdas cannot be reconstructed by process workers.
+and lambdas cannot be reconstructed by process workers. Bootstrap metadata,
+including scalar configuration and import paths, travels over the connected
+channel rather than command-line arguments. Every channel frame, including
+bootstrap and cycle messages, is limited to 64 MiB; oversize messages fail
+instead of allocating unbounded buffers. Decoding also has a shared budget of
+1,000,000 work units and 256 nesting levels. Collection inventories, decoded
+values, and sparse list extents consume that budget. The lower-level native
+codec and ``BoundaryTransfer`` APIs accept ``BinaryDecodeLimits`` overrides.
+A boundary delta is fully decoded and validated before it changes live output;
+allocation failure during application still fails the run without rollback.
+
+Workers execute **trusted code** with the caller's operating-system identity,
+environment, working directory, and filesystem and network permissions.
+**Process separation is not a security sandbox.** The callable's module is also
+imported in the parent while constructing its recipe. Do not use ``dmap_`` to
+execute untrusted modules or treat graph-state isolation as an access-control
+boundary.
 
 Workers do not inherit the parent's runtime ``GlobalState``, services,
 contexts, captured outer ports or live resources. Worker-local state remains
@@ -92,6 +114,11 @@ Native embedding
 ``prepare_distributed_map_pool`` and ``wire_distributed_map``. Descriptors retain
 the original argument names and map tags. Native and Python clients share
 these prepared plans, the worker pool, transport and executor.
+``WorkerPoolConfig::timeout`` sets the process communication deadline in
+milliseconds and defaults to 60000. An embedding frontend can set
+``recipe_over_channel`` to send its prepared recipe as the first bounded frame;
+the worker receives ``@hgraph-channel-bootstrap:1`` as its command-line recipe
+marker and must retain that same channel for subsequent cycle messages.
 
 A native executable registers a ``PreparedWorkerRecipe`` whose function
 reconstructs one plan for a supplied group/count. ``bind_distributed_map_recipe``

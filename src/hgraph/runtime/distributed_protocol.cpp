@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace hgraph::distributed
 {
@@ -43,15 +44,21 @@ namespace hgraph::distributed
         }
 
         void write_deltas(const BoundarySlots &slots, const std::vector<SlotDelta> &deltas,
-                          std::string &out)
+                          std::string &out, SlotDirection direction)
         {
             write_varint(deltas.size(), out);
+            std::unordered_set<std::size_t> seen;
+            seen.reserve(deltas.size());
             for (const auto &entry : deltas)
             {
                 // Validated on the way out as well as in: an out-of-range slot
                 // written here would be indistinguishable from a corrupt stream
                 // at the far end, and the sender is where the bug is.
                 const auto *schema = slots.schema_at(entry.slot);
+                if (!seen.insert(entry.slot).second)
+                    throw std::runtime_error("distributed protocol: duplicate slot update");
+                if (slots.direction_at(entry.slot) != direction)
+                    throw std::runtime_error("distributed protocol: incorrect slot direction");
                 write_varint(entry.slot, out);
 
                 // Each payload carries its own length even though the codec is
@@ -74,21 +81,31 @@ namespace hgraph::distributed
         }
 
         [[nodiscard]] std::vector<SlotDelta> read_deltas(const BoundarySlots &slots,
-                                                         BinaryReader &reader)
+                                                         BinaryReader &reader, SlotDirection direction)
         {
             const auto             count = static_cast<std::size_t>(read_varint(reader));
             // Each entry needs at least a slot and a payload-length byte.
             // Bound allocation by bytes already received, not an unchecked count.
             if (count > reader.remaining() / 2)
                 throw std::runtime_error("distributed protocol: truncated slot inventory");
+            reader.consume_work(count);
             std::vector<SlotDelta> deltas;
             deltas.reserve(count);
+            std::unordered_set<std::size_t> seen;
+            seen.reserve(count);
             for (std::size_t i = 0; i < count; ++i)
             {
                 const auto  slot    = static_cast<std::size_t>(read_varint(reader));
                 const auto *schema  = slots.schema_at(slot);
-                const auto  encoded = read_text(reader);
-                deltas.push_back(SlotDelta{slot, from_binary_string(schema, encoded)});
+                if (!seen.insert(slot).second)
+                    throw std::runtime_error("distributed protocol: duplicate slot update");
+                if (slots.direction_at(slot) != direction)
+                    throw std::runtime_error("distributed protocol: incorrect slot direction");
+                auto encoded = reader.subreader(static_cast<std::size_t>(read_varint(reader)));
+                auto value = bind_binary_converter(schema).read(encoded);
+                if (encoded.remaining() != 0)
+                    throw std::runtime_error("distributed protocol: trailing bytes after slot value");
+                deltas.push_back(SlotDelta{slot, std::move(value)});
             }
             return deltas;
         }
@@ -165,16 +182,16 @@ namespace hgraph::distributed
     {
         std::string out;
         write_time(request.evaluation_time, out);
-        write_deltas(slots, request.staged, out);
+        write_deltas(slots, request.staged, out, SlotDirection::Input);
         return out;
     }
 
-    CycleRequest decode_request(const BoundarySlots &slots, std::string_view payload)
+    CycleRequest decode_request(const BoundarySlots &slots, std::string_view payload, BinaryDecodeLimits limits)
     {
-        BinaryReader reader{payload, 0};
+        BinaryReader reader{payload, 0, limits};
         CycleRequest request;
         request.evaluation_time = read_time(reader);
-        request.staged          = read_deltas(slots, reader);
+        request.staged          = read_deltas(slots, reader, SlotDirection::Input);
         static_cast<void>(finish(reader, "request"));
         return request;
     }
@@ -183,47 +200,56 @@ namespace hgraph::distributed
     {
         std::string out;
         write_time(reply.next_scheduled_time, out);
-        write_deltas(slots, reply.collected, out);
+        write_deltas(slots, reply.collected, out, SlotDirection::Output);
         write_text(reply.error, out);
         return out;
     }
 
-    CycleReply decode_reply(const BoundarySlots &slots, std::string_view payload)
+    CycleReply decode_reply(const BoundarySlots &slots, std::string_view payload, BinaryDecodeLimits limits)
     {
-        BinaryReader reader{payload, 0};
+        BinaryReader reader{payload, 0, limits};
         CycleReply   reply;
         reply.next_scheduled_time = read_time(reader);
-        reply.collected           = read_deltas(slots, reader);
+        reply.collected           = read_deltas(slots, reader, SlotDirection::Output);
         reply.error               = read_text(reader);
         static_cast<void>(finish(reader, "reply"));
         return reply;
     }
 
-    std::string write_frame(std::string_view payload)
+    std::string write_frame(std::string_view payload, std::size_t max_size)
     {
+        if (payload.size() > max_size)
+            throw std::runtime_error("distributed protocol: frame size limit exceeded");
         std::string out;
         write_varint(payload.size(), out);
         out.append(payload);
         return out;
     }
 
-    bool read_frame(std::string_view buffer, std::string_view &payload, std::size_t &consumed)
+    bool read_frame(std::string_view buffer, std::string_view &payload, std::size_t &consumed,
+                    std::size_t max_size)
     {
-        BinaryReader reader{buffer, 0};
+        // Only a short prefix is incomplete. Ten continuation bytes (or an
+        // overflowing tenth byte) can never become valid with more input.
         std::uint64_t size = 0;
-        try
+        std::size_t prefix = 0;
+        for (; prefix < 10; ++prefix)
         {
-            size = read_varint(reader);
+            if (prefix == buffer.size()) return false;
+            const auto byte = static_cast<unsigned char>(buffer[prefix]);
+            if (prefix == 9 && (byte & 0xfeu) != 0)
+                throw std::runtime_error("distributed protocol: frame varint overflow");
+            size |= static_cast<std::uint64_t>(byte & 0x7fu) << (7 * prefix);
+            if ((byte & 0x80u) == 0) { ++prefix; break; }
         }
-        catch (const std::runtime_error &)
-        {
-            return false;   // the length prefix itself is still arriving
-        }
-        if (reader.remaining() < size) { return false; }
-        payload  = buffer.substr(reader.offset, static_cast<std::size_t>(size));
-        consumed = reader.offset + static_cast<std::size_t>(size);
+        if (size > max_size)
+            throw std::runtime_error("distributed protocol: frame size limit exceeded");
+        if (buffer.size() - prefix < size) return false;
+        payload = buffer.substr(prefix, static_cast<std::size_t>(size));
+        consumed = prefix + static_cast<std::size_t>(size);
         return true;
     }
+
 }  // namespace hgraph::distributed
 
 // --- the worker's behaviour ------------------------------------------------

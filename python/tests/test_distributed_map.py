@@ -135,19 +135,19 @@ def test_python_graph_composes_native_nodes(in_process):
 
 
 def test_worker_exception_reaches_the_client():
-    with pytest.raises(Exception, match="distributed child failure"):
+    with pytest.raises(RuntimeError, match="distributed child failure"):
         run(broken, [{"a": 1}])
     assert run(native_child, [{"a": 2}]) == [{"a": 6}]
 
 
 def test_local_callable_is_refused_before_launch():
-    with pytest.raises(Exception, match="importable module"):
+    with pytest.raises(ValueError, match="importable module"):
         run(lambda ts: ts + 1, [{"a": 1}])
 
 
 @pytest.mark.parametrize("workers", [0, -1, True, 1.5])
 def test_invalid_worker_counts(workers):
-    with pytest.raises(Exception, match="positive integer"):
+    with pytest.raises(ValueError, match="positive integer"):
         run(native_child, [{"a": 1}], workers)
 
 
@@ -183,6 +183,6 @@ def test_worker_stop_completes_before_run_returns(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("in_process", [True, False])
 def test_stop_errors_fail_the_run_and_release_the_pool(in_process):
-    with pytest.raises(Exception, match="distributed stop failure|worker exited with code"):
+    with pytest.raises(RuntimeError, match="distributed stop failure|worker exited with code"):
         run(stop_failure, [{"a": 2}], in_process=in_process)
     assert run(native_child, [{"a": 2}], in_process=in_process) == [{"a": 6}]

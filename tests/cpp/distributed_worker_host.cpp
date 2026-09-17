@@ -17,11 +17,38 @@
 
 #include <cstdio>
 #include <exception>
+#include <chrono>
+#include <thread>
+#include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
-int main(int argc, char **argv)
+int run_host(int argc, char **argv)
 {
     try
     {
+        if (argc > 1 && (std::string_view{argv[1]} == "--test-hang-bootstrap" ||
+                         std::string_view{argv[1]} == "--test-hang-reply"))
+        {
+            if (std::string_view{argv[1]} == "--test-hang-reply")
+            {
+                using namespace hgraph::distributed;
+                std::int64_t read = -1, write = -1;
+                for (int i = 2; i < argc; ++i)
+                {
+                    const std::string_view argument{argv[i]};
+                    if (argument.starts_with(worker_read_flag)) read = std::stoll(std::string{argument.substr(worker_read_flag.size())});
+                    if (argument.starts_with(worker_write_flag)) write = std::stoll(std::string{argument.substr(worker_write_flag.size())});
+                }
+                auto channel = PipeEndpoint::adopt(read, write);
+                std::string message;
+                (void)channel.receive(message);
+                // Retain the channel while simulating a node that never returns.
+                while (true) std::this_thread::sleep_for(std::chrono::seconds{30});
+            }
+            while (true) std::this_thread::sleep_for(std::chrono::seconds{30});
+        }
         (void)hgraph::TypeRegistry::instance().register_scalar<hgraph::Int>("int");
         hgraph::stdlib::register_standard_operators();
         hgraph_test::register_distributed_test_recipes();
@@ -39,3 +66,28 @@ int main(int argc, char **argv)
         return 1;
     }
 }
+
+#ifdef _WIN32
+// A native Windows embedding receives Unicode argv through wmain and passes
+// UTF-8 to hgraph, matching the public process/recipe string contract.
+int wmain(int argc, wchar_t **argv)
+{
+    std::vector<std::string> arguments;
+    arguments.reserve(static_cast<std::size_t>(argc));
+    for (int i = 0; i < argc; ++i)
+    {
+        const int length = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argv[i], -1, nullptr, 0, nullptr, nullptr);
+        if (length <= 0) return 1;
+        std::string utf8(static_cast<std::size_t>(length), '\0');
+        if (!::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, argv[i], -1, utf8.data(), length, nullptr, nullptr)) return 1;
+        utf8.pop_back();
+        arguments.push_back(std::move(utf8));
+    }
+    std::vector<char *> narrow;
+    for (auto &argument : arguments) narrow.push_back(argument.data());
+    narrow.push_back(nullptr);
+    return run_host(argc, narrow.data());
+}
+#else
+int main(int argc, char **argv) { return run_host(argc, argv); }
+#endif

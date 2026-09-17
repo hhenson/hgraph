@@ -122,7 +122,7 @@ namespace hgraph_test
      * platform-specific bug that only one platform can catch by accident.
      * This makes every platform catch it.
      */
-    inline constexpr const char *awkward_recipe_name = "hgraph test recipe \"with\" spaces";
+    inline constexpr const char *awkward_recipe_name = "hgraph test recipe \"with\" spaces \xCE\xBB \xE6\xB5\x8B";
 
     using PreparedRow = TSB<"DistributedPreparedRow", Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
 

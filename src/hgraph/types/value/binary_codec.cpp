@@ -36,6 +36,13 @@ namespace hgraph
             throw std::runtime_error("binary codec: truncated buffer");
         }
 
+        void refuse_write(const BinaryConverter &, const ValueView &, std::string &)
+        { throw std::logic_error("binary codec: unbound converter"); }
+        Value refuse_read(const BinaryConverter &, BinaryReader &)
+        { throw std::logic_error("binary codec: unbound converter"); }
+        std::uint64_t refuse_hash(const BinaryConverter &, const ValueView &)
+        { throw std::logic_error("binary codec: unbound converter"); }
+
         // --- composites ----------------------------------------------------
         // A presence bitmap precedes the present fields. It is not an
         // optimisation: a Bundle field may be UNSET rather than defaulted, and
@@ -71,6 +78,7 @@ namespace hgraph
         Value read_composite(const BinaryConverter &self, BinaryReader &reader)
         {
             const std::size_t fields = self.children.size();
+            reader.consume_work(fields);
             const auto       *bitmap = reader.take(bitmap_bytes(fields));
 
             BundleBuilder builder{self.binding};
@@ -241,6 +249,7 @@ namespace hgraph
         Value read_ranges(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto count = read_varint(reader);
+            reader.consume_work(count);
             if (count > Ranges::capacity()) throw std::runtime_error("binary codec: range set exceeds capacity");
             std::array<typename Ranges::value_type, Ranges::capacity()> ranges;
             for (std::size_t i = 0; i < count; ++i) ranges[i] = read_range_value<typename Ranges::value_type>(reader);
@@ -364,6 +373,7 @@ namespace hgraph
         Value read_list(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto  count   = static_cast<std::size_t>(read_varint(reader));
+            reader.consume_work(count);
             const auto  element = self.children[0]->binding;
             ListBuilder builder{element, *self.meta};
             const auto *bitmap = self.meta->has(ValueTypeFlags::Nullable) ? reader.take(bitmap_bytes(count)) : nullptr;
@@ -400,6 +410,7 @@ namespace hgraph
         Value read_set(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto count   = static_cast<std::size_t>(read_varint(reader));
+            reader.consume_work(count);
             const auto element = self.children[0]->binding;
             SetBuilder builder{element};
             for (std::size_t i = 0; i < count; ++i)
@@ -430,6 +441,7 @@ namespace hgraph
         Value read_map(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto count = static_cast<std::size_t>(read_varint(reader));
+            reader.consume_work(count);
             const auto key   = self.children[0]->binding;
             const auto value = self.children[1]->binding;
             MapBuilder builder{key, value};
@@ -460,6 +472,7 @@ namespace hgraph
         Value read_cyclic_buffer(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto count = read_varint(reader);
+            reader.consume_work(count);
             if (count > self.meta->fixed_size)
                 throw std::runtime_error("binary codec: cyclic buffer exceeds declared capacity");
             CyclicBufferBuilder builder{self.children[0]->binding, self.meta->fixed_size};
@@ -471,6 +484,7 @@ namespace hgraph
         Value read_queue(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto count = read_varint(reader);
+            reader.consume_work(count);
             if (self.meta->fixed_size != 0 && count > self.meta->fixed_size)
                 throw std::runtime_error("binary codec: queue exceeds declared capacity");
             QueueBuilder builder{self.children[0]->binding, self.meta->fixed_size};
@@ -890,6 +904,68 @@ namespace hgraph
         return impl_->root->read(reader);
     }
 
+    BinaryConverter::BinaryConverter() noexcept
+        : write_(&refuse_write), read_(&refuse_read), hash_(&refuse_hash) {}
+
+    BinaryConverter::BinaryConverter(BinaryConverter &&other) noexcept : BinaryConverter()
+    { swap(other); }
+
+    BinaryConverter &BinaryConverter::operator=(BinaryConverter &&other) noexcept
+    {
+        if (this != &other)
+        {
+            BinaryConverter moved{std::move(other)};
+            swap(moved);
+        }
+        return *this;
+    }
+
+    void BinaryConverter::swap(BinaryConverter &other) noexcept
+    {
+        using std::swap;
+        swap(write_, other.write_);
+        swap(read_, other.read_);
+        swap(hash_, other.hash_);
+        swap(meta, other.meta);
+        swap(binding, other.binding);
+        swap(atom_size, other.atom_size);
+        swap(realization_bound, other.realization_bound);
+        swap(children, other.children);
+        swap(write_alternatives, other.write_alternatives);
+        swap(read_alternatives, other.read_alternatives);
+    }
+
+    Value BinaryConverter::read(BinaryReader &reader) const
+    {
+        auto depth = reader.enter();
+        return read_(*this, reader);
+    }
+
+    void BinaryReader::consume_work(std::uint64_t count)
+    {
+        auto &state = budget();
+        if (count > state.limits.max_work - state.work)
+            throw std::runtime_error("binary codec: decode work limit exceeded");
+        state.work += count;
+    }
+
+    void BinaryReader::enter_value()
+    {
+        auto &state = budget();
+        if (state.depth >= state.limits.max_depth)
+            throw std::runtime_error("binary codec: decode depth limit exceeded");
+        consume_work(1);
+        ++state.depth;
+    }
+
+    BinaryReader BinaryReader::subreader(std::size_t count)
+    {
+        const auto *bytes = take(count);
+        BinaryReader child{std::string_view{reinterpret_cast<const char *>(bytes), count}};
+        child.shared_ = &budget();
+        return child;
+    }
+
     const std::byte *BinaryReader::take(std::size_t count)
     {
         if (offset > buffer.size() || remaining() < count) { short_buffer(); }
@@ -960,9 +1036,9 @@ namespace hgraph
         return out;
     }
 
-    Value from_binary_string(const ValueTypeMetaData *meta, std::string_view bytes)
+    Value from_binary_string(const ValueTypeMetaData *meta, std::string_view bytes, BinaryDecodeLimits limits)
     {
-        BinaryReader reader{bytes, 0};
+        BinaryReader reader{bytes, 0, limits};
         Value        result = bind_binary_converter(meta).read(reader);
         if (reader.remaining() != 0)
         {

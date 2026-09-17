@@ -5,6 +5,7 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_hash.h>
 
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -29,7 +30,23 @@ namespace hgraph::distributed
     {
         using Capture = void (*)(const Plan &, const TSInputView &, bool, std::size_t,
                                   std::size_t, std::string &);
-        using Apply = void (*)(const Plan &, const TSOutputView &, unsigned, bool, BinaryReader &);
+        // Decode a delta completely before publishing any of its mutations. Values
+        // are decoded once; staging is proportional to the changed subtree.
+        struct Decoded
+        {
+            unsigned flags{};
+            std::size_t extent{};
+            bool clear{};
+            bool push{};
+            Value value{};
+            std::vector<Value> removed{};
+            std::vector<Value> keys{};
+            std::vector<std::size_t> indices{};
+            std::vector<Decoded> children{};
+            std::vector<DateTime> times{};
+        };
+        using Decode = void (*)(const Plan &, Decoded &, BinaryReader &, DateTime);
+        using Apply = void (*)(const Plan &, const TSOutputView &, const Decoded &, bool);
         const TSValueTypeMetaData *schema{};
         BoundBinaryConverter value{};
         BoundBinaryConverter key{};
@@ -39,6 +56,7 @@ namespace hgraph::distributed
         std::unordered_map<std::string_view, std::size_t> fields{};
         Capture capture{};
         Apply apply{};
+        Decode decode{};
         bool full_when_unbound{false};
 
         explicit Plan(const TSValueTypeMetaData *type) : schema(type)
@@ -49,20 +67,20 @@ namespace hgraph::distributed
                 case TSTypeKind::TS:
                 case TSTypeKind::SIGNAL:
                     value = bind_binary_converter(schema->delta_value_schema);
-                    capture = &capture_atomic; apply = &apply_atomic; break;
+                    capture = &capture_atomic; apply = &apply_atomic; decode = &decode_atomic; break;
                 case TSTypeKind::TSS:
                     full_when_unbound = true;
                     key = bind_binary_converter(schema->value_schema->element_type);
-                    capture = &capture_set; apply = &apply_set; break;
+                    capture = &capture_set; apply = &apply_set; decode = &decode_set; break;
                 case TSTypeKind::TSD:
                     full_when_unbound = true;
                     key = bind_binary_converter(schema->data.tsd.key_type);
                     children.push_back(std::make_unique<Plan>(schema->element_ts()));
-                    capture = &capture_dict; apply = &apply_dict; break;
+                    capture = &capture_dict; apply = &apply_dict; decode = &decode_dict; break;
                 case TSTypeKind::TSL:
                     full_when_unbound = true;
                     children.push_back(std::make_unique<Plan>(schema->element_ts()));
-                    capture = &capture_list; apply = &apply_list; break;
+                    capture = &capture_list; apply = &apply_list; decode = &decode_list; break;
                 case TSTypeKind::TSB:
                     for (std::size_t index = 0; index < schema->data.tsb.field_count; ++index)
                     {
@@ -70,13 +88,13 @@ namespace hgraph::distributed
                         fields.emplace(field.name, index);
                         children.push_back(std::make_unique<Plan>(field.type));
                     }
-                    capture = &capture_bundle; apply = &apply_bundle; break;
+                    capture = &capture_bundle; apply = &apply_bundle; decode = &decode_bundle; break;
                 case TSTypeKind::TSW:
                     full_when_unbound = true;
                     value = bind_binary_converter(schema->value_type);
                     time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"));
                     element_binding = value.binding();
-                    capture = &capture_window; apply = &apply_window; break;
+                    capture = &capture_window; apply = &apply_window; decode = &decode_window; break;
                 case TSTypeKind::REF:
                     throw std::invalid_argument("distributed boundaries require recursively materialized REF values");
             }
@@ -90,12 +108,111 @@ namespace hgraph::distributed
             byte((in.valid() ? live_flag : 0) | (full ? full_flag : 0), bytes);
             capture(*this, in, full, group, groups, bytes);
         }
-        void read(const TSOutputView &out, BinaryReader &reader, bool merge = false) const
+        [[nodiscard]] Decoded read(BinaryReader &reader, DateTime evaluation_time) const
         {
-            const auto flags = byte(reader);
-            if (flags & ~(live_flag | full_flag))
+            auto depth = reader.enter();
+            Decoded decoded;
+            decoded.flags = byte(reader);
+            if (decoded.flags & ~(live_flag | full_flag))
                 throw std::invalid_argument("invalid distributed boundary flags");
-            apply(*this, out, flags, merge, reader);
+            decode(*this, decoded, reader, evaluation_time);
+            return decoded;
+        }
+        static bool more(BinaryReader &reader)
+        {
+            const auto marker = byte(reader);
+            if (marker > 1) throw std::invalid_argument("invalid distributed boundary marker");
+            if (marker) reader.consume_work(1);
+            return marker != 0;
+        }
+        static void decode_atomic(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime)
+        {
+            if (decoded.flags & live_flag) decoded.value = plan.value.read(reader);
+        }
+        static void decode_set(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime)
+        {
+            while (more(reader)) decoded.removed.push_back(plan.key.read(reader));
+            while (more(reader)) decoded.keys.push_back(plan.key.read(reader));
+        }
+        static void decode_dict(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime evaluation_time)
+        {
+            while (more(reader)) decoded.removed.push_back(plan.key.read(reader));
+            std::unordered_set<Value, ValueHash, ValueEqual> updated;
+            while (more(reader))
+            {
+                decoded.keys.push_back(plan.key.read(reader));
+                if (!updated.insert(decoded.keys.back()).second)
+                    throw std::invalid_argument("duplicate distributed dictionary update");
+                decoded.children.push_back(plan.children.front()->read(reader, evaluation_time));
+            }
+        }
+        static void decode_list(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime evaluation_time)
+        {
+            const auto extent = read_varint(reader);
+            // Sparse payloads may name a large extent with almost no bytes.
+            // Charge the resulting endpoint count, before any resize/allocation.
+            reader.consume_work(extent);
+            decoded.extent = static_cast<std::size_t>(extent);
+            if (!plan.schema->is_unbounded_tsl() && extent != plan.schema->fixed_size())
+                throw std::invalid_argument("distributed fixed list size mismatch");
+            std::unordered_set<std::size_t> updated;
+            while (more(reader))
+            {
+                const auto index = read_varint(reader);
+                if (!updated.insert(static_cast<std::size_t>(index)).second)
+                    throw std::invalid_argument("duplicate distributed indexed update");
+                if (index >= extent) throw std::invalid_argument("distributed list index exceeds length");
+                decoded.indices.push_back(static_cast<std::size_t>(index));
+                decoded.children.push_back(plan.children.front()->read(reader, evaluation_time));
+            }
+        }
+        static void decode_bundle(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime evaluation_time)
+        {
+            std::unordered_set<std::size_t> updated;
+            while (more(reader))
+            {
+                const auto index = read_varint(reader);
+                if (!updated.insert(static_cast<std::size_t>(index)).second)
+                    throw std::invalid_argument("duplicate distributed indexed update");
+                if (index >= plan.children.size()) throw std::invalid_argument("distributed bundle index exceeds shape");
+                decoded.indices.push_back(static_cast<std::size_t>(index));
+                decoded.children.push_back(plan.children[index]->read(reader, evaluation_time));
+            }
+        }
+        static void decode_window(const Plan &plan, Decoded &decoded, BinaryReader &reader, DateTime evaluation_time)
+        {
+            if (decoded.flags & full_flag)
+            {
+                const auto count = read_varint(reader);
+                reader.consume_work(count);
+                if (count > reader.remaining()) throw std::invalid_argument("distributed window sample count exceeds frame");
+                if (!plan.schema->is_duration_based() && count > plan.schema->period())
+                    throw std::invalid_argument("distributed window sample count exceeds period");
+                ListBuilder samples{plan.element_binding};
+                decoded.times.reserve(static_cast<std::size_t>(count));
+                for (std::uint64_t index = 0; index < count; ++index)
+                {
+                    const auto sample_time = plan.time.read(reader).view().checked_as<DateTime>();
+                    if (sample_time <= MIN_DT || sample_time > evaluation_time ||
+                        (!decoded.times.empty() && sample_time < decoded.times.back()))
+                        throw std::invalid_argument("distributed window has invalid chronological samples");
+                    if (plan.schema->is_duration_based() && !decoded.times.empty() &&
+                        static_cast<std::uint64_t>(sample_time.time_since_epoch().count()) -
+                            static_cast<std::uint64_t>(decoded.times.front().time_since_epoch().count()) >
+                        static_cast<std::uint64_t>(plan.schema->time_range().count()))
+                        throw std::invalid_argument("distributed window samples exceed time range");
+                    decoded.times.push_back(sample_time);
+                    const auto value = plan.value.read(reader);
+                    samples.push_back_copy(value.view().data());
+                }
+                decoded.value = samples.build();
+            }
+            else
+            {
+                decoded.clear = more(reader);
+                decoded.push = more(reader);
+                if (decoded.push) decoded.value = plan.value.read(reader);
+            }
         }
 
         static void capture_atomic(const Plan &plan, const TSInputView &in, bool,
@@ -106,11 +223,12 @@ namespace hgraph::distributed
                 plan.value.write(Value{true}.view(), bytes);
             else plan.value.write(in.value(), bytes);
         }
-        static void apply_atomic(const Plan &plan, const TSOutputView &out, unsigned flags,
-                                 bool, BinaryReader &reader)
+        static void apply_atomic(const Plan &, const TSOutputView &out, const Decoded &decoded,
+                                 bool)
         {
+            const auto flags = decoded.flags;
             if (!(flags & live_flag)) { invalidate(out); return; }
-            const auto value = plan.value.read(reader);
+            const auto &value = decoded.value;
             auto mutation = out.begin_mutation(out.evaluation_time());
             static_cast<void>(mutation.copy_value_from(value.view()));
             mutation.mark_modified();
@@ -138,19 +256,19 @@ namespace hgraph::distributed
             }
             byte(0, bytes);
         }
-        static void apply_set(const Plan &plan, const TSOutputView &out, unsigned flags,
-                              bool merge, BinaryReader &reader)
+        static void apply_set(const Plan &, const TSOutputView &out, const Decoded &decoded,
+                              bool merge)
         {
+            const auto flags = decoded.flags;
             const auto set = out.as_set();
             auto mutation = set.begin_mutation(out.evaluation_time());
             const bool full = (flags & full_flag) && !merge;
             std::unordered_set<Value, ValueHash, ValueEqual> present;
-            while (byte(reader)) { const auto key = plan.key.read(reader); (void)mutation.remove(key.view()); }
-            while (byte(reader))
+            for (const auto &key : decoded.removed) (void)mutation.remove(key.view());
+            for (const auto &key : decoded.keys)
             {
-                auto key = plan.key.read(reader);
                 (void)mutation.add(key.view());
-                if (full) present.insert(std::move(key));
+                if (full) present.insert(key);
             }
             if (full)
             {
@@ -222,20 +340,23 @@ namespace hgraph::distributed
             }
             byte(0, bytes);
         }
-        static void apply_dict(const Plan &plan, const TSOutputView &out, unsigned flags,
-                               bool merge, BinaryReader &reader)
+        static void apply_dict(const Plan &plan, const TSOutputView &out, const Decoded &decoded,
+                               bool merge)
         {
+            const auto flags = decoded.flags;
             const auto dict = out.as_dict();
             auto mutation = dict.begin_mutation(out.evaluation_time());
             const bool full = (flags & full_flag) && !merge;
             std::unordered_set<Value, ValueHash, ValueEqual> present;
-            while (byte(reader)) { const auto key = plan.key.read(reader); (void)mutation.erase(key.view()); }
-            while (byte(reader))
+            for (const auto &key : decoded.removed) (void)mutation.erase(key.view());
+            for (std::size_t index = 0; index < decoded.keys.size(); ++index)
             {
-                auto key = plan.key.read(reader);
+                const auto &key = decoded.keys[index];
                 const auto child = mutation.at(key.view());
-                plan.children.front()->read(TSOutputView{out.output(), child, out.evaluation_time()}, reader);
-                if (full) present.insert(std::move(key));
+                const auto &child_plan = *plan.children.front();
+                child_plan.apply(child_plan, TSOutputView{out.output(), child, out.evaluation_time()},
+                                 decoded.children[index], false);
+                if (full) present.insert(key);
             }
             if (full)
             {
@@ -279,19 +400,27 @@ namespace hgraph::distributed
                 for (const auto &[index, child] : list.modified_items()) write_item(index, child);
             byte(0, bytes);
         }
-        static void apply_list(const Plan &plan, const TSOutputView &out, unsigned flags,
-                               bool merge, BinaryReader &reader)
+        static void apply_list(const Plan &plan, const TSOutputView &out, const Decoded &decoded,
+                               bool merge)
         {
-            const auto size = read_varint(reader);
+            const auto flags = decoded.flags;
+            const auto size = decoded.extent;
             auto list = out.as_list();
-            if (plan.schema->is_unbounded_tsl()) { if (!merge) list.resize(size); }
-            else if (size != list.size()) throw std::invalid_argument("distributed fixed list size mismatch");
-            while (byte(reader))
+            if (plan.schema->is_unbounded_tsl())
             {
-                const auto index = read_varint(reader);
-                if (index >= size) throw std::invalid_argument("distributed list index exceeds length");
-                if (plan.schema->is_unbounded_tsl() && index >= list.size()) list.resize(index + 1);
-                plan.children.front()->read(list.at(index), reader);
+                if (!merge) list.resize(size);
+                else if (!decoded.indices.empty())
+                {
+                    const auto required = *std::max_element(decoded.indices.begin(), decoded.indices.end()) + 1;
+                    if (required > list.size()) list.resize(required);
+                }
+            }
+            else if (size != list.size()) throw std::invalid_argument("distributed fixed list size mismatch");
+            for (std::size_t item = 0; item < decoded.indices.size(); ++item)
+            {
+                const auto index = decoded.indices[item];
+                const auto &child_plan = *plan.children.front();
+                child_plan.apply(child_plan, list.at(index), decoded.children[item], false);
             }
             if (flags & live_flag)
             {
@@ -313,14 +442,15 @@ namespace hgraph::distributed
             }
             byte(0, bytes);
         }
-        static void apply_bundle(const Plan &plan, const TSOutputView &out, unsigned flags,
-                                 bool merge, BinaryReader &reader)
+        static void apply_bundle(const Plan &plan, const TSOutputView &out, const Decoded &decoded,
+                                 bool merge)
         {
-            while (byte(reader))
+            const auto flags = decoded.flags;
+            for (std::size_t item = 0; item < decoded.indices.size(); ++item)
             {
-                const auto index = read_varint(reader);
-                if (index >= plan.children.size()) throw std::invalid_argument("distributed bundle index exceeds shape");
-                plan.children[index]->read(out.indexed_child_at(index), reader);
+                const auto index = decoded.indices[item];
+                const auto &child_plan = *plan.children[index];
+                child_plan.apply(child_plan, out.indexed_child_at(index), decoded.children[item], false);
             }
             if (flags & live_flag)
             {
@@ -350,42 +480,32 @@ namespace hgraph::distributed
                 if (delta.has_value()) plan.value.write(delta, bytes);
             }
         }
-        static void apply_window(const Plan &plan, const TSOutputView &out, unsigned flags,
-                                 bool, BinaryReader &reader)
+        static void apply_window(const Plan &, const TSOutputView &out, const Decoded &decoded,
+                                 bool)
         {
+            const auto flags = decoded.flags;
             auto window = out.as_window();
             auto mutation = window.begin_mutation(out.evaluation_time());
             if (flags & full_flag)
             {
-                const auto count = read_varint(reader);
-                if (count > reader.remaining()) throw std::invalid_argument("distributed window sample count exceeds frame");
-                ListBuilder samples{plan.element_binding};
-                std::vector<DateTime> times;
-                times.reserve(count);
-                for (std::size_t index = 0; index < count; ++index)
-                {
-                    times.push_back(plan.time.read(reader).view().checked_as<DateTime>());
-                    const auto value = plan.value.read(reader);
-                    samples.push_back_copy(value.view().data());
-                }
-                const auto values = samples.build();
-                if (!times.empty() || (flags & live_flag)) mutation.replace_samples(values.view(), times);
+                if (!decoded.times.empty() || (flags & live_flag))
+                    mutation.replace_samples(decoded.value.view(), decoded.times);
                 else if (!window.empty()) mutation.clear();
                 if (!(flags & live_flag)) invalidate(out);
             }
             else
             {
-                const bool clear = byte(reader) != 0;
-                const bool push = byte(reader) != 0;
+                const bool clear = decoded.clear;
+                const bool push = decoded.push;
                 if (clear) mutation.clear();
-                if (push) { const auto value = plan.value.read(reader); mutation.push(value.view()); }
+                if (push) mutation.push(decoded.value.view());
                 if (!clear && !push && !(flags & live_flag)) invalidate(out);
             }
         }
     };
 
-    BoundaryTransfer::BoundaryTransfer(const TSValueTypeMetaData *schema)
-        : plan_(std::make_shared<const Plan>(schema)) {}
+    BoundaryTransfer::BoundaryTransfer(const TSValueTypeMetaData *schema, BinaryDecodeLimits limits)
+        : plan_(std::make_shared<const Plan>(schema)), limits_(limits) {}
     const TSValueTypeMetaData *BoundaryTransfer::schema() const noexcept { return plan_->schema; }
     const ValueTypeMetaData *BoundaryTransfer::payload_schema()
     { return TypeRegistry::instance().register_scalar<std::string>("str"); }
@@ -403,15 +523,19 @@ namespace hgraph::distributed
     std::optional<std::size_t> BoundaryTransfer::root_list_size(const ValueView &payload) const
     {
         if (schema()->kind != TSTypeKind::TSL) return {};
-        BinaryReader reader{payload.checked_as<std::string>()};
-        static_cast<void>(byte(reader));
-        return read_varint(reader);
+        BinaryReader reader{payload.checked_as<std::string>(), 0, limits_};
+        const auto flags = byte(reader);
+        if (flags & ~(live_flag | full_flag)) throw std::invalid_argument("invalid distributed boundary flags");
+        const auto extent = read_varint(reader);
+        reader.consume_work(extent);
+        return static_cast<std::size_t>(extent);
     }
     void BoundaryTransfer::apply(const TSOutputView &output, const ValueView &payload, bool merge) const
     {
         if (output.schema() != schema()) throw std::invalid_argument("distributed apply schema mismatch");
-        BinaryReader reader{payload.checked_as<std::string>()};
-        plan_->read(output, reader, merge);
+        BinaryReader reader{payload.checked_as<std::string>(), 0, limits_};
+        const auto decoded = plan_->read(reader, output.evaluation_time());
         if (reader.remaining()) throw std::invalid_argument("trailing distributed boundary bytes");
+        plan_->apply(*plan_, output, decoded, merge);
     }
 }

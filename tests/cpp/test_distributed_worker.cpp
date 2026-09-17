@@ -24,6 +24,9 @@
 
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <chrono>
+#include <catch2/generators/catch_generators.hpp>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -172,4 +175,41 @@ TEST_CASE("distributed worker: an awkward recipe name survives the launch")
     REQUIRE(worker.channel().receive(payload));
     CHECK(decode_reply(slots, payload).error.empty());
     CHECK(worker.wait_for_exit() == 0);
+}
+
+TEST_CASE("distributed worker: bootstrap and evaluation hangs terminate within the deadline")
+{
+    const auto mode = GENERATE("--test-hang-bootstrap", "--test-hang-reply");
+    const std::vector<std::string> arguments{mode};
+    DistributedWorker worker{spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, test_recipe_key(),
+                                          MIN_ST, worker_end, arguments), std::chrono::milliseconds{100}};
+    const auto slots = distributed_map_slots<Int, Int, Int>();
+    CycleRequest request;
+    request.evaluation_time = MIN_ST;
+    const auto started = std::chrono::steady_clock::now();
+    worker.dispatch(slots, request);
+    CHECK_THROWS_WITH(worker.collect(slots), Catch::Matchers::ContainsSubstring("deadline exceeded"));
+    CHECK_NOTHROW(worker.stop());
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds{2});
+}
+
+TEST_CASE("distributed worker: Unicode executable paths survive spawning")
+{
+    namespace fs = std::filesystem;
+    const auto original = fs::path{HGRAPH_TEST_WORKER_PROGRAM};
+    const auto filename = std::u8string{u8"hgraph-\u6d4b\u8bd5-\u03bb-"} +
+                          fs::path{std::to_string(this_pid())}.u8string() + original.extension().u8string();
+    const auto executable = original.parent_path() / fs::path{filename};
+    fs::copy_file(original, executable, fs::copy_options::overwrite_existing);
+    auto cleanup = make_scope_exit([&] { std::error_code ignored; fs::remove(executable, ignored); });
+    const auto utf8 = executable.u8string();
+    const std::string path{reinterpret_cast<const char *>(utf8.data()), utf8.size()};
+    auto process = spawn_worker(path, test_recipe_key(), MIN_ST, worker_end);
+    DistributedWorker worker{std::move(process), std::chrono::seconds{10}};
+    const auto slots = distributed_map_slots<Int, Int, Int>();
+    CycleRequest request;
+    request.evaluation_time = MIN_ST;
+    worker.dispatch(slots, request);
+    CHECK(worker.collect(slots).error.empty());
+    CHECK_NOTHROW(worker.stop());
 }

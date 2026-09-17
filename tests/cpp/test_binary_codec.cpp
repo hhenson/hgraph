@@ -388,3 +388,87 @@ TEST_CASE("binary codec: temporal ranges encode semantic endpoints without paddi
     const auto decoded = from_binary_string(value.schema(), to_binary_string(value.view()));
     CHECK(ranges.portable_hash(value.view()) == ranges.portable_hash(decoded.view()));
 }
+
+TEST_CASE("binary codec: collection work is bounded even for zero-byte elements")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *list = registry.list(integer);
+    // Reuse the real list reader with a zero-byte element decoder. This probes
+    // the work contract without relying on unsupported zero-stride storage.
+    BinaryConverter zero_element{binary_converter(integer)};
+    zero_element.read_ = +[](const BinaryConverter &, BinaryReader &) -> Value { return Value{Int{0}}; };
+    BinaryConverter zero_list{binary_converter(list)};
+    zero_list.children = {&zero_element};
+    std::string attack;
+    write_varint(std::numeric_limits<std::uint64_t>::max(), attack);
+    BinaryReader attack_reader{attack};
+    CHECK_THROWS_WITH(zero_list.read(attack_reader), Catch::Matchers::ContainsSubstring("work limit"));
+    std::string tiny;
+    write_varint(3, tiny);
+    BinaryReader tiny_reader{tiny};
+    const auto zero_values = zero_list.read(tiny_reader);
+    CHECK(zero_values.view().as_list().size() == 3);
+    CHECK(tiny_reader.remaining() == 0);
+
+    // Public decoding also shares one budget across nested integer lists.
+    const auto *nested = registry.list(list);
+    std::string small;
+    write_varint(3, small);
+    const auto element = to_binary_string(Value{Int{42}}.view());
+    for (int i = 0; i < 3; ++i)
+    {
+        write_varint(2, small);
+        small += element;
+        small += element;
+    }
+    CHECK_THROWS_WITH(from_binary_string(nested, small, {18, 256}),
+                      Catch::Matchers::ContainsSubstring("work limit"));
+    CHECK(from_binary_string(nested, small, {19, 256}).view().as_list().size() == 3);
+    CHECK_THROWS_WITH(from_binary_string(nested, small, {100, 2}),
+                      Catch::Matchers::ContainsSubstring("depth limit"));
+}
+
+TEST_CASE("binary codec: subreaders share work and restore depth after failure")
+{
+    const auto codec = bind_binary_converter(scalar_descriptor<Int>::value_meta());
+    const auto bytes = to_binary_string(Value{Int{7}}.view());
+    const auto joined = bytes + bytes;
+    BinaryReader parent{joined, 0, {1, 1}};
+    auto first = parent.subreader(bytes.size());
+    CHECK(codec.read(first).view().checked_as<Int>() == 7);
+    auto second = parent.subreader(bytes.size());
+    CHECK_THROWS_WITH(codec.read(second), Catch::Matchers::ContainsSubstring("work limit"));
+    BinaryReader truncated{{}, 0, {4, 1}};
+    CHECK_THROWS_WITH(codec.read(truncated), Catch::Matchers::ContainsSubstring("truncated"));
+    CHECK_THROWS_WITH(codec.read(truncated), Catch::Matchers::ContainsSubstring("truncated"));
+}
+
+TEST_CASE("binary codec: default and moved-from converters refuse safely")
+{
+    const auto check_refusal = [](const BinaryConverter &converter)
+    {
+        REQUIRE(converter.write_ != nullptr);
+        REQUIRE(converter.read_ != nullptr);
+        REQUIRE(converter.hash_ != nullptr);
+        std::string output;
+        BinaryReader reader;
+        const Value value{Int{4}};
+        CHECK_THROWS_WITH(converter.write(value.view(), output), Catch::Matchers::ContainsSubstring("unbound"));
+        CHECK_THROWS_WITH(converter.read(reader), Catch::Matchers::ContainsSubstring("unbound"));
+        CHECK_THROWS_WITH(converter.hash_(converter, value.view()), Catch::Matchers::ContainsSubstring("unbound"));
+    };
+    BinaryConverter empty;
+    check_refusal(empty);
+    BinaryConverter source{binary_converter(scalar_descriptor<Int>::value_meta())};
+    BinaryConverter moved{std::move(source)};
+    check_refusal(source);
+    std::string bytes;
+    moved.write(Value{Int{42}}.view(), bytes);
+    BinaryReader reader{bytes};
+    CHECK(moved.read(reader).view().checked_as<Int>() == 42);
+    source = std::move(moved);
+    check_refusal(moved);
+    BinaryReader again{bytes};
+    CHECK(source.read(again).view().checked_as<Int>() == 42);
+}

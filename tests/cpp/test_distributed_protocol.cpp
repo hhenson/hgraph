@@ -6,6 +6,9 @@
 // not have -- a truncated frame accepted, a slot silently dropped, a payload
 // decoded against the wrong schema.
 
+#include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
@@ -385,4 +388,101 @@ TEST_CASE("distributed worker: stepping over the child's own due work is an erro
     due.evaluation_time = MIN_ST + TimeDelta{10};
     CHECK(serve_cycle(host, slots, due).error.empty());
     host.stop();
+}
+
+TEST_CASE("distributed protocol: malformed and oversized prefixes fail before payload arrival")
+{
+    std::string_view payload = "unchanged";
+    std::size_t consumed = 23;
+    for (int final_byte : {0x80, 0x81, 0x02, 0x7f})
+    {
+        std::string prefix(9, static_cast<char>(0x80));
+        CHECK_FALSE(read_frame(prefix, payload, consumed));
+        prefix.push_back(static_cast<char>(final_byte));
+        CHECK_THROWS_WITH(read_frame(prefix, payload, consumed),
+                          Catch::Matchers::ContainsSubstring("overflow"));
+    }
+    std::string oversized;
+    write_varint(DEFAULT_MAX_FRAME_SIZE + 1, oversized);
+    CHECK_THROWS_WITH(read_frame(oversized, payload, consumed),
+                      Catch::Matchers::ContainsSubstring("size limit"));
+    CHECK(payload == "unchanged");
+    CHECK(consumed == 23);
+    CHECK_THROWS_WITH(write_frame("four", 3), Catch::Matchers::ContainsSubstring("size limit"));
+    const auto bounded = write_frame("four", 4);
+    REQUIRE(read_frame(bounded, payload, consumed, 4));
+    CHECK(payload == "four");
+    CHECK_THROWS_WITH(read_frame(bounded, payload, consumed, 3),
+                      Catch::Matchers::ContainsSubstring("size limit"));
+}
+
+TEST_CASE("distributed protocol: slot direction is checked on encode and decode")
+{
+    const auto slots = two_slots();
+    CycleRequest request;
+    request.staged.push_back({0, Value{Int{4}}});
+    auto request_bytes = encode_request(slots, request);
+    // Eight time bytes, one inventory count byte, then the slot index.
+    request_bytes[9] = 1;
+    CHECK_THROWS_WITH(decode_request(slots, request_bytes),
+                      Catch::Matchers::ContainsSubstring("slot direction"));
+    request.staged[0].slot = 1;
+    CHECK_THROWS_WITH(encode_request(slots, request),
+                      Catch::Matchers::ContainsSubstring("slot direction"));
+    CycleReply reply;
+    reply.collected.push_back({1, Value{Int{4}}});
+    auto reply_bytes = encode_reply(slots, reply);
+    reply_bytes[9] = 0;
+    CHECK_THROWS_WITH(decode_reply(slots, reply_bytes),
+                      Catch::Matchers::ContainsSubstring("slot direction"));
+    reply.collected[0].slot = 0;
+    CHECK_THROWS_WITH(encode_reply(slots, reply),
+                      Catch::Matchers::ContainsSubstring("slot direction"));
+}
+
+TEST_CASE("distributed protocol: slot payloads share one decode budget")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.un_named_bundle({});
+    BoundarySlots slots;
+    slots.add("first", schema, SlotDirection::Input);
+    slots.add("second", schema, SlotDirection::Input);
+    const auto empty = BundleBuilder{ValuePlanFactory::instance().type_for(schema)}.build();
+    CycleRequest request;
+    request.staged.push_back({0, empty});
+    request.staged.push_back({1, empty});
+    const auto bytes = encode_request(slots, request);
+    CHECK_THROWS_WITH(decode_request(slots, bytes, {3, 256}),
+                      Catch::Matchers::ContainsSubstring("work limit"));
+    CHECK(decode_request(slots, bytes, {4, 256}).staged.size() == 2);
+}
+
+TEST_CASE("distributed protocol: duplicate slot updates are rejected on encode and decode")
+{
+    const auto slots = two_slots();
+    CycleRequest request;
+    request.staged.push_back({0, Value{Int{4}}});
+    auto request_bytes = encode_request(slots, request);
+    const auto request_entry = request_bytes.substr(9); // time, count, then entries
+    request_bytes[8] = 2;
+    request_bytes += request_entry;
+    CHECK_THROWS_WITH(decode_request(slots, request_bytes),
+                      Catch::Matchers::ContainsSubstring("duplicate slot"));
+    request.staged.push_back({0, Value{Int{5}}});
+    CHECK_THROWS_WITH(encode_request(slots, request),
+                      Catch::Matchers::ContainsSubstring("duplicate slot"));
+
+    CycleReply reply;
+    reply.collected.push_back({1, Value{Int{4}}});
+    auto reply_bytes = encode_reply(slots, reply);
+    reply_bytes.pop_back(); // remove the empty error string before duplicating
+    const auto reply_entry = reply_bytes.substr(9);
+    reply_bytes[8] = 2;
+    reply_bytes += reply_entry;
+    reply_bytes.push_back('\0');
+    CHECK_THROWS_WITH(decode_reply(slots, reply_bytes),
+                      Catch::Matchers::ContainsSubstring("duplicate slot"));
+    reply.collected.push_back({1, Value{Int{5}}});
+    CHECK_THROWS_WITH(encode_reply(slots, reply),
+                      Catch::Matchers::ContainsSubstring("duplicate slot"));
 }

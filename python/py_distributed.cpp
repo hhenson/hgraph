@@ -6,11 +6,30 @@
 #include <hgraph/types/value/binary_codec.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include <chrono>
+#include <cmath>
 
 namespace hgraph::python_bridge
 {
     namespace
     {
+        struct PyDistributedWorkerChannel
+        {
+            distributed::PipeEndpoint endpoint;
+
+            PyDistributedWorkerChannel(std::int64_t read_handle, std::int64_t write_handle)
+                : endpoint(distributed::PipeEndpoint::adopt(read_handle, write_handle)) {}
+
+            std::string receive_bootstrap()
+            {
+                std::string payload;
+                nb::gil_scoped_release release;
+                if (!endpoint.receive(payload))
+                    throw std::runtime_error("dmap_: parent closed before sending worker bootstrap");
+                return payload;
+            }
+        };
+
         nb::object scalar_recipe(const ValueTypeMetaData *schema)
         {
             auto annotation = nb::module_::import_("_hgraph").attr("python_type_for_value")(PyValueType{schema});
@@ -108,6 +127,10 @@ namespace hgraph::python_bridge
 
     void bind_distributed(nb::module_ &m)
     {
+        nb::class_<PyDistributedWorkerChannel>(m, "_DistributedWorkerChannel")
+            .def(nb::init<std::int64_t, std::int64_t>())
+            .def("receive_bootstrap", &PyDistributedWorkerChannel::receive_bootstrap);
+
         m.def("_distributed_describe_ts", [](PyTsType schema) { return describe_ts(schema.meta); });
         m.def("_distributed_load_ts", [](nb::dict recipe) { return PyTsType{load_ts(recipe)}; });
         m.def("_distributed_pack_scalar", [](nb::handle object) {
@@ -121,8 +144,10 @@ namespace hgraph::python_bridge
         });
         m.def("distributed_map", [](PyWiring &wiring, PyWiredFn func, nb::tuple args, nb::dict kwargs,
                                     Int workers, bool in_process, const std::string &bootstrap,
-                                    const std::string &program, const std::vector<std::string> &arguments) -> nb::object {
+                                    const std::string &program, const std::vector<std::string> &arguments, double timeout_seconds) -> nb::object {
             if (workers <= 0) throw nb::value_error("dmap_ needs at least one worker");
+            if (!std::isfinite(timeout_seconds) || timeout_seconds <= 0 || timeout_seconds > 86'400)
+                throw nb::value_error("dmap_ worker timeout must be positive and finite, at most 24 hours");
             if (wiring.finished) throw nb::value_error("Wiring is already finished");
             std::vector<distributed::DistributedMapInput> descriptors;
             std::vector<WiringPortRef> inputs;
@@ -144,6 +169,8 @@ namespace hgraph::python_bridge
             config.hosting = in_process ? distributed::WorkerHosting::InProcess : distributed::WorkerHosting::Process;
             config.program = program;
             config.arguments = arguments;
+            config.timeout = std::chrono::milliseconds{static_cast<std::int64_t>(std::ceil(timeout_seconds * 1000))};
+            config.recipe_over_channel = !in_process;
             auto plan = distributed::prepare_distributed_map_pool(func.fn, descriptors, key_arg, config);
             plan.phase_runner = &py_run_executor_phase;
             if (!in_process)
@@ -166,10 +193,10 @@ namespace hgraph::python_bridge
                 std::make_shared<const distributed::DistributedMapPlan>(std::move(plan)));
             return result.erased().schema == nullptr ? nb::none() : nb::cast(PyPort{result.erased()});
         }, nb::arg("wiring"), nb::arg("func"), nb::arg("args"), nb::arg("kwargs"), nb::arg("workers"),
-           nb::arg("in_process"), nb::arg("bootstrap"), nb::arg("program"), nb::arg("arguments"));
+           nb::arg("in_process"), nb::arg("bootstrap"), nb::arg("program"), nb::arg("arguments"), nb::arg("timeout_seconds"));
 
         m.def("serve_distributed_worker", [](PyWiredFn func, nb::dict recipe,
-                    std::int64_t read_handle, std::int64_t write_handle, std::int64_t start, std::int64_t end) {
+                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end) {
             std::vector<distributed::DistributedMapInput> inputs;
             for (auto item : nb::cast<nb::list>(recipe["inputs"]))
             {
@@ -183,9 +210,8 @@ namespace hgraph::python_bridge
                 nb::cast<std::size_t>(recipe["group"]), nb::cast<std::size_t>(recipe["groups"]));
             if (output_identity(plan.output) != nb::cast<std::string>(recipe["output"]))
                 throw nb::value_error("dmap_: worker result schema differs from caller");
-            auto channel = distributed::PipeEndpoint::adopt(read_handle, write_handle);
             nb::gil_scoped_release release;
-            distributed::serve_worker(channel, std::move(plan.child), plan.slots,
+            distributed::serve_worker(channel.endpoint, std::move(plan.child), plan.slots,
                 DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase);
         });
     }

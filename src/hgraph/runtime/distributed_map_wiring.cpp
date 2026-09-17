@@ -199,8 +199,8 @@ namespace hgraph::distributed
                 for (const auto &delta : reply.collected)
                 {
                     if (output == nullptr) throw std::logic_error("dmap_: sink worker returned an output");
-                    if (auto size = plan.output_transfer->root_list_size(delta.delta.view())) pool.output_extent(group, *size);
                     plan.output_transfer->apply(*output, delta.delta.view(), true);
+                    if (auto size = plan.output_transfer->root_list_size(delta.delta.view())) pool.output_extent(group, *size);
                 }
             });
             if (output != nullptr && plan.output->is_unbounded_tsl() && output->as_list().size() > pool.output_extent())

@@ -4,6 +4,8 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value_builder.h>
 
+#include <limits>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
@@ -277,4 +279,204 @@ TEST_CASE("distributed boundary unbound fixed list preserves shape while invalid
     auto target = list_at(fixture.target, time);
     CHECK(target.size() == 3);
     CHECK_FALSE(target.at(0).valid());
+}
+
+TEST_CASE("distributed boundary rejects oversized sparse list extents before resizing")
+{
+    const auto *schema = TypeRegistry::instance().tsl(schema_descriptor<TS<Int>>::ts_meta());
+    BoundaryFixture fixture{schema};
+    auto target = list_at(fixture.target, MIN_ST);
+    target.resize(2);
+    set(target.at(0), 42);
+    std::string bytes(1, '\1');
+    write_varint(std::numeric_limits<std::uint64_t>::max(), bytes);
+    bytes.push_back('\0');
+    const Value payload{bytes};
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(MIN_ST + MIN_TD), payload.view()), std::runtime_error);
+    CHECK_THROWS_AS(fixture.transfer.root_list_size(payload.view()), std::runtime_error);
+    CHECK(target.size() == 2);
+    CHECK(target.at(0).value().checked_as<Int>() == 42);
+}
+
+TEST_CASE("distributed boundary validates a complete delta before publishing any changes")
+{
+    const bool merge = GENERATE(false, true);
+    const auto *schema = TypeRegistry::instance().tsl(schema_descriptor<TS<Int>>::ts_meta());
+    BoundaryFixture fixture{schema};
+    auto source = list_at(fixture.source, MIN_ST);
+    source.resize(4);
+    set(source.at(0), 99);
+    set(source.at(3), 100);
+    auto target = list_at(fixture.target, MIN_ST);
+    target.resize(2);
+    set(target.at(0), 42);
+    const auto captured = fixture.transfer.capture(fixture.input.view(nullptr, MIN_ST), true);
+    auto bytes = captured.view().checked_as<Str>();
+    const bool trailing = GENERATE(false, true);
+    if (trailing) bytes.push_back('\0');
+    else bytes.pop_back(); // missing terminator after otherwise valid children
+    const Value malformed{bytes};
+    if (trailing)
+        CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(MIN_ST + MIN_TD), malformed.view(), merge), std::invalid_argument);
+    else
+        CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(MIN_ST + MIN_TD), malformed.view(), merge), std::runtime_error);
+    CHECK(target.size() == 2);
+    CHECK(target.at(0).value().checked_as<Int>() == 42);
+    CHECK_FALSE(fixture.target.view(MIN_ST + MIN_TD).modified());
+}
+
+TEST_CASE("distributed boundary rejects nested oversized lists before adding dictionary membership")
+{
+    const auto *schema = TypeRegistry::instance().tsd(TypeRegistry::instance().register_scalar<Int>("int"),
+        TypeRegistry::instance().tsl(schema_descriptor<TS<Int>>::ts_meta()));
+    BoundaryFixture fixture{schema};
+    std::string bytes{"\1\0\1", 3}; // live dict, no removals, one added child
+    bind_binary_converter(TypeRegistry::instance().register_scalar<Int>("int")).write(Value{Int{7}}.view(), bytes);
+    bytes.push_back('\1'); // live list
+    write_varint(std::numeric_limits<std::uint64_t>::max(), bytes);
+    bytes.append(2, '\0');
+    const Value malformed{bytes};
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(MIN_ST), malformed.view()), std::runtime_error);
+    CHECK(dict_at(fixture.target, MIN_ST).empty());
+}
+
+TEST_CASE("distributed boundary list extent shares the configurable decode work budget")
+{
+    const auto *schema = TypeRegistry::instance().tsl(schema_descriptor<TS<Int>>::ts_meta());
+    BoundaryFixture fixture{schema};
+    list_at(fixture.source, MIN_ST).resize(20);
+    const auto payload = fixture.transfer.capture(fixture.input.view(nullptr, MIN_ST), true);
+    const BoundaryTransfer limited{schema, BinaryDecodeLimits{.max_work = 10}};
+    CHECK_THROWS_AS(limited.apply(fixture.target.view(MIN_ST), payload.view()), std::runtime_error);
+    CHECK(list_at(fixture.target, MIN_ST).empty());
+    fixture.transfer.apply(fixture.target.view(MIN_ST), payload.view());
+    CHECK(list_at(fixture.target, MIN_ST).size() == 20);
+}
+
+TEST_CASE("distributed boundary malformed set delta does not remove live membership")
+{
+    BoundaryFixture fixture{schema_descriptor<TSS<Int>>::ts_meta()};
+    const Value key{Int{7}};
+    auto source = fixture.source.view(MIN_ST);
+    (void)source.as_set().begin_mutation(MIN_ST).add(key.view());
+    fixture.relay(MIN_ST);
+    const auto later = MIN_ST + MIN_TD;
+    source = fixture.source.view(later);
+    (void)source.as_set().begin_mutation(later).remove(key.view());
+    auto payload = fixture.transfer.capture(fixture.input.view(nullptr, later));
+    auto bytes = payload.view().checked_as<Str>();
+    bytes.pop_back();
+    const Value truncated{bytes};
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(later), truncated.view()), std::runtime_error);
+    auto target = fixture.target.view(later);
+    CHECK(target.as_set().contains(key.view()));
+    CHECK_FALSE(target.modified());
+}
+
+TEST_CASE("distributed boundary malformed window delta does not clear existing history")
+{
+    const auto *schema = TypeRegistry::instance().tsw(
+        TypeRegistry::instance().register_scalar<Int>("int"), std::size_t{4}, std::size_t{1});
+    BoundaryFixture fixture{schema};
+    window_at(fixture.source, MIN_ST).begin_mutation(MIN_ST).push(Value{Int{42}}.view());
+    fixture.relay(MIN_ST);
+    const auto later = MIN_ST + MIN_TD;
+    // Live window, clear then push, but no encoded sample.
+    const Value truncated{std::string{"\1\1\1", 3}};
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(later), truncated.view()), std::runtime_error);
+    auto target = window_at(fixture.target, later);
+    CHECK(target.size() == 1);
+    CHECK(target.at(0).checked_as<Int>() == 42);
+    CHECK(target.time_at(0) == MIN_ST);
+    CHECK_FALSE(fixture.target.view(later).modified());
+}
+
+TEST_CASE("distributed boundary validates full window samples before changing an earlier sibling")
+{
+    const int invalid = GENERATE(0, 1, 2, 3, 4, 5);
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *window = invalid == 4
+        ? registry.tsw_duration(integer, TimeDelta{10}, TimeDelta{0})
+        : registry.tsw(integer, std::size_t(invalid == 0 ? 1 : 2), std::size_t{1});
+    const auto *schema = registry.un_named_tsb({{"first", schema_descriptor<TS<Int>>::ts_meta()},
+                                               {"window", window}});
+    BoundaryFixture fixture{schema};
+    auto target = fixture.target.view(MIN_ST);
+    set(target.indexed_child_at(0), 42);
+    auto prior_window = target.indexed_child_at(1);
+    prior_window.as_window().begin_mutation(MIN_ST).push(Value{Int{7}}.view());
+    const auto later = MIN_ST + TimeDelta{100};
+    std::vector<DateTime> times;
+    switch (invalid)
+    {
+        case 0: times = {MIN_ST, MIN_ST}; break; // more samples than the count period
+        case 1: times = {MIN_DT}; break;
+        case 2: times = {later - MIN_TD, later - MIN_TD - MIN_TD}; break;
+        case 3: times = {later + MIN_TD}; break;
+        case 5: times = {MIN_DT - MIN_TD}; break;
+        default: times = {MIN_ST, later}; break; // wider than the duration period
+    }
+    const auto values = bind_binary_converter(integer);
+    const auto timestamps = bind_binary_converter(scalar_descriptor<DateTime>::value_meta());
+    std::string bytes{"\1\1\0\1", 4}; // bundle: update first scalar
+    values.write(Value{Int{99}}.view(), bytes);
+    bytes.append("\1\1\3", 3); // update second child with a full live window
+    write_varint(times.size(), bytes);
+    for (const auto time : times)
+    {
+        timestamps.write(Value{time}.view(), bytes);
+        values.write(Value{Int{100}}.view(), bytes);
+    }
+    bytes.push_back('\0');
+    const Value malformed{bytes};
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(later), malformed.view()), std::invalid_argument);
+    CHECK(target.indexed_child_at(0).value().checked_as<Int>() == 42);
+    CHECK(prior_window.as_window().size() == 1);
+    CHECK(prior_window.as_window().at(0).checked_as<Int>() == 7);
+    CHECK_FALSE(fixture.target.view(later).modified());
+}
+
+TEST_CASE("distributed boundary rejects duplicate window child updates before mutation")
+{
+    const int shape = GENERATE(0, 1, 2); // list, bundle, dictionary
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *window = registry.tsw(integer, std::size_t{4}, std::size_t{1});
+    const auto *schema = shape == 0 ? registry.tsl(window)
+        : shape == 1 ? registry.un_named_tsb({{"window", window}}) : registry.tsd(integer, window);
+    BoundaryFixture fixture{schema};
+    const Value key{Int{7}};
+    auto child = [&]() -> TSOutputView {
+        auto target = fixture.target.view(MIN_ST);
+        if (shape == 0)
+        {
+            auto list = target.as_list();
+            list.resize(1);
+            return list.at(0);
+        }
+        if (shape == 1) return target.indexed_child_at(0);
+        auto mutation = target.as_dict().begin_mutation(MIN_ST);
+        return TSOutputView{&fixture.target, mutation.at(key.view()), MIN_ST};
+    }();
+    child.as_window().begin_mutation(MIN_ST).push(Value{Int{42}}.view());
+    const auto values = bind_binary_converter(integer);
+    std::string bytes(1, '\1');
+    if (shape == 0) write_varint(1, bytes);
+    if (shape == 2) bytes.push_back('\0'); // no removals
+    for (int duplicate = 0; duplicate < 2; ++duplicate)
+    {
+        bytes.push_back('\1');
+        if (shape == 2) values.write(key.view(), bytes);
+        else write_varint(0, bytes);
+        bytes.append("\1\0\1", 3); // live window, no clear, one push
+        values.write(Value{Int{99}}.view(), bytes);
+    }
+    bytes.push_back('\0');
+    const Value malformed{bytes};
+    const auto later = MIN_ST + MIN_TD;
+    CHECK_THROWS_AS(fixture.transfer.apply(fixture.target.view(later), malformed.view()), std::invalid_argument);
+    CHECK(child.as_window().size() == 1);
+    CHECK(child.as_window().at(0).checked_as<Int>() == 42);
+    CHECK_FALSE(fixture.target.view(later).modified());
 }

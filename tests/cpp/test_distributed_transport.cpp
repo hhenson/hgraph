@@ -22,11 +22,18 @@
 #include <hgraph/types/static_schema.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
 #include <thread>
 #include <vector>
+#ifndef _WIN32
+#include <csignal>
+#include <sys/wait.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -208,3 +215,53 @@ TEST_CASE("distributed transport: a worker served over the pipe equals one drive
     CHECK(over_pipe == direct);
     CHECK(over_pipe == std::vector<Int>{1, 3, 6, 10});
 }
+
+TEST_CASE("distributed transport: stalled read and write honor absolute deadlines")
+{
+    PipeEndpoint a, b;
+#ifndef _WIN32
+    const bool adopt_blocking = GENERATE(false, true);
+    if (adopt_blocking)
+    {
+        int sockets[2];
+        REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+        a = PipeEndpoint::adopt(sockets[0], sockets[0]);
+        b = PipeEndpoint::adopt(sockets[1], sockets[1]);
+    }
+    else
+#endif
+        connected_pipe_pair(a, b);
+    using Clock = std::chrono::steady_clock;
+    std::string payload;
+    const auto started = Clock::now();
+    CHECK_THROWS_WITH(a.receive(payload, started + std::chrono::milliseconds{30}),
+                      Catch::Matchers::ContainsSubstring("deadline exceeded"));
+    CHECK(Clock::now() - started < std::chrono::seconds{2});
+    const std::string large(4 * 1024 * 1024, 'x');
+    const auto sending = Clock::now();
+    CHECK_THROWS_WITH(a.send(large, sending + std::chrono::milliseconds{30}),
+                      Catch::Matchers::ContainsSubstring("deadline exceeded"));
+    CHECK(Clock::now() - sending < std::chrono::seconds{2});
+}
+
+#ifndef _WIN32
+TEST_CASE("distributed transport: failed peer never delivers default SIGPIPE")
+{
+    const auto child = ::fork();
+    REQUIRE(child >= 0);
+    if (child == 0)
+    {
+        ::signal(SIGPIPE, SIG_DFL);
+        PipeEndpoint a, b;
+        connected_pipe_pair(a, b);
+        b.close();
+        try { a.send("closed peer"); }
+        catch (const std::exception &) { ::_exit(0); }
+        ::_exit(1);
+    }
+    int status = 0;
+    REQUIRE(::waitpid(child, &status, 0) == child);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 0);
+}
+#endif

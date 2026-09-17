@@ -229,7 +229,8 @@ def test_structural_input_output_deltas(mapper, element_type, events):
     def oracle(values: hg.TSD[str, element_type]) -> hg.TSD[str, element_type]:
         return hg.map_(identity, values)
     expected = hg.eval_node(oracle, events)
-    assert expected[0] and expected[-1] == {"a": hg.REMOVE}
+    assert expected[0]
+    assert expected[-1] == {"a": hg.REMOVE}
     assert hg.eval_node(app, events) == expected
 
 
@@ -685,7 +686,7 @@ def test_disallowed_external_dependencies_fail_before_launch(child, cause, in_pr
         monkeypatch.setattr(sys.modules[__name__], "_captured_outer_port", offset)
         with hg.context("distributed_test_offset", offset):
             return hg.dmap_(child, values, in_process=in_process)
-    with pytest.raises(Exception) as raised:
+    with pytest.raises(ValueError) as raised:
         hg.eval_node(app, [{"a": 1}])
     message = str(raised.value)
     assert "dmap_: the child cannot be wired as an isolated worker" in message
@@ -751,3 +752,47 @@ def test_each_worker_composes_configuration_once(in_process):
     with hg.GlobalContext(state):
         assert hg.eval_node(app, [initial, update]) == [initial, update]
     assert "wiring_count" not in state
+
+
+@hg.compute_node
+def bootstrap_payload_size(value: hg.TS[int], payload: str, last_import_path: str) -> hg.TS[int]:
+    import sys
+    assert sys.path[-1] == last_import_path
+    return value.value + len(payload)
+
+
+def test_large_scalar_and_import_paths_use_bootstrap_channel(monkeypatch):
+    import sys
+    # Both fields independently exceed Windows' command-line limit; the scalar
+    # also exceeds the per-argument limit commonly enforced by POSIX kernels.
+    payload = "configuration-" * 25_000
+    paths = [f"/unused-dmap-import/{index}/" + "p" * 230 for index in range(1000)]
+    monkeypatch.setattr(sys, "path", [*sys.path, *paths])
+    @hg.graph
+    def app(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return hg.dmap_(bootstrap_payload_size, values, payload=payload,
+                        last_import_path=paths[-1], __workers__=1)
+    assert hg.eval_node(app, [{"a": 1}, {"a": 2}]) == [
+        {"a": len(payload) + 1}, {"a": len(payload) + 2}]
+
+
+@pytest.mark.parametrize("timeout", [True, False, 0, -1, float("inf"), float("nan"),
+                                    86_401, 10 ** 1000, "60", None])
+def test_worker_timeout_requires_finite_positive_seconds(timeout):
+    with pytest.raises(ValueError, match="__worker_timeout__"):
+        hg.dmap_(add_one, __worker_timeout__=timeout)
+
+
+@hg.compute_node
+def blocked_worker(value: hg.TS[int]) -> hg.TS[int]:
+    import time as wall_time
+    wall_time.sleep(10)
+    return value.value
+
+
+def test_process_worker_deadline_fails_the_run():
+    @hg.graph
+    def app(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return hg.dmap_(blocked_worker, values, __workers__=1, __worker_timeout__=0.25)
+    with pytest.raises(RuntimeError, match="deadline exceeded"):
+        hg.eval_node(app, [{"a": 1}])
