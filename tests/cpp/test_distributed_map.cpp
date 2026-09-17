@@ -10,8 +10,11 @@
 // decision, never a semantic one -- so a difference here is not a performance
 // problem, it is a wrong answer.
 //
-// The workers are in-process. That is deliberate: it isolates the model from
-// the transport, so a failure here is a design fault rather than a pipe.
+// Most of what follows uses in-process workers. That is deliberate: it
+// isolates the model from the transport, so a failure there is a design fault
+// rather than a pipe. The last section runs the same assertions with real
+// worker PROCESSES, which is what dmap_ is for -- and the two being separable
+// is what makes a disagreement between them attributable.
 
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
@@ -28,11 +31,16 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
+#include "distributed_worker_recipes.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <memory>
+#include <string>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace
@@ -40,28 +48,11 @@ namespace
     using namespace hgraph;
     using namespace hgraph::distributed;
 
-    using KeyedInts = TSD<Int, TS<Int>>;
-
-    /** Per-key state, so a key handled by the wrong worker gives a wrong sum. */
-    struct RunningTotalNode
-    {
-        static constexpr auto name = "dmap_running_total";
-
-        static void eval(In<"ts", TS<Int>> ts, State<Int> total, Out<TS<Int>> out)
-        {
-            total.modify() += ts.value();
-            out.set(total.get());
-        }
-    };
-
-    struct RunningTotalG
-    {
-        static constexpr auto name = "dmap_running_total_g";
-        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
-        {
-            return wire<RunningTotalNode>(w, ts).as<TS<Int>>();
-        }
-    };
+    // The kernel is shared with the worker PROGRAM rather than declared here:
+    // both sides must link the same child, and a type local to this file would
+    // mangle differently over there (distributed_worker_recipes.h).
+    using hgraph_test::KeyedInts;
+    using hgraph_test::RunningTotalG;
 
     /** What a worker runs: an ordinary map_ between a staged in and a read out. */
     struct WorkerGraph
@@ -292,16 +283,30 @@ namespace
     struct NodeDistributedGraph
     {
         static constexpr auto name = "dmap_node_graph";
-        static void           compose(Wiring &w, Scalar<"workers", Int> workers)
+        static void compose(Wiring &w, Scalar<"workers", Int> workers,
+                            Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program)
         {
             auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
             auto dict = wire<Spread>(w, src).as<KeyedInts>();
             auto out  = wire<dmap_impl<Int, Int, Int>>(w, dict, fn<RunningTotalG>(),
-                                                      workers.value())
+                                                      workers.value(), in_process.value(),
+                                                      program.value())
                             .as<KeyedInts>();
             wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
         }
     };
+
+    std::vector<std::optional<Int>> run_node(const std::vector<std::optional<Int>> &masks,
+                                             Int workers, Bool in_process, const Str &program)
+    {
+        GraphBuilder gb = build_graph<NodeDistributedGraph>(workers, in_process, program);
+        testing::set_replay_values<Int>(gb.global_state(), "in", masks);
+        GraphExecutorBuilder eb;
+        eb.graph_builder(std::move(gb)).start_time(MIN_ST).end_time(test_end);
+        GraphExecutorValue ex = eb.make_executor();
+        ex.view().run();
+        return testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out");
+    }
 }  // namespace
 
 TEST_CASE("dmap_: the node produces what map_ produces")
@@ -317,14 +322,7 @@ TEST_CASE("dmap_: the node produces what map_ produces")
 
     for (const Int workers : {Int{1}, Int{2}, Int{4}})
     {
-        GraphBuilder gb = build_graph<NodeDistributedGraph>(workers);
-        testing::set_replay_values<Int>(gb.global_state(), "in", masks);
-        GraphExecutorBuilder eb;
-        eb.graph_builder(std::move(gb)).start_time(MIN_ST).end_time(test_end);
-        GraphExecutorValue ex = eb.make_executor();
-        ex.view().run();
-        CHECK(testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out") ==
-              expected);
+        CHECK(run_node(masks, workers, true, Str{}) == expected);
     }
 }
 
@@ -374,4 +372,248 @@ TEST_CASE("dmap_: a worker count of zero is refused")
     CHECK_THROWS_WITH(
         (WorkerPool::build<Int, Int, Int>(fn<RunningTotalG>(), 0, MIN_ST, test_end)),
         Catch::Matchers::ContainsSubstring("at least one worker"));
+}
+
+// --- across processes -------------------------------------------------------
+// The same assertions, with the workers in separate OS processes. Nothing
+// above the transport changes: the partition, the messages and the apply are
+// the ones the in-process cases above already exercised, which is what makes a
+// difference here readable as a transport fault.
+
+namespace
+{
+    /** Wired but never registered, so the caller cannot find a worker for it. */
+    struct UnregisteredG
+    {
+        static constexpr auto name = "dmap_unregistered_g";
+        static Port<TS<Int>>  compose(Wiring &, Port<TS<Int>> ts) { return ts; }
+    };
+}  // namespace
+
+TEST_CASE("dmap_: the node produces what map_ produces, in worker processes")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    const std::vector<std::optional<Int>> masks{Int{0b00001111}, Int{0b00110011},
+                                                Int{0b10101010}, Int{0b00000001}};
+    const auto expected = run_local(masks);
+    REQUIRE(expected.size() >= 2);
+    REQUIRE(expected[0].has_value());
+    CHECK(*expected[0] == Int{30});
+
+    for (const Int workers : {Int{1}, Int{2}, Int{4}})
+    {
+        CHECK(run_node(masks, workers, false, Str{HGRAPH_TEST_WORKER_PROGRAM}) == expected);
+    }
+}
+
+TEST_CASE("dmap_: per-key state lives in the worker process that owns the key")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // One key ticking repeatedly: its running total is the whole answer, so a
+    // key whose history split across two processes cannot pass -- and neither
+    // can one whose child was rebuilt between cycles.
+    const std::vector<std::optional<Int>> masks{Int{0b0100}, Int{0b0100}, Int{0b0100}};
+    const auto expected = run_local(masks);
+
+    CHECK(run_node(masks, 2, false, Str{HGRAPH_TEST_WORKER_PROGRAM}) == expected);
+    CHECK(run_node(masks, 5, false, Str{HGRAPH_TEST_WORKER_PROGRAM}) == expected);
+}
+
+TEST_CASE("dmap_: a kernel no worker program can build is refused, by name")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+
+    WorkerPoolConfig config;
+    config.workers  = 2;
+    config.end_time = test_end;
+    config.hosting  = WorkerHosting::Process;
+    config.program  = HGRAPH_TEST_WORKER_PROGRAM;
+
+    // The failure is at the CALLER, before any process starts: a worker that
+    // could not find its recipe would otherwise fail as an exit code from a
+    // process the caller never chose to look at.
+    CHECK_THROWS_WITH(
+        (WorkerPool::build<Int, Int, Int>(fn<UnregisteredG>(), config)),
+        Catch::Matchers::ContainsSubstring("no distributed worker is registered") &&
+            Catch::Matchers::ContainsSubstring("register_distributed_map_worker"));
+}
+
+TEST_CASE("dmap_: a worker program that cannot be started fails the node")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // Also the falsification for the cases above: if ``in_process == false``
+    // did not really spawn anything, a program path that cannot exist would be
+    // ignored and this would pass.
+    const std::vector<std::optional<Int>> masks{Int{0b0001}};
+    CHECK_THROWS(run_node(masks, 2, false, Str{"/hgraph/no/such/worker/program"}));
+}
+
+// --- a child that schedules itself ------------------------------------------
+// RFC 0037 acceptance criterion 2, and the one the Python prototype could not
+// attempt: engine time was not external there, so every prototype kernel had
+// to be time-independent.
+//
+// The child's answer arrives on a cycle the calling graph has no reason to
+// evaluate. Under map_ the nested scheduler propagates it; under dmap_ the
+// only route is the child's next_scheduled_time riding back in the reply.
+
+namespace
+{
+    using hgraph_test::DelayedDoubleG;
+
+    struct LocalDelayedGraph
+    {
+        static constexpr auto name = "dmap_local_delayed_graph";
+        static void           compose(Wiring &w)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<Spread>(w, src).as<KeyedInts>();
+            auto out  = wire<stdlib::map_>(w, fn<DelayedDoubleG>(), dict).as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+
+    struct NodeDelayedGraph
+    {
+        static constexpr auto name = "dmap_node_delayed_graph";
+        static void compose(Wiring &w, Scalar<"workers", Int> workers,
+                            Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<Spread>(w, src).as<KeyedInts>();
+            auto out  = wire<dmap_impl<Int, Int, Int>>(w, dict, fn<DelayedDoubleG>(),
+                                                      workers.value(), in_process.value(),
+                                                      program.value())
+                            .as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+
+    /** A recorded series as text, so a disagreement says WHICH cycle differs. */
+    std::string describe(const std::vector<std::optional<Int>> &series)
+    {
+        std::string text{"["};
+        for (std::size_t i = 0; i < series.size(); ++i)
+        {
+            if (i != 0) { text += ", "; }
+            text += series[i].has_value() ? std::to_string(*series[i]) : std::string{"-"};
+        }
+        return text + "]";
+    }
+
+    template <typename TGraph, typename... TArgs>
+    std::vector<std::optional<Int>> run_recorded(const std::vector<std::optional<Int>> &masks,
+                                                 TArgs &&...args)
+    {
+        GraphBuilder gb = build_graph<TGraph>(std::forward<TArgs>(args)...);
+        testing::set_replay_values<Int>(gb.global_state(), "in", masks);
+        GraphExecutorBuilder eb;
+        eb.graph_builder(std::move(gb)).start_time(MIN_ST).end_time(test_end);
+        GraphExecutorValue ex = eb.make_executor();
+        ex.view().run();
+        return testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out");
+    }
+}  // namespace
+
+TEST_CASE("dmap_: a child that schedules itself fires at the same engine times as map_")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    const std::vector<std::optional<Int>> masks{Int{0b0011}, Int{0b0110}};
+    const auto expected = run_recorded<LocalDelayedGraph>(masks);
+
+    // Pinned: the delayed answer must actually arrive, or "equal to map_"
+    // would be satisfied by two runs that both produce nothing.
+    REQUIRE(expected.size() >= 3);
+    const auto ticks = std::count_if(expected.begin(), expected.end(),
+                                     [](const auto &value) { return value.has_value(); });
+    CHECK(ticks >= 2);
+
+    for (const Int workers : {Int{1}, Int{3}})
+    {
+        CHECK(describe(run_recorded<NodeDelayedGraph>(masks, workers, true, Str{})) ==
+              describe(expected));
+        CHECK(describe(run_recorded<NodeDelayedGraph>(masks, workers, false,
+                                                      Str{HGRAPH_TEST_WORKER_PROGRAM})) ==
+              describe(expected));
+    }
+}
+
+// --- a recorded deviation from map_ -----------------------------------------
+// A child whose output gains a key BEFORE that key has a value. Under map_
+// that structural change ticks the caller's output; through a distributed
+// child it does not, and the key appears on the cycle it first has a value.
+//
+// The cause is below dmap_ and is pinned here rather than hidden: the
+// canonical TSD delta is Bundle{removed, modified}, which has no way to say
+// "this key exists and has no value yet", so capture_delta / apply_delta --
+// the pair record/replay also uses -- cannot carry it. The in-process mode is
+// what makes that attribution safe: it encodes nothing, so a difference that
+// survives it is not the transport.
+//
+// If this test starts FAILING because the two agree, the deviation has been
+// fixed and RFC 0037's *Known deviations* should lose an entry.
+
+namespace
+{
+    using hgraph_test::ArmSilentlyG;
+
+    struct LocalSilentGraph
+    {
+        static constexpr auto name = "dmap_local_silent_graph";
+        static void           compose(Wiring &w)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<Spread>(w, src).as<KeyedInts>();
+            auto out  = wire<stdlib::map_>(w, fn<ArmSilentlyG>(), dict).as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+
+    struct NodeSilentGraph
+    {
+        static constexpr auto name = "dmap_node_silent_graph";
+        static void compose(Wiring &w, Scalar<"workers", Int> workers,
+                            Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<Spread>(w, src).as<KeyedInts>();
+            auto out  = wire<dmap_impl<Int, Int, Int>>(w, dict, fn<ArmSilentlyG>(),
+                                                      workers.value(), in_process.value(),
+                                                      program.value())
+                            .as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+}  // namespace
+
+TEST_CASE("dmap_: a key with no value yet does not tick the caller -- a recorded deviation")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    const std::vector<std::optional<Int>> masks{Int{0b0011}, Int{0b0110}};
+
+    // Cycle 1 adds key 2, whose child is armed and silent. map_ ticks on that
+    // structural change; dmap_ does not, and every value that follows agrees.
+    // Cycle 0 ticks under both -- not because the structure crossed, but
+    // because it is the cycle that first makes the caller's output valid.
+    CHECK(describe(run_recorded<LocalSilentGraph>(masks)) == "[0, 0, 50, 140]");
+    CHECK(describe(run_recorded<NodeSilentGraph>(masks, 1, true, Str{})) == "[0, -, 50, 140]");
+    CHECK(describe(run_recorded<NodeSilentGraph>(masks, 3, false,
+                                                 Str{HGRAPH_TEST_WORKER_PROGRAM})) ==
+          "[0, -, 50, 140]");
 }

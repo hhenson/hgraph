@@ -86,6 +86,43 @@ The engine does not skip scheduled events. If event coalescing or collapsing is 
 
 That invariant is what makes ``step`` **refuse** an evaluation time later than ``next_scheduled_time()``. A node is evaluated only when its scheduled slot is exactly the evaluation time, and a slot already in the past is neither evaluated nor carried into the next scheduled time — so stepping over due work would discard it silently. The looping modes cannot reach that state because they always evaluate at ``next_scheduled_time()``; a caller must honour it just as ``single_nested_graph_propagate_schedule`` makes a local parent do.
 
+Distributed evaluation
+~~~~~~~~~~~~~~~~~~~~~~
+
+``ExternallyDriven`` is what makes a child graph in another **process** an
+ordinary child graph. The nested-graph contract is already ``evaluate(time)``
+in, ``next_scheduled_time()`` out; distribution puts a transport between those
+two calls, and adds copying, since a child in another process cannot bind to
+the caller's outputs. The design record is RFC 0037; the layers are:
+
+``runtime/distributed_child.h``
+    A child driven by an external caller. Each boundary argument is a local
+    **pull source** the driver stages a value into, and each result a local
+    sink it reads back. Staging writes a plain value into ``GlobalState`` and
+    schedules the source; the time-series write then happens inside the node's
+    ``eval``, so the modified-time stamping is the runtime's own and cannot
+    disagree with the cycle. Push sources are not merely banned here — a push
+    source is a root-graph facility, and a distributed child stands in for a
+    nested graph, which never has one.
+
+``runtime/distributed_protocol.h``, ``runtime/distributed_transport.h``
+    One request and one reply per cycle, carrying deltas encoded by RFC 0017's
+    binary codec, length-prefixed over a blocking byte stream.
+
+``runtime/distributed_worker.h``, ``runtime/distributed_process.h``
+    A worker cannot be **sent** its graph — a graph is code. It rebuilds the
+    child from a *recipe* registered under a derived name in a translation unit
+    both programs link, which is why the worker program is normally the calling
+    program launched again.
+
+``runtime/distributed_map.h``
+    ``dmap_``: a ``map_`` whose per-key children run in workers. The caller
+    partitions each cycle's TSD delta by key and each worker hosts an ordinary
+    ``map_`` over its group, so per-key construction, teardown and state are
+    the existing behaviour rather than a second implementation. The contract is
+    equality with ``map_`` — the worker count is a throughput decision and must
+    never be observable in the result.
+
 Scheduling Semantics
 ~~~~~~~~~~~~~~~~~~~~
 

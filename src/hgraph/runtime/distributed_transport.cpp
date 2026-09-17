@@ -4,6 +4,7 @@
 
 #include <fmt/format.h>
 
+#include <cstdint>
 #include <stdexcept>
 #include <utility>
 
@@ -11,6 +12,7 @@
 #include <windows.h>
 #else
 #include <cerrno>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -75,6 +77,41 @@ namespace hgraph::distributed
         if (write_handle_ != nullptr) { ::CloseHandle(static_cast<HANDLE>(write_handle_)); }
         read_handle_  = nullptr;
         write_handle_ = nullptr;
+    }
+
+    PipeEndpoint PipeEndpoint::adopt(std::int64_t read_handle, std::int64_t write_handle) noexcept
+    {
+        PipeEndpoint adopted;
+        adopted.read_handle_  = reinterpret_cast<void *>(static_cast<std::intptr_t>(read_handle));
+        adopted.write_handle_ = reinterpret_cast<void *>(static_cast<std::intptr_t>(write_handle));
+        return adopted;
+    }
+
+    std::int64_t PipeEndpoint::native_read_handle() const noexcept
+    {
+        return static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(read_handle_));
+    }
+
+    std::int64_t PipeEndpoint::native_write_handle() const noexcept
+    {
+        return static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(write_handle_));
+    }
+
+    void PipeEndpoint::set_inheritable(bool inheritable) const
+    {
+        const DWORD flags = inheritable ? HANDLE_FLAG_INHERIT : 0;
+        if (read_handle_ != nullptr &&
+            ::SetHandleInformation(static_cast<HANDLE>(read_handle_), HANDLE_FLAG_INHERIT, flags) ==
+                0)
+        {
+            fail("SetHandleInformation");
+        }
+        if (write_handle_ != nullptr &&
+            ::SetHandleInformation(static_cast<HANDLE>(write_handle_), HANDLE_FLAG_INHERIT,
+                                   flags) == 0)
+        {
+            fail("SetHandleInformation");
+        }
     }
 
     void PipeEndpoint::send(std::string_view payload)
@@ -146,6 +183,31 @@ namespace hgraph::distributed
         write_fd_ = -1;
     }
 
+    PipeEndpoint PipeEndpoint::adopt(std::int64_t read_handle, std::int64_t write_handle) noexcept
+    {
+        PipeEndpoint adopted;
+        adopted.read_fd_  = static_cast<int>(read_handle);
+        adopted.write_fd_ = static_cast<int>(write_handle);
+        return adopted;
+    }
+
+    std::int64_t PipeEndpoint::native_read_handle() const noexcept { return read_fd_; }
+
+    std::int64_t PipeEndpoint::native_write_handle() const noexcept { return write_fd_; }
+
+    void PipeEndpoint::set_inheritable(bool inheritable) const
+    {
+        const auto mark = [inheritable](int fd) {
+            if (fd < 0) { return; }
+            const int flags = ::fcntl(fd, F_GETFD);
+            if (flags < 0) { fail("fcntl"); }
+            const int wanted = inheritable ? (flags & ~FD_CLOEXEC) : (flags | FD_CLOEXEC);
+            if (wanted != flags && ::fcntl(fd, F_SETFD, wanted) < 0) { fail("fcntl"); }
+        };
+        mark(read_fd_);
+        if (write_fd_ != read_fd_) { mark(write_fd_); }
+    }
+
     void PipeEndpoint::send(std::string_view payload)
     {
         const std::string framed = write_frame(payload);
@@ -211,9 +273,11 @@ namespace hgraph::distributed
         // CreatePipe's handles are synchronous, which is what a blocking
         // request/reply wants -- overlapped I/O would buy nothing here.
         HANDLE              a_read{}, b_write{}, b_read{}, a_write{};
-        SECURITY_ATTRIBUTES inherit{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
-        if (::CreatePipe(&a_read, &b_write, &inherit, 0) == 0) { fail("CreatePipe"); }
-        if (::CreatePipe(&b_read, &a_write, &inherit, 0) == 0)
+        // Created NON-inheritable: a spawner marks the one end the child is
+        // meant to have (``set_inheritable``), so nothing else leaks into it.
+        SECURITY_ATTRIBUTES no_inherit{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+        if (::CreatePipe(&a_read, &b_write, &no_inherit, 0) == 0) { fail("CreatePipe"); }
+        if (::CreatePipe(&b_read, &a_write, &no_inherit, 0) == 0)
         {
             ::CloseHandle(a_read);
             ::CloseHandle(b_write);

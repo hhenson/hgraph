@@ -17,6 +17,7 @@
 #include <hgraph/hgraph_export.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -41,6 +42,32 @@ namespace hgraph::distributed
         ~PipeEndpoint();
 
         [[nodiscard]] bool open() const noexcept;
+
+        /**
+         * Take ownership of handles this process already has.
+         *
+         * How a worker process picks up the end its parent left it: the
+         * numeric handle survives ``exec``/``CreateProcess`` unchanged, so the
+         * parent passes it in ``argv`` and the child adopts it here. On POSIX
+         * the pair is one bidirectional descriptor and both arguments are the
+         * same number.
+         */
+        static PipeEndpoint adopt(std::int64_t read_handle, std::int64_t write_handle) noexcept;
+
+        [[nodiscard]] std::int64_t native_read_handle() const noexcept;
+        [[nodiscard]] std::int64_t native_write_handle() const noexcept;
+
+        /**
+         * Allow (or refuse) this end to pass to a child process.
+         *
+         * The spawner marks the CHILD's end and leaves its own unmarked, so
+         * that only the intended end crosses. Windows needs this because an
+         * anonymous pipe handle passes ``CreateProcess`` only when it is
+         * marked inheritable and the call asks for inheritance; POSIX needs
+         * the mirror image, clearing ``FD_CLOEXEC`` on the descriptor that is
+         * meant to survive ``exec``.
+         */
+        void set_inheritable(bool inheritable) const;
 
         /** Send one message, length-prefixed. Throws if the write fails. */
         void send(std::string_view payload);

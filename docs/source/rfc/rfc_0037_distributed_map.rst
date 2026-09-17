@@ -1,11 +1,12 @@
 RFC 0037: Distributed ``map_`` over Externally Timed Child Graphs
 =================================================================
 
-:Status: Draft
+:Status: Accepted (v1 implemented; see *Implementation status*)
 :Author: Howard Henson
 :Created: 2026-09-16
-:Target: ``dmap_`` operator, a new ``hgraph-distributed`` extension, the
-         externally-timed child-graph host contract in ``runtime/``
+:Target: ``dmap_`` operator and the distributed runtime in ``runtime/``
+         (the proposed ``hgraph-distributed`` extension was folded into core —
+         see the note under *Two pieces*)
 :Related: RFC 0017 (binary value codec — hard dependency),
           RFC 0022 (serializable graph manifest — identity check),
           RFC 0023 (checkpoint recovery — worker restart, deferred),
@@ -148,6 +149,18 @@ RFC 0017's codec.
 This split follows the promotion gate in ``rfc_0000.rst``: the transport is not
 mathematically general and has no claim on core. The child-graph host is a
 runtime facility that ``map_`` and ``dmap_`` should share.
+
+.. note::
+
+   **Superseded by the implementation.** Everything landed in core. The
+   extension was proposed to keep a transport dependency out of the runtime,
+   and that reason evaporated: the transport is a pair of blocking byte
+   streams (``socketpair``, or two anonymous pipes on Windows) and the process
+   launch is ``posix_spawn`` / ``CreateProcess``, so there is no dependency to
+   keep out. Against that, an extension would have cost a published package, a
+   build/install story, and a core/SDK boundary cutting through the middle of
+   one design. The promotion gate asks what a layer buys; here it bought
+   nothing.
 
 .. note::
 
@@ -510,6 +523,69 @@ make legible. This matches how Python's ``spawn`` start method already behaves
 (the module is re-imported in the child), which is why the original
 multiprocessing experiment works at all.
 
+**As built** (``runtime/distributed_worker.h``, ``runtime/distributed_process.h``):
+
+* A **recipe** is a pair of function pointers — build the child graph, declare
+  its boundary — registered under a name. ``register_distributed_map_worker<
+  Kernel, Key, Value, Result>()`` registers one; the registration must be in a
+  translation unit linked into both programs, which in the ordinary case means
+  one program launched twice.
+* The name is **derived, not chosen**: the worker graph's mangled type name
+  together with the kernel's mangled identity. Deriving it is what stops the
+  two sides drifting apart, since neither gets to spell it. Mangled *names*
+  rather than ``type_info`` addresses, for the reason recorded against
+  ``WiredFn``: the address does not survive an image boundary.
+* The name, the channel handles and the run's start/end times cross in
+  ``argv``. Nothing else does. A host program calls
+  ``run_worker_if_requested(argc, argv)`` first in ``main``; it returns false
+  when the program was not launched as a worker, so calling it costs an
+  argument scan.
+* A caller that asks for a kernel with no registration fails **before any
+  process starts**, naming the key it looked for and the call that would
+  register it. The alternative — discovering it as an exit code from a process
+  the caller never chose to look at — is the failure mode this exists to
+  avoid.
+
+The manifest check itself is still deferred: the derived name pins the kernel
+and the key/value/result types, which is the agreement that has actually gone
+wrong in practice, but it does not pin the child's internal shape. RFC 0022 is
+the mechanism when that becomes worth paying for.
+
+**What this buys and what it costs.** A worker rebuilding its own child is why
+per-key state, construction and teardown are the existing ``map_`` behaviour
+rather than a reimplementation. The cost is that the child must be *nameable*
+ahead of the run: a kernel assembled at wiring time from values only the caller
+has — most obviously a Python callable — cannot be registered, and so cannot
+be distributed. That is a real limit, not an oversight, and it falls out of
+RFC 0022's rule that a manifest does not transport code.
+
+Known deviations from ``map_``
+-----------------------------
+
+Criterion 1 says the worker count must not be observable in the result. One
+case currently fails that, and is recorded rather than hidden.
+
+**A key that has no value yet does not tick the caller.** When a child's output
+gains a key before that key has a value -- a child constructed this cycle that
+does not tick until later -- ``map_`` ticks its output on the structural change
+and ``dmap_`` does not. The key appears on the cycle it first has a value, and
+every value thereafter agrees; what is lost is the intermediate tick, so a
+consumer reacting to key *creation* rather than to values sees it later.
+
+The cause is below ``dmap_``. The canonical TSD delta is
+``Bundle{removed, modified}`` (``types/metadata/type_registry.cpp``), which has
+no way to express "this key exists and has no value yet", so ``capture_delta``
+/ ``apply_delta`` -- the same pair record/replay uses -- cannot carry it. The
+in-process worker mode is what makes that attribution sound: it encodes
+nothing, and the deviation survives it.
+
+Fixing it means changing the canonical delta shape, which is a change to the
+record/replay contract and needs its own design record; it is not a ``dmap_``
+change. Pinned by
+``tests/cpp/test_distributed_map.cpp`` -- "a key with no value yet does not
+tick the caller", which asserts both series exactly, so the deviation cannot be
+retired silently.
+
 Failure handling
 ----------------
 
@@ -536,6 +612,15 @@ of a separate name is to keep the distribution decision explicit while the
 model is proven, not to grow a second dialect. ``__workers__`` and
 ``__partition__`` (the ``K -> GroupId`` policy of *Partitioning* above) are the
 only additions, and both are wiring-time scalars.
+
+The C++ operator carries two further wiring scalars that bootstrap forced:
+``program``, the worker executable (empty meaning this one), and
+``in_process``, which runs the workers here instead. ``in_process`` defaults to
+**false** deliberately: a ``dmap_`` that quietly failed to distribute would be
+a silent performance fault, so the mode that is not distributed has to be asked
+for by name. Its purpose is attribution rather than deployment — when the two
+modes agree and both differ from ``map_`` the fault is in the model, and when
+they disagree it is in the transport.
 
 The Python surface is a **binding over the C++ operator**, not a Python
 implementation of it. A Python ``__partition__`` callable is evaluated at
@@ -656,10 +741,12 @@ Unresolved questions
    core/extension split above is asserted, not proven. It should be settled by
    attempting the extension against the installed SDK before any core refactor
    lands.
-#. **Transport choice.** A framed stream over a socketpair is the portable
-   default; Windows has no ``socketpair`` and needs a loopback socket or named
-   pipe. Shared memory is the optimisation. RFC 0034 (NATS) is the natural
-   remote transport once a transport interface exists.
+#. **Transport choice.** *Settled for v1.* A framed stream over a
+   ``socketpair``, and on Windows -- which has none -- two crossed anonymous
+   pipes, which suit a blocking request/reply exactly. Shared memory remains
+   the optimisation and RFC 0034 (NATS) the natural remote transport; both are
+   a different implementation of ``send``/``receive`` and change nothing above
+   ``distributed_transport.h``.
 #. **Does ``dmap_`` belong in the 1.0 surface?** RFC 0005 freezes the API. A
    provisional operator inside an extension is the safer answer.
 #. **Worker-side scheduling fidelity.** ``next_scheduled_time`` is a ``min``
@@ -713,7 +800,68 @@ The differential criterion is primary; everything else supports it.
 Implementation status
 ---------------------
 
-Draft. A **validated v0 prototype** exists on branch
+**v1 is implemented in core and runs across processes.** ``dmap_`` distributes
+a ``map_`` over spawned worker processes and produces what ``map_`` produces,
+at every worker count tested. The layers, each with its own tests, bottom up:
+
+``types/value/binary_codec.h``
+    RFC 0017's field-wise binary encoding for values. The ``trivial_layout``
+    fast path is still deferred, as are ``Any``, enums and the queue types.
+
+``runtime/executor.h`` — ``GraphExecutorMode::ExternallyDriven``
+    ``start_external`` / ``step`` / ``stop_external``: the caller supplies the
+    evaluation time. ``step`` **refuses** a time later than
+    ``next_scheduled_time()``, because silently skipping due work is how a
+    distributed run stops matching a local one.
+
+``runtime/distributed_child.h``
+    The boundary source and sink nodes, and ``DistributedChildHost`` —
+    stage / step / collect / ``next_scheduled_time``. A staged value is written
+    by a source node during evaluation, never into an output from outside, so
+    the modified-time stamping is the runtime's own.
+
+``runtime/distributed_protocol.h``
+    ``CycleRequest`` / ``CycleReply``, the ordered ``BoundarySlots`` both sides
+    index by position, and the length prefix that makes a byte stream carry
+    messages.
+
+``runtime/distributed_transport.h``
+    ``PipeEndpoint`` and ``connected_pipe_pair``: blocking framed byte streams
+    over a ``socketpair``, or two crossed anonymous pipes on Windows.
+
+``runtime/distributed_worker.h``
+    The recipe registry, the serve loop, and ``run_worker_if_requested``.
+
+``runtime/distributed_process.h``
+    ``spawn_worker`` / ``WorkerProcess``: ``posix_spawn`` with the channel
+    placed at a fixed descriptor, or ``CreateProcess`` with an inheritable
+    handle list. Closing the channel is how a worker is asked to finish; one
+    that does not take the hint is killed after a grace period, because a
+    caller that blocks forever cannot report a failure.
+
+``runtime/distributed_map.h``
+    ``dmap_``, the worker pool, and the partition. Requests go to every worker
+    before any reply is collected — fused, the workers would run one after
+    another and ``dmap_`` would be ``map_`` with a pipe tax.
+
+Against the acceptance criteria: **1 (equivalence)** holds for the corpus
+tested, in process and across processes, at worker counts 1, 2, 4, 5 and 8 and
+at counts above the key count. **4 (grouping)** and **5 (lifecycle)** follow
+from the worker hosting an ordinary ``map_``, and are covered by the per-key
+state cases. **6 (rejections)** covers services/contexts/shared outputs and
+push sources; ``REF`` needs no rejection, because serialising and
+reconstructing a value resolves references implicitly. **7 (failure)** covers a
+worker that cannot be started and one that closes without replying.
+
+Still open: **2 (scheduling)** — a self-scheduling child is supported by the
+design and by ``next_scheduled_time`` in the reply, but is not yet asserted
+end to end through ``dmap_``; **3 (prepare is a phase)** is moot, since routing
+through a source node removed the need for a prepare phase (see the note
+above); **8 (Python)** and **9 (benchmarks against the C++ path)** are not
+started. Worker restart, rebalancing and the RFC 0022 manifest check are
+deferred as described above.
+
+A **validated v0 prototype** also exists on branch
 ``prototype/dmap-experiments`` under ``prototypes/dmap/`` -- deliberately
 outside ``testpaths`` and ``wheel.packages`` so it collides with nothing. It
 uses pickle over a pipe, not RFC 0017.

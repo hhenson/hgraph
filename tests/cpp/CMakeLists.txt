@@ -240,10 +240,12 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_audit_behavior.cpp
     test_collection_nodes.cpp
     test_binary_codec.cpp
+    distributed_worker_recipes.cpp
     test_distributed_child.cpp
     test_distributed_map.cpp
     test_distributed_protocol.cpp
     test_distributed_transport.cpp
+    test_distributed_worker.cpp
     test_partitioned_delta.cpp
     test_externally_driven_executor.cpp
     test_const_eval.cpp
@@ -320,6 +322,27 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_table.cpp
     test_table_round_trip.cpp
 )
+
+# A worker program for the distributed tests.
+#
+# RFC 0037's bootstrap rule is that a worker rebuilds its child from a
+# registration BOTH programs link, which is why the recipes translation unit is
+# compiled into this executable as well as into the test suite. In an ordinary
+# application the caller and the worker are one program launched twice; here
+# the caller's main belongs to Catch2, so the worker needs its own.
+add_executable(hgraph_distributed_worker_host
+    distributed_worker_host.cpp
+    distributed_worker_recipes.cpp
+)
+target_link_libraries(hgraph_distributed_worker_host PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_distributed_worker_host)
+
+# The tests spawn that program by path, and must not be able to run against a
+# stale one.
+target_compile_definitions(hgraph_stdlib_test_objects PRIVATE
+    HGRAPH_TEST_WORKER_PROGRAM="$<TARGET_FILE:hgraph_distributed_worker_host>"
+)
+add_dependencies(hgraph_stdlib_test_objects hgraph_distributed_worker_host)
 
 set(HGRAPH_TEST_OBJECT_LIBS
     hgraph_runtime_test_objects
