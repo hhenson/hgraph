@@ -553,11 +553,28 @@ the mechanism when that becomes worth paying for.
 
 **What this buys and what it costs.** A worker rebuilding its own child is why
 per-key state, construction and teardown are the existing ``map_`` behaviour
-rather than a reimplementation. The cost is that the child must be *nameable*
-ahead of the run: a kernel assembled at wiring time from values only the caller
-has — most obviously a Python callable — cannot be registered, and so cannot
-be distributed. That is a real limit, not an oversight, and it falls out of
-RFC 0022's rule that a manifest does not transport code.
+rather than a reimplementation. Two costs follow, both from a recipe carrying
+only a *name*:
+
+* The child must be **nameable ahead of the run**. A kernel assembled at wiring
+  time from values only the caller has — most obviously a Python callable —
+  cannot be registered, and so cannot be distributed.
+* The child takes **no wiring-time configuration**. A recipe reconstructs the
+  child from its type alone, so a kernel parameterised by a scalar the caller
+  chose has no way to receive it; the parameter must be part of the type, or
+  travel as a time series. v1 also passes exactly one multiplexed ``TSD``
+  input and no broadcast arguments.
+
+Neither is an oversight. Both fall out of RFC 0022's rule that a manifest does
+not transport code, and both would be lifted by sending the scalars alongside
+the name — which is a protocol change with a real agreement problem behind it,
+not a missing line.
+
+A quoting note, because it cost a Windows-only failure: the name travels in
+``argv``, and ``typeid(...).name()`` is a compact mangled string under the
+Itanium ABI but a readable one **containing spaces** under MSVC. Windows hands
+a process one command line and lets it split its own arguments, so the launch
+quotes; POSIX passes an array and never could have noticed.
 
 Known deviations from ``map_``
 -----------------------------
