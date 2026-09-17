@@ -1083,6 +1083,11 @@ operator defined elsewhere.
 Status: first-pass rule (2026-09-03); the shadowing question of the review
 stays open and this section records what the compiler does meanwhile.
 
+A `let` or `var` binding that nothing reads is a diagnostic: it is dead code,
+and the generated C++ must not carry a variable the language did not need
+(`hgraph_ir::binding_uses` decides; a compound assignment reads its target, a
+plain `=` does not).
+
 An unqualified name resolves, innermost first, to:
 
 1. a `let`, `var`, or `for` binding of the enclosing blocks, declared

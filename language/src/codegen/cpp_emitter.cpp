@@ -3,6 +3,7 @@
 #include "descriptor/module_descriptor.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/control_flow.h"
+#include "hgraph_ir/uses.h"
 
 #include <algorithm>
 #include <cmath>
@@ -186,6 +187,19 @@ namespace hgl::codegen
             bool                                     output_available{false};
             /// `inject scheduler` is bound in this frame (ADR 0010).
             bool                                     scheduler_available{false};
+            /// Which source bindings the body reaches, from the hgraph IR
+            /// (`hgraph_ir::binding_uses`). It decides whether a state local
+            /// is emitted and whether a loop or `let` binding the body never
+            /// reads gets an explicit void use.
+            gir::BindingUses reachable{};
+            /// The C++ names the emitted body actually refers to: source
+            /// bindings as they are lowered, plus the backend's own names
+            /// (`w`, `hgl_state`, `hgl_output`, the capability selectors) at
+            /// the point the emitter writes them. A signature names only these.
+            std::unordered_set<std::string> used{};
+            /// The C++ spelling of each bound source binding, so lowering a
+            /// reference can record the name it uses.
+            std::unordered_map<std::uint32_t, std::string> binding_names{};
         };
 
         struct RuntimeState
@@ -478,11 +492,26 @@ namespace hgl::codegen
             void                      dedent() { --indent_; }
             void                      append(std::string_view text) { out_ += text; }
             [[nodiscard]] std::string str() const { return out_; }
+            /// Fill a signature written as a placeholder once its body is
+            /// emitted and the names the body uses are known.
+            void replace_first(std::string_view placeholder, std::string_view text) {
+                const std::size_t at = out_.find(placeholder);
+                if (at != std::string::npos) { out_.replace(at, placeholder.size(), text); }
+            }
 
           private:
             std::string out_;
             int         indent_{0};
         };
+
+        /// The C++ names a finished body refers to (Frame::used).
+        using Uses = std::unordered_set<std::string>;
+
+        /// `type name` when the body uses the name, else the unnamed `type`.
+        [[nodiscard]] std::string named_if(std::string type, const std::string &name, const Uses *uses) {
+            if (uses == nullptr || !uses->contains(name)) { return type; }
+            return type + (type.ends_with('&') || type.ends_with('*') ? "" : " ") + name;
+        }
 
         // ---------------------------------------------------------- emitter
 
@@ -611,7 +640,7 @@ namespace hgl::codegen
 
             // -- declarations
             void                      check_supported(gir::CallableId id);
-            [[nodiscard]] std::string signature(gir::CallableId id, bool with_names);
+            [[nodiscard]] std::string signature(gir::CallableId id, const Uses *uses);
             [[nodiscard]] std::string result_type(gir::CallableId id);
             [[nodiscard]] std::string operator_contract(const std::vector<gir::Parameter> &parameters, gir::TypeId result,
                                                         std::string_view registry_name);
@@ -654,10 +683,10 @@ namespace hgl::codegen
                                      bool allow_when = false);
             void check_runtime_stmt(gir::StatementId id, gir::CallableId callable_id, const RuntimeValidSet &valid, bool allow_when,
                                     SourceRange fallback);
-            [[nodiscard]] std::string runtime_signature(gir::CallableId id, const RuntimeInfo &info, bool with_names,
+            [[nodiscard]] std::string runtime_signature(gir::CallableId id, const RuntimeInfo &info, const Uses *uses,
                                                         bool include_inputs, bool include_output);
             void prepare_runtime_frame(gir::CallableId id, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
-                                       bool include_output);
+                                       bool include_output, bool seeds_state);
             void emit_defaults(const gir::Callable &callable, Writer &out);
             [[nodiscard]] std::vector<gir::CallableId> ordered_internal_functions();
             struct PlannedCalls
@@ -691,6 +720,29 @@ namespace hgl::codegen
             Writer                                              generated_helpers_{};
             std::size_t                                         anonymous_function_index_{0};
             Writer                                             *current_body_{nullptr};
+            std::size_t placeholder_count_{0};
+            [[nodiscard]] std::string next_placeholder() { return "/*hgl-signature-" + std::to_string(++placeholder_count_) + "*/"; }
+            /// The `used` set of the body being emitted. The emitter records a
+            /// name here at the point it writes it, so a signature can name
+            /// exactly the parameters and selectors its body refers to.
+            Uses *active_uses_{nullptr};
+            void  use(std::string_view name) {
+                if (active_uses_ != nullptr) { active_uses_->emplace(name); }
+            }
+            /// Reachability of a callable's hook bodies, from the hgraph IR.
+            [[nodiscard]] gir::BindingUses reachable_in(gir::BlockId block) const { return gir::binding_uses(graph_, block); }
+            /// Open a loop over a range whose elements the body never reads: no
+            /// element binding, so nothing is unused. The range is bound first so
+            /// a temporary range object outlives the iteration.
+            void open_unbound_loop(const std::string &range, Writer &out) {
+                const std::string suffix = std::to_string(++unbound_loop_index_);
+                const std::string it     = "hgl_it_" + suffix;
+                const std::string end    = "hgl_end_" + suffix;
+                out.line("auto &&hgl_range_" + suffix + " = " + range + ";");
+                out.open("for (auto " + it + " = std::begin(hgl_range_" + suffix + "), " + end + " = std::end(hgl_range_" + suffix +
+                         "); " + it + " != " + end + "; ++" + it + ")");
+            }
+            std::size_t unbound_loop_index_{0};
             std::size_t                                         conditional_index_{0};
             std::size_t                                         traversal_index_{0};
             PlannedTypeBindings                                 materialized_types_{};
@@ -1522,6 +1574,7 @@ namespace hgl::codegen
                         backend(range,
                                 "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
                     }
+                    use("w");
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
@@ -1530,6 +1583,7 @@ namespace hgl::codegen
                         fail(Category::Type, graph_constant(value, field.range).range,
                              "required field '" + field.name + "' cannot be null");
                     }
+                    use("w");
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
@@ -1537,6 +1591,7 @@ namespace hgl::codegen
                 temporal_fields.push_back(as_port(item, field_type, item.range));
             }
 
+            use("w");
             Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
                                          (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
                                      type, range);
@@ -1822,6 +1877,7 @@ namespace hgl::codegen
                 if (inner.kind == HType::Kind::Scalar && !same_type(value.type, inner)) {
                     converted = as_const(value, inner, range, "this value");
                 }
+                use("w");
                 return "hgraph::wire<hgraph::stdlib::const_, " + s + ">(w, " + converted + ")";
             }
             if (!value.is_port()) { fail(Category::Type, range, "a time-series value is required"); }
@@ -1830,6 +1886,7 @@ namespace hgl::codegen
         }
 
         Value Emitter::wire(std::string marker, const std::vector<std::string> &args, SourceRange range, const HType &result) {
+            use("w");
             return make_port("hgraph::wire<" + marker + ">(w" + (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
         }
 
@@ -2060,6 +2117,9 @@ namespace hgl::codegen
                             }
                             backend(range, "'" + binding.name + "' is not bound in this function");
                         }
+                        if (const auto named = frame.binding_names.find(reference.binding.value); named != frame.binding_names.end()) {
+                            use(named->second);
+                        }
                         Value result = found->second;
                         result.range = range;
                         return result;
@@ -2132,7 +2192,7 @@ namespace hgl::codegen
 
             Frame nested;
             nested.fn = outer.fn;
-            std::vector<std::string> signature{"[[maybe_unused]] hgraph::Wiring &w"};
+            std::vector<std::pair<std::string, std::string>> signature{{"hgraph::Wiring &", "w"}};
             for (std::size_t index = 0; index < plan.captures.size(); ++index) {
                 const gir::ConditionalCapture &capture = plan.captures[index];
                 const gir::Binding            &binding = planned_binding(capture.binding, range);
@@ -2140,7 +2200,7 @@ namespace hgl::codegen
                 HType type                             = declared_type;
                 if (gir::temporal_branch_forwards(plan, branch, capture.binding)) { type = reference_type(std::move(type)); }
                 local_names_.insert(cpp);
-                signature.push_back("[[maybe_unused]] hgraph::Port<" + schema(type, binding.range) + "> " + cpp);
+                signature.emplace_back("hgraph::Port<" + schema(type, binding.range) + ">", cpp);
                 if (!nested.planned_bindings.emplace(capture.binding.value, make_port(cpp, type, binding.range)).second) {
                     backend(binding.range, "a generated conditional branch repeats a capture binding");
                 }
@@ -2151,8 +2211,29 @@ namespace hgl::codegen
             current_body_->open("struct " + std::string{name});
             const bool        has_output      = !results.empty();
             const std::string result_spelling = has_output ? "hgraph::Port<" + std::string{result_schema} + ">" : "void";
-            current_body_->line("static " + result_spelling + " compose(" + join(signature, ", ") + ")");
+            const std::string placeholder     = next_placeholder();
+            current_body_->line("static " + result_spelling + " compose(" + placeholder + ")");
             current_body_->open("");
+            gir::collect_binding_uses(graph_, branch.block, nested.reachable);
+            if (branch.continuation) {
+                for (const gir::ConditionalContinuationSegment &segment : branch.continuation->segments) {
+                    for (gir::StatementId id : segment.statements) { gir::collect_binding_uses(graph_, id, nested.reachable); }
+                    gir::collect_binding_uses(graph_, segment.tail, nested.reachable);
+                }
+            }
+            for (std::size_t index = 0; index < plan.captures.size(); ++index) {
+                nested.binding_names[plan.captures[index].binding.value] = parameters[index].first;
+            }
+            Uses *const saved_uses = active_uses_;
+            active_uses_           = &nested.used;
+            const auto finish_branch = [&] {
+                std::vector<std::string> named;
+                for (const auto &[type, cpp] : signature) { named.push_back(named_if(type, cpp, &nested.used)); }
+                current_body_->replace_first(placeholder, join(named, ", "));
+                current_body_->close();
+                current_body_->close(";");
+                active_uses_ = saved_uses;
+            };
 
             // An assignment to a binding declared outside the source branch
             // becomes local to this child composition. Terminal conditional
@@ -2179,8 +2260,7 @@ namespace hgl::codegen
                     body.tail               = block.tail;
                 }
                 emit_planned_callable_path(body, branch.continuation, nested, *current_body_, range);
-                current_body_->close();
-                current_body_->close(";");
+                finish_branch();
                 local_counts_ = saved_counts;
                 local_names_  = saved_names;
                 return;
@@ -2199,8 +2279,7 @@ namespace hgl::codegen
                         }
                     }
                 }
-                current_body_->close();
-                current_body_->close(";");
+                finish_branch();
                 local_counts_ = saved_counts;
                 local_names_  = saved_names;
                 return;
@@ -2234,6 +2313,7 @@ namespace hgl::codegen
             if (expression_slot != results.end()) {
                 if (body == nullptr) {
                     const HType type = planned_type(expression_slot->type, body_range);
+                    use("w");
                     expression_value =
                         make_port("hgraph::wire<hgraph::stdlib::nothing, " + schema(type, body_range) + ">(w)", type, body_range);
                 } else if (!body->tail.valid()) {
@@ -2259,16 +2339,19 @@ namespace hgl::codegen
                 if (found == nested.planned_bindings.end()) {
                     backend(body_range, "hgraph IR conditional branch did not assign escaping result '" + slot.field_name + "'");
                 }
+                if (const auto named = nested.binding_names.find(slot.binding.value); named != nested.binding_names.end()) {
+                    use(named->second);
+                }
                 outputs.push_back(as_port(found->second, type, body_range));
             }
             if (outputs.size() == 1U) {
                 current_body_->line("return " + outputs.front() + ";");
             } else {
+                use("w");
                 current_body_->line("return hgraph::stdlib::to_tsb<" + std::string{result_schema} + ">(w, " + join(outputs, ", ") +
                                     ");");
             }
-            current_body_->close();
-            current_body_->close(";");
+            finish_branch();
 
             local_counts_ = saved_counts;
             local_names_  = saved_names;
@@ -2366,6 +2449,9 @@ namespace hgl::codegen
                 if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
                     backend(binding.range, "hgraph IR conditional capture is not bound to a time-series port");
                 }
+                if (const auto named = frame.binding_names.find(capture.binding.value); named != frame.binding_names.end()) {
+                    use(named->second);
+                }
                 const std::string base   = cpp_name(binding.name);
                 std::string       name   = base;
                 int              &suffix = parameter_counts[base];
@@ -2410,6 +2496,7 @@ namespace hgl::codegen
             if (results.empty()) {
                 Value value;
                 value.kind  = Value::Kind::Void;
+                use("w");
                 value.code  = "hgraph::wire<hgraph::stdlib::switch_sink_>(w, " + join(switch_arguments, ", ") + ")";
                 value.range = range;
                 return value;
@@ -2442,6 +2529,7 @@ namespace hgl::codegen
             }
 
             const std::string selected_name = base + "_results";
+            use("w");
             std::string       code = "[&]() { auto " + selected_name + " = hgraph::wire<hgraph::stdlib::switch_, " + result_schema +
                                      ">(w, " + join(switch_arguments, ", ") + "); ";
             const gir::ConditionalResultSlot *expression_result = nullptr;
@@ -2456,14 +2544,19 @@ namespace hgl::codegen
                     backend(planned_binding(slot.binding, range).range,
                             "an escaping conditional result has no enclosing temporal binding");
                 }
+                if (const auto named = frame.binding_names.find(slot.binding.value); named != frame.binding_names.end()) {
+                    use(named->second);
+                }
                 const HType       type                     = planned_type(slot.type, range);
                 const std::string outer_code               = outer->second.code;
                 frame.planned_bindings[slot.binding.value] = make_port(outer_code, type, range);
+                use("w");
                 code += outer_code + " = hgraph::wire<hgraph::stdlib::getattr_>(w, " + selected_name + ", hgraph::Str{" +
                         quote(slot.field_name) + "}).as<" + schema(type, range) + ">(); ";
             }
             if (expression_result != nullptr) {
                 const HType type = planned_type(expression_result->type, range);
+                use("w");
                 code += "return hgraph::wire<hgraph::stdlib::getattr_>(w, " + selected_name + ", hgraph::Str{" +
                         quote(expression_result->field_name) + "}).as<" + schema(type, range) + ">(); }()";
                 if (current_body_ == nullptr) {
@@ -2547,6 +2640,7 @@ namespace hgl::codegen
                         const Value target = eval_planned_expr(node.target, frame);
                         if (target.kind == Value::Kind::Intrinsic &&
                             (target.name == "logger" || target.name == "clock" || target.name == "scheduler")) {
+                            use(target.name);
                             Value value;
                             value.kind  = Value::Kind::Intrinsic;
                             value.name  = target.name + "." + node.name;
@@ -2897,6 +2991,7 @@ namespace hgl::codegen
                                 fail(Category::Type, graph_constant(field.default_value, field.range).range,
                                      "required field '" + field.name + "' cannot be null");
                             }
+                            use("w");
                             temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) +
                                                       ">(w)");
                             continue;
@@ -2909,12 +3004,14 @@ namespace hgl::codegen
                         backend(range,
                                 "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
                     }
+                    use("w");
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
 
                 if (planned_null(argument->value, argument->range)) {
                     if (delta) { backend(argument->range, "hgraph IR delta construction retained an optional-field clear"); }
+                    use("w");
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
@@ -2944,6 +3041,7 @@ namespace hgl::codegen
                 return result;
             }
 
+            use("w");
             Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
                                          (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
                                      type, range);
@@ -2998,6 +3096,7 @@ namespace hgl::codegen
                     fail(Category::Type, range, "'scheduled' is only available in a function-level 'when' condition");
                 }
                 if (!frame.scheduler_available) { fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler'"); }
+                use("scheduler");
                 return make_runtime("scheduler.is_scheduled_now()", scalar_type(hir::ScalarType::Bool), range);
             }
             if (name == "passivate" || name == "activate") {
@@ -3521,6 +3620,10 @@ namespace hgl::codegen
                         if (current_it == frame.planned_bindings.end()) {
                             backend(place.range, "'" + binding.name + "' is not bound in this function");
                         }
+                        if (const auto named = frame.binding_names.find(reference->binding.value);
+                            named != frame.binding_names.end()) {
+                            use(named->second);
+                        }
                         const Value current = current_it->second;
                         Value       value   = eval_planned_expr(node.value, frame);
                         if (node.op != gir::AssignOp::Assign) {
@@ -3602,7 +3705,19 @@ namespace hgl::codegen
                 const std::string first  = "hgl_pack_first_" + suffix;
                 const std::string second = "hgl_pack_value_" + suffix;
                 if (named) {
-                    out.open("for (const auto &[" + first + ", " + second + "] : " + iterator.code + ")");
+                    // The key reads `first`, the selected port reads `second`. When
+                    // the body reads neither, iterate without binding the pair.
+                    const bool keys_only   = iterator.name == "keys";
+                    const bool values_only = iterator.name == "values";
+                    const bool first_used  = !values_only && frame.reachable.is_read(traversal.bindings[0]);
+                    const bool second_used = values_only ? frame.reachable.is_read(traversal.bindings[0])
+                                             : keys_only ? false
+                                                         : frame.reachable.is_read(traversal.bindings[1]);
+                    if (first_used || second_used) {
+                        out.open("for (const auto &[" + first + ", " + second + "] : " + iterator.code + ")");
+                    } else {
+                        open_unbound_loop(iterator.code, out);
+                    }
                 } else {
                     out.open("for (std::size_t " + first + " = 0; " + first + " < " + iterator.code + ".size(); ++" + first + ")");
                 }
@@ -3610,6 +3725,7 @@ namespace hgl::codegen
                 Value             key = make_const(named ? "hgraph::Str{" + first + "}" : "static_cast<hgraph::Int>(" + first + ")",
                                                    scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), range);
                 const std::string ref = named ? second : iterator.code + "[" + first + "]";
+                use("w");
                 Value             selected = make_port("hgraph::Port<void>{w, " + ref + "}", iterator.type, range);
                 std::vector<Value> values;
                 if (iterator.name == "keys") {
@@ -3676,6 +3792,9 @@ namespace hgl::codegen
                 if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
                     backend(binding.range, "hgraph IR dynamic traversal capture is not bound to a time-series port");
                 }
+                if (const auto named = frame.binding_names.find(capture.binding.value); named != frame.binding_names.end()) {
+                    use(named->second);
+                }
                 captures.emplace_back(capture, outer->second);
             }
 
@@ -3697,7 +3816,7 @@ namespace hgl::codegen
 
             Frame nested;
             nested.fn = frame.fn;
-            std::vector<std::string> signature{"[[maybe_unused]] hgraph::Wiring &w"};
+            std::vector<std::pair<std::string, std::string>> signature{{"hgraph::Wiring &", "w"}};
             for (std::size_t index = 0; index < traversal.bindings.size(); ++index) {
                 const gir::Binding &binding = planned_binding(traversal.bindings[index], range);
                 const HType         type    = planned_type(binding.type, binding.range);
@@ -3709,23 +3828,35 @@ namespace hgl::codegen
                     iterator.name == "items" && index == 0U
                         ? "hgraph::NamedPort<" + quote(map ? "key" : "ndx") + ", " + schema(type, binding.range) + ">"
                         : "hgraph::Port<" + schema(type, binding.range) + ">";
-                signature.push_back("[[maybe_unused]] " + port + " " + name);
+                signature.emplace_back(port, name);
                 nested.planned_bindings.emplace(traversal.bindings[index].value, make_port(name, type, binding.range));
+                nested.binding_names[traversal.bindings[index].value] = name;
             }
             for (const auto &[capture, outer] : captures) {
                 const gir::Binding &binding = planned_binding(capture.binding, range);
                 const HType         type    = planned_type(capture.type, binding.range);
                 const std::string   name    = unique_parameter(binding.name);
-                signature.push_back("[[maybe_unused]] hgraph::Port<" + schema(type, binding.range) + "> " + name);
+                signature.emplace_back("hgraph::Port<" + schema(type, binding.range) + ">", name);
                 nested.planned_bindings.emplace(capture.binding.value, make_port(name, type, binding.range));
+                nested.binding_names[capture.binding.value] = name;
             }
+            nested.reachable = reachable_in(traversal.block);
 
             const std::string helper = "hgl_" + callable_cpp_name(frame.fn) + "_for_" + std::to_string(++traversal_index_);
             out.line("// " + where(planned_block(traversal.block, range).range));
             out.open("struct " + helper);
-            out.line("static void compose(" + join(signature, ", ") + ")");
+            const std::string placeholder = next_placeholder();
+            out.line("static void compose(" + placeholder + ")");
             out.open("");
-            emit_planned_block(traversal.block, nested, out, false, range);
+            {
+                Uses *const saved_uses = active_uses_;
+                active_uses_           = &nested.used;
+                emit_planned_block(traversal.block, nested, out, false, range);
+                active_uses_ = saved_uses;
+                std::vector<std::string> named;
+                for (const auto &[type, name] : signature) { named.push_back(named_if(type, name, &nested.used)); }
+                out.replace_first(placeholder, join(named, ", "));
+            }
             out.close();
             out.close(";");
 
@@ -3737,6 +3868,7 @@ namespace hgl::codegen
                 static_cast<void>(capture);
                 arguments.push_back("hgraph::stdlib::pass_through(" + outer.code + ")");
             }
+            use("w");
             out.line("hgraph::wire<hgraph::stdlib::map_sink_>(w, " + join(arguments, ", ") + ");");
         }
 
@@ -3928,9 +4060,10 @@ namespace hgl::codegen
                             if (binding.kind != gir::BindingKind::LocalLet) {
                                 fail(Category::Type, binding.range, "a borrowed key_set projection requires let");
                             }
-                            out.line("[[maybe_unused]] const auto " + local + " = " + value.selector + ";");
-                            value.selector = local;
-                            value.code     = local + ".value()";
+                            // A borrowed key-set projection is a cheap view; the let
+                            // aliases the projection rather than binding a C++ local
+                            // that iteration over the key set would then bypass.
+                            value.code = value.selector + ".value()";
                             frame.planned_bindings.emplace(node.binding.value, std::move(value));
                             return;
                         }
@@ -3966,6 +4099,7 @@ namespace hgl::codegen
                                     }
                                     const Value key   = eval_planned_expr(index->index, frame);
                                     const Value value = eval_planned_expr(node.value, frame);
+                                    use("hgl_output");
                                     out.line("hgl_output.set(" + as_runtime(key, result.children[0], key.range, "output key") +
                                              ", " + as_runtime(value, result.children[1], value.range, "output value") + ");");
                                     return;
@@ -3994,6 +4128,10 @@ namespace hgl::codegen
                         const auto current_it = frame.planned_bindings.find(reference->binding.value);
                         if (current_it == frame.planned_bindings.end()) {
                             backend(place.range, "'" + binding.name + "' is not bound in this function");
+                        }
+                        if (const auto named = frame.binding_names.find(reference->binding.value);
+                            named != frame.binding_names.end()) {
+                            use(named->second);
                         }
                         const Value current = current_it->second;
                         Value       value   = eval_planned_expr(node.value, frame);
@@ -4051,8 +4189,10 @@ namespace hgl::codegen
                                 if (result.kind != HType::Kind::Struct || !same_type(value.type, result)) {
                                     fail(Category::Type, value.range, "the structured delta does not match the result type");
                                 }
+                                use("hgl_output");
                                 out.line("hgraph::apply_delta(hgl_output.base(), " + value.code + ".view());");
                             } else {
+                                use("hgl_output");
                                 emit_output_value(value, result, "hgl_output", out);
                             }
                         }
@@ -4119,20 +4259,30 @@ namespace hgl::codegen
                         const std::string second_raw = pair ? "hgl_" + cpp_name(bindings[1]->name) + "_item" : std::string{};
                         const bool        positional_pack =
                             iterator.atomic_code == "positional" || iterator.atomic_code == "schema_positional";
+                        // The IR says which loop bindings the body reads. An element
+                        // nothing reads is not bound: a positional loop skips its
+                        // local, and a range loop nobody reads from iterates by
+                        // iterator. A pair with one side read keeps its structured
+                        // binding, which no compiler reports.
+                        const bool first_read  = frame.reachable.is_read(node.bindings[0]);
+                        const bool second_read = pair && frame.reachable.is_read(node.bindings[1]);
                         if (positional_pack) {
                             const std::string position = "hgl_" + cpp_name(bindings[0]->name) + "_position";
                             out.open("for (std::size_t " + position + " = 0; " + position + " < " + iterator.code + ".size(); ++" +
                                      position + ")");
                             if (pair) {
-                                out.line("const hgraph::Int " + first_raw + " = static_cast<hgraph::Int>(" + position + ");");
-                                out.line("const auto " + second_raw + " = " + iterator.code + "[" + position + "];");
-                            } else {
+                                if (first_read) {
+                                    out.line("const hgraph::Int " + first_raw + " = static_cast<hgraph::Int>(" + position + ");");
+                                }
+                                if (second_read) { out.line("const auto " + second_raw + " = " + iterator.code + "[" + position + "];"); }
+                            } else if (first_read) {
                                 out.line("const auto " + first_raw + " = " + iterator.code + "[" + position + "];");
                             }
+                        } else if (first_read || second_read) {
+                            out.open(pair ? "for (const auto &[" + first_raw + ", " + second_raw + "] : " + iterator.code + ")"
+                                          : "for (const auto &" + first_raw + " : " + iterator.code + ")");
                         } else {
-                            out.open(pair ? "for ([[maybe_unused]] const auto &[" + first_raw + ", " + second_raw +
-                                                "] : " + iterator.code + ")"
-                                          : "for ([[maybe_unused]] const auto &" + first_raw + " : " + iterator.code + ")");
+                            open_unbound_loop(iterator.code, out);
                         }
 
                         const auto bind_value = [&](const std::string &raw, const HType &type, bool endpoint, bool list_index,
@@ -4384,6 +4534,7 @@ namespace hgl::codegen
                 if (!value.is_runtime() || value.selector.empty()) {
                     backend(planned.range, "a runtime default predicate requires temporal input selectors");
                 }
+                use(value.selector);
                 tests.push_back(value.selector + "." + std::string{method});
             }
             if (tests.empty()) {
@@ -4846,18 +4997,17 @@ namespace hgl::codegen
             if (callable(decl).kind == gir::CallableKind::RuntimeNode) { static_cast<void>(runtime_info(decl)); }
         }
 
-        std::string Emitter::runtime_signature(gir::CallableId decl, const RuntimeInfo &info, bool with_names, bool include_inputs,
-                                               bool include_output) {
+        std::string Emitter::runtime_signature(gir::CallableId decl, const RuntimeInfo &info, const Uses *uses,
+                                               bool include_inputs, bool include_output) {
             const gir::Callable     &fn = callable(decl);
             std::vector<std::string> params;
             for (std::size_t i = 0; i < fn.parameters.size(); ++i) {
-                const gir::Parameter &param  = fn.parameters[i];
-                const HType           type   = planned_type(param.type, fn.range);
-                const SourceRange     range  = graph_type(param.type, fn.range).range;
-                const std::string     name   = with_names ? " " + cpp_name(param.name) : "";
-                const std::string     unused = with_names ? "[[maybe_unused]] " : "";
+                const gir::Parameter &param = fn.parameters[i];
+                const HType           type  = planned_type(param.type, fn.range);
+                const SourceRange     range = graph_type(param.type, fn.range).range;
+                const std::string     name  = cpp_name(param.name);
                 if (param.is_const) {
-                    params.push_back(unused + "hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">" + name);
+                    params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">", name, uses));
                     continue;
                 }
                 if (!include_inputs) { continue; }
@@ -4869,48 +5019,40 @@ namespace hgl::codegen
                 } else {
                     input_schema = schema(type, range);
                 }
-                std::string selector = unused + "hgraph::In<" + quote(param.name) + ", " + input_schema;
+                std::string selector = "hgraph::In<" + quote(param.name) + ", " + input_schema;
                 if (!info.active_parameters.contains(i)) {
                     selector += ", hgraph::InputActivity::Passive";
                 } else if (info.structural_parameters.contains(i) && !info.value_active_parameters.contains(i)) {
                     selector += ", hgraph::InputActivity::Structural";
                 }
                 if (info.has_when) { selector += ", hgraph::InputValidity::Unchecked"; }
-                selector += ">" + name;
-                params.push_back(std::move(selector));
+                selector += ">";
+                params.push_back(named_if(std::move(selector), name, uses));
             }
             if (!info.states.empty()) {
-                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::RecordableState<recordable_state>" +
-                                 std::string{with_names ? " hgl_state" : ""});
+                params.push_back(named_if("hgraph::RecordableState<recordable_state>", "hgl_state", uses));
             }
-            if (info.logger_binding.valid()) {
-                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::LoggerView" +
-                                 std::string{with_names ? " logger" : ""});
-            }
-            if (info.clock_binding.valid()) {
-                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::EvaluationClockView" +
-                                 std::string{with_names ? " clock" : ""});
-            }
-            if (info.scheduler_binding.valid()) {
-                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::NodeScheduler" +
-                                 std::string{with_names ? " scheduler" : ""});
-            }
+            if (info.logger_binding.valid()) { params.push_back(named_if("hgraph::LoggerView", "logger", uses)); }
+            if (info.clock_binding.valid()) { params.push_back(named_if("hgraph::EvaluationClockView", "clock", uses)); }
+            if (info.scheduler_binding.valid()) { params.push_back(named_if("hgraph::NodeScheduler", "scheduler", uses)); }
             if (include_output && has_planned_result(fn.result, fn.range)) {
-                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::Out<" +
-                                 schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">" +
-                                 std::string{with_names ? " hgl_output" : ""});
+                params.push_back(named_if("hgraph::Out<" + schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">",
+                                          "hgl_output", uses));
             }
             return join(params, ", ");
         }
 
         void Emitter::prepare_runtime_frame(gir::CallableId decl, const RuntimeInfo &info, Frame &frame, Writer &out,
-                                            bool include_inputs, bool include_output) {
+                                            bool include_inputs, bool include_output, bool seeds_state) {
             const gir::Callable &planned   = callable(decl);
             frame.fn                       = decl;
             frame.runtime                  = true;
             frame.runtime_inputs_available = include_inputs;
             frame.output_available         = include_output;
             frame.scheduler_available      = info.scheduler_binding.valid();
+            frame.used.clear();
+            frame.binding_names.clear();
+            active_uses_ = &frame.used;
             frame.params.resize(planned.parameters.size());
             frame.planned_bindings.clear();
             local_counts_.clear();
@@ -4938,19 +5080,25 @@ namespace hgl::codegen
                 if (!frame.planned_bindings.emplace(parameter.binding.value, frame.params[index]).second) {
                     backend(binding.range, "hgraph IR callable repeats a parameter binding");
                 }
+                frame.binding_names[parameter.binding.value] = name;
             }
             for (const RuntimeState &state : info.states) {
+                // The start hook seeds every state field; another hook gets a
+                // local only for the fields its body reaches.
+                if (!seeds_state && !frame.reachable.uses(state.binding)) { continue; }
                 const std::string base   = cpp_name(state.name);
                 std::string       local  = base;
                 int              &suffix = local_counts_[base];
                 while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
                 local_names_.insert(local);
-                out.line("[[maybe_unused]] auto " + local + " = hgl_state.field<" + quote(state.name) + ">();");
+                use("hgl_state");
+                out.line("auto " + local + " = hgl_state.field<" + quote(state.name) + ">();");
                 Value value = make_runtime(local + ".value().checked_as<" + value_type(state.type, state.range) + ">()", state.type,
                                            state.range, local);
                 if (!frame.planned_bindings.emplace(state.binding.value, std::move(value)).second) {
                     backend(state.range, "hgraph IR callable repeats a state binding");
                 }
+                frame.binding_names[state.binding.value] = local;
             }
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
@@ -4968,6 +5116,7 @@ namespace hgl::codegen
                 if (!frame.planned_bindings.emplace(info.out_binding.value, std::move(value)).second) {
                     backend(planned.range, "hgraph IR callable repeats the output capability binding");
                 }
+                frame.binding_names[info.out_binding.value] = "hgl_output";
             }
             if (info.logger_binding.valid()) {
                 Value logger;
@@ -5008,7 +5157,7 @@ namespace hgl::codegen
             frame.runtime = true;
             out.line("// " + where(planned.range));
             out.open("struct " + callable_cpp_name(decl));
-            out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
+            out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
             if (!info.states.empty()) {
                 std::vector<std::string> fields;
@@ -5019,10 +5168,36 @@ namespace hgl::codegen
                          quote(std::string{active_callable_identity(planned)} + ".state") + ", " + join(fields, ", ") + ">;");
             }
 
+            // Each hook's signature is filled after its body: the IR says which
+            // source bindings the body reaches, and the emitter records the
+            // backend names it writes. Both land in `frame.used`.
+            const gir::Block &function_body = planned_block(planned.block_body, planned.range);
+            const auto        hook_reachable = [&](bool start, bool eval, bool stop) {
+                gir::BindingUses uses;
+                for (gir::StatementId id : function_body.statements) {
+                    const gir::Statement &statement = planned_statement(id, function_body.range);
+                    if (const auto *lifecycle = std::get_if<gir::Lifecycle>(&statement.node)) {
+                        const bool wanted = lifecycle->kind == gir::LifecycleKind::Stop ? stop : start;
+                        if (wanted) { gir::collect_binding_uses(graph_, lifecycle->block, uses); }
+                    } else if (std::holds_alternative<gir::StateBinding>(statement.node)) {
+                        if (start) { gir::collect_binding_uses(graph_, id, uses); }
+                    } else if (!std::holds_alternative<gir::Inject>(statement.node) && eval) {
+                        gir::collect_binding_uses(graph_, id, uses);
+                    }
+                }
+                if (eval) { gir::collect_binding_uses(graph_, function_body.tail, uses); }
+                return uses;
+            };
+            const auto finish_hook = [&](const std::string &placeholder, bool include_inputs, bool include_output) {
+                out.replace_first(placeholder, runtime_signature(decl, info, &frame.used, include_inputs, include_output));
+                out.close();
+            };
             if (!info.states.empty() || !info.start_blocks.empty()) {
-                out.line("static void start(" + runtime_signature(decl, info, true, false, false) + ")");
+                const std::string placeholder = next_placeholder();
+                out.line("static void start(" + placeholder + ")");
                 out.open("");
-                prepare_runtime_frame(decl, info, frame, out, false, false);
+                frame.reachable = hook_reachable(true, false, false);
+                prepare_runtime_frame(decl, info, frame, out, false, false, true);
                 for (const RuntimeState &state : info.states) {
                     const Value &target = frame.planned_bindings.at(state.binding.value);
                     const Value  init   = eval_planned_expr(state.init, frame);
@@ -5030,13 +5205,15 @@ namespace hgl::codegen
                              as_runtime(init, state.type, init.range, "initializer of '" + state.name + "'") + "); }");
                 }
                 for (gir::BlockId block : info.start_blocks) { emit_runtime_block(block, frame, out, planned.range); }
-                out.close();
+                finish_hook(placeholder, false, false);
             }
 
-            const bool has_output = has_planned_result(planned.result, planned.range);
-            out.line("static void eval(" + runtime_signature(decl, info, true, true, has_output) + ")");
+            const bool        has_output       = has_planned_result(planned.result, planned.range);
+            const std::string eval_placeholder = next_placeholder();
+            out.line("static void eval(" + eval_placeholder + ")");
             out.open("");
-            prepare_runtime_frame(decl, info, frame, out, true, has_output);
+            frame.reachable = hook_reachable(false, true, false);
+            prepare_runtime_frame(decl, info, frame, out, true, has_output, false);
             const gir::Block &body = planned_block(planned.block_body, planned.range);
             for (gir::StatementId id : body.statements) {
                 const gir::Statement &statement = planned_statement(id, body.range);
@@ -5055,34 +5232,39 @@ namespace hgl::codegen
                     out.line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
                 }
             }
-            out.close();
+            finish_hook(eval_placeholder, true, has_output);
 
             if (!info.stop_blocks.empty()) {
-                out.line("static void stop(" + runtime_signature(decl, info, true, false, false) + ")");
+                const std::string placeholder = next_placeholder();
+                out.line("static void stop(" + placeholder + ")");
                 out.open("");
-                prepare_runtime_frame(decl, info, frame, out, false, false);
+                frame.reachable = hook_reachable(false, false, true);
+                prepare_runtime_frame(decl, info, frame, out, false, false, false);
                 emit_runtime_block(info.stop_blocks.front(), frame, out, planned.range);
-                out.close();
+                finish_hook(placeholder, false, false);
+            }
+            active_uses_ = nullptr;
+            {
             }
             out.close(";");
             out.line();
         }
 
-        std::string Emitter::signature(gir::CallableId decl, bool with_names) {
+        std::string Emitter::signature(gir::CallableId decl, const Uses *uses) {
             const gir::Callable     &fn = callable(decl);
-            std::vector<std::string> params{with_names ? "[[maybe_unused]] hgraph::Wiring &w" : "hgraph::Wiring &"};
+            std::vector<std::string> params{named_if("hgraph::Wiring &", "w", uses)};
             for (const gir::Parameter &param : fn.parameters) {
                 const HType       type  = planned_type(param.type, fn.range);
                 const SourceRange range = graph_type(param.type, fn.range).range;
-                const std::string name  = with_names ? " " + cpp_name(param.name) : "";
+                const std::string name  = cpp_name(param.name);
                 if (param.pack == gir::ParameterPack::Keyword) {
-                    params.push_back("hgraph::VarKwIn<" + quote(param.name) + ">" + name);
+                    params.push_back(named_if("hgraph::VarKwIn<" + quote(param.name) + ">", name, uses));
                 } else if (param.pack == gir::ParameterPack::Positional) {
-                    params.push_back("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">" + name);
+                    params.push_back(named_if("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">", name, uses));
                 } else if (param.is_const) {
-                    params.push_back("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">" + name);
+                    params.push_back(named_if("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">", name, uses));
                 } else {
-                    params.push_back("hgraph::Port<" + schema(type, range) + ">" + name);
+                    params.push_back(named_if("hgraph::Port<" + schema(type, range) + ">", name, uses));
                 }
             }
             return join(params, ", ");
@@ -5197,15 +5379,19 @@ namespace hgl::codegen
                 frame.fn               = decl;
                 frame.runtime          = true;
                 frame.output_available = true;
-                std::vector<std::string> parameters;
+                std::vector<std::pair<std::string, std::string>> parameters;
                 for (const gir::Parameter &parameter : planned.parameters) {
                     const HType       type      = planned_type(parameter.type, planned.range);
                     const std::string name      = cpp_name(parameter.name);
                     const std::string type_name = value_type(type, planned.range);
                     const bool        borrow    = type.kind != HType::Kind::Scalar || type.is(hir::ScalarType::Str);
-                    parameters.push_back("[[maybe_unused]] " + (borrow ? "const " + type_name + " &" : type_name + " ") + name);
+                    parameters.emplace_back(borrow ? "const " + type_name + " &" : type_name, name);
                     frame.planned_bindings.emplace(parameter.binding.value, make_runtime(name, type, planned.range));
+                    frame.binding_names[parameter.binding.value] = name;
                 }
+                frame.reachable = planned.concise_body.valid() ? gir::binding_uses(graph_, planned.concise_body)
+                                                               : reachable_in(planned.block_body);
+                active_uses_    = &frame.used;
                 const std::string result = has_planned_result(planned.result, planned.range)
                                                ? value_type(planned_type(planned.result, planned.range), planned.range)
                                                : "void";
@@ -5214,8 +5400,9 @@ namespace hgl::codegen
                 // or adding a platform-dependent private DLL symbol.
                 out.open("namespace hgl_values");
                 out.line("// " + where(planned.range));
+                const std::string placeholder = next_placeholder();
                 out.open("inline " + result + " " + callable_cpp_name(decl).substr(std::string_view{"hgl_values::"}.size()) + "(" +
-                         join(parameters, ", ") + ")");
+                         placeholder + ")");
                 if (planned.concise_body.valid()) {
                     const Value value = eval_planned_expr(planned.concise_body, frame);
                     out.line("return " + value.code + ";");
@@ -5226,6 +5413,12 @@ namespace hgl::codegen
                         const Value value = eval_planned_expr(body.tail, frame);
                         out.line("return " + value.code + ";");
                     }
+                }
+                {
+                    std::vector<std::string> named;
+                    for (const auto &[type, name] : parameters) { named.push_back(named_if(type, name, &frame.used)); }
+                    out.replace_first(placeholder, join(named, ", "));
+                    active_uses_ = nullptr;
                 }
                 out.close();
                 out.close("  // namespace hgl_values");
@@ -5245,16 +5438,21 @@ namespace hgl::codegen
             const std::string name = callable_cpp_name(decl);
 
             out.line("// " + where(planned.range));
+            const std::string compose_placeholder = next_placeholder();
             if (form == Form::OutOfLine) {
-                out.line(result_type(decl) + " " + name + "::compose(" + signature(decl, true) + ")");
+                out.line(result_type(decl) + " " + name + "::compose(" + compose_placeholder + ")");
             } else {
                 out.open("struct " + name);
-                out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
+                // The registry reads `name`; a module-internal composition is
+                // never registered, so it has no use for one.
+                if (planned.visibility != gir::CallableVisibility::Internal) {
+                    out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
+                }
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 emit_defaults(callable(decl), out);
-                out.line("static " + result_type(decl) + " compose(" + signature(decl, form != Form::Declaration) +
-                         (form == Form::Declaration ? ");" : ")"));
+                out.line("static " + result_type(decl) + " compose(" +
+                         (form == Form::Declaration ? signature(decl, nullptr) + ");" : compose_placeholder + ")"));
                 if (form == Form::Declaration) {
                     out.close(";");
                     out.line();
@@ -5296,9 +5494,13 @@ namespace hgl::codegen
                 if (!frame.planned_bindings.emplace(parameter.binding.value, frame.params[i]).second) {
                     backend(binding.range, "hgraph IR callable repeats a parameter binding");
                 }
+                frame.binding_names[parameter.binding.value] = parameter_name;
             }
+            frame.reachable = planned.concise_body.valid() ? gir::binding_uses(graph_, planned.concise_body)
+                                                           : reachable_in(planned.block_body);
             out.open("");
             current_body_ = &out;
+            active_uses_  = &frame.used;
             if (planned.concise_body.valid() == planned.block_body.valid()) {
                 backend(planned.range, "hgraph IR callable '" + std::string{callable_name(decl)} +
                                            "' must have exactly one concise or block body");
@@ -5311,6 +5513,8 @@ namespace hgl::codegen
                 emit_planned_block(planned.block_body, frame, out, true, planned.range);
             }
             current_body_ = nullptr;
+            active_uses_  = nullptr;
+            out.replace_first(compose_placeholder, signature(decl, &frame.used));
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }
             out.line();
@@ -5724,6 +5928,7 @@ namespace hgl::codegen
             emit_include("<chrono>");
             emit_include("<cstddef>");
             emit_include("<cstdint>");
+            emit_include("<iterator>");
             emit_include("<limits>");
             emit_include("<stdexcept>");
             emit_include("<tuple>");

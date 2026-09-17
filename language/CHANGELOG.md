@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Stop emitting `[[maybe_unused]]`. A new hgraph-IR reachability pass
+  (`hgraph_ir::binding_uses`) tells the emitter which source bindings a hook
+  reaches, and the emitter records the backend names it writes; a generated
+  hook or `compose` signature names a parameter only when its body uses it
+  and leaves the rest unnamed, and unreached state locals are not emitted. A
+  `let` or `var` that is never read is now a diagnostic (dead code), and a
+  loop whose body reads no element iterates without binding one. The `name`
+  members of generated structs drop the attribute, and a module-internal
+  composition no longer declares one.
 - Implement the `clock` and `scheduler` injectables (ADR 0010):
   `clock.evaluation_time()`/`now()`/`next_cycle_evaluation_time()`,
   `scheduler.schedule(delay[, on_wall_clock])`, `schedule_at`,

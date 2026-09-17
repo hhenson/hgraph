@@ -303,7 +303,8 @@ unsupported collection kinds. `report_first_pass_rules`, run by hgraph IR
 lowering, reports the context-free issues together with the other shared
 rules (assignment places that are not plain bindings, the shape of a
 `map(...)` call with an anonymous function, runtime-only intrinsics in a
-composition body, clearing an optional field through a sparse delta), so
+composition body, clearing an optional field through a sparse delta, a `let`
+or `var` that is never read), so
 `hgl check` rejects them before either backend runs. A backend forwards a
 plan's remaining issues and otherwise keeps only invariant checks about the IR
 it consumes, whose messages begin with `hgraph IR`. The CTest case
@@ -1831,6 +1832,25 @@ expression is read from the syntax tree.
   The HGL lexer balances its C++ delimiters but does not parse C++; native
   compilation validates the projected parameter declarations and body. Both
   generated files then pass through the normal `clang-format` stage.
+- **Names only where used.** Generated code carries no `[[maybe_unused]]`.
+  Reachability is decided in two places, each by the layer that knows.
+  `hgraph_ir::binding_uses` (`src/hgraph_ir/uses.{h,cpp}`) walks a block,
+  statement, or value and counts every reference to a source binding; the
+  emitter asks it, per hook, whether a state field, a `let`, or a loop binding
+  is reached. A state local (`auto total = hgl_state.field<"total">()`) is
+  emitted only in the hooks that reach it (start always, since it seeds every
+  field). A `let` or `var` nothing reads never reaches the emitter: the shared
+  rules reject it as dead code. A loop whose body reads no element iterates
+  without binding one (a positional loop skips the element local; a range loop
+  becomes an explicit iterator loop over the bound range); a pair with one
+  side read keeps its structured binding, which no compiler reports.
+  The backend's own names (`w`, `hgl_state`, `hgl_output`, the capability
+  selectors) are not in the IR, so the emitter records each one at the point
+  it writes it (`Emitter::use`, in `wire()`, output writes, state locals, and
+  capability calls) and records a source parameter when it lowers a reference
+  to it. A hook or `compose` signature is written as a placeholder and filled
+  from that recorded set once the body is emitted: a parameter the body never
+  refers to stays unnamed. Nothing is inferred from the generated text.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each concrete non-generic `impl fn`, plus every concrete generic

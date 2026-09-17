@@ -697,6 +697,35 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
 }
 
 TEST_CASE("hgraph IR lowering reports the shared first-pass rules once", "[hgraph-ir][rules]") {
+    SECTION("a local that is never read is dead code") {
+        Lowered lowered{R"(
+module checks.unread_local
+
+fn examine(value: f64) -> f64 {
+    let doubled = value * 2.0
+    var written: f64 = 0.0
+    written = value
+    value
+}
+)"};
+        CHECK(has_message(lowered.diagnostics, "'doubled' is declared but never read"));
+        CHECK(has_message(lowered.diagnostics, "'written' is declared but never read"));
+    }
+
+    SECTION("a local read by a compound assignment or a later statement is not dead") {
+        Lowered lowered{R"(
+module checks.read_local
+
+fn examine(value: f64) -> f64 {
+    var total: f64 = 0.0
+    total += value
+    let scaled = total * 2.0
+    scaled
+}
+)"};
+        CHECK_FALSE(has_message(lowered.diagnostics, "is declared but never read"));
+    }
+
     SECTION("an assignment place must be a plain binding") {
         Lowered lowered{R"(
 module checks.assignment_rule
