@@ -1,5 +1,5 @@
 RFC 0038: Parent-Timed Spawned Sink Graphs and Pipelines
-=======================================================
+========================================================
 
 :Status: Proposed
 :Author: Howard Henson
@@ -132,14 +132,16 @@ Both facades lower to one prepared native execution plan containing:
 * prepared boundary capture/application operations;
 * selected execution/admission policy and bounded resource limits.
 
-The proposed public facade is ``bind_(WiredFn, named_bindings)`` returning a
-``BoundStage``, ``pipeline_(stages)`` returning a ``Pipeline``, and
-``wire_spawn(Wiring &, callable_or_pipeline, arguments, SpawnConfig)``.
-Bindings and arguments use existing ``WiringArg`` descriptors. Precise
-namespace and overload spelling is to be fixed alongside compiled public
-wiring and installed-SDK examples. Python-only support does not satisfy this
-RFC. Runtime correctness must not depend on C++ template instantiation;
-erased callers receive equivalent plan validation.
+The public native facade uses ``SpawnStage`` (callable, bindings and optional
+callable owner) and ``SpawnPipeline``. ``spawn_fn<G>(named_scalar_args...)``
+creates a native stage with scalar configuration. ``bind_`` accepts a stage or
+``WiredFn`` plus named ``WiringPortRef`` bindings, and ``pipeline_`` accepts an
+ordered vector of stages. ``wire_spawn(Wiring &, SpawnPipeline,
+span<WiringArg>, SpawnConfig)`` wires the sink boundary. Compiled public wiring
+and installed-SDK examples must verify these overloads. Python-only support
+does not satisfy this RFC. Runtime correctness must not depend on C++ template
+instantiation; erased callers receive equivalent plan validation.
+
 
 Logical time and protocol
 -------------------------
@@ -242,7 +244,7 @@ A child with no pending work remains idle unless a downstream stage requests
 progress or new input arrives.
 
 Pipeline alignment and external bindings
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A later stage can receive both its flow from the preceding stage and additional
 ports bound from the enclosing graph. Each source has an ordered input prefix
@@ -259,12 +261,20 @@ instant the child happens to run.
 A downstream request propagates demand to any predecessor whose frontier is
 insufficient. An idle predecessor requests owner permission if necessary,
 finishes its own due work, publishes any output and then advances its frontier.
+The initial thread host represents the owner's completed frontier as a shared
+monotonic watermark, published at cycle end, and each stage publishes its own
+completed frontier. Reading that watermark still requires the input-sequence
+fence described above; it is not permission to race pending boundary capture.
+Demand travels to the owner through its execution activity integration. No
+serialized progress message is needed for every parent cycle.
+
 This works transitively through a chain. Without demand propagation, an idle
 stage with no output ticks would deadlock a downstream timer.
 
 The first version supports linear pipelines and additional bindings from the
 same enclosing graph. Arbitrary multi-parent joins, feedback, independently
-clocked live inputs and cyclic execution dependencies are rejected. Fan-out
+clocked live inputs, nested spawn boundaries and cyclic execution dependencies
+are rejected. Fan-out
 can be a subsequent extension with explicit consumer retention rules.
 
 Observable traces
@@ -335,12 +345,21 @@ waiting forever for impossible capacity. The selected admission policy pauses
 upstream at a safe cycle boundary when capacity is exhausted. A fail-on-full
 policy may be offered explicitly. Dropping and conflation are outside v1.
 
-The capacity accounting includes staged and in-flight frames, not just the
-container that happens to hold them. Data saturation must not consume the
-control capacity needed for grants, failure or shutdown. The owner continues
-servicing control requests while evaluation admission is paused; otherwise a
-full queue can deadlock a child waiting for permission. Waiting Python paths
-release the GIL. Arbitrary node callbacks must not block on a child whose
+Flow and external-binding channels have separate bounded admission. A future
+external frame must not fill a shared queue and prevent arrival of the earlier
+predecessor output needed to release that frame. The coordinator must also
+continue progress/control handling while either data channel is full.
+
+Each channel's admission limits include queued and in-flight frames until
+processing and forwarding complete. In addition, each producer may hold one
+bounded frame under construction per destination channel, before admission;
+that frame is subject to the same per-frame byte maximum. Decoded graph state
+and transient codec allocations are separate from these payload-byte limits.
+This accounts for storage outside the queue container explicitly. Data
+saturation does not consume control capacity: workers can publish completion
+and failure while their producer waits for admission. Every already admitted
+frame has permission to execute, so releasing capacity never depends on a
+future producer cycle. Waiting Python paths release the GIL. Arbitrary node callbacks must not block on a child whose
 progress requires that same callback or owner cycle to finish.
 
 The initial implementation hosts each stage on a worker thread with an
@@ -362,13 +381,18 @@ stage and joins all workers. Pending requests beyond the final frontier are
 cancelled explicitly. A self-rescheduling child cannot extend the run beyond
 the enclosing run's end-time policy.
 
+An early child ``request_stop`` is unsupported: it fails the enclosing run
+with a lifecycle error rather than silently discarding already accepted input.
+Normal completion is driven by the owner's final seal.
+
 A child failure fails the owned pipeline and is reported to the enclosing run.
 Failure/cancellation wakes all capacity and progress waiters. Cleanup is safe
 after partial construction and does not await data that can no longer arrive.
-There is no detached background work after the enclosing run returns. An
-implementation must document finite transport/shutdown deadlines and the
-limits of cancelling arbitrary user code; thread callbacks cannot safely be
-forcibly terminated.
+There is no detached background work after the enclosing run returns. Thread-hosted callbacks must return cooperatively: shutdown joins them and
+has no forceful cancellation deadline. A callback that never returns can
+therefore prevent run completion. Queue waits wake on pipeline failure, but
+thread callbacks cannot safely be forcibly terminated. Future process hosting
+must define finite transport and worker-termination deadlines.
 
 Performance model
 -----------------
@@ -484,11 +508,23 @@ composition as an observable oracle where applicable. The acceptance matrix is:
 Implementation status
 ---------------------
 
-This document records the proposed contract. It does not claim that the public
-operators or asynchronous runtime are available. Implementation commits must
-replace this paragraph with exact supported hosting modes, public API names,
-validated scenarios and remaining limitations. A synchronous fallback alone
-cannot satisfy the independent-execution contract.
+The implementation provides native ``wire_spawn``, ``spawn_fn``, ``bind_`` and
+``pipeline_`` and Python ``spawn_``, ``bind_`` and ``pipeline_``. Each stage runs
+on an owned worker thread with a private externally driven C++ executor.
+``ExecutorActivity`` and its owned wake capability let a root simulation or
+real-time executor authorize child requests without manufacturing input ticks.
+
+Public-wiring tests compare synchronous and asynchronous traces for scalar,
+signal, collection, bundle, window and reference boundaries, external bindings,
+and local map/reduce/mesh graphs. Dedicated tests cover no-input and downstream
+timers, exclusive end times, lifecycle failures, early child stop and failed
+owner cycles. The installed-SDK consumer builds and executes a native pipeline.
+
+Process hosting, nested spawn, independent live child sources, arbitrary joins,
+feedback, restart and asynchronous checkpoint recovery remain outside v1.
+Python callbacks use the GIL; independent scheduling does not promise parallel
+Python bytecode. Normal completion drains authorized work and joins all workers,
+subject to the cooperative-callback limitation above.
 
 References
 ----------

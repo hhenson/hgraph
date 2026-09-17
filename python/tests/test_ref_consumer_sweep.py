@@ -86,6 +86,17 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
+
+def _spawn_source_cases():
+    # Evaluated by pytest after this module's shape/source tables are defined.
+    return [
+        (shape_id, source_id)
+        for shape_id in SHAPES
+        for source_id in SOURCES
+        if source_id != "plain" and (
+            source_id not in _SOURCE_SHAPES or shape_id in _SOURCE_SHAPES[source_id])
+    ]
+
 # --------------------------------------------------------------------------
 # Scalar and bundle schemas used by the shapes
 # --------------------------------------------------------------------------
@@ -526,3 +537,29 @@ def test_ref_source_matches_plain(case):
         pytest.xfail(gap.reason)
 
     assert actual == expected
+
+
+@pytest.mark.parametrize("shape_id,source_id", _spawn_source_cases())
+def test_spawn_sink_ref_source_matches_plain(shape_id, source_id):
+    """A sink boundary is compared through its effects, not a parent output."""
+    from hgraph import CLOCK, sink_node, spawn_
+
+    shape = SHAPES[shape_id]
+
+    def run(source):
+        seen = []
+
+        def collect(ts, clock=None):
+            seen.append((clock.evaluation_time, ts.value, ts.delta_value))
+
+        collect.__annotations__ = {"ts": shape.tp, "clock": CLOCK, "return": None}
+        child = sink_node(collect)
+
+        def app(ts):
+            spawn_(child, source(ts, shape.tp), __capacity_frames__=1)
+
+        app.__annotations__ = {"ts": shape.tp, "return": None}
+        eval_node(graph(app), shape.ticks)
+        return seen
+
+    assert run(SOURCES[source_id]) == run(SOURCES["plain"])

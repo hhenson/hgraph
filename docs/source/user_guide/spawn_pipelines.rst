@@ -1,12 +1,11 @@
 Spawned sink graphs and pipelines
-================================
+=================================
 
 .. note::
 
-   This page describes the proposed API in
-   :doc:`../rfc/rfc_0038_spawn_pipelines`. Implementation and validation are in
-   progress; the examples are the intended authoring contract, not a claim of
-   released functionality.
+   This page describes the thread-hosted implementation of
+   :doc:`../rfc/rfc_0038_spawn_pipelines`. Process hosting and recovery of
+   in-flight pipeline data are not supported.
 
 A spawned graph consumes inputs independently while remaining on its owner's
 logical clock. It can process an earlier cycle while the owner moves on, but
@@ -101,7 +100,7 @@ inputs is intended. Idle stages forward requested progress without requiring
 an output tick, so downstream timers can still run.
 
 Data, capacity and shutdown
---------------------------
+---------------------------
 
 The boundary contract includes scalar series, signals, sets, dictionaries,
 fixed/dynamic lists, bundles and windows, recursively. References are
@@ -109,6 +108,13 @@ materialized at the boundary; references internal to a child remain local.
 Transfers preserve invalid members, removals, partial updates and window
 history with original timestamps. Ordinary window updates transfer incremental
 operations instead of repeatedly copying the complete window.
+
+Set ``__capacity_frames__`` (default 256) and ``__capacity_bytes__`` (default
+64 MiB) on ``spawn_`` to limit each channel's admitted frames, including frames
+currently being processed. External inputs and preceding-stage outputs use
+separate channels. Each producer may additionally construct one frame per
+channel, bounded by the same byte maximum. Decoded graph state and temporary
+codec memory are separate from the payload budget.
 
 Queues have finite frame and byte limits. A slow consumer can eventually pause
 its upstream producer; asynchronous execution does not imply unlimited
@@ -119,15 +125,41 @@ processed it or committed an external effect.
 Normal shutdown stops admission, drains accepted work through the final
 permitted time and joins all stage workers. It does not run future timers
 forever. A child failure reaches the owning run and wakes other waiting stages.
-No pipeline task remains detached after the run returns.
+No pipeline task remains detached after the run returns. A child calling
+``request_stop`` early fails the owning run; it cannot silently abandon queued
+input. Use normal owner completion to seal and drain the pipeline. Callbacks
+must return cooperatively: a blocked user callback cannot be forcibly stopped
+and can prevent shutdown from completing.
 
 Native authoring and initial scope
 ----------------------------------
 
 The native authoring contract uses ``WiredFn`` graph descriptors, named
 ``WiringArg`` bindings and the same prepared execution plan as Python.
-The proposed facade names are ``bind_``, ``pipeline_`` and ``wire_spawn``;
-compiled native examples will accompany the implementation.
+``SpawnStage`` retains a callable and its named bindings. ``spawn_fn<G>``
+supplies scalar configuration to a native graph, ``bind_`` supplies external
+ports, ``pipeline_`` creates a ``SpawnPipeline`` and ``wire_spawn`` wires the
+sink boundary. Include ``<hgraph/runtime/spawn.h>``. For example::
+
+    struct Offset
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value,
+                                    Scalar<"amount", Int> amount)
+        {
+            return wire<stdlib::add_>(w, value, amount.value()).as<TS<Int>>();
+        }
+    };
+
+    // Inside a graph's compose(), with a typed input port and a sink Consume:
+    WiringArg input;
+    input.port = value.erased();
+    std::array arguments{input};
+    wire_spawn(w, pipeline_({spawn_fn<Offset>(arg<"amount">(Int{10})),
+                             spawn_fn<Consume>()}), arguments);
+
+Use ``NamedPort`` to expose native graph argument names to ``bind_``; ordinary
+``Port`` arguments support positional wiring. The installed-SDK consumer in
+``tests/install_consumer/spawn_probe.cpp`` compiles and runs a complete example.
 
 The initial hosting implementation uses worker threads with isolated native
 executors and owned boundary payloads. Python callbacks use the bridge's
@@ -135,7 +167,7 @@ normal GIL ownership; thread hosting does not promise parallel execution of
 Python bytecode. Process hosting is a separate follow-on capability.
 
 The initial topology is a linear pipeline with additional inputs from its
-owning graph. Independent live sources, arbitrary joins, feedback, worker
+owning graph. Independent live sources, arbitrary joins, feedback, nested spawn, worker
 restart and recovery of in-flight pipeline data are outside this contract.
 Historical pull sources and ordinary ``map_``, ``reduce`` and ``mesh_`` inside
 a stage retain their local graph semantics. Hidden captures of parent ports

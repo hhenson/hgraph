@@ -408,8 +408,11 @@ void check_distributed_client() {
 }
 }
 
+void check_spawn_consumer();
+
 int main()
 {
+    check_spawn_consumer();
     using namespace hgraph;
 
     static_assert(std::is_standard_layout_v<SchemaHeader>);

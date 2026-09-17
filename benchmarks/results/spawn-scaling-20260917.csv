@@ -1,0 +1,9 @@
+kind,ticks,stages,width,median_seconds,peak_rss_mib
+scalar,1000,1,1,0.006598,68.47
+scalar,4000,1,1,0.022555,68.84
+scalar,1000,4,1,0.023976,68.75
+scalar,4000,4,1,0.093432,69.88
+dictionary,1000,2,16,0.016567,71.14
+dictionary,1000,2,1024,0.02089,71.88
+window,1000,2,16,0.012593,68.81
+window,1000,2,1024,0.012039,68.69
