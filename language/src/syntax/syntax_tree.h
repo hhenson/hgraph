@@ -67,6 +67,7 @@ namespace hgl::syntax
         EvalExpression,
         LocalDecl,
         StateDecl,
+        CacheDecl,
         InjectDecl,
         LifecycleStmt,
         WhenStmt,

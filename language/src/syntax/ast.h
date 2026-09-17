@@ -265,11 +265,14 @@ namespace hgl::syntax::ast
         TypeId type{no_node};
         ExprId init{no_node};
     };
+    /// `state` or, with `cache`, a reconstructible node-local `cache`:
+    /// outside record/replay, re-initialized on every start (ADR 0011).
     struct StateDecl
     {
         Name   name{};
         TypeId type{no_node};
         ExprId init{no_node};
+        bool   cache{false};
     };
     struct InjectDecl
     { std::vector<Name> names{}; };

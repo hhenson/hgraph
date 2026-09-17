@@ -307,6 +307,7 @@ namespace hgl::hgraph_ir
         LocalLet,
         LocalVar,
         State,
+        Cache,
         Capability,
         LoopValue,
         LambdaParameter,
@@ -479,11 +480,14 @@ namespace hgl::hgraph_ir
         TypeId    type{};
         ValueId   init{};
     };
+    /// `state`, or with `cache` a node-local cache outside record/replay
+    /// that is re-initialized on every start (ADR 0011).
     struct StateBinding
     {
         BindingId binding{};
         TypeId    type{};
         ValueId   init{};
+        bool      cache{false};
     };
     struct Inject
     { std::vector<BindingId> bindings{}; };

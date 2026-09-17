@@ -743,6 +743,15 @@ namespace hgl::ir
             /// `when` is never nested, because a nested handler cannot
             /// contribute to the node's activation policy. Semantic checks, so
             /// each diagnostic names the misplaced construct.
+            template <typename T> [[nodiscard]] static std::string declaration_keyword(const T &node) {
+                if constexpr (std::is_same_v<T, StateDecl>) {
+                    return node.cache ? "cache" : "state";
+                } else {
+                    static_cast<void>(node);
+                    return "inject";
+                }
+            }
+
             void check_runtime_layout(BlockId body) {
                 bool        executable_seen = false;
                 std::size_t starts          = 0;
@@ -755,7 +764,7 @@ namespace hgl::ir
                             if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
                                 if (executable_seen) {
                                     diagnostics_.report(syntax::Category::FunctionKind, statement.range,
-                                                        std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                        std::string{"'"} + declaration_keyword(node) +
                                                             "' must be declared before runtime handlers");
                                 }
                                 if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
@@ -831,7 +840,7 @@ namespace hgl::ir
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
-                                                    std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                    std::string{"'"} + declaration_keyword(node) +
                                                         "' must be declared at function level, not inside a block");
                                 if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
                             } else {
@@ -1139,6 +1148,7 @@ namespace hgl::ir
                         expression.value_kind = value_kind_for_phase(expression.phase);
                         break;
                     case SymbolKind::State:
+                    case SymbolKind::Cache:
                         expression.type       = canonical(symbol.type);
                         expression.phase      = Phase::Runtime;
                         expression.value_kind = ValueKind::RuntimeValue;
@@ -3279,9 +3289,10 @@ namespace hgl::ir
                             Expr &init                       = check_expr(node.init, node.type);
                             active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
-                            require_assignable(node.type, init, "state initializer");
+                            require_assignable(node.type, init, node.cache ? "cache initializer" : "state initializer");
                             if (borrowed_schema(init.type)) {
-                                type_error(init.range, "borrowed schema metadata cannot be stored in state");
+                                type_error(init.range, node.cache ? "borrowed schema metadata cannot be stored in a cache"
+                                                                  : "borrowed schema metadata cannot be stored in state");
                             }
                             module_.symbols[node.symbol.value].type = node.type;
                             symbol_phase_[node.symbol.value]        = Phase::Runtime;
@@ -3354,7 +3365,7 @@ namespace hgl::ir
                                 const Symbol &symbol = module_.symbol(root);
                                 if (symbol.kind == SymbolKind::LocalVar) {
                                     statement.effects |= Effect::WriteLocal;
-                                } else if (symbol.kind == SymbolKind::State) {
+                                } else if (symbol.kind == SymbolKind::State || symbol.kind == SymbolKind::Cache) {
                                     statement.effects |= Effect::WriteState;
                                 } else if (symbol.kind == SymbolKind::InjectedCapability && symbol.name == "out") {
                                     statement.effects |= Effect::WriteOutput;

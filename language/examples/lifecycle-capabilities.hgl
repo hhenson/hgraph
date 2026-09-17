@@ -93,3 +93,15 @@ export fn at_time(const alarm: datetime) -> datetime {
     start { scheduler.schedule_at(alarm, false) }
     when scheduled() { return clock.evaluation_time() }
 }
+
+# A `cache` is node-local data outside record/replay: it is re-initialized on
+# every start, so after a restore this count starts again from zero, which is
+# exactly what the native tick counters of `schedule` and `request_id` do.
+export fn evaluations(value: i64) -> i64 {
+    cache count: i64 = 0
+
+    when modified(value) && valid(value) {
+        count += 1
+        return count
+    }
+}

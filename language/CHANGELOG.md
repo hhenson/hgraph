@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `cache` declarations (ADR 0011): `cache name[: T] = init` is node-local
+  data outside record/replay, declared like `state` and re-initialized on
+  every start, lowered to the native `State<T>` selector. One scalar cache per
+  runtime function, not beside `state`; both limits are hgraph's static-node
+  contract and are reported as such. `hgraph.std` gains the parallel
+  `schedule` source with native-parity tests.
 - Stop emitting `[[maybe_unused]]`. A new hgraph-IR reachability pass
   (`hgraph_ir::binding_uses`) tells the emitter which source bindings a hook
   reaches, and the emitter records the backend names it writes; a generated

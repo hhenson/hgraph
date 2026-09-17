@@ -501,7 +501,7 @@ namespace hgl::syntax
                 if (s.init != ast::no_node) { expr(depth + 1, s.init, "init"); }
             }
             void stmt_node(int depth, SourceRange range, const ast::StateDecl &s, ast::ExprId) {
-                line(depth, "StateDecl", range, std::string{s.name.text});
+                line(depth, s.cache ? "CacheDecl" : "StateDecl", range, std::string{s.name.text});
                 if (s.type != ast::no_node) { type(depth + 1, s.type, "type"); }
                 expr(depth + 1, s.init, "init");
             }

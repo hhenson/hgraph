@@ -19,6 +19,10 @@ TEST_CASE("a scheduler-driven source ticks from start until its count", "[codege
     CHECK_OUTPUT(eval_node<lifecycle::ticker>(MIN_TD, Int{-1}), values<Int>());
 }
 
+TEST_CASE("a cache counts evaluations without joining the recordable state", "[codegen][runtime][lifecycle]") {
+    CHECK_OUTPUT(eval_node<lifecycle::evaluations>(values<Int>(7, none, 7, 9)), values<Int>(1, none, 2, 3));
+}
+
 TEST_CASE("passivating an input stops later ticks from activating the node", "[codegen][runtime][lifecycle]") {
     CHECK_OUTPUT(eval_node<lifecycle::first_ticks>(values<Int>(10, 20, 30, 40), Int{2}), values<Int>(10, 20, none, none));
     CHECK_OUTPUT(eval_node<lifecycle::first_ticks>(values<Int>(10, none, 30), Int{5}), values<Int>(10, none, 30));

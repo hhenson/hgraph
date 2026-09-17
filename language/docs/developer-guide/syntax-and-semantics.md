@@ -99,7 +99,7 @@ The hard reserved words are exactly these 44, the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
-module part use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
+module part use as export abstract impl instantiate operator fn cpp struct const requires is let var state cache inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -1146,6 +1146,8 @@ local_decl     = "let", identifier, [ ":", type ], "=", expression
                | "var", identifier, [ ":", type ], "=", expression;
 state_decl     = "state", identifier, [ ":", value_type ],
                  "=", expression;
+cache_decl     = "cache", identifier, [ ":", value_type ],
+                 "=", expression;
 inject_decl    = "inject", identifier,
                  { ",", identifier }, [ "," ];
 lifecycle_block = ( "start" | "stop" ), block;
@@ -1161,9 +1163,12 @@ assignment_operator
                = "=" | "+=" | "-=" | "*=" | "/=";
 ```
 
-State and inject declarations precede executable blocks. The first slice
-requires a state initializer and permits at most one `start` and one `stop`
-block. It permits multiple function-level `when` blocks and preserves their
+State, cache, and inject declarations precede executable blocks. The first
+slice requires a state or cache initializer and permits at most one `start`
+and one `stop` block. A `cache` is node-local data outside record/replay,
+re-initialized on every start; this slice admits one scalar cache per runtime
+function and not beside `state`, both limits being hgraph's static-node
+contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -1847,9 +1852,11 @@ Initializers run during startup only for fields that were not restored by
 record/replay. Initializers may depend on `const` parameters and admitted pure
 scalar expressions, but not current temporal input values. `state` is by
 definition temporal: it is part of the node's recorded and replayed data, and
-there is no non-recordable `state` form. Values that are not time series, such
-as cached adaptor handles, are not `state`; they belong to a separate resource
-concept that is still to be designed.
+there is no non-recordable `state` form: node-local data outside record/replay
+is a `cache` declaration, re-initialized on every start (ADR 0011). Values
+that are not time series, such as cached adaptor handles, are not `state` or
+`cache`; they belong to a separate resource concept that is still to be
+designed.
 
 An `inject` declaration requests compiler-approved runtime selectors without
 adding parameters to the callable contract: `out`, `logger`, `clock` and

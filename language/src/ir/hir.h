@@ -77,6 +77,7 @@ namespace hgl::ir::hir
         LocalLet,
         LocalVar,
         State,
+        Cache,
         InjectedCapability,
         LoopValue,
         LambdaParameter,
@@ -384,11 +385,14 @@ namespace hgl::ir::hir
         TypeId   type{};
         ExprId   init{};
     };
+    /// `state`, or with `cache` a reconstructible node-local cache that is
+    /// outside record/replay and re-initialized on every start (ADR 0011).
     struct StateDecl
     {
         SymbolId symbol{};
         TypeId   type{};
         ExprId   init{};
+        bool     cache{false};
     };
     struct InjectDecl
     { std::vector<SymbolId> symbols{}; };

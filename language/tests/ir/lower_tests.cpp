@@ -2541,6 +2541,13 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
                                  "    state total: f64 = 0.0\n"
                                  "}\n")
               .find("function-kind: 'state' must be declared before runtime handlers") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.late_cache\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "    cache last: f64 = 0.0\n"
+                                 "}\n")
+              .find("function-kind: 'cache' must be declared before runtime handlers") != std::string::npos);
     CHECK(completion_diagnostics("module checks.nested_when\n"
                                  "fn f(value: f64) -> f64 {\n"
                                  "    inject out\n"

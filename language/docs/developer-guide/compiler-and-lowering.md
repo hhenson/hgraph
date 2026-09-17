@@ -1785,7 +1785,9 @@ expression is read from the syntax tree.
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
-  block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`;
+  block. A `cache` declaration lowers to the native `State<T>` selector
+  (`hgl_cache`, read with `get()`, written with `set()`), and `start` seeds it
+  unconditionally because a cache is outside record/replay (ADR 0011). `inject logger` lowers `logger.info(message)` to `LoggerView::log`;
   `inject clock` and `inject scheduler` add `EvaluationClockView` and
   `NodeScheduler` selectors to every hook, `scheduled()` lowers to
   `scheduler.is_scheduled_now()` and marks a handler as adding no input to

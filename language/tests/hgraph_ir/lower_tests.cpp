@@ -956,3 +956,40 @@ TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]"
     CHECK(diagnostics.has_errors());
     CHECK(graph.completion == hgl::hgraph_ir::Completion::Interfaces);
 }
+
+TEST_CASE("hgraph IR keeps cache declarations distinct from recordable state", "[hgraph-ir][cache]") {
+    Lowered lowered{R"(
+module checks.cache_binding
+
+fn count(value: i64) -> i64 {
+    cache seen: i64 = 0
+    state total: i64 = 0
+    when modified(value) && valid(value) {
+        seen += 1
+        total += value
+        return total + seen
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    std::size_t caches = 0;
+    std::size_t states = 0;
+    for (const hgl::hgraph_ir::Statement &statement : lowered.graph->statements) {
+        const auto *binding = std::get_if<hgl::hgraph_ir::StateBinding>(&statement.node);
+        if (binding == nullptr) { continue; }
+        const hgl::hgraph_ir::Binding &declared = lowered.graph->bindings[binding->binding.value];
+        if (binding->cache) {
+            ++caches;
+            CHECK(declared.kind == hgl::hgraph_ir::BindingKind::Cache);
+            CHECK(declared.name == "seen");
+        } else {
+            ++states;
+            CHECK(declared.kind == hgl::hgraph_ir::BindingKind::State);
+            CHECK(declared.name == "total");
+        }
+    }
+    CHECK(caches == 1U);
+    CHECK(states == 1U);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(" cache seen:") != std::string::npos);
+}

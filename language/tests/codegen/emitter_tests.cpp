@@ -3043,3 +3043,61 @@ export fn dormant() -> bool {
     REQUIRE(emitted);
     CHECK(contains(emitted->header, "scheduler.schedule("));
 }
+
+TEST_CASE("emit-cpp lowers a cache declaration to the native State selector", "[codegen][runtime][cache]") {
+    Unit       unit{R"(
+module checks.cache_state
+
+export fn evaluations(value: i64) -> i64 {
+    cache count: i64 = 0
+
+    when modified(value) && valid(value) {
+        count += 1
+        return count
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    // No recordable state schema: the cache is the native State<T> slot,
+    // seeded on every start and read/written through the selector.
+    CHECK_FALSE(contains(emitted->header, "recordable_state"));
+    CHECK(contains(emitted->header, "static void start(hgraph::State<hgraph::Int> hgl_cache)"));
+    CHECK(contains(emitted->header, "hgl_cache.set(hgraph::Int{0});"));
+    CHECK(contains(emitted->header, "hgraph::State<hgraph::Int> hgl_cache,"));
+    CHECK(contains(emitted->header, "hgl_cache.set((hgl_cache.get() + hgraph::Int{1}));"));
+    CHECK(contains(emitted->header, "hgl_output.set(hgl_cache.get());"));
+}
+
+TEST_CASE("emit-cpp reports the native limits on cache declarations", "[codegen][runtime][cache]") {
+    Unit second{R"(
+module checks.two_caches
+export fn f(value: i64) -> i64 {
+    cache a: i64 = 0
+    cache b: i64 = 0
+    when modified(value) && valid(value) {
+        a += 1
+        b += 1
+        return a + b
+    }
+}
+)"};
+    CHECK_FALSE(second.emit());
+    CHECK(contains(second.diagnostics.render(second.file), "this slice admits one 'cache' declaration per runtime function"));
+
+    Unit mixed{R"(
+module checks.cache_beside_state
+export fn f(value: i64) -> i64 {
+    state total: i64 = 0
+    cache count: i64 = 0
+    when modified(value) && valid(value) {
+        total += value
+        count += 1
+        return total + count
+    }
+}
+)"};
+    CHECK_FALSE(mixed.emit());
+    CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
+}

@@ -511,8 +511,8 @@ namespace hgl::ir
                                     add_symbol(node.mutable_ ? hir::SymbolKind::LocalVar : hir::SymbolKind::LocalLet,
                                                node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
-                                statement_symbols_[statement].push_back(
-                                    add_symbol(hir::SymbolKind::State, node.name.text, node.name.range, owner));
+                                statement_symbols_[statement].push_back(add_symbol(
+                                    node.cache ? hir::SymbolKind::Cache : hir::SymbolKind::State, node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                                 for (const ast::Name &name : node.names) {
                                     statement_symbols_[statement].push_back(
@@ -1134,7 +1134,7 @@ namespace hgl::ir
                                                          id<hir::ExprId>(node.init)};
                         } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
                             target.node = hir::StateDecl{statement_symbols_[index].front(), id<hir::TypeId>(node.type),
-                                                         id<hir::ExprId>(node.init)};
+                                                         id<hir::ExprId>(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                             target.node = hir::InjectDecl{statement_symbols_[index]};
                         } else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) {

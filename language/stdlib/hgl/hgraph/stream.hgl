@@ -53,8 +53,32 @@ impl fn until_true(ts: bool) -> bool {
     }
 }
 
-# `schedule` remains native-only until HGL can represent its non-recordable
-# tick counter and its positive-delay validation in start (ADR 0008/0010).
+# A scheduler-driven source. The tick counter is a `cache`, outside
+# record/replay exactly as the native node keeps it (ADR 0011). The native
+# node's positive-delay validation in start is not reproduced here.
+operator schedule(const delay: duration, const initial_delay: bool = true,
+                  const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool
+impl fn schedule(const delay: duration, const initial_delay: bool = true,
+                 const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool {
+    cache ticks: i64 = 0
+    inject scheduler
+    start {
+        if max_ticks > 0 {
+            if initial_delay {
+                scheduler.schedule(delay, use_wall_clock)
+            } else {
+                scheduler.schedule(0s, use_wall_clock)
+            }
+        }
+    }
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay, use_wall_clock)
+        }
+        return true
+    }
+}
 
 impl fn sample<T>(signal: signal, ts: T) -> T {
     when modified(signal) && valid(signal, ts) {

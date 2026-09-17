@@ -106,23 +106,27 @@ namespace hgraph_::std_
         // stream.hgl:11
         using until_true = hgraph::Operator<"hgraph.std.until_true", hgraph::In<"ts", hgraph::TS<hgraph::Bool>>,
                                             hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // stream.hgl:235
+        // stream.hgl:59
+        using schedule = hgraph::Operator<"hgraph.std.schedule", hgraph::Scalar<"delay", hgraph::TimeDelta>,
+                                          hgraph::Scalar<"initial_delay", hgraph::Bool>, hgraph::Scalar<"max_ticks", hgraph::Int>,
+                                          hgraph::Scalar<"use_wall_clock", hgraph::Bool>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+        // stream.hgl:259
         using dedup_float =
             hgraph::Operator<"hgraph.std.dedup_float", hgraph::In<"ts", hgraph::TS<hgraph::Float>>,
                              hgraph::In<"abs_tol", hgraph::TS<hgraph::Float>>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:248
+        // stream.hgl:272
         using sum = hgraph::Operator<"hgraph.std.sum", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:249
+        // stream.hgl:273
         using sum_reset = hgraph::Operator<"hgraph.std.sum_reset", hgraph::In<"ts", hgraph::TsVar<"T">>,
                                            hgraph::In<"reset", hgraph::TS<hgraph::Bool>>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:250
+        // stream.hgl:274
         using mean =
             hgraph::Operator<"hgraph.std.mean", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:251
+        // stream.hgl:275
         using min_ = hgraph::Operator<"hgraph.std.min_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:252
+        // stream.hgl:276
         using max_ = hgraph::Operator<"hgraph.std.max_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:435
+        // stream.hgl:459
         using tick_count =
             hgraph::Operator<"hgraph.std.tick_count", hgraph::In<"ts", hgraph::SIGNAL>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
         // temporal.hgl:4

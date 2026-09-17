@@ -506,11 +506,48 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:105
-        struct dedup_impl_128
+        // stream.hgl:61
+        struct schedule_impl_125
         {
-            static constexpr auto name = "hgraph.std.dedup#128";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#128.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.schedule#125";
+            static auto           defaults() {
+                return std::tuple{hgraph::arg<"initial_delay">(true), hgraph::arg<"max_ticks">(hgraph::Int{9223372036854775807}),
+                                  hgraph::arg<"use_wall_clock">(false)};
+            }
+            static void start(hgraph::Scalar<"delay", hgraph::TimeDelta>     delay,
+                              hgraph::Scalar<"initial_delay", hgraph::Bool>  initial_delay,
+                              hgraph::Scalar<"max_ticks", hgraph::Int>       max_ticks,
+                              hgraph::Scalar<"use_wall_clock", hgraph::Bool> use_wall_clock, hgraph::State<hgraph::Int> hgl_cache,
+                              hgraph::NodeScheduler scheduler) {
+                hgl_cache.set(hgraph::Int{0});
+                if ((max_ticks.value() > hgraph::Int{0})) {
+                    if (initial_delay.value()) {
+                        scheduler.schedule(delay.value(), std::nullopt, use_wall_clock.value());
+                    } else {
+                        scheduler.schedule(hgraph::TimeDelta{0}, std::nullopt, use_wall_clock.value());
+                    }
+                }
+            }
+            static void eval(hgraph::Scalar<"delay", hgraph::TimeDelta>     delay, hgraph::Scalar<"initial_delay", hgraph::Bool>,
+                             hgraph::Scalar<"max_ticks", hgraph::Int>       max_ticks,
+                             hgraph::Scalar<"use_wall_clock", hgraph::Bool> use_wall_clock, hgraph::State<hgraph::Int> hgl_cache,
+                             hgraph::NodeScheduler scheduler, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if (true && scheduler.is_scheduled_now()) {
+                    hgl_cache.set((hgl_cache.get() + hgraph::Int{1}));
+                    if ((hgl_cache.get() < max_ticks.value())) {
+                        scheduler.schedule(delay.value(), std::nullopt, use_wall_clock.value());
+                    }
+                    hgl_output.set(true);
+                    return;
+                }
+            }
+        };
+
+        // stream.hgl:129
+        struct dedup_impl_130
+        {
+            static constexpr auto name = "hgraph.std.dedup#130";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#130.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -536,11 +573,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:118
-        struct dedup_impl_129
+        // stream.hgl:142
+        struct dedup_impl_131
         {
-            static constexpr auto name = "hgraph.std.dedup#129";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#129.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#131";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#131.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -565,11 +602,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:131
-        struct dedup_impl_130
+        // stream.hgl:155
+        struct dedup_impl_132
         {
-            static constexpr auto name = "hgraph.std.dedup#130";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#130.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#132";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#132.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Str>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -594,11 +631,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:144
-        struct dedup_impl_131
+        // stream.hgl:168
+        struct dedup_impl_133
         {
-            static constexpr auto name = "hgraph.std.dedup#131";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#131.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#133";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#133.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Date>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -624,11 +661,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:157
-        struct dedup_impl_132
+        // stream.hgl:181
+        struct dedup_impl_134
         {
-            static constexpr auto name = "hgraph.std.dedup#132";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#132.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#134";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#134.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Time>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -654,11 +691,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:170
-        struct dedup_impl_133
+        // stream.hgl:194
+        struct dedup_impl_135
         {
-            static constexpr auto name = "hgraph.std.dedup#133";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#133.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#135";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#135.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::DateTime>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -684,11 +721,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:183
-        struct dedup_impl_134
+        // stream.hgl:207
+        struct dedup_impl_136
         {
-            static constexpr auto name = "hgraph.std.dedup#134";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#134.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#136";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#136.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::TimeDelta>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -714,12 +751,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:236
-        struct dedup_float_impl_150
+        // stream.hgl:260
+        struct dedup_float_impl_152
         {
-            static constexpr auto name = "hgraph.std.dedup_float#150";
+            static constexpr auto name = "hgraph.std.dedup_float#152";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.dedup_float#150.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+                hgraph::TSB<"hgraph.std.dedup_float#152.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                             hgraph::Field<"last", hgraph::TS<hgraph::Float>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -746,10 +783,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:254
-        struct sum_impl_156
+        // stream.hgl:278
+        struct sum_impl_158
         {
-            static constexpr auto name = "hgraph.std.sum#156";
+            static constexpr auto name = "hgraph.std.sum#158";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -763,10 +800,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:261
-        struct sum_reset_impl_157
+        // stream.hgl:285
+        struct sum_reset_impl_159
         {
-            static constexpr auto name = "hgraph.std.sum_reset#157";
+            static constexpr auto name = "hgraph.std.sum_reset#159";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     ts,
                                        hgraph::In<"reset", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> reset,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                            hgl_output) {
@@ -789,11 +826,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:273
-        struct mean_impl_158
+        // stream.hgl:297
+        struct mean_impl_160
         {
-            static constexpr auto name = "hgraph.std.mean#158";
-            using recordable_state     = hgraph::TSB<"hgraph.std.mean#158.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+            static constexpr auto name = "hgraph.std.mean#160";
+            using recordable_state     = hgraph::TSB<"hgraph.std.mean#160.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto count = hgl_state.field<"count">();
                 if (!count.valid()) { count.set(hgraph::Int{0}); }
@@ -818,10 +855,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:283
-        struct sum_impl_159
+        // stream.hgl:307
+        struct sum_impl_161
         {
-            static constexpr auto name = "hgraph.std.sum#159";
+            static constexpr auto name = "hgraph.std.sum#161";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -835,10 +872,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:290
-        struct sum_reset_impl_160
+        // stream.hgl:314
+        struct sum_reset_impl_162
         {
-            static constexpr auto name = "hgraph.std.sum_reset#160";
+            static constexpr auto name = "hgraph.std.sum_reset#162";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"reset", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> reset,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                          hgl_output) {
@@ -861,11 +898,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:302
-        struct mean_impl_161
+        // stream.hgl:326
+        struct mean_impl_163
         {
-            static constexpr auto name = "hgraph.std.mean#161";
-            using recordable_state     = hgraph::TSB<"hgraph.std.mean#161.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+            static constexpr auto name = "hgraph.std.mean#163";
+            using recordable_state     = hgraph::TSB<"hgraph.std.mean#163.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto count = hgl_state.field<"count">();
                 if (!count.valid()) { count.set(hgraph::Int{0}); }
@@ -890,10 +927,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:312
-        struct min__impl_162
+        // stream.hgl:336
+        struct min__impl_164
         {
-            static constexpr auto name = "hgraph.std.min_#162";
+            static constexpr auto name = "hgraph.std.min_#164";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -905,10 +942,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:319
-        struct max__impl_163
+        // stream.hgl:343
+        struct max__impl_165
         {
-            static constexpr auto name = "hgraph.std.max_#163";
+            static constexpr auto name = "hgraph.std.max_#165";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -920,10 +957,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:326
-        struct min__impl_164
+        // stream.hgl:350
+        struct min__impl_166
         {
-            static constexpr auto name = "hgraph.std.min_#164";
+            static constexpr auto name = "hgraph.std.min_#166";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -935,10 +972,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:333
-        struct max__impl_165
+        // stream.hgl:357
+        struct max__impl_167
         {
-            static constexpr auto name = "hgraph.std.max_#165";
+            static constexpr auto name = "hgraph.std.max_#167";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -950,10 +987,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:340
-        struct min__impl_166
+        // stream.hgl:364
+        struct min__impl_168
         {
-            static constexpr auto name = "hgraph.std.min_#166";
+            static constexpr auto name = "hgraph.std.min_#168";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -965,10 +1002,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:347
-        struct max__impl_167
+        // stream.hgl:371
+        struct max__impl_169
         {
-            static constexpr auto name = "hgraph.std.max_#167";
+            static constexpr auto name = "hgraph.std.max_#169";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -980,10 +1017,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:354
-        struct min__impl_168
+        // stream.hgl:378
+        struct min__impl_170
         {
-            static constexpr auto name = "hgraph.std.min_#168";
+            static constexpr auto name = "hgraph.std.min_#170";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -995,10 +1032,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:361
-        struct max__impl_169
+        // stream.hgl:385
+        struct max__impl_171
         {
-            static constexpr auto name = "hgraph.std.max_#169";
+            static constexpr auto name = "hgraph.std.max_#171";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1010,10 +1047,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:368
-        struct min__impl_170
+        // stream.hgl:392
+        struct min__impl_172
         {
-            static constexpr auto name = "hgraph.std.min_#170";
+            static constexpr auto name = "hgraph.std.min_#172";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1025,10 +1062,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:375
-        struct max__impl_171
+        // stream.hgl:399
+        struct max__impl_173
         {
-            static constexpr auto name = "hgraph.std.max_#171";
+            static constexpr auto name = "hgraph.std.max_#173";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1040,10 +1077,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:382
-        struct min__impl_172
+        // stream.hgl:406
+        struct min__impl_174
         {
-            static constexpr auto name = "hgraph.std.min_#172";
+            static constexpr auto name = "hgraph.std.min_#174";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1055,10 +1092,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:389
-        struct max__impl_173
+        // stream.hgl:413
+        struct max__impl_175
         {
-            static constexpr auto name = "hgraph.std.max_#173";
+            static constexpr auto name = "hgraph.std.max_#175";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1070,11 +1107,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:396
-        struct dedup_impl_174
+        // stream.hgl:420
+        struct dedup_impl_176
         {
-            static constexpr auto name = "hgraph.std.dedup#174";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#174.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#176";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#176.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Float>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -1101,10 +1138,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:425
-        struct min__impl_181
+        // stream.hgl:449
+        struct min__impl_183
         {
-            static constexpr auto name = "hgraph.std.min_#181";
+            static constexpr auto name = "hgraph.std.min_#183";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1116,10 +1153,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:429
-        struct max__impl_182
+        // stream.hgl:453
+        struct max__impl_184
         {
-            static constexpr auto name = "hgraph.std.max_#182";
+            static constexpr auto name = "hgraph.std.max_#184";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1131,10 +1168,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:436
-        struct tick_count_impl_184
+        // stream.hgl:460
+        struct tick_count_impl_186
         {
-            static constexpr auto name = "hgraph.std.tick_count#184";
+            static constexpr auto name = "hgraph.std.tick_count#186";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                               hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1149,9 +1186,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:22
-        struct year_impl_202
+        struct year_impl_204
         {
-            static constexpr auto name = "hgraph.std.year#202";
+            static constexpr auto name = "hgraph.std.year#204";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1164,9 +1201,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:32
-        struct month_impl_203
+        struct month_impl_205
         {
-            static constexpr auto name = "hgraph.std.month#203";
+            static constexpr auto name = "hgraph.std.month#205";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1179,9 +1216,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:42
-        struct day_impl_204
+        struct day_impl_206
         {
-            static constexpr auto name = "hgraph.std.day#204";
+            static constexpr auto name = "hgraph.std.day#206";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1194,9 +1231,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:52
-        struct weekday_impl_205
+        struct weekday_impl_207
         {
-            static constexpr auto name = "hgraph.std.weekday#205";
+            static constexpr auto name = "hgraph.std.weekday#207";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1207,9 +1244,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:58
-        struct isoweekday_impl_206
+        struct isoweekday_impl_208
         {
-            static constexpr auto name = "hgraph.std.isoweekday#206";
+            static constexpr auto name = "hgraph.std.isoweekday#208";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1220,9 +1257,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:64
-        struct year_impl_207
+        struct year_impl_209
         {
-            static constexpr auto name = "hgraph.std.year#207";
+            static constexpr auto name = "hgraph.std.year#209";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1233,9 +1270,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:70
-        struct month_impl_208
+        struct month_impl_210
         {
-            static constexpr auto name = "hgraph.std.month#208";
+            static constexpr auto name = "hgraph.std.month#210";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1246,9 +1283,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:76
-        struct day_impl_209
+        struct day_impl_211
         {
-            static constexpr auto name = "hgraph.std.day#209";
+            static constexpr auto name = "hgraph.std.day#211";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1259,9 +1296,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:82
-        struct weekday_impl_210
+        struct weekday_impl_212
         {
-            static constexpr auto name = "hgraph.std.weekday#210";
+            static constexpr auto name = "hgraph.std.weekday#212";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1272,9 +1309,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:88
-        struct isoweekday_impl_211
+        struct isoweekday_impl_213
         {
-            static constexpr auto name = "hgraph.std.isoweekday#211";
+            static constexpr auto name = "hgraph.std.isoweekday#213";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1285,9 +1322,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:94
-        struct hour_impl_212
+        struct hour_impl_214
         {
-            static constexpr auto name = "hgraph.std.hour#212";
+            static constexpr auto name = "hgraph.std.hour#214";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1298,9 +1335,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:100
-        struct minute_impl_213
+        struct minute_impl_215
         {
-            static constexpr auto name = "hgraph.std.minute#213";
+            static constexpr auto name = "hgraph.std.minute#215";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1311,9 +1348,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:106
-        struct second_impl_214
+        struct second_impl_216
         {
-            static constexpr auto name = "hgraph.std.second#214";
+            static constexpr auto name = "hgraph.std.second#216";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1324,9 +1361,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:112
-        struct microsecond_impl_215
+        struct microsecond_impl_217
         {
-            static constexpr auto name = "hgraph.std.microsecond#215";
+            static constexpr auto name = "hgraph.std.microsecond#217";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1337,9 +1374,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:118
-        struct hour_impl_216
+        struct hour_impl_218
         {
-            static constexpr auto name = "hgraph.std.hour#216";
+            static constexpr auto name = "hgraph.std.hour#218";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1350,9 +1387,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:124
-        struct minute_impl_217
+        struct minute_impl_219
         {
-            static constexpr auto name = "hgraph.std.minute#217";
+            static constexpr auto name = "hgraph.std.minute#219";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1363,9 +1400,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:130
-        struct second_impl_218
+        struct second_impl_220
         {
-            static constexpr auto name = "hgraph.std.second#218";
+            static constexpr auto name = "hgraph.std.second#220";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1376,9 +1413,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:136
-        struct microsecond_impl_219
+        struct microsecond_impl_221
         {
-            static constexpr auto name = "hgraph.std.microsecond#219";
+            static constexpr auto name = "hgraph.std.microsecond#221";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1389,9 +1426,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:142
-        struct days_impl_220
+        struct days_impl_222
         {
-            static constexpr auto name = "hgraph.std.days#220";
+            static constexpr auto name = "hgraph.std.days#222";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1402,9 +1439,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:148
-        struct seconds_impl_221
+        struct seconds_impl_223
         {
-            static constexpr auto name = "hgraph.std.seconds#221";
+            static constexpr auto name = "hgraph.std.seconds#223";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1415,9 +1452,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:154
-        struct microseconds_impl_222
+        struct microseconds_impl_224
         {
-            static constexpr auto name = "hgraph.std.microseconds#222";
+            static constexpr auto name = "hgraph.std.microseconds#224";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1428,9 +1465,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:160
-        struct total_seconds_impl_223
+        struct total_seconds_impl_225
         {
-            static constexpr auto name = "hgraph.std.total_seconds#223";
+            static constexpr auto name = "hgraph.std.total_seconds#225";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                            hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1441,9 +1478,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:166
-        struct timestamp_impl_224
+        struct timestamp_impl_226
         {
-            static constexpr auto name = "hgraph.std.timestamp#224";
+            static constexpr auto name = "hgraph.std.timestamp#226";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                           hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1454,9 +1491,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:172
-        struct datepart_impl_225
+        struct datepart_impl_227
         {
-            static constexpr auto name = "hgraph.std.datepart#225";
+            static constexpr auto name = "hgraph.std.datepart#227";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1467,9 +1504,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:178
-        struct month_of_year_impl_226
+        struct month_of_year_impl_228
         {
-            static constexpr auto name = "hgraph.std.month_of_year#226";
+            static constexpr auto name = "hgraph.std.month_of_year#228";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1482,9 +1519,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:188
-        struct month_of_year_impl_227
+        struct month_of_year_impl_229
         {
-            static constexpr auto name = "hgraph.std.month_of_year#227";
+            static constexpr auto name = "hgraph.std.month_of_year#229";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1495,9 +1532,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:194
-        struct day_of_month_impl_228
+        struct day_of_month_impl_230
         {
-            static constexpr auto name = "hgraph.std.day_of_month#228";
+            static constexpr auto name = "hgraph.std.day_of_month#230";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1510,9 +1547,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:204
-        struct day_of_month_impl_229
+        struct day_of_month_impl_231
         {
-            static constexpr auto name = "hgraph.std.day_of_month#229";
+            static constexpr auto name = "hgraph.std.day_of_month#231";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1523,9 +1560,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:213
-        struct last_modified_time_impl_232
+        struct last_modified_time_impl_234
         {
-            static constexpr auto name = "hgraph.std.last_modified_time#232";
+            static constexpr auto name = "hgraph.std.last_modified_time#234";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                          hgl_output) {
                 if ((ts.valid()) && (ts.modified())) {
@@ -1536,9 +1573,9 @@ namespace hgraph_::std_
         };
 
         // temporal.hgl:219
-        struct last_modified_date_impl_233
+        struct last_modified_date_impl_235
         {
-            static constexpr auto name = "hgraph.std.last_modified_date#233";
+            static constexpr auto name = "hgraph.std.last_modified_date#235";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                              hgl_output) {
                 if ((ts.valid()) && (ts.modified())) {
@@ -5200,10 +5237,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__bool__m222
+        // stream.hgl:83
+        struct sample_impl_126__bool__m222
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:222";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:222";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5215,10 +5252,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__i64__m223
+        // stream.hgl:83
+        struct sample_impl_126__i64__m223
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:223";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:223";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5230,10 +5267,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__f64__m224
+        // stream.hgl:83
+        struct sample_impl_126__f64__m224
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:224";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:224";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5245,10 +5282,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__str__m225
+        // stream.hgl:83
+        struct sample_impl_126__str__m225
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:225";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:225";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5260,10 +5297,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__date__m226
+        // stream.hgl:83
+        struct sample_impl_126__date__m226
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:226";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:226";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5275,10 +5312,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__time__m227
+        // stream.hgl:83
+        struct sample_impl_126__time__m227
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:227";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:227";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5290,10 +5327,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__datetime__m228
+        // stream.hgl:83
+        struct sample_impl_126__datetime__m228
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:228";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:228";
             static void           eval(
                 hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                 hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5305,10 +5342,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:59
-        struct sample_impl_124__duration__m229
+        // stream.hgl:83
+        struct sample_impl_126__duration__m229
         {
-            static constexpr auto name = "hgraph.std.sample#124@instantiate:229";
+            static constexpr auto name = "hgraph.std.sample#126@instantiate:229";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked>
@@ -5321,13 +5358,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__bool__m230
+        // stream.hgl:89
+        struct drop_impl_127__bool__m230
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:230";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:230";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:230.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:230.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5347,13 +5384,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__i64__m231
+        // stream.hgl:89
+        struct drop_impl_127__i64__m231
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:231";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:231";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:231.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:231.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5373,13 +5410,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__f64__m232
+        // stream.hgl:89
+        struct drop_impl_127__f64__m232
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:232";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:232";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:232.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:232.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5399,13 +5436,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__str__m233
+        // stream.hgl:89
+        struct drop_impl_127__str__m233
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:233";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:233";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:233.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:233.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5425,13 +5462,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__date__m234
+        // stream.hgl:89
+        struct drop_impl_127__date__m234
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:234";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:234";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:234.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:234.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5451,13 +5488,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__time__m235
+        // stream.hgl:89
+        struct drop_impl_127__time__m235
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:235";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:235";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:235.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:235.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5477,13 +5514,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__datetime__m236
+        // stream.hgl:89
+        struct drop_impl_127__datetime__m236
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:236";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:236";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:236.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:236.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5503,13 +5540,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:65
-        struct drop_impl_125__duration__m237
+        // stream.hgl:89
+        struct drop_impl_127__duration__m237
         {
-            static constexpr auto name = "hgraph.std.drop#125@instantiate:237";
+            static constexpr auto name = "hgraph.std.drop#127@instantiate:237";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#125@instantiate:237.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#127@instantiate:237.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5529,12 +5566,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__bool__m238
+        // stream.hgl:100
+        struct filter__impl_128__bool__m238
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:238";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:238";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:238.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:238.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5560,12 +5597,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__i64__m239
+        // stream.hgl:100
+        struct filter__impl_128__i64__m239
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:239";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:239";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:239.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:239.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5590,12 +5627,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__f64__m240
+        // stream.hgl:100
+        struct filter__impl_128__f64__m240
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:240";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:240";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:240.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:240.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5621,12 +5658,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__str__m241
+        // stream.hgl:100
+        struct filter__impl_128__str__m241
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:241";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:241";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:241.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:241.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5651,12 +5688,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__date__m242
+        // stream.hgl:100
+        struct filter__impl_128__date__m242
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:242";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:242";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:242.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:242.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5682,12 +5719,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__time__m243
+        // stream.hgl:100
+        struct filter__impl_128__time__m243
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:243";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:243";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:243.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:243.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5713,12 +5750,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__datetime__m244
+        // stream.hgl:100
+        struct filter__impl_128__datetime__m244
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:244";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:244";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:244.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:244.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5744,12 +5781,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:76
-        struct filter__impl_126__duration__m245
+        // stream.hgl:100
+        struct filter__impl_128__duration__m245
         {
-            static constexpr auto name = "hgraph.std.filter_#126@instantiate:245";
+            static constexpr auto name = "hgraph.std.filter_#128@instantiate:245";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#126@instantiate:245.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#128@instantiate:245.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -6241,22 +6278,21 @@ namespace hgraph_::std_
             hgraph::register_overload<operators::contains_, contains__impl_80>();
             hgraph::register_overload<operators::contains_, contains__impl_81>();
             hgraph::register_overload<operators::until_true, until_true_impl_123>();
-            hgraph::register_overload<operators::dedup, dedup_impl_128>();
-            hgraph::register_overload<operators::dedup, dedup_impl_129>();
+            hgraph::register_overload<operators::schedule, schedule_impl_125>();
             hgraph::register_overload<operators::dedup, dedup_impl_130>();
             hgraph::register_overload<operators::dedup, dedup_impl_131>();
             hgraph::register_overload<operators::dedup, dedup_impl_132>();
             hgraph::register_overload<operators::dedup, dedup_impl_133>();
             hgraph::register_overload<operators::dedup, dedup_impl_134>();
-            hgraph::register_overload<operators::dedup_float, dedup_float_impl_150>();
-            hgraph::register_overload<operators::sum, sum_impl_156>();
-            hgraph::register_overload<operators::sum_reset, sum_reset_impl_157>();
-            hgraph::register_overload<operators::mean, mean_impl_158>();
-            hgraph::register_overload<operators::sum, sum_impl_159>();
-            hgraph::register_overload<operators::sum_reset, sum_reset_impl_160>();
-            hgraph::register_overload<operators::mean, mean_impl_161>();
-            hgraph::register_overload<operators::min_, min__impl_162>();
-            hgraph::register_overload<operators::max_, max__impl_163>();
+            hgraph::register_overload<operators::dedup, dedup_impl_135>();
+            hgraph::register_overload<operators::dedup, dedup_impl_136>();
+            hgraph::register_overload<operators::dedup_float, dedup_float_impl_152>();
+            hgraph::register_overload<operators::sum, sum_impl_158>();
+            hgraph::register_overload<operators::sum_reset, sum_reset_impl_159>();
+            hgraph::register_overload<operators::mean, mean_impl_160>();
+            hgraph::register_overload<operators::sum, sum_impl_161>();
+            hgraph::register_overload<operators::sum_reset, sum_reset_impl_162>();
+            hgraph::register_overload<operators::mean, mean_impl_163>();
             hgraph::register_overload<operators::min_, min__impl_164>();
             hgraph::register_overload<operators::max_, max__impl_165>();
             hgraph::register_overload<operators::min_, min__impl_166>();
@@ -6267,40 +6303,42 @@ namespace hgraph_::std_
             hgraph::register_overload<operators::max_, max__impl_171>();
             hgraph::register_overload<operators::min_, min__impl_172>();
             hgraph::register_overload<operators::max_, max__impl_173>();
-            hgraph::register_overload<operators::dedup, dedup_impl_174>();
-            hgraph::register_overload<operators::min_, min__impl_181>();
-            hgraph::register_overload<operators::max_, max__impl_182>();
-            hgraph::register_overload<operators::tick_count, tick_count_impl_184>();
-            hgraph::register_overload<operators::year, year_impl_202>();
-            hgraph::register_overload<operators::month, month_impl_203>();
-            hgraph::register_overload<operators::day, day_impl_204>();
-            hgraph::register_overload<operators::weekday, weekday_impl_205>();
-            hgraph::register_overload<operators::isoweekday, isoweekday_impl_206>();
-            hgraph::register_overload<operators::year, year_impl_207>();
-            hgraph::register_overload<operators::month, month_impl_208>();
-            hgraph::register_overload<operators::day, day_impl_209>();
-            hgraph::register_overload<operators::weekday, weekday_impl_210>();
-            hgraph::register_overload<operators::isoweekday, isoweekday_impl_211>();
-            hgraph::register_overload<operators::hour, hour_impl_212>();
-            hgraph::register_overload<operators::minute, minute_impl_213>();
-            hgraph::register_overload<operators::second, second_impl_214>();
-            hgraph::register_overload<operators::microsecond, microsecond_impl_215>();
-            hgraph::register_overload<operators::hour, hour_impl_216>();
-            hgraph::register_overload<operators::minute, minute_impl_217>();
-            hgraph::register_overload<operators::second, second_impl_218>();
-            hgraph::register_overload<operators::microsecond, microsecond_impl_219>();
-            hgraph::register_overload<operators::days, days_impl_220>();
-            hgraph::register_overload<operators::seconds, seconds_impl_221>();
-            hgraph::register_overload<operators::microseconds, microseconds_impl_222>();
-            hgraph::register_overload<operators::total_seconds, total_seconds_impl_223>();
-            hgraph::register_overload<operators::timestamp, timestamp_impl_224>();
-            hgraph::register_overload<operators::datepart, datepart_impl_225>();
-            hgraph::register_overload<operators::month_of_year, month_of_year_impl_226>();
-            hgraph::register_overload<operators::month_of_year, month_of_year_impl_227>();
-            hgraph::register_overload<operators::day_of_month, day_of_month_impl_228>();
-            hgraph::register_overload<operators::day_of_month, day_of_month_impl_229>();
-            hgraph::register_overload<operators::last_modified_time, last_modified_time_impl_232>();
-            hgraph::register_overload<operators::last_modified_date, last_modified_date_impl_233>();
+            hgraph::register_overload<operators::min_, min__impl_174>();
+            hgraph::register_overload<operators::max_, max__impl_175>();
+            hgraph::register_overload<operators::dedup, dedup_impl_176>();
+            hgraph::register_overload<operators::min_, min__impl_183>();
+            hgraph::register_overload<operators::max_, max__impl_184>();
+            hgraph::register_overload<operators::tick_count, tick_count_impl_186>();
+            hgraph::register_overload<operators::year, year_impl_204>();
+            hgraph::register_overload<operators::month, month_impl_205>();
+            hgraph::register_overload<operators::day, day_impl_206>();
+            hgraph::register_overload<operators::weekday, weekday_impl_207>();
+            hgraph::register_overload<operators::isoweekday, isoweekday_impl_208>();
+            hgraph::register_overload<operators::year, year_impl_209>();
+            hgraph::register_overload<operators::month, month_impl_210>();
+            hgraph::register_overload<operators::day, day_impl_211>();
+            hgraph::register_overload<operators::weekday, weekday_impl_212>();
+            hgraph::register_overload<operators::isoweekday, isoweekday_impl_213>();
+            hgraph::register_overload<operators::hour, hour_impl_214>();
+            hgraph::register_overload<operators::minute, minute_impl_215>();
+            hgraph::register_overload<operators::second, second_impl_216>();
+            hgraph::register_overload<operators::microsecond, microsecond_impl_217>();
+            hgraph::register_overload<operators::hour, hour_impl_218>();
+            hgraph::register_overload<operators::minute, minute_impl_219>();
+            hgraph::register_overload<operators::second, second_impl_220>();
+            hgraph::register_overload<operators::microsecond, microsecond_impl_221>();
+            hgraph::register_overload<operators::days, days_impl_222>();
+            hgraph::register_overload<operators::seconds, seconds_impl_223>();
+            hgraph::register_overload<operators::microseconds, microseconds_impl_224>();
+            hgraph::register_overload<operators::total_seconds, total_seconds_impl_225>();
+            hgraph::register_overload<operators::timestamp, timestamp_impl_226>();
+            hgraph::register_overload<operators::datepart, datepart_impl_227>();
+            hgraph::register_overload<operators::month_of_year, month_of_year_impl_228>();
+            hgraph::register_overload<operators::month_of_year, month_of_year_impl_229>();
+            hgraph::register_overload<operators::day_of_month, day_of_month_impl_230>();
+            hgraph::register_overload<operators::day_of_month, day_of_month_impl_231>();
+            hgraph::register_overload<operators::last_modified_time, last_modified_time_impl_234>();
+            hgraph::register_overload<operators::last_modified_date, last_modified_date_impl_235>();
             hgraph::register_overload<operators::pass_through, pass_through_impl_12__bool__m0>();
             hgraph::register_overload<operators::pass_through, pass_through_impl_12__i64__m1>();
             hgraph::register_overload<operators::pass_through, pass_through_impl_12__f64__m2>();
@@ -6523,30 +6561,30 @@ namespace hgraph_::std_
             hgraph::register_overload<operators::make_tsd_remove, make_tsd_remove_impl_106__duration__m219>();
             hgraph::register_overload<operators::make_tsd_remove, make_tsd_remove_impl_107__duration__m220>();
             hgraph::register_overload<operators::make_tsd_remove, make_tsd_remove_impl_108__duration__m221>();
-            hgraph::register_overload<operators::sample, sample_impl_124__bool__m222>();
-            hgraph::register_overload<operators::sample, sample_impl_124__i64__m223>();
-            hgraph::register_overload<operators::sample, sample_impl_124__f64__m224>();
-            hgraph::register_overload<operators::sample, sample_impl_124__str__m225>();
-            hgraph::register_overload<operators::sample, sample_impl_124__date__m226>();
-            hgraph::register_overload<operators::sample, sample_impl_124__time__m227>();
-            hgraph::register_overload<operators::sample, sample_impl_124__datetime__m228>();
-            hgraph::register_overload<operators::sample, sample_impl_124__duration__m229>();
-            hgraph::register_overload<operators::drop, drop_impl_125__bool__m230>();
-            hgraph::register_overload<operators::drop, drop_impl_125__i64__m231>();
-            hgraph::register_overload<operators::drop, drop_impl_125__f64__m232>();
-            hgraph::register_overload<operators::drop, drop_impl_125__str__m233>();
-            hgraph::register_overload<operators::drop, drop_impl_125__date__m234>();
-            hgraph::register_overload<operators::drop, drop_impl_125__time__m235>();
-            hgraph::register_overload<operators::drop, drop_impl_125__datetime__m236>();
-            hgraph::register_overload<operators::drop, drop_impl_125__duration__m237>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__bool__m238>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__i64__m239>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__f64__m240>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__str__m241>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__date__m242>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__time__m243>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__datetime__m244>();
-            hgraph::register_overload<operators::filter_, filter__impl_126__duration__m245>();
+            hgraph::register_overload<operators::sample, sample_impl_126__bool__m222>();
+            hgraph::register_overload<operators::sample, sample_impl_126__i64__m223>();
+            hgraph::register_overload<operators::sample, sample_impl_126__f64__m224>();
+            hgraph::register_overload<operators::sample, sample_impl_126__str__m225>();
+            hgraph::register_overload<operators::sample, sample_impl_126__date__m226>();
+            hgraph::register_overload<operators::sample, sample_impl_126__time__m227>();
+            hgraph::register_overload<operators::sample, sample_impl_126__datetime__m228>();
+            hgraph::register_overload<operators::sample, sample_impl_126__duration__m229>();
+            hgraph::register_overload<operators::drop, drop_impl_127__bool__m230>();
+            hgraph::register_overload<operators::drop, drop_impl_127__i64__m231>();
+            hgraph::register_overload<operators::drop, drop_impl_127__f64__m232>();
+            hgraph::register_overload<operators::drop, drop_impl_127__str__m233>();
+            hgraph::register_overload<operators::drop, drop_impl_127__date__m234>();
+            hgraph::register_overload<operators::drop, drop_impl_127__time__m235>();
+            hgraph::register_overload<operators::drop, drop_impl_127__datetime__m236>();
+            hgraph::register_overload<operators::drop, drop_impl_127__duration__m237>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__bool__m238>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__i64__m239>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__f64__m240>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__str__m241>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__date__m242>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__time__m243>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__datetime__m244>();
+            hgraph::register_overload<operators::filter_, filter__impl_128__duration__m245>();
             hgraph::register_overload<operators::take, take_impl_121__bool__m246>();
             hgraph::register_overload<operators::take, take_impl_121__i64__m247>();
             hgraph::register_overload<operators::take, take_impl_121__f64__m248>();

@@ -46,6 +46,7 @@ namespace hgl::ir
                 case SymbolKind::LocalLet: return "let";
                 case SymbolKind::LocalVar: return "var";
                 case SymbolKind::State: return "state";
+                case SymbolKind::Cache: return "cache";
                 case SymbolKind::InjectedCapability: return "inject";
                 case SymbolKind::LoopValue: return "loop-value";
                 case SymbolKind::LambdaParameter: return "lambda-parameter";
@@ -435,7 +436,7 @@ namespace hgl::ir
                                 out_ << "local " << ref('s', node.symbol) << " type=" << ref('t', node.type)
                                      << " init=" << ref('e', node.init);
                             } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
-                                out_ << "state " << ref('s', node.symbol) << " type=" << ref('t', node.type)
+                                out_ << (node.cache ? "cache " : "state ") << ref('s', node.symbol) << " type=" << ref('t', node.type)
                                      << " init=" << ref('e', node.init);
                             } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
                                 out_ << "inject ";
