@@ -16,6 +16,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/binary_codec.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -85,6 +86,19 @@ namespace
 
     const DateTime test_end = MIN_ST + TimeDelta{1000};
 }  // namespace
+
+TEST_CASE("distributed protocol: unset payloads and impossible inventories are refused")
+{
+    const auto slots = two_slots();
+    CycleRequest request;
+    request.staged.push_back(SlotDelta{0, Value{}});
+    CHECK_THROWS_WITH(encode_request(slots, request),
+                      Catch::Matchers::ContainsSubstring("unset"));
+    std::string bytes(sizeof(std::int64_t), '\0');
+    write_varint(std::numeric_limits<std::uint64_t>::max(), bytes);
+    CHECK_THROWS_WITH(decode_request(slots, bytes),
+                      Catch::Matchers::ContainsSubstring("truncated slot inventory"));
+}
 
 TEST_CASE("distributed protocol: a request round trips")
 {

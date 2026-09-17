@@ -98,13 +98,15 @@ namespace hgraph::distributed
     class HGRAPH_CLASS_EXPORT DistributedChildHost
     {
       public:
-        DistributedChildHost(GraphBuilder graph_builder, DateTime end_time)
+        DistributedChildHost(GraphBuilder graph_builder, DateTime end_time,
+                             GraphExecutorPhaseRunner phase_runner = {})
         {
             GraphExecutorBuilder eb;
             eb.graph_builder(std::move(graph_builder))
                 .mode(GraphExecutorMode::ExternallyDriven)
                 .start_time(MIN_ST)
-                .end_time(end_time);
+                .end_time(end_time)
+                .phase_runner(std::move(phase_runner));
             executor_ = eb.make_executor();
         }
 

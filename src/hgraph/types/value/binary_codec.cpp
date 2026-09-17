@@ -299,7 +299,7 @@ namespace hgraph
 
     const std::byte *BinaryReader::take(std::size_t count)
     {
-        if (remaining() < count) { short_buffer(); }
+        if (offset > buffer.size() || remaining() < count) { short_buffer(); }
         const auto *at = reinterpret_cast<const std::byte *>(buffer.data() + offset);
         offset += count;
         return at;
@@ -323,6 +323,10 @@ namespace hgraph
         {
             if (shift > 63) { throw std::runtime_error("binary codec: varint overflow"); }
             const auto byte = static_cast<unsigned char>(*reader.take(1));
+            if (shift == 63 && (byte & 0xFEu) != 0)
+            {
+                throw std::runtime_error("binary codec: varint overflow");
+            }
             result |= static_cast<std::uint64_t>(byte & 0x7Fu) << shift;
             if ((byte & 0x80u) == 0) { break; }
             shift += 7;

@@ -20,6 +20,7 @@
 #include <hgraph/runtime/distributed_transport.h>
 #include <hgraph/util/date_time.h>
 
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -65,7 +66,8 @@ namespace hgraph::distributed
       private:
         friend HGRAPH_EXPORT WorkerProcess spawn_worker(std::string_view program,
                                                         std::string_view recipe_key,
-                                                        DateTime start_time, DateTime end_time);
+                                                        DateTime start_time, DateTime end_time,
+                                                        std::span<const std::string> arguments);
 
         PipeEndpoint channel_{};
         long long    pid_{0};
@@ -83,7 +85,8 @@ namespace hgraph::distributed
      */
     [[nodiscard]] HGRAPH_EXPORT WorkerProcess spawn_worker(std::string_view program,
                                                            std::string_view recipe_key,
-                                                           DateTime start_time, DateTime end_time);
+                                                           DateTime start_time, DateTime end_time,
+                                                           std::span<const std::string> arguments = {});
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_PROCESS_H

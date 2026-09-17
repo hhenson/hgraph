@@ -181,7 +181,8 @@ namespace hgraph::distributed
     }
 
     WorkerProcess spawn_worker(std::string_view program, std::string_view recipe_key,
-                               DateTime start_time, DateTime end_time)
+                               DateTime start_time, DateTime end_time,
+                               std::span<const std::string> prefix_arguments)
     {
         const std::string executable =
             program.empty() ? current_executable_path() : std::string{program};
@@ -197,6 +198,11 @@ namespace hgraph::distributed
 
         std::string command;
         append_quoted(command, executable);
+        for (const auto &argument : prefix_arguments)
+        {
+            command.push_back(' ');
+            append_quoted(command, argument);
+        }
         for (const std::string &argument :
              {fmt::format("{}{}", worker_recipe_flag, recipe_key),
               fmt::format("{}{}", worker_read_flag, theirs.native_read_handle()),
@@ -300,7 +306,8 @@ namespace hgraph::distributed
     }
 
     WorkerProcess spawn_worker(std::string_view program, std::string_view recipe_key,
-                               DateTime start_time, DateTime end_time)
+                               DateTime start_time, DateTime end_time,
+                               std::span<const std::string> prefix_arguments)
     {
         const std::string executable =
             program.empty() ? current_executable_path() : std::string{program};
@@ -336,16 +343,16 @@ namespace hgraph::distributed
         const std::string end_argument =
             fmt::format("{}{}", worker_end_flag, end_time.time_since_epoch().count());
 
-        char *arguments[]{const_cast<char *>(executable.c_str()),
-                          const_cast<char *>(recipe_argument.c_str()),
-                          const_cast<char *>(read_argument.c_str()),
-                          const_cast<char *>(write_argument.c_str()),
-                          const_cast<char *>(start_argument.c_str()),
-                          const_cast<char *>(end_argument.c_str()),
-                          nullptr};
+        std::vector<char *> arguments{const_cast<char *>(executable.c_str())};
+        for (const auto &argument : prefix_arguments)
+            arguments.push_back(const_cast<char *>(argument.c_str()));
+        for (const auto *argument : {&recipe_argument, &read_argument, &write_argument,
+                                     &start_argument, &end_argument})
+            arguments.push_back(const_cast<char *>(argument->c_str()));
+        arguments.push_back(nullptr);
 
         pid_t      child = 0;
-        const int  code  = ::posix_spawn(&child, executable.c_str(), &actions, nullptr, arguments,
+        const int  code  = ::posix_spawn(&child, executable.c_str(), &actions, nullptr, arguments.data(),
                                          environ);
         (void)::posix_spawn_file_actions_destroy(&actions);
         if (code != 0)

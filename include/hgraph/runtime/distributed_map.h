@@ -142,6 +142,8 @@ namespace hgraph::distributed
         WorkerHosting hosting{WorkerHosting::Process};
         /** The worker executable; empty means this one (RFC 0037's bootstrap rule). */
         std::string   program{};
+        /** Interpreter/bootstrap arguments preceding the native worker flags. */
+        std::vector<std::string> arguments{};
     };
 
     /**
@@ -192,7 +194,9 @@ namespace hgraph::distributed
                 host_->stop();
                 return;
             }
-            (void)process_.wait_for_exit();
+            const int exit_code = process_.wait_for_exit();
+            if (exit_code != 0)
+                throw std::runtime_error(fmt::format("dmap_: worker exited with code {} during stop", exit_code));
         }
 
       private:
@@ -220,54 +224,45 @@ namespace hgraph::distributed
             {
                 throw std::invalid_argument("dmap_ needs at least one worker");
             }
-            auto pool     = std::unique_ptr<WorkerPool>(new WorkerPool{});
+            GraphBuilder child = validated_child<TKey, TValue, TResult>(func);
+            const std::string key = distributed_map_recipe_key<TKey, TValue, TResult>(func);
+            if (config.hosting == WorkerHosting::Process && worker_recipe(key) == nullptr)
+            {
+                throw std::invalid_argument(fmt::format(
+                    "dmap_: no distributed worker is registered for this child function. Call "
+                    "register_distributed_map_worker<Kernel, Key, Value, Result>(). Looked for: '{}'", key));
+            }
+            return build(child, distributed_map_slots<TKey, TValue, TResult>(), key, config);
+        }
+
+        /** Build from an already wired child, including embedding-runtime plans.
+         * The named bootstrap must rebuild the same boundary in each process.
+         * Phase runners wrap in-process child lifecycle/evaluation only.
+         */
+        static std::unique_ptr<WorkerPool> build(
+            const GraphBuilder &child, BoundarySlots slots, std::string_view recipe,
+            const WorkerPoolConfig &config, GraphExecutorPhaseRunner phase_runner = {})
+        {
+            if (config.workers == 0) { throw std::invalid_argument("dmap_ needs at least one worker"); }
+            reject_push_sources(child);
+            auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
             pool->groups_ = config.workers;
             pool->workers_.reserve(config.workers);
-            pool->slots_  = distributed_map_slots<TKey, TValue, TResult>();
+            pool->slots_ = std::move(slots);
             pool->in_slot_ = pool->slots_.index_of("in");
-
-            // The child is built HERE even when the workers are processes. It
-            // is not used in that case -- the worker builds its own -- but
-            // wiring it is what turns a child a distributed worker cannot host
-            // into a wiring error on the caller's side, where the caller can
-            // read it, rather than an exit code from a process it never sees.
-            GraphBuilder child = validated_child<TKey, TValue, TResult>(func);
-
-            if (config.hosting == WorkerHosting::InProcess)
+            for (std::size_t i = 0; i < config.workers; ++i)
             {
-                for (std::size_t i = 0; i < config.workers; ++i)
+                if (config.hosting == WorkerHosting::InProcess)
                 {
-                    auto host = std::make_unique<DistributedChildHost>(
-                        i == 0 ? std::move(child)
-                               : build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(func),
-                        config.end_time);
+                    auto host = std::make_unique<DistributedChildHost>(child, config.end_time, phase_runner);
                     host->start(config.start_time);
                     pool->workers_.emplace_back(std::move(host));
                 }
-            }
-            else
-            {
-                const std::string key = distributed_map_recipe_key<TKey, TValue, TResult>(func);
-                if (worker_recipe(key) == nullptr)
+                else
                 {
-                    throw std::invalid_argument(fmt::format(
-                        "dmap_: no distributed worker is registered for this child function. A "
-                        "worker process cannot be sent a graph -- it rebuilds it from a "
-                        "registration both programs link. Call "
-                        "register_distributed_map_worker<Kernel, Key, Value, Result>() from such a "
-                        "translation unit. Looked for: '{}'",
-                        key));
+                    pool->workers_.emplace_back(spawn_worker(config.program, recipe, config.start_time,
+                                                            config.end_time, config.arguments));
                 }
-                for (std::size_t i = 0; i < config.workers; ++i)
-                {
-                    pool->workers_.emplace_back(
-                        spawn_worker(config.program, key, config.start_time, config.end_time));
-                }
-            }
-
-            pool->selectors_.reserve(config.workers);
-            for (std::size_t i = 0; i < config.workers; ++i)
-            {
                 pool->selectors_.push_back(GroupSelector{i, config.workers});
             }
             return pool;
@@ -462,6 +457,8 @@ namespace hgraph::distributed
                           Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program,
                           EngineControlView engine, State<DistributedMapState> state)
         {
+            if (workers.value() <= 0)
+                throw std::invalid_argument("dmap_ needs at least one worker");
             WorkerPoolConfig config;
             config.workers    = static_cast<std::size_t>(workers.value());
             config.start_time = engine.start_time();
@@ -494,9 +491,8 @@ namespace hgraph::distributed
         {
             auto &payload = state.modify();
             if (payload.pool == nullptr) { return; }
-            payload.pool->stop();
-            delete payload.pool;
-            payload.pool = nullptr;
+            std::unique_ptr<WorkerPool> pool{std::exchange(payload.pool, nullptr)};
+            pool->stop();
         }
     };
 }  // namespace hgraph::distributed

@@ -693,11 +693,8 @@ namespace hgraph
          * because a distributed child that behaved differently from a local one
          * would defeat the point.
          *
-         * Three things are NOT carried over, because the caller owns the loop:
-         * ``run_storage``'s stop-on-unwind guard (so ``cleanup_on_error`` is
-         * inert here -- a throwing step leaves the graph started for
-         * inspection and the destructor stops it), the consecutive
-         * immediate-cycle guard (the caller supplies every time), and the
+         * The caller owns the loop, so it also owns the consecutive
+         * immediate-cycle guard (the caller supplies every time) and the
          * ``stop_requested`` check (the caller polls ``stop_requested()``
          * between steps).
          *
@@ -720,6 +717,9 @@ namespace hgraph
                 throw std::logic_error("GraphExecutorView::start_external called twice");
             }
             validate_times(start_time, state.end_time);
+            // A stepped run has no completed-interval publication boundary.
+            // Refuse configured recovery instead of silently ignoring it.
+            ComponentRecoverySession recovery{graph, start_time, state.end_time, false};
             state.stop_requested.store(false, std::memory_order_release);
             // The caller's start time is the real one; leaving state.start_time
             // at the builder's value would make start_time() -- and the
@@ -789,9 +789,6 @@ namespace hgraph
                 completed = graph.evaluate(evaluation_time);
                 drain_after.complete();
             });
-            // release(), NOT complete(): complete() RUNS the cleanup, and the
-            // guard's destructor already fires it only while unwinding.
-            stop_on_error.release();
             if (!completed)
             {
                 // Same fault the looping modes report: a root graph has no
@@ -801,6 +798,7 @@ namespace hgraph
                 // half-run cycle into a new evaluation time.
                 throw std::logic_error("root graph evaluation paused with no resolver");
             }
+            stop_on_error.release();
             return completed;
         }
 

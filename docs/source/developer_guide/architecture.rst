@@ -568,6 +568,11 @@ whole phase. The Python bridge, for example, constructs one nanobind GIL guard
 in its runner and calls the action within that guard; executor storage and the
 phase action remain Python-independent.
 
+The externally driven executor uses the same phase runner around start, step
+and stop. Python distributed workers install it on their child host; blocking
+transport runs outside the GIL. Configured component recovery is refused in
+this mode, since stepping does not define a completed-interval commit boundary.
+
 Run Logger Ownership
 ~~~~~~~~~~~~~~~~~~~~
 

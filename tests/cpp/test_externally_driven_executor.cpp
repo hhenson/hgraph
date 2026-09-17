@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/executor.h>
+#include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -344,6 +345,40 @@ TEST_CASE("externally driven: run() is refused, because stepping is the model")
     GraphExecutorValue ex = eb.make_executor();
     CHECK_THROWS_WITH(ex.view().run(),
                       Catch::Matchers::ContainsSubstring("stepped, not run"));
+}
+
+TEST_CASE("externally driven: configured component recovery is refused before start")
+{
+    auto graph = seeded_graph({Int{1}});
+    bool committed = false;
+    configure_component_recovery(graph.global_state(), {
+        .component_id = "component", .commit = [&](const auto &) { committed = true; }});
+    GraphExecutorBuilder builder;
+    builder.graph_builder(std::move(graph)).mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST).end_time(test_end);
+    auto executor = builder.make_executor();
+    CHECK_THROWS_WITH(executor.view().start_external(MIN_ST),
+                      Catch::Matchers::ContainsSubstring("requires simulation"));
+    CHECK_FALSE(executor.view().graph().started());
+    CHECK_FALSE(committed);
+}
+
+TEST_CASE("externally driven: embedding wrappers surround every complete phase")
+{
+    std::vector<GraphExecutorPhase> phases;
+    GraphExecutorBuilder builder;
+    builder.graph_builder(seeded_graph({Int{1}})).mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST).end_time(test_end)
+        .phase_runner([&](GraphExecutorPhase phase, GraphExecutorPhaseAction action) {
+            phases.push_back(phase);
+            action();
+        });
+    auto executor = builder.make_executor();
+    executor.view().start_external(MIN_ST);
+    REQUIRE(executor.view().step(MIN_ST));
+    executor.view().stop_external();
+    CHECK(phases == std::vector{GraphExecutorPhase::Start, GraphExecutorPhase::Evaluation,
+                               GraphExecutorPhase::Stop});
 }
 
 TEST_CASE("externally driven: time may not run backwards, and a step needs a start")

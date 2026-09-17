@@ -8,6 +8,7 @@
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -122,4 +123,39 @@ TEST_CASE("binary codec: trailing bytes are refused")
     bytes.push_back('\0');
     CHECK_THROWS_WITH(from_binary_string(value.view().schema(), bytes),
                       Catch::Matchers::ContainsSubstring("trailing bytes"));
+}
+
+TEST_CASE("binary codec: the last varint byte cannot overflow uint64")
+{
+    for (const int last : {0x02, 0x7f, 0x81})
+    {
+        std::string bytes(9, static_cast<char>(0x80));
+        bytes.push_back(static_cast<char>(last));
+        BinaryReader reader{bytes, 0};
+        CHECK_THROWS_WITH(read_varint(reader), Catch::Matchers::ContainsSubstring("overflow"));
+    }
+    BinaryReader invalid{"x", 2};
+    CHECK_THROWS_WITH(invalid.take(1), Catch::Matchers::ContainsSubstring("truncated"));
+}
+
+TEST_CASE("binary codec: temporal and composite boundary values round trip")
+{
+    check_atom(DateTime{TimeDelta{123456}});
+    check_atom(TimeDelta{7654});
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *text = registry.register_scalar<Str>("str");
+    const auto *schema = registry.un_named_bundle({{"count", integer}, {"label", text}});
+    BundleBuilder fields{ValuePlanFactory::instance().type_for(schema)};
+    fields.set("count", Value{Int{7}});
+    const auto partial = fields.build();
+    check_round_trip(partial);
+    CHECK_FALSE(from_binary_string(schema, to_binary_string(partial.view())).view().as_bundle().at(1).has_value());
+    ListBuilder list{registry.scalar_type<Int>(), *registry.list(integer, 0, true)};
+    list.push_back(Int{2});
+    list.push_back(Int{3});
+    check_round_trip(list.build());
+    MapBuilder map{registry.scalar_type<Str>(), registry.scalar_type<Int>()};
+    map.set_item(Value{Str{"key"}}.view(), Value{Int{8}}.view());
+    check_round_trip(map.build());
 }

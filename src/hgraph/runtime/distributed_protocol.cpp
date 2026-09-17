@@ -60,14 +60,15 @@ namespace hgraph::distributed
                 // message, and it is what lets the exact-length check below
                 // reject trailing bytes per value.
                 std::string encoded;
-                to_binary_string(entry.delta.view(), encoded);
-                if (entry.delta.view().schema() != schema)
+                if (!entry.delta.has_value() || entry.delta.view().schema() != schema)
                 {
                     throw std::logic_error(
                         fmt::format("distributed protocol: slot {} carries '{}' but the boundary "
                                     "declares '{}'",
-                                    entry.slot, entry.delta.view().schema()->name(), schema->name()));
+                                    entry.slot, entry.delta.has_value() ? entry.delta.view().schema()->name() : "unset",
+                                    schema->name()));
                 }
+                to_binary_string(entry.delta.view(), encoded);
                 write_text(encoded, out);
             }
         }
@@ -76,6 +77,10 @@ namespace hgraph::distributed
                                                          BinaryReader &reader)
         {
             const auto             count = static_cast<std::size_t>(read_varint(reader));
+            // Each entry needs at least a slot and a payload-length byte.
+            // Bound allocation by bytes already received, not an unchecked count.
+            if (count > reader.remaining() / 2)
+                throw std::runtime_error("distributed protocol: truncated slot inventory");
             std::vector<SlotDelta> deltas;
             deltas.reserve(count);
             for (std::size_t i = 0; i < count; ++i)

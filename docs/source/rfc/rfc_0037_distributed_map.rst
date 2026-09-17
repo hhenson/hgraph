@@ -523,7 +523,8 @@ make legible. This matches how Python's ``spawn`` start method already behaves
 (the module is re-imported in the child), which is why the original
 multiprocessing experiment works at all.
 
-**As built** (``runtime/distributed_worker.h``, ``runtime/distributed_process.h``):
+**Native registered recipes** (``runtime/distributed_worker.h``,
+``runtime/distributed_process.h``):
 
 * A **recipe** is a pair of function pointers — build the child graph, declare
   its boundary — registered under a name. ``register_distributed_map_worker<
@@ -536,7 +537,7 @@ multiprocessing experiment works at all.
   rather than ``type_info`` addresses, for the reason recorded against
   ``WiredFn``: the address does not survive an image boundary.
 * The name, the channel handles and the run's start/end times cross in
-  ``argv``. Nothing else does. A host program calls
+  ``argv``. A native host program calls
   ``run_worker_if_requested(argc, argv)`` first in ``main``; it returns false
   when the program was not launched as a worker, so calling it costs an
   argument scan.
@@ -551,24 +552,34 @@ and the key/value/result types, which is the agreement that has actually gone
 wrong in practice, but it does not pin the child's internal shape. RFC 0022 is
 the mechanism when that becomes worth paying for.
 
+The Python frontend instead launches the same Python executable with an
+import recipe: the child's module-qualified name, boundary type annotations,
+and the caller's import paths. The worker imports that module and compiles the
+child through the same native prepared-plan API. This supports importable
+Python-authored nodes and graphs without serializing executable code. The
+import recipe is bootstrap metadata; time-series values still use the native
+binary protocol. The child must be defined in an importable module, and workers
+do not inherit live Python objects or the parent's runtime ``GlobalState``.
+
 **What this buys and what it costs.** A worker rebuilding its own child is why
 per-key state, construction and teardown are the existing ``map_`` behaviour
 rather than a reimplementation. Two costs follow, both from a recipe carrying
 only a *name*:
 
 * The child must be **nameable ahead of the run**. A kernel assembled at wiring
-  time from values only the caller has — most obviously a Python callable —
-  cannot be registered, and so cannot be distributed.
+  time from values only the caller has, such as a Python closure or lambda,
+  cannot be reconstructed. Importable module-level Python callables are
+  supported by the Python bootstrap described above.
 * The child takes **no wiring-time configuration**. A recipe reconstructs the
   child from its type alone, so a kernel parameterised by a scalar the caller
   chose has no way to receive it; the parameter must be part of the type, or
   travel as a time series. v1 also passes exactly one multiplexed ``TSD``
   input and no broadcast arguments.
 
-Neither is an oversight. Both fall out of RFC 0022's rule that a manifest does
-not transport code, and both would be lifted by sending the scalars alongside
-the name — which is a protocol change with a real agreement problem behind it,
-not a missing line.
+These constraints preserve RFC 0022's rule that a manifest does not transport
+code. Supporting caller-selected scalar configuration would require an
+explicit bootstrap contract and agreement checks; it would not make arbitrary
+closures or live resources reconstructible.
 
 A quoting note, because it cost a Windows-only failure: the name travels in
 ``argv``, and ``typeid(...).name()`` is a compact mangled string under the
@@ -884,14 +895,21 @@ push sources; ``REF`` needs no rejection, because serialising and
 reconstructing a value resolves references implicitly. **7 (failure)** covers a
 worker that cannot be started and one that closes without replying.
 
-Still open: **2 (scheduling)** — a self-scheduling child is supported by the
-design and by ``next_scheduled_time`` in the reply, but is not yet asserted
-end to end through ``dmap_``; **3 (prepare is a phase)** is moot, since routing
-through a source node removed the need for a prepare phase (see the note
-above); **8 (Python)** is not started. **9 (benchmarks)** is done: the
-crossover is measured and the raw JSON committed (see *Performance and
-memory*). Worker restart, rebalancing and the RFC 0022 manifest check are
-deferred as described above.
+**2 (scheduling)** is covered end to end by native and Python self-scheduling
+children. **3 (prepare is a phase)** is moot: staging through a source node
+removed the need for a prepare phase. **8 (Python)** now has an initial binding
+for one ``TSD[K, TS[V]]`` input and a scalar-TS child result, with importable
+module-level graphs/nodes reconstructed in fresh Python interpreters. The
+caller and worker share the native worker pool, binary protocol and executor;
+only bootstrap and callback adaptation are Python-specific. This is a subset
+of the full call-shape parity proposed above: multiple inputs, explicit key
+sets and custom partition policies remain future work. See
+:doc:`../user_guide/distributed_map` for the supported API and limits.
+
+**9 (benchmarks)** is done: the native crossover is measured and the raw JSON
+committed (see *Performance and memory*). Those native timings do not measure
+Python interpreter startup or Python callback costs. Worker restart,
+rebalancing and the RFC 0022 manifest check remain deferred.
 
 A **validated v0 prototype** also exists on branch
 ``prototype/dmap-experiments`` under ``prototypes/dmap/`` -- deliberately

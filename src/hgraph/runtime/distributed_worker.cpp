@@ -95,8 +95,13 @@ namespace hgraph::distributed
     void serve_worker(PipeEndpoint &channel, const WorkerRecipe &recipe, DateTime start_time,
                       DateTime end_time)
     {
-        const BoundarySlots slots = recipe.boundary();
-        DistributedChildHost host{recipe.build(), end_time};
+        serve_worker(channel, recipe.build(), recipe.boundary(), start_time, end_time);
+    }
+
+    void serve_worker(PipeEndpoint &channel, GraphBuilder child, const BoundarySlots &slots,
+                      DateTime start_time, DateTime end_time, GraphExecutorPhaseRunner phase_runner)
+    {
+        DistributedChildHost host{std::move(child), end_time, std::move(phase_runner)};
         host.start(start_time);
 
         std::string payload;
@@ -131,26 +136,26 @@ namespace hgraph::distributed
         for (int i = 1; i < argc; ++i)
         {
             const std::string_view argument{argv[i]};
-            if (const auto value = flag_value(argument, worker_recipe_flag))
+            if (const auto recipe_value = flag_value(argument, worker_recipe_flag))
             {
-                key       = *value;
+                key       = *recipe_value;
                 requested = true;
             }
-            else if (const auto value = flag_value(argument, worker_read_flag))
+            else if (const auto read_value = flag_value(argument, worker_read_flag))
             {
-                read_handle = as_number(*value, "the read handle");
+                read_handle = as_number(*read_value, "the read handle");
             }
-            else if (const auto value = flag_value(argument, worker_write_flag))
+            else if (const auto write_value = flag_value(argument, worker_write_flag))
             {
-                write_handle = as_number(*value, "the write handle");
+                write_handle = as_number(*write_value, "the write handle");
             }
-            else if (const auto value = flag_value(argument, worker_start_flag))
+            else if (const auto start_value = flag_value(argument, worker_start_flag))
             {
-                start_micros = as_number(*value, "the start time");
+                start_micros = as_number(*start_value, "the start time");
             }
-            else if (const auto value = flag_value(argument, worker_end_flag))
+            else if (const auto end_value = flag_value(argument, worker_end_flag))
             {
-                end_micros = as_number(*value, "the end time");
+                end_micros = as_number(*end_value, "the end time");
             }
         }
 

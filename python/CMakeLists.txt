@@ -15,6 +15,7 @@ nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
     py_state_services.cpp
     py_type_system.cpp
     py_wiring.cpp
+    py_distributed.cpp
     value_conversion.cpp
 )
 

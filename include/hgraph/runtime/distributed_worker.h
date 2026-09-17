@@ -23,6 +23,7 @@
 #include <hgraph/runtime/distributed_protocol.h>
 #include <hgraph/runtime/distributed_transport.h>
 #include <hgraph/runtime/graph.h>
+#include <hgraph/runtime/executor.h>
 #include <hgraph/util/date_time.h>
 
 #include <string>
@@ -77,6 +78,11 @@ namespace hgraph::distributed
      */
     HGRAPH_EXPORT void serve_worker(PipeEndpoint &channel, const WorkerRecipe &recipe,
                                     DateTime start_time, DateTime end_time);
+
+    /** Serve an embedding frontend's already wired native child. */
+    HGRAPH_EXPORT void serve_worker(PipeEndpoint &channel, GraphBuilder child, const BoundarySlots &slots,
+                                    DateTime start_time, DateTime end_time,
+                                    GraphExecutorPhaseRunner phase_runner = {});
 
     /** The flags a spawned worker is launched with (also its argv contract). */
     inline constexpr std::string_view worker_recipe_flag{"--hgraph-worker-recipe="};

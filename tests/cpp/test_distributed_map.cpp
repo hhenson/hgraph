@@ -18,9 +18,11 @@
 
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/distributed_child.h>
 #include <hgraph/runtime/distributed_map.h>
+#include <hgraph/runtime/distributed_map_wiring.h>
 #include <hgraph/runtime/push_source_node.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/runtime/distributed_protocol.h>
@@ -372,6 +374,8 @@ TEST_CASE("dmap_: a worker count of zero is refused")
     CHECK_THROWS_WITH(
         (WorkerPool::build<Int, Int, Int>(fn<RunningTotalG>(), 0, MIN_ST, test_end)),
         Catch::Matchers::ContainsSubstring("at least one worker"));
+    CHECK_THROWS_WITH(run_node({1}, -1, true, Str{}),
+                      Catch::Matchers::ContainsSubstring("at least one worker"));
 }
 
 // --- across processes -------------------------------------------------------
@@ -701,4 +705,25 @@ TEST_CASE("dmap_: a key removed from the input is removed from the output")
                                                       Str{HGRAPH_TEST_WORKER_PROGRAM})) ==
               describe(expected));
     }
+}
+
+namespace {
+struct PreparedMapGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> masks) {
+        auto input = wire<Spread>(w, masks);
+        auto plan = prepare_distributed_map(fn<RunningTotalG>(), input.erased().schema);
+        plan.config.hosting = WorkerHosting::InProcess;
+        plan.config.workers = 3;
+        auto out = wire_distributed_map(w, input.erased(),
+            std::make_shared<const DistributedMapPlan>(std::move(plan)));
+        return wire<Digest>(w, out);
+    }
+};
+}
+
+TEST_CASE("dmap_: prepared native wiring shares the worker pool semantics") {
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    auto actual = eval_node<PreparedMapGraph>(values<Int>(1, 3, 1));
+    CHECK(actual == std::vector<std::optional<Int>>{1, 6, 7});
 }
