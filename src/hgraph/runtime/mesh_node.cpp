@@ -1684,7 +1684,8 @@ void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
   if (storage.primed && !keys_input.valid())
     throw std::invalid_argument("component checkpoint: restored requested mesh keys are invalid");
   if (storage.primed && keys_input.valid()) {
-    for (const auto &key : keys_input.as_set().values())
+    const auto requested_keys = keys_input.as_set().values();
+    for (const auto key : requested_keys)
       if (!storage.instance_keys->contains(key))
         throw std::invalid_argument("component checkpoint: requested mesh key has no child");
   }
