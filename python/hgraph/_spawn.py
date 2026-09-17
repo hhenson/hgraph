@@ -67,6 +67,18 @@ def pipeline_(entries):
     return _Pipeline(tuple(stages))
 
 
+def _bind_time_series_input(parameter, value, explicit, first, external, inputs):
+    """Lift one supplied input or first-stage default into its boundary slot."""
+    name = parameter.name
+    if value is not inspect.Parameter.empty:
+        if not isinstance(value, WiringPort):
+            value = _lift_time_series_argument(value, parameter.annotation)
+        destination = external if name in explicit else inputs
+        destination[name] = _unwrap(value)
+    elif first and parameter.default is not inspect.Parameter.empty:
+        inputs[name] = _unwrap(_lift_time_series_argument(parameter.default, parameter.annotation))
+
+
 def _prepare_stage(stage, args=(), kwargs=None, *, first=False):
     """Capture Python scalar configuration while preserving named TS slots."""
     function = stage.function
@@ -98,12 +110,7 @@ def _prepare_stage(stage, args=(), kwargs=None, *, first=False):
         value = all_values.get(name, inspect.Parameter.empty)
         if _is_time_series_annotation(parameter.annotation):
             input_names.append(name)
-            if value is not inspect.Parameter.empty:
-                if not isinstance(value, WiringPort):
-                    value = _lift_time_series_argument(value, parameter.annotation)
-                (external if name in explicit else inputs)[name] = _unwrap(value)
-            elif first and parameter.default is not inspect.Parameter.empty:
-                inputs[name] = _unwrap(_lift_time_series_argument(parameter.default, parameter.annotation))
+            _bind_time_series_input(parameter, value, explicit, first, external, inputs)
         elif value is not inspect.Parameter.empty:
             scalar_bindings[name] = value
         elif parameter.default is inspect.Parameter.empty:
@@ -134,8 +141,11 @@ def spawn_(function, *args, __capacity_frames__=256,
     if (isinstance(__worker_timeout__, bool) or not isinstance(__worker_timeout__, (int, float))
             or not math.isfinite(__worker_timeout__) or not 0 < __worker_timeout__ <= 86_400):
         raise ValueError("spawn_: __worker_timeout__ must be finite, positive and at most 24 hours")
-    stages = function.stages if isinstance(function, _Pipeline) else (
-        function if isinstance(function, _BoundStage) else _BoundStage(function),)
+    if isinstance(function, _Pipeline):
+        stages = function.stages
+    else:
+        stage = function if isinstance(function, _BoundStage) else _BoundStage(function)
+        stages = (stage,)
     prepared, remaining_args, remaining_kwargs = _prepare_stage(stages[0], args, kwargs, first=True)
     native_stages = [prepared]
     for stage in stages[1:]:

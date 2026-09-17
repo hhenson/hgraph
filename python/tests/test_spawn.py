@@ -153,7 +153,8 @@ def test_sink_is_ordered_drained_and_runs_in_child_process(tmp_path, capacity):
     assert hg.eval_node(app, list(range(50))) is None
     assert [v for _, v, _ in trace.values()] == list(range(50))
     pids = {row[3] for row in trace.rows()}
-    assert len(pids) == 1 and os.getpid() not in pids
+    assert len(pids) == 1
+    assert os.getpid() not in pids
     assert len(trace.lifecycle("start")) == len(trace.lifecycle("stop")) == 1
 
 
@@ -270,8 +271,9 @@ def test_worker_failures_propagate_and_teardown_is_bounded(tmp_path, phase):
         assert Path(path + ".stopped").exists()
     pidfile = Path(path + ".pid")
     if pidfile.exists() and os.name != "nt":
+        pid = int(pidfile.read_text())
         with pytest.raises(ProcessLookupError):
-            os.kill(int(pidfile.read_text()), 0)
+            os.kill(pid, 0)
 
 
 def test_identical_spawn_calls_have_independent_processes(tmp_path):
@@ -340,8 +342,9 @@ def test_spawn_requires_sink_and_pipeline_rejects_ambiguous_flow(tmp_path):
 
 def test_bind_rejects_duplicate_and_unknown_parameters(tmp_path):
     trace = Trace(tmp_path / "trace")
+    bound = hg.bind_(multiply, factor=2)
     with pytest.raises(TypeError, match="already bound"):
-        hg.bind_(hg.bind_(multiply, factor=2), factor=3)
+        hg.bind_(bound, factor=3)
     @hg.graph
     def app(value: hg.TS[int]) -> None:
         hg.spawn_(hg.pipeline_([hg.bind_(multiply, typo=2), trace.stage()]), value)
@@ -434,9 +437,10 @@ def test_idle_worker_death_wakes_owner_before_end_time(exit_code):
     def app(value: hg.TS[int]) -> None:
         hg.spawn_(hg.bind_(idle_crash, exit_code=exit_code), value)
     start = datetime.now()
+    end = start + timedelta(seconds=10)
     before = time.monotonic()
     with pytest.raises(Exception, match=rf"worker process exited while idle \({exit_code}\)"):
         hg.eval_node(app, [1], __start_time__=start,
-                     __end_time__=start + timedelta(seconds=10),
+                     __end_time__=end,
                      __run_mode__=hg.EvaluationMode.REAL_TIME)
     assert time.monotonic() - before < 5

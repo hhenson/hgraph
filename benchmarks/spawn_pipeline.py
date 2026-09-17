@@ -19,6 +19,17 @@ from pathlib import Path
 import os
 
 
+def peak_rss_mib():
+    """Report parent and largest reaped worker RSS where resource is available."""
+    if sys.platform == "win32":
+        return None, None
+    import resource
+    scale = 1024 ** 2 if sys.platform == "darwin" else 1024
+    parent = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    child = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    return round(parent / scale, 2), round(child / scale, 2)
+
+
 def measure(kind, ticks, stages, width):
     import hgraph as hg
 
@@ -26,7 +37,7 @@ def measure(kind, ticks, stages, width):
     directory = tempfile.TemporaryDirectory()
     path = str(Path(directory.name) / "result.json")
     schema = hg.TSD[int, hg.TS[int]] if kind == "dictionary" else hg.TS[int]
-    events = ([{i: 0 for i in range(width)}] + [{i % width: i} for i in range(1, ticks)]
+    events = ([dict.fromkeys(range(width), 0)] + [{i % width: i} for i in range(1, ticks)]
               if kind == "dictionary" else list(range(ticks)))
 
     @hg.graph
@@ -52,13 +63,7 @@ def measure(kind, ticks, stages, width):
         result = json.loads(Path(path).read_text())
         assert result["count"] == ticks, result
         assert (result["pid"] == os.getpid()) == (kind == "cpu-sync")
-    rss_mib = child_rss_mib = None
-    if sys.platform != "win32":
-        import resource
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        rss_mib = round(rss / (1024 ** 2 if sys.platform == "darwin" else 1024), 2)
-        rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-        child_rss_mib = round(rss / (1024 ** 2 if sys.platform == "darwin" else 1024), 2)
+    rss_mib, child_rss_mib = peak_rss_mib()
     directory.cleanup()
     return [kind, ticks, stages, width, round(statistics.median(samples), 6), rss_mib, child_rss_mib]
 
