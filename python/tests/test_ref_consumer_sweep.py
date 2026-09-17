@@ -86,6 +86,17 @@ from hgraph import (
 )
 from hgraph.test import eval_node
 
+
+def _spawn_source_cases():
+    # Evaluated by pytest after this module's shape/source tables are defined.
+    return [
+        (shape_id, source_id)
+        for shape_id in SHAPES
+        for source_id in SOURCES
+        if source_id != "plain" and (
+            source_id not in _SOURCE_SHAPES or shape_id in _SOURCE_SHAPES[source_id])
+    ]
+
 # --------------------------------------------------------------------------
 # Scalar and bundle schemas used by the shapes
 # --------------------------------------------------------------------------
@@ -526,3 +537,24 @@ def test_ref_source_matches_plain(case):
         pytest.xfail(gap.reason)
 
     assert actual == expected
+
+
+@pytest.mark.parametrize("shape_id,source_id", _spawn_source_cases())
+def test_spawn_sink_ref_source_matches_plain(tmp_path, shape_id, source_id):
+    """A process sink boundary is compared through its persisted effects."""
+    from hgraph import spawn_
+    from .test_spawn import Trace
+
+    shape = SHAPES[shape_id]
+
+    def run(source, name):
+        trace = Trace(tmp_path / name)
+
+        def app(ts):
+            spawn_(trace.stage(), source(ts, shape.tp), __capacity_frames__=1)
+
+        app.__annotations__ = {"ts": shape.tp, "return": None}
+        eval_node(graph(app), shape.ticks)
+        return trace.values()
+
+    assert run(SOURCES[source_id], "actual") == run(SOURCES["plain"], "expected")

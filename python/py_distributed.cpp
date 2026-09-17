@@ -2,6 +2,7 @@
 #include "py_wiring.h"
 
 #include <hgraph/runtime/distributed_map_wiring.h>
+#include <hgraph/runtime/spawn.h>
 #include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <nanobind/stl/string.h>
@@ -129,7 +130,21 @@ namespace hgraph::python_bridge
     {
         nb::class_<PyDistributedWorkerChannel>(m, "_DistributedWorkerChannel")
             .def(nb::init<std::int64_t, std::int64_t>())
-            .def("receive_bootstrap", &PyDistributedWorkerChannel::receive_bootstrap);
+            .def("receive_bootstrap", &PyDistributedWorkerChannel::receive_bootstrap)
+            .def("send_spawn_error", [](PyDistributedWorkerChannel &channel, const std::string &message) {
+                nb::gil_scoped_release release;
+                channel.endpoint.send(distributed::encode_reply({}, distributed::CycleReply{MAX_DT, {}, message}));
+            });
+        m.def("_serve_spawn_worker", [](PyWiredFn func, nb::dict recipe,
+                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end) {
+            std::vector<const TSValueTypeMetaData *> inputs;
+            for (auto input : nb::cast<nb::list>(recipe["inputs"]))
+                inputs.push_back(load_ts(nb::cast<nb::dict>(input)));
+            auto plan = prepare_spawn_worker(func.fn, inputs);
+            nb::gil_scoped_release release;
+            serve_spawn_worker(channel.endpoint, std::move(plan),
+                DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase);
+        });
 
         m.def("_distributed_describe_ts", [](PyTsType schema) { return describe_ts(schema.meta); });
         m.def("_distributed_load_ts", [](nb::dict recipe) { return PyTsType{load_ts(recipe)}; });

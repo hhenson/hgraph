@@ -249,7 +249,7 @@ TEST_CASE("Graph executor and clock runtime families use canonical records", "[t
         std::invalid_argument);
 
     TypeRecord stale_executor_record = *generic_executor.record();
-    stale_executor_record.ops_abi_version = EXECUTOR_OPS_ABI_VERSION - 1;
+    stale_executor_record.ops_abi_version = 6; // Before executor activity callbacks.
     REQUIRE_THROWS_AS(
         ExecutorTypeRef::checked(
             AnyPtr::read_only(stale_executor_record, generic_executor.data())),

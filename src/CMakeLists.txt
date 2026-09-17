@@ -9,6 +9,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/distributed_protocol.cpp
     hgraph/runtime/distributed_transport.cpp
     hgraph/runtime/distributed_worker.cpp
+    hgraph/runtime/spawn_worker.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
     hgraph/runtime/evaluation_profiler.cpp
@@ -132,6 +133,7 @@ set(HGRAPH_WIRING_SOURCES
 
 set(HGRAPH_STDLIB_SOURCES
     hgraph/runtime/distributed_map_wiring.cpp
+    hgraph/runtime/spawn.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp
     hgraph/lib/std/operators/arithmetic_impl.cpp

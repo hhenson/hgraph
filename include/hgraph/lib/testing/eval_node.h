@@ -24,7 +24,7 @@
 
 namespace hgraph::testing
 {
-    /** Simulation bounds for restart tests. Input element zero is emitted at
+    /** Execution bounds and mode for graph behavior tests. Input element zero is emitted at
      * start_time; subsequent elements retain the ordinary MIN_TD spacing.
      * The executor's end_time is exclusive.
      */
@@ -32,6 +32,7 @@ namespace hgraph::testing
     {
         DateTime start_time{MIN_ST};
         DateTime end_time{MAX_ET};
+        GraphExecutorMode mode{GraphExecutorMode::Simulation};
     };
 
     /**
@@ -667,7 +668,7 @@ namespace hgraph::testing
             }(std::make_index_sequence<sig::param_count()>{});
 
             GraphExecutorBuilder eb;
-            eb.graph_builder(std::move(gb)).start_time(options.start_time).end_time(options.end_time);
+            eb.graph_builder(std::move(gb)).start_time(options.start_time).end_time(options.end_time).mode(options.mode);
             GraphExecutorValue executor = eb.make_executor();
             auto               view     = executor.view();
             view.run();
