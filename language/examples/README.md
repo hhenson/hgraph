@@ -44,6 +44,8 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   scalar and collection-view helpers with `native fn`, declares their public
   hgraph view headers with `cpp include`, overloads `len` across list, set, and
   map HGL types, and calls the selected plain C++ function from runtime nodes.
+  Its `throws` native shows a C++ body that raises: the exception ends the
+  evaluation under hgraph's node error model (ADR 0009).
   Tests: generated C++ formatting and descriptor import plus scalar/list/set/map
   ticks in `generated_inline_native_tests.cpp`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a

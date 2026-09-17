@@ -771,6 +771,7 @@ namespace hgl::ir
                                                  parameter.is_const, lower_native_access(parameter.access)});
                     }
                     target.result = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
+                    target.throws = source.throws;
                     for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
                     result_.native_functions.push_back(std::move(target));
                 }
@@ -1390,6 +1391,7 @@ namespace hgl::ir
                             }
                             function.result         = signature.result;
                             function.phases         = {hir::NativePhase::Evaluation};
+                            function.throws         = node.throws;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;

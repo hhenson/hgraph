@@ -96,14 +96,31 @@ generated header. They are local to the defining source module and do not
 propagate through HGL imports. Macro, computed, and conditional includes are
 rejected; CMake supplies header search paths and linked targets.
 
+A native function whose body may raise says so with `throws` after its
+signature ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)):
+
+```hgl
+native fn power(lhs: i64, rhs: i64) -> i64 throws {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
+    }
+}
+```
+
+The generated function then has no exception specification and the descriptor
+records the `translated` policy. A raise ends the evaluation under hgraph's
+node error model; HGL has no exception surface of its own. Without `throws`
+the function is emitted `noexcept`.
+
 There is currently no general HGL spelling for a link dependency, effect,
-throwing policy, state type, lifecycle phase, or ownership annotation. The
-`schema` parameter's immutable call-confined borrow is fixed by that type;
-separately built libraries use descriptors for all other ownership concerns. A
-future source feature must define those contracts before widening this form.
+state type, lifecycle phase, or ownership annotation. The `schema` parameter's
+immutable call-confined borrow is fixed by that type; separately built
+libraries use descriptors for all other ownership concerns. A future source
+feature must define those contracts before widening this form.
 
 This decision is recorded in
-[ADR 0005](decisions/0005-inline-cpp-native-functions.md).
+[ADR 0005](decisions/0005-inline-cpp-native-functions.md) and, for `throws`,
+[ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md).
 
 The first shipped use of this form is
 [`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
@@ -216,7 +233,7 @@ separate erased-value accessors. The remaining implementation gaps are:
 | `reference()` | a dependent reference result whose target schema is selected from the argument |
 | `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
 | `compare()` | an HGL ordering result which represents less, equal, greater, and unordered |
-| `to_string()` / `format_string()` | allocation and exception/effect declarations for source-native functions |
+| `to_string()` / `format_string()` | a generic value parameter; a `str` result by value and a `throws` policy are already admitted |
 | erased output access and mutation | an output-view parameter mode with explicit mutation and lifetime rules |
 
 Specialized collection iteration remains on typed views and HGL intrinsics; it
@@ -304,7 +321,9 @@ The first native-value interface is intentionally narrow at its HGL boundary:
 - collection type and extent generics participate in compile-time selection but
   are not automatically exposed as runtime values;
 - opaque state uses owned RAII storage and cannot cross a temporal port;
-- evaluation functions are non-blocking and `noexcept`;
+- evaluation functions are non-blocking; they are `noexcept` unless declared
+  `throws` (descriptor policy `translated`), in which case a raise ends the
+  evaluation under hgraph's node error model (ADR 0009);
 - mutation is restricted to an explicitly identified state argument;
 - raw pointers, lifetimes, callbacks, variadic calls, and open C++ templates are
   not representable in the HGL signature or descriptor; a local C++ body is

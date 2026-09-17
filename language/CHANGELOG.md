@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Admit native functions that raise: `native fn ... throws` emits the C++
+  body without `noexcept`, records the descriptor policy `translated`, and
+  the reader accepts that policy in the evaluation phase. A raise ends the
+  evaluation under hgraph's node error model, now the language rule
+  (ADR 0009). `hgraph.native` binds the checked `power`, `shift_left`,
+  `shift_right` kernels and a Python-slice `slice`; `hgraph.operators` gains
+  parallel `pow_`, `lshift_`, `rshift_` and `substr` with native-parity
+  tests, including the exceptions.
 - Keep implementation-only constraints on `impl fn`: the executable HGL
   operator contracts no longer expose their candidates' native delegation
   requirements, and the guides distinguish public semantic constraints from

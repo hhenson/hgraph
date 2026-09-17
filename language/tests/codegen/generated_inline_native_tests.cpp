@@ -5,6 +5,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -18,6 +19,12 @@ TEST_CASE("generated inline C++ native functions use values and live collection 
     CHECK_OUTPUT((eval_node<examples::native_functions::map_size>(
                      values<Value>(dict_delta<Int, TS<Float>>({{1, 1.0}, {2, 2.0}}), dict_delta<Int, TS<Float>>({}, {1})))),
                  values<Int>(2, 1));
+}
+
+TEST_CASE("a throws native ends the evaluation with the native exception", "[codegen][runtime][native]") {
+    CHECK_OUTPUT(eval_node<examples::native_functions::reciprocal>(values<Float>(2.0, 4.0)), values<Float>(0.5, 0.25));
+    CHECK_THROWS_WITH(eval_node<examples::native_functions::reciprocal>(values<Float>(2.0, 0.0)),
+                      Catch::Matchers::ContainsSubstring("checked_reciprocal: division by zero"));
 }
 
 TEST_CASE("a generated inline native overload is importable through its module descriptor", "[codegen][runtime][native]") {

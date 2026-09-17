@@ -1125,6 +1125,7 @@ namespace hgl::syntax
                     result.generics = project_generic_parameters(*generics);
                 }
                 result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
+                result.throws       = find_child(id, SyntaxKind::ThrowsClause).has_value();
                 result.requirements = project_optional_requires(id);
 
                 const SyntaxNodeId implementation = only_child(id, SyntaxKind::CppImplementation);

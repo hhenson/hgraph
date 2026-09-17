@@ -322,7 +322,9 @@ namespace hgl::ir
                         if (index != 0U) { out_ << ", "; }
                         out_ << phase_names[static_cast<std::size_t>(function.phases[index])];
                     }
-                    out_ << "]\n";
+                    out_ << "]";
+                    if (function.throws) { out_ << " throws"; }
+                    out_ << "\n";
                 }
             }
 

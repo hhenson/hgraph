@@ -36,6 +36,7 @@ namespace hgl::syntax
             Properties,
             AppliedConstructor,
             Each,
+            Throws,
         };
 
         template <TokenKind Kind> inline constexpr auto token = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
@@ -52,7 +53,8 @@ namespace hgl::syntax
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
             contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
             contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
-            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each>;
+            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
+            contextual<ContextToken::Throws>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -648,6 +650,11 @@ namespace hgl::syntax
             static constexpr auto rule = token<TokenKind::KwCpp> >> contextual<ContextToken::Include> + token<TokenKind::CppHeader>;
         };
 
+        /// `throws` after a native signature: the C++ body may raise, and the
+        /// descriptor records the translated exception policy (ADR 0009).
+        struct throws_clause
+        { static constexpr auto rule = contextual<ContextToken::Throws>; };
+
         struct native_function_decl
         {
             static constexpr auto start = dsl::peek(contextual<ContextToken::Native> + token<TokenKind::KwFn>);
@@ -655,8 +662,8 @@ namespace hgl::syntax
                                                                           dsl::p<newlines> + token<TokenKind::RBrace>;
             static constexpr auto
                 rule = start >> contextual<ContextToken::Native> + token<TokenKind::KwFn> + dsl::p<name> +
-                                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> +
-                                    (newline >> dsl::p<newlines> + body | body);
+                                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::if_(dsl::p<throws_clause>) +
+                                    dsl::p<optional_requires_clause> + (newline >> dsl::p<newlines> + body | body);
         };
 
         struct operator_property
@@ -908,6 +915,7 @@ namespace hgl::syntax
                 if (token.text == "schema") { return static_cast<std::uint8_t>(grammar::ContextToken::Schema); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
                 if (token.text == "each") { return static_cast<std::uint8_t>(grammar::ContextToken::Each); }
+                if (token.text == "throws") { return static_cast<std::uint8_t>(grammar::ContextToken::Throws); }
             }
             return static_cast<std::uint8_t>(token.kind);
         }
@@ -915,7 +923,7 @@ namespace hgl::syntax
         [[nodiscard]] std::optional<TokenKind> decode_expected(std::uint8_t encoded) noexcept {
             if (encoded <= static_cast<std::uint8_t>(TokenKind::Error)) { return static_cast<TokenKind>(encoded); }
             if (encoded >= static_cast<std::uint8_t>(grammar::ContextToken::In) &&
-                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Each)) {
+                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Throws)) {
                 return TokenKind::Identifier;
             }
             return std::nullopt;

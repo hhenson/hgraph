@@ -480,7 +480,7 @@ module checks.source_native
 cpp include <hgraph/types/time_series/ts_input/list_view.h>
 cpp include "native/helpers.h"
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 throws {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
     }
@@ -502,6 +502,7 @@ fn list_size(value: list<i64, 2>) -> i64 {
     REQUIRE(lowered.graph->native_functions.size() == 1U);
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.source_defined);
+    CHECK(native.throws);
     CHECK(native.identity == "checks.source_native::len");
     CHECK(native.candidate_identity == "checks.source_native::len#0");
     REQUIRE(native.generics.size() == 2U);

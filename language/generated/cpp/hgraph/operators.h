@@ -107,10 +107,23 @@ namespace hgraph_::operators_
         // operators.hgl:570
         using contains_ = hgraph::Operator<"hgraph.operators.contains_", hgraph::In<"ts", hgraph::TS<hgraph::Str>>,
                                            hgraph::In<"item", hgraph::TS<hgraph::Str>>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:574
+        // operators.hgl:579
+        using substr = hgraph::Operator<"hgraph.operators.substr", hgraph::In<"s", hgraph::TS<hgraph::Str>>,
+                                        hgraph::In<"begin", hgraph::TS<hgraph::Int>>, hgraph::In<"end", hgraph::TS<hgraph::Int>>,
+                                        hgraph::Out<hgraph::TS<hgraph::Str>>>;
+        // operators.hgl:589
+        using pow_ = hgraph::Operator<"hgraph.operators.pow_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
+                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
+        // operators.hgl:603
+        using lshift_ = hgraph::Operator<"hgraph.operators.lshift_", hgraph::In<"lhs", hgraph::TsVar<"T">>,
+                                         hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
+        // operators.hgl:604
+        using rshift_ = hgraph::Operator<"hgraph.operators.rshift_", hgraph::In<"lhs", hgraph::TsVar<"T">>,
+                                         hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
+        // operators.hgl:611
         using mean = hgraph::Operator<"hgraph.operators.mean", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // operators.hgl:607
+        // operators.hgl:658
         using eq_epsilon = hgraph::Operator<"hgraph.operators.eq_epsilon", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                             hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Scalar<"epsilon", hgraph::Float>,
                                             hgraph::Out<hgraph::TS<hgraph::Bool>>>;

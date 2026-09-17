@@ -1688,10 +1688,10 @@ namespace hgl::descriptor
                 if (mutable_parameters != (mutates ? 1U : 0U)) {
                     return fail(member_path(path, "effects"), "mutation requires exactly one explicitly mutable borrowed argument");
                 }
+                // A translated exception policy is admitted in evaluation (ADR
+                // 0009): the raise ends the evaluation under hgraph's node error
+                // model. Blocking stays outside the per-tick envelope.
                 const bool evaluation = std::ranges::find(declaration.phases, NativePhase::Evaluation) != declaration.phases.end();
-                if (evaluation && declaration.exception_policy != NativeExceptionPolicy::NoThrow) {
-                    return fail(member_path(path, "exception"), "evaluation native functions must be noexcept");
-                }
                 if (evaluation && std::ranges::find(declaration.effects, NativeEffect::Blocking) != declaration.effects.end()) {
                     return fail(member_path(path, "effects"), "evaluation native functions must be non-blocking");
                 }

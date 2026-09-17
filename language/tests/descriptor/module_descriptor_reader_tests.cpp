@@ -1032,12 +1032,16 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "native type does not name a nominal descriptor type");
     }
 
-    SECTION("evaluation functions are noexcept") {
+    SECTION("evaluation functions may translate exceptions") {
+        // ADR 0009: a raise ends the evaluation under hgraph's node error
+        // model, so "translated" is admitted in the evaluation phase.
         descriptor::ModuleDescriptor source                 = rich_descriptor();
         source.native_declarations.front().exception_policy = descriptor::NativeExceptionPolicy::Translated;
         source.descriptor_fingerprint.clear();
-        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].exception",
-                    "evaluation native functions must be noexcept");
+        const auto read = descriptor::read_json(descriptor::to_json(source));
+        INFO((read.error ? read.error->path + ": " + read.error->message : ""));
+        REQUIRE(read.value);
+        CHECK(read.value->native_declarations.front().exception_policy == descriptor::NativeExceptionPolicy::Translated);
     }
 
     SECTION("native symbols are exact qualified identifiers") {
