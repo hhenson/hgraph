@@ -8,12 +8,15 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
+#include <hgraph/types/time_series/ts_data/storage.h>
 #include "../time_series/ts_data/ownership.h"
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/value_slot_store.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
 #include <hgraph/types/python_ops.h>
@@ -42,6 +45,7 @@ namespace hgraph::ts_data_seams
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -461,6 +465,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] bool slot_value_published(std::size_t slot) const noexcept
             {
                 return slot < value_published_.size() && value_published_.test(slot);
+            }
+            /** Restore publication bookkeeping without opening a delta window. */
+            void restore_slot_published(std::size_t slot, bool published)
+            {
+                ensure_delta_capacity();
+                value_published_.set(slot, published);
             }
             [[nodiscard]] const void *key_at_slot(std::size_t slot) const { return keys_[slot]; }
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
@@ -1638,6 +1648,81 @@ namespace hgraph::ts_data_plan_factory_detail
 
         struct TSSContext final : TSSContextBase<TSSSlotStorage>
         {
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *)
+            {
+                const auto &store = storage<TSSSlotStorage>(view.data());
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.slot_capacity = store.slot_capacity();
+                image.free_slots = store.keys().checkpoint_free_slots();
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!store.slot_live(slot)) { continue; }
+                    image.slots.push_back(slot);
+                    image.keys.emplace_back(store.key_binding(), store.key_at_slot(slot));
+                }
+                return image;
+            }
+
+            static void validate_keys(const TSDataView &view, const TSCheckpointImage &image,
+                                      const KeySlotStore &keys, ValueTypeRef key_binding)
+            {
+                ts_checkpoint_detail::validate_header(view, image);
+                if (keys.size() != 0 || keys.pending_erase_count() != 0 || image.payload.has_value() ||
+                    keys.slot_capacity() > image.slot_capacity ||
+                    image.keys.size() != image.slots.size() ||
+                    image.free_slots.size() + image.slots.size() != image.slot_capacity)
+                    throw std::invalid_argument("keyed checkpoint shape or fresh target mismatch");
+                std::unordered_set<std::size_t> slots;
+                std::unordered_set<Value, ValueHash, ValueEqual> unique_keys;
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                {
+                    if (image.slots[i] >= image.slot_capacity || !slots.insert(image.slots[i]).second ||
+                        !image.keys[i].has_value() || image.keys[i].schema() != key_binding.schema())
+                        throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
+                    // Schema identity alone does not establish assignment
+                    // compatibility for a realized polymorphic key. Validate
+                    // the destination binding before importing any slot.
+                    const Value normalized_key{key_binding, image.keys[i].view()};
+                    if (!unique_keys.insert(normalized_key).second)
+                        throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
+                }
+                for (const auto slot : image.free_slots)
+                    if (slot >= image.slot_capacity || !slots.insert(slot).second)
+                        throw std::invalid_argument("keyed checkpoint free slots are not the live-slot complement");
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                const auto &store = storage<TSSSlotStorage>(view.data());
+                validate_keys(view, image, store.keys(), store.key_binding());
+                if (!image.children.empty() || !image.published.empty() ||
+                    image.key_set_last_modified_time != MIN_DT)
+                    throw std::invalid_argument("set checkpoint contains dictionary metadata");
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                auto &store = storage<TSSSlotStorage>(view.mutable_data());
+                store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                    store.keys().restore_key_at_slot(image.slots[i], image.keys[i].view());
+                store.keys().restore_free_slots(image.free_slots);
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+                store.reset_delta();
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    [](const TSDataView &, const TSCheckpointContext *) { return true; },
+                    checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             TSSContext(const TSValueTypeMetaData &schema,
                        const MemoryUtils::StoragePlan &plan,
                        const ValueTypeRef &key_binding,
@@ -1645,6 +1730,7 @@ namespace hgraph::ts_data_plan_factory_detail
                        bool embedded)
             {
                 initialise_tss_common(schema, plan, key_binding, true);
+                set_ops.checkpoint_ops = &checkpoint_ops();
                 root_type = TSRoleTypeRef{intern_ts_type(
                     schema, role, plan, set_ops, keyed_root_label(schema.kind, role, embedded))};
             }
@@ -1728,6 +1814,85 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                TSData prototype{self.dict_layout.element_type};
+                return ts_checkpoint_eligible(prototype.view(), context);
+            }
+
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                const auto &store = storage<TSDSlotStorage>(view.data());
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.key_set_last_modified_time = store.key_set_tracking().last_modified_time;
+                image.slot_capacity = store.slot_capacity();
+                image.free_slots = store.keys().checkpoint_free_slots();
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!store.slot_live(slot)) { continue; }
+                    image.slots.push_back(slot);
+                    image.keys.emplace_back(store.key_binding(), store.key_at_slot(slot));
+                    image.children.push_back(capture_ts_checkpoint(
+                        TSDataView{self.dict_layout.element_type, store.child_at_slot(slot)}, context));
+                    image.published.push_back(store.slot_value_published(slot));
+                }
+                return image;
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                const auto &store = storage<TSDSlotStorage>(view.data());
+                TSSContext::validate_keys(view, image, store.keys(), store.key_binding());
+                if (image.children.size() != image.keys.size() || image.published.size() != image.keys.size() ||
+                    (image.last_modified_time != MIN_DT &&
+                     image.key_set_last_modified_time > image.last_modified_time))
+                    throw std::invalid_argument("dictionary checkpoint shape or timestamp mismatch");
+                for (std::size_t i = 0; i < image.children.size(); ++i)
+                {
+                    const auto &child = image.children[i];
+                    if (child.last_modified_time > image.last_modified_time)
+                        throw std::invalid_argument("dictionary checkpoint child timestamp exceeds its parent");
+                    if (child.last_modified_time != MIN_DT && !image.published[i])
+                        throw std::invalid_argument("dictionary checkpoint has an unpublished valid child");
+                    TSData prototype{self.dict_layout.element_type};
+                    validate_ts_checkpoint(prototype.view(), child, context);
+                }
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                auto &store = storage<TSDSlotStorage>(view.mutable_data());
+                store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                {
+                    const auto slot = image.slots[i];
+                    store.keys().restore_key_at_slot(slot, image.keys[i].view());
+                    TSDataView child{self.dict_layout.element_type, store.child_memory_for_write(slot)};
+                    detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, slot);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i], context);
+                    store.restore_slot_published(slot, image.published[i]);
+                }
+                store.keys().restore_free_slots(image.free_slots);
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+                store.mutable_key_set_tracking().last_modified_time = image.key_set_last_modified_time;
+                store.reset_delta();
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    checkpoint_eligible, checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             void initialise_tsd(const TSValueTypeMetaData &schema_,
                                 const MemoryUtils::StoragePlan &plan_,
                                 const ValueTypeRef &key_binding,
@@ -1793,6 +1958,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
                 base_ops.current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
+                base_ops.checkpoint_ops = &checkpoint_ops();
                 base_ops.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 base_ops.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 base_ops.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;

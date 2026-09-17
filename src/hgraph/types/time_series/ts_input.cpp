@@ -2989,13 +2989,179 @@ namespace hgraph
     {
     }
 
-    void TSInput::make_active(std::vector<std::size_t> path, TSDataView observed, Notifiable *target_notifier)
+    void TSInput::make_active(std::vector<std::size_t> path, TSDataView observed, Notifiable *target_notifier,
+                              TSInputActivityMode mode)
     {
         if (!active_root_) { active_root_ = std::make_unique<detail::TSInputActiveTarget>(); }
         auto *active = active_root_.get();
         for (const auto slot : path) { active = &active->ensure_child(slot); }
         active->active = true;
+        active->mode = mode;
         active->subscribe(observed, target_notifier);
+    }
+
+    namespace
+    {
+        [[nodiscard]] TSDataView activity_storage_at(const TSDataView &root,
+                                                     std::span<const std::size_t> path)
+        {
+            auto current = root.borrowed_ref();
+            for (const auto slot : path)
+            {
+                const auto *context = input_context_for(current.storage_type());
+                if (detail::is_target_link_view(current) || context == nullptr ||
+                    slot >= context->children.size() ||
+                    (context->schema->kind != TSTypeKind::TSB &&
+                     (context->schema->kind != TSTypeKind::TSL || context->schema->is_unbounded_tsl())))
+                {
+                    throw std::invalid_argument("input checkpoint activity requires static owned paths; nested target activity is unsupported");
+                }
+                auto child = detail::input_child_projection(current, slot);
+                current = child.target_link.valid() ? std::move(child.target_link) : std::move(child.visible);
+            }
+            return current;
+        }
+
+        template <typename Visitor>
+        void visit_activity_links(const TSDataView &storage, std::vector<std::size_t> &path,
+                                  const Visitor &visitor)
+        {
+            if (detail::is_target_link_view(storage))
+            {
+                visitor(storage, path);
+                return;
+            }
+            const auto *context = input_context_for(storage.storage_type());
+            if (context == nullptr) { return; }
+            if (context->schema->kind != TSTypeKind::TSB &&
+                (context->schema->kind != TSTypeKind::TSL || context->schema->is_unbounded_tsl()))
+            {
+                throw std::invalid_argument("input checkpoint activity requires static owned input storage");
+            }
+            for (std::size_t slot = 0; slot < context->children.size(); ++slot)
+            {
+                auto child = detail::input_child_projection(storage, slot);
+                path.push_back(slot);
+                visit_activity_links(child.target_link.valid() ? child.target_link : child.visible, path, visitor);
+                path.pop_back();
+            }
+        }
+
+        void capture_owned_activity(const detail::TSInputActiveTarget &node, std::vector<std::size_t> &path,
+                                    std::vector<TSInputActivityEntry> &result)
+        {
+            if (node.active) { result.push_back({path, node.mode}); }
+            node.children.for_each([&](std::size_t slot, const detail::TSInputActiveTarget &child) {
+                path.push_back(slot);
+                capture_owned_activity(child, path, result);
+                path.pop_back();
+            });
+        }
+
+        void clear_target_activity(detail::TSInputTargetLinkStorage &storage,
+                                   detail::TSInputTargetActiveNode &node)
+        {
+            storage.make_passive(&node);
+            node.children.for_each([&](std::size_t, detail::TSInputTargetActiveNode &child) {
+                clear_target_activity(storage, child);
+            });
+        }
+    }
+
+    std::vector<TSInputActivityEntry> TSInputView::checkpoint_activity() const
+    {
+        if (input_ == nullptr || !input_->has_value() || data_.raw_data.data() != input_->data_.view().data() ||
+            (data_.is_target_position() && !data_.is_target_root()))
+        {
+            throw std::invalid_argument("input checkpoint activity requires a complete input root");
+        }
+        std::vector<TSInputActivityEntry> result;
+        std::vector<std::size_t> path;
+        if (input_->active_root_) { capture_owned_activity(*input_->active_root_, path, result); }
+        auto root = input_->data_.view();
+        visit_activity_links(root, path, [&](const TSDataView &storage, const auto &active_path) {
+            const auto *link = detail::target_link_storage(storage);
+            const auto *active = link->state()->active_root();
+            if (active == nullptr) { return; }
+            if (active->children.any_of([](std::size_t, const detail::TSInputTargetActiveNode &child) {
+                    return child.has_any_active();
+                }))
+            {
+                throw std::invalid_argument("input checkpoint nested target activity is unsupported");
+            }
+            if (active->locally_active)
+            {
+                result.push_back({active_path, active->observation_kind == detail::TSInputObservationKind::Value
+                    ? TSInputActivityMode::Value : TSInputActivityMode::Structural});
+            }
+        });
+        std::sort(result.begin(), result.end(), [](const auto &left, const auto &right) { return left.path < right.path; });
+        validate_checkpoint_activity(result);
+        return result;
+    }
+
+    void TSInputView::validate_checkpoint_activity(std::span<const TSInputActivityEntry> activity) const
+    {
+        if (input_ == nullptr || !input_->has_value() || data_.raw_data.data() != input_->data_.view().data() ||
+            (data_.is_target_position() && !data_.is_target_root()))
+        {
+            throw std::invalid_argument("input checkpoint activity requires a complete input root");
+        }
+        auto root = input_->data_.view();
+        std::vector<std::size_t> path;
+        visit_activity_links(root, path, [](const TSDataView &, const auto &) {});
+        const TSInputActivityEntry *previous = nullptr;
+        for (const auto &entry : activity)
+        {
+            if ((entry.mode != TSInputActivityMode::Value && entry.mode != TSInputActivityMode::Structural) ||
+                (previous != nullptr && !(previous->path < entry.path)))
+            {
+                throw std::invalid_argument("input checkpoint activity has an invalid mode, duplicate, or unordered path");
+            }
+            auto storage = activity_storage_at(root, entry.path);
+            const auto *schema = detail::target_link_schema(storage);
+            if (schema == nullptr) { schema = storage.schema(); }
+            if (entry.mode == TSInputActivityMode::Structural &&
+                detail::input_endpoint_ops_for(schema).structural_observation == nullptr)
+            {
+                throw std::invalid_argument("input checkpoint structural activity is unsupported for this shape");
+            }
+            previous = &entry;
+        }
+    }
+
+    bool TSInputView::restore_checkpoint_activity(std::span<const TSInputActivityEntry> activity)
+    {
+        validate_checkpoint_activity(activity);
+        std::vector<std::size_t> path;
+        auto root = input_->data_.view();
+        input_->active_root_.reset();
+        visit_activity_links(root, path, [](const TSDataView &storage, const auto &) {
+            auto *link = detail::mutable_target_link_storage(storage);
+            if (auto *active = link->state_.active_root()) { clear_target_activity(*link, *active); }
+        });
+        bool modified = false;
+        for (const auto &entry : activity)
+        {
+            auto projection = borrowed_ref();
+            for (const auto slot : entry.path) { projection = projection.indexed_child_at(slot); }
+            if (entry.mode == TSInputActivityMode::Value)
+            {
+                projection.make_active();
+                modified = projection.modified() || modified;
+            }
+            else
+            {
+                projection.make_structural_active();
+                const auto &value = projection.data_view();
+                if (value.valid())
+                {
+                    auto observed = detail::structural_observation_for(value);
+                    modified = observed.modified(evaluation_time_) || modified;
+                }
+            }
+        }
+        return modified;
     }
 
     void TSInput::make_passive(const std::vector<std::size_t> &path)

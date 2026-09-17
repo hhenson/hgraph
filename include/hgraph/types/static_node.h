@@ -3460,6 +3460,10 @@ namespace hgraph
                 }
             }
             descriptor.callbacks = static_node_callbacks<TImplementation>();
+            if constexpr (requires { TImplementation::checkpoint_ops(); })
+            {
+                descriptor.ops.checkpoint_ops = &TImplementation::checkpoint_ops();
+            }
             return NodeBuilder::from_canonical_descriptor(
                 std::move(descriptor),
                 static_node_runtime_type_id<TImplementation>(),

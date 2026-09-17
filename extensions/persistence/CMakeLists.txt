@@ -149,6 +149,7 @@ if(HGRAPH_PERSISTENCE_BUILD_PYTHON)
 endif()
 
 add_library(hgraph_persistence
+    src/component_checkpoint_store.cpp
     src/frame_store.cpp
     src/object_store.cpp
     src/value_codec.cpp

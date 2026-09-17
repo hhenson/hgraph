@@ -7,6 +7,7 @@
  * from unchanged core imports.
  */
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/component_checkpoint_store.h>
 #include <hgraph/persistence/recording_store.h>
 
 #include <hgraph/runtime/global_state.h>
@@ -19,6 +20,8 @@
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/string_view.h>
+#include <nanobind/stl/optional.h>
 
 #include <memory>
 #include <stdexcept>
@@ -252,6 +255,30 @@ namespace
 NB_MODULE(_hgraph_persistence, module)
 {
     module.doc() = "hgraph durable persistence bridge (RFC 0025)";
+
+    nb::class_<ComponentCheckpointStore>(module, "ComponentCheckpointStore",
+        "Immutable completed-day component images, in memory or a local directory.")
+        .def("__init__", [](ComponentCheckpointStore *self, nb::object directory) {
+            store::FrameStoreConfig config;
+            if (!directory.is_none())
+            {
+                config.location = store::LocalLocation{nb::cast<std::string>(
+                    nb::module_::import_("os").attr("fspath")(directory))};
+            }
+            new (self) ComponentCheckpointStore{std::move(config)};
+        }, nb::arg("directory") = nb::none())
+        .def("contains", &ComponentCheckpointStore::contains, nb::arg("key"));
+
+    module.def("_configure_component_recovery",
+        [](nb::object state, const ComponentCheckpointStore &store,
+           const std::string &component_id, const std::string &checkpoint_key,
+           const std::optional<std::string> &restore_key, const std::string &revision) {
+            persistence::configure_component_recovery(
+                nb::cast<GlobalState &>(state).view(), store, component_id,
+                checkpoint_key, restore_key, revision);
+        }, nb::arg("state"), nb::arg("store"), nb::arg("component_id"),
+           nb::arg("checkpoint_key"), nb::arg("restore_key") = nb::none(),
+           nb::arg("revision") = "1");
 
     nb::class_<FrameStream>(module, "_FrameStream")
         .def("__arrow_c_stream__",

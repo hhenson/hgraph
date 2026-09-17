@@ -12,6 +12,7 @@
 // See *Nested Graphs*.
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
@@ -24,6 +25,7 @@
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/wired_fn.h>
 
 #include "../../src/hgraph/runtime/mapped_key_source.h"
@@ -33,11 +35,21 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <optional>
+#include <algorithm>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <typeindex>
 #include <vector>
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<Map<Str, Map<Int, Float>>>>
+        : bundle_ts_harness<TS<Map<Str, Map<Int, Float>>>>
+    {
+    };
+}
 
 namespace
 {
@@ -58,6 +70,91 @@ namespace
         {
             using namespace hgraph::stdlib::syntax;
             return (ts + Int{1}).as<TS<Int>>();
+        }
+    };
+
+    using CheckpointMapState = TSB<"CheckpointMapState", Field<"total", TS<Int>>,
+                                   Field<"key_time", TS<DateTime>>>;
+
+    struct CheckpointMapAccumulator
+    {
+        static constexpr auto name = "checkpoint_map_accumulator";
+
+        static void eval(In<"key", TS<Str>> key, In<"ts", TS<Int>> ts,
+                         RecordableState<CheckpointMapState> state,
+                         Out<TS<Int>> out)
+        {
+            auto key_time = state.field<"key_time">();
+            if (key_time.valid())
+            {
+                if (key_time.value().checked_as<DateTime>() != key.base().last_modified_time())
+                {
+                    throw std::runtime_error("checkpoint changed the mapped key creation time");
+                }
+            }
+            else { key_time.set(key.base().last_modified_time()); }
+            auto total = state.field<"total">();
+            const Int previous = total.valid() ? total.value().checked_as<Int>() : Int{0};
+            total.set(previous + ts.value());
+            out.set(previous + ts.value());
+        }
+    };
+
+    struct CheckpointMapBody
+    {
+        static constexpr auto name = "checkpoint_map_body";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, NamedPort<"values", TSD<Str, TS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<CheckpointMapAccumulator>(), values)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct CheckpointMapHarness
+    {
+        static constexpr auto name = "checkpoint_map_harness";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> values)
+        {
+            return stdlib::component<CheckpointMapBody>(w, "mapped_strategy", values);
+        }
+    };
+
+    using CheckpointMapStopState = TSB<"CheckpointMapStopState", Field<"key", TS<Str>>,
+                                      Field<"fail", TS<Bool>>>;
+    std::vector<Str> checkpoint_map_stops;
+    struct CheckpointMapStopFailure
+    {
+        static constexpr auto name = "checkpoint_map_stop_failure";
+        static void eval(In<"key", TS<Str>> key, In<"ts", TS<Int>> input,
+                         RecordableState<CheckpointMapStopState> state, Out<TS<Int>> out)
+        {
+            state.field<"key">().set(key.value());
+            state.field<"fail">().set(input.value() < 0);
+            out.set(input.value());
+        }
+        static void stop(RecordableState<CheckpointMapStopState> state)
+        {
+            auto key = state.field<"key">();
+            if (!key.valid()) { return; }
+            checkpoint_map_stops.push_back(key.value().checked_as<Str>());
+            if (state.field<"fail">().value().checked_as<Bool>())
+                throw std::runtime_error("keyed map child stop failed");
+        }
+    };
+    struct CheckpointMapStopBody
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, NamedPort<"values", TSD<Str, TS<Int>>> input)
+        {
+            return wire<stdlib::map_>(w, fn<CheckpointMapStopFailure>(), input).as<TSD<Str, TS<Int>>>();
+        }
+    };
+    struct CheckpointMapStopHarness
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> input)
+        {
+            return stdlib::component<CheckpointMapStopBody>(w, "mapped-stop-strategy", input);
         }
     };
 
@@ -753,6 +850,113 @@ TEST_CASE("map_: keys add, update, and remove drive per-key children and the TSD
                  values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}),
                                dict_delta<Str, TS<Int>>({{"a"s, 11}}),
                                dict_delta<Str, TS<Int>>({}, {"b"s})));
+}
+
+TEST_CASE("map_: component checkpoints restore untouched keys and per-key state", "[checkpoint]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> checkpoint;
+    std::size_t commits = 0;
+    configure_component_recovery(context.state().view(), ComponentRecoveryConfig{
+        .component_id = "mapped_strategy",
+        .load = [&] { return checkpoint; },
+        .commit = [&](const ComponentCheckpoint &image) { checkpoint = image; ++commits; },
+    });
+
+    const DateTime second_start = MIN_ST + 2 * MIN_TD;
+    const DateTime third_start = second_start + 3 * MIN_TD;
+    CHECK_OUTPUT(
+        eval_node_with_options<CheckpointMapHarness>(
+            {.start_time = MIN_ST, .end_time = second_start},
+            values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 10}}),
+                          dict_delta<Str, TS<Int>>({{"a"s, 2}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 10}}),
+                      dict_delta<Str, TS<Int>>({{"a"s, 3}})));
+    REQUIRE(checkpoint.has_value());
+    CHECK(commits == 1);
+    bool captured_membership = false;
+    for (const auto &node : checkpoint->graph.nodes)
+    {
+        if (!node.custom.children.empty())
+        {
+            CHECK(node.custom.children.size() == 2);
+            captured_membership = true;
+        }
+    }
+    REQUIRE(captured_membership);
+
+    CHECK_OUTPUT(
+        eval_node_with_options<CheckpointMapHarness>(
+            {.start_time = second_start, .end_time = third_start},
+            values<Value>(none, dict_delta<Str, TS<Int>>({{"b"s, 1}}),
+                          dict_delta<Str, TS<Int>>({}, {"a"s}))),
+        values<Value>(none, dict_delta<Str, TS<Int>>({{"b"s, 11}}),
+                      dict_delta<Str, TS<Int>>({}, {"a"s})));
+    CHECK(commits == 2);
+
+    // Removal at the previous cut must not resurrect a's old accumulator;
+    // b remains present even though only a is supplied on this run's first tick.
+    CHECK_OUTPUT(
+        eval_node_with_options<CheckpointMapHarness>(
+            {.start_time = third_start, .end_time = third_start + 2 * MIN_TD},
+            values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 5}}),
+                          dict_delta<Str, TS<Int>>({{"b"s, 2}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 5}}),
+                      dict_delta<Str, TS<Int>>({{"b"s, 13}})));
+    CHECK(commits == 3);
+
+    for (auto &node : checkpoint->graph.nodes)
+    {
+        if (!node.custom.children.empty())
+        {
+            node.custom.children.front().slot = KeySlotStore::npos;
+            break;
+        }
+    }
+    const DateTime fourth_start = third_start + 2 * MIN_TD;
+    CHECK_THROWS_WITH(
+        eval_node_with_options<CheckpointMapHarness>(
+            {.start_time = fourth_start, .end_time = fourth_start + MIN_TD}, values<Value>(none)),
+        Catch::Matchers::ContainsSubstring("map child slot or key is inconsistent"));
+    CHECK(commits == 3);
+}
+
+TEST_CASE("map_: failed removal and final stop clean every child without committing", "[checkpoint]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> checkpoint;
+    std::size_t commits{};
+    configure_component_recovery(context.state().view(), {
+        .component_id = "mapped-stop-strategy", .load = [&] { return checkpoint; },
+        .commit = [&](const auto &image) { checkpoint = image; ++commits; }});
+    CHECK_OUTPUT(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = MIN_ST, .end_time = MIN_ST + MIN_TD},
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}})));
+    REQUIRE(checkpoint);
+    const auto previous_cut = checkpoint->cut;
+    checkpoint_map_stops.clear();
+    auto failed_input = values<Value>(dict_delta<Str, TS<Int>>({{"a"s, -1}, {"b"s, -2}}));
+    SECTION("at final stop") {}
+    SECTION("while removing two failed children")
+    {
+        failed_input.push_back(dict_delta<Str, TS<Int>>({}, {"a"s, "b"s}));
+    }
+    const auto next_start = MIN_ST + MIN_TD;
+    CHECK_THROWS_WITH(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = next_start, .end_time = next_start + MIN_TD * static_cast<Int>(failed_input.size())},
+        failed_input), Catch::Matchers::ContainsSubstring("keyed map child stop failed"));
+    CHECK(commits == 1);
+    CHECK(checkpoint->cut == previous_cut);
+    std::sort(checkpoint_map_stops.begin(), checkpoint_map_stops.end());
+    CHECK(checkpoint_map_stops == std::vector<Str>{"a", "b", "c"});
+    CHECK_OUTPUT(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = next_start, .end_time = next_start + MIN_TD},
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 4}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 4}})));
+    CHECK(commits == 2);
 }
 
 TEST_CASE("map_: a typed child is compiled once while wiring")
@@ -2373,6 +2577,107 @@ namespace
         }
     };
 
+    using RemovalMapValue = TS<Map<Int, Float>>;
+    using RemovalInner = TSD<Int, TS<Float>>;
+    using RemovalPartition = TSB<"RemovalPartition", Field<"raw", RemovalInner>, Field<"kept", TS<Int>>>;
+
+    Value removal_map(std::initializer_list<std::pair<Int, Float>> entries)
+    {
+        auto &factory = ValuePlanFactory::instance();
+        MapBuilder builder{factory.type_for(scalar_descriptor<Int>::value_meta()),
+                           factory.type_for(scalar_descriptor<Float>::value_meta())};
+        for (const auto &[key, value] : entries) { builder.set_item(key, value); }
+        return builder.build();
+    }
+
+    Value removal_partitions(std::optional<Value> inner)
+    {
+        auto &factory = ValuePlanFactory::instance();
+        MapBuilder builder{factory.type_for(scalar_descriptor<Str>::value_meta()),
+                           factory.type_for(scalar_descriptor<Map<Int, Float>>::value_meta())};
+        if (inner)
+        {
+            const Value key{Str{"A"}};
+            builder.set_item(key.view(), inner->view());
+        }
+        return builder.build();
+    }
+
+    struct KeepRemovalValueG
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Float>>)
+        {
+            return wire<stdlib::const_, TS<Bool>>(w, true);
+        }
+    };
+
+    struct RemovalPartitionG
+    {
+        static Port<RemovalPartition> compose(Wiring &w, Port<RemovalMapValue> input)
+        {
+            auto empty = wire<stdlib::const_, RemovalMapValue>(w, removal_map({}));
+            auto current = wire<stdlib::default_>(w, input, empty);
+            auto dict = wire<stdlib::convert, RemovalInner>(w, current);
+            auto matches = wire<stdlib::map_>(w, fn<KeepRemovalValueG>(), dict);
+            auto raw = wire<stdlib::filter_tsd_by_matches>(w, dict, matches);
+            return stdlib::to_tsb<RemovalPartition>(
+                w, raw, wire<stdlib::const_, TS<Int>>(w, Int{1}));
+        }
+    };
+
+    struct RemovalRawG
+    {
+        static Port<RemovalInner> compose(Wiring &w, Port<RemovalPartition> value)
+        {
+            return wire<stdlib::getattr_>(w, value, Str{"raw"}).as<RemovalInner>();
+        }
+    };
+
+    struct ProjectedRemovedCount
+    {
+        static void eval(In<"dict", TSD<Str, RemovalInner>> dict, Out<TS<Int>> out)
+        {
+            auto inner = dict.at(Str{"A"});
+            std::vector<Int> keys;
+            for (const auto key : inner.removed_keys()) { keys.push_back(key.checked_as<Int>()); }
+            std::vector<Int> item_keys;
+            for (const auto [key, child] : inner.removed_items())
+            {
+                static_cast<void>(child);
+                item_keys.push_back(key.checked_as<Int>());
+            }
+            CHECK(item_keys == keys);
+            std::size_t value_count = 0;
+            for ([[maybe_unused]] const auto child : inner.removed_values()) { ++value_count; }
+            CHECK(value_count == keys.size());
+            out.set(static_cast<Int>(keys.size()));
+        }
+    };
+
+    enum class RemovalProjection { Mapped, Attribute };
+
+    template <RemovalProjection Projection, bool ObserveRemovals>
+    struct ProjectRemovalG
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Map<Str, Map<Int, Float>>>> snapshots)
+        {
+            auto input = wire<stdlib::convert, TSD<Str, RemovalMapValue>>(w, snapshots);
+            auto keys = wire<stdlib::const_, TSS<Str>>(w, set_delta<Str>({"A"s}, {}));
+            auto partitions = wire<stdlib::map_>(w, fn<RemovalPartitionG>(), input,
+                                                arg<"__keys__">(keys));
+            Port<void> projected = [&]() -> Port<void>
+            {
+                if constexpr (Projection == RemovalProjection::Attribute)
+                {
+                    return wire<stdlib::getattr_>(w, partitions, Str{"raw"});
+                }
+                else { return wire<stdlib::map_>(w, fn<RemovalRawG>(), partitions); }
+            }();
+            if constexpr (ObserveRemovals) { return wire<ProjectedRemovedCount>(w, projected); }
+            else { return wire<stdlib::len_>(w, wire<stdlib::collapse_keys>(w, projected)).as<TS<Int>>(); }
+        }
+    };
+
     using MappedDictBundle =
         TSB<"MappedDictBundle", Field<"direct", TSD<Str, TS<Int>>>,
             Field<"copy", TSD<Str, TS<Int>>>>;
@@ -3321,4 +3626,29 @@ TEST_CASE("map_: a user overload may select on the wired function identity")
         (eval_node<stdlib::map_, TSD<Str, TS<Int>>>(fn<AddOneG>(), input)),
         values<Value>(dict_delta<Str, TS<Int>>(
             {{Str{"a"}, 2}, {Str{"b"}, 3}})));
+}
+
+TEST_CASE("map_: projected dictionary removals survive an unchanged bundle field endpoint")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(
+        removal_partitions(removal_map({{1, 1.0}, {2, 2.0}})),
+        removal_partitions(removal_map({{2, 2.0}})),
+        removal_partitions(std::nullopt),
+        removal_partitions(removal_map({{1, 3.0}})),
+        removal_partitions(std::nullopt));
+    SECTION("mapped projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
+    SECTION("attribute projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
 }

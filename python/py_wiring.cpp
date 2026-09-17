@@ -495,9 +495,9 @@ namespace
     }
 
     /** Immortal callable records (stable scalar identity by pointer). */
-    [[nodiscard]] std::unordered_map<PyObject *, PyNodeRecord *> &py_node_registry()
+    [[nodiscard]] std::unordered_map<PyObject *, std::unordered_map<std::string, PyNodeRecord *>> &py_node_registry()
     {
-        static auto *registry = new std::unordered_map<PyObject *, PyNodeRecord *>{};
+        static auto *registry = new std::unordered_map<PyObject *, std::unordered_map<std::string, PyNodeRecord *>>{};
         return *registry;
     }
 
@@ -593,6 +593,8 @@ namespace
                    TypeRegistry::instance().reset_generation() &&
                record.retained_compilation_realtime ==
                    (parent != nullptr && parent->is_realtime()) &&
+               record.retained_compilation_component ==
+                   (parent != nullptr ? parent->checkpoint_component() : std::string_view{}) &&
                record.last_compiled_inputs.size() == input_schemas.size() &&
                std::equal(record.last_compiled_inputs.begin(),
                           record.last_compiled_inputs.end(), input_schemas.begin());
@@ -639,6 +641,8 @@ namespace
             TypeRegistry::instance().reset_generation();
         record.retained_compilation_realtime =
             parent != nullptr && parent->is_realtime();
+        record.retained_compilation_component =
+            parent != nullptr ? parent->checkpoint_component() : std::string_view{};
         // The Python wrapper emits the nested graph scope while invoking the
         // callable. The call result is authoritative: an unannotated lambda
         // is provisionally output-producing but may compile to an actual sink.
@@ -1229,15 +1233,20 @@ namespace hgraph::python_bridge
     nb::class_<PyScalarValue>(m, "ScalarValue");
     nb::class_<PySender>(m, "Sender").def("send", &PySender::send, nb::arg("value"));
 
-    m.def("node_ref", [](nb::object fn) {
-        auto &registry = py_node_registry();
-        auto  found    = registry.find(fn.ptr());
+    m.def("node_ref", [](nb::object fn, const std::string &recordable_id) {
+        auto &registry = py_node_registry()[fn.ptr()];
+        auto  found    = registry.find(recordable_id);
         if (found == registry.end())
         {
-            auto *record = new PyNodeRecord{fn};   // immortal: scalar identity by pointer
-            found        = registry.emplace(fn.ptr(), record).first;
+            auto *record = new PyNodeRecord{fn, recordable_id};   // immortal: scalar identity by pointer
+            found        = registry.emplace(recordable_id, record).first;
         }
         return PyNodeHandle{found->second};
+    }, nb::arg("fn"), nb::arg("recordable_id") = "");
+
+    m.def("component_checkpoint_active", [](PyWiring &wiring) {
+        return component_recovery_selected(wiring.wiring_ref().global_state(),
+                                           record_replay::current_scope().recordable_id);
     });
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,

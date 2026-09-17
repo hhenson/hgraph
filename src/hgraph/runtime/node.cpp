@@ -51,6 +51,8 @@ namespace hgraph
             GraphValue   *graph{nullptr};
             std::size_t   node_index{0};
             std::string   label{};
+            NodeCheckpointIdentity checkpoint_identity{};
+            bool owns_output{true};
             bool          started{false};
             bool          starting{false};
             bool          stopping{false};
@@ -691,6 +693,16 @@ namespace hgraph
             return node_storage(runtime_context(context), memory).label;
         }
 
+        const NodeCheckpointIdentity &checkpoint_identity_impl(const void *context, const void *memory) noexcept
+        {
+            return node_storage(runtime_context(context), memory).checkpoint_identity;
+        }
+
+        bool owns_output_impl(const void *context, const void *memory) noexcept
+        {
+            return node_storage(runtime_context(context), memory).owns_output;
+        }
+
         bool started_impl(const void *context, const void *memory) noexcept
         {
             return node_storage(runtime_context(context), memory).started;
@@ -1121,6 +1133,8 @@ namespace hgraph
                 if (ops.graph_impl == nullptr) { ops.graph_impl = &graph_impl; }
                 if (ops.node_index_impl == nullptr) { ops.node_index_impl = &node_index_impl; }
                 if (ops.label_impl == nullptr) { ops.label_impl = &label_impl; }
+                if (ops.checkpoint_identity_impl == nullptr) { ops.checkpoint_identity_impl = &checkpoint_identity_impl; }
+                if (ops.owns_output_impl == nullptr) { ops.owns_output_impl = &owns_output_impl; }
                 if (ops.started_impl == nullptr) { ops.started_impl = &started_impl; }
                 if (ops.starting_impl == nullptr) { ops.starting_impl = &starting_impl; }
                 if (ops.stopping_impl == nullptr) { ops.stopping_impl = &stopping_impl; }
@@ -1434,6 +1448,14 @@ namespace hgraph
     {
         return ops().label_impl(ops().context, data());
     }
+
+    const NodeCheckpointIdentity &NodeView::checkpoint_identity() const noexcept
+    {
+        return ops().checkpoint_identity_impl(ops().context, data());
+    }
+
+    const NodeCheckpointOps &NodeView::checkpoint_ops() const noexcept { return *ops().checkpoint_ops; }
+    bool NodeView::owns_output() const noexcept { return ops().owns_output_impl(ops().context, data()); }
 
     NodeKind NodeView::node_kind() const noexcept
     {
@@ -1797,6 +1819,14 @@ namespace hgraph
         return label_;
     }
 
+    NodeBuilder &NodeBuilder::checkpoint_identity(NodeCheckpointIdentity identity)
+    {
+        checkpoint_identity_ = std::move(identity);
+        return *this;
+    }
+
+    const NodeCheckpointIdentity &NodeBuilder::checkpoint_identity() const noexcept { return checkpoint_identity_; }
+
     NodeBuilder &NodeBuilder::input_endpoint(TSEndpointSchema endpoint)
     {
         if (!type_)
@@ -1961,6 +1991,7 @@ namespace hgraph
         result.output_endpoint_ = output_endpoint_;
         result.output_value_storage_ = output_value_storage_;
         result.label_           = label_;
+        result.checkpoint_identity_ = checkpoint_identity_;
         result.scalars_         = scalars_;
         return result;
     }
@@ -2026,6 +2057,7 @@ namespace hgraph
         result.output_endpoint_ = output_endpoint_;
         result.output_value_storage_ = output_value_storage_;
         result.label_           = label_;
+        result.checkpoint_identity_ = checkpoint_identity_;
         result.scalars_         = scalars_;
         return result;
     }
@@ -2085,6 +2117,10 @@ namespace hgraph
                                     std::string{label()},
                                     scalars(),
                                     memory);
+
+        node_storage(runtime, memory).checkpoint_identity = checkpoint_identity_;
+        const auto &effective_output = output_endpoint_.empty() ? type.schema()->output_endpoint_schema : output_endpoint_;
+        node_storage(runtime, memory).owns_output = effective_output.empty() || effective_output.is_local();
 
         const auto &table = type.ops_ref();
         table.attach_graph_impl(table.context, memory, nullptr, node_index);

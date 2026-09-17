@@ -1271,6 +1271,12 @@ namespace hgraph
             a second claim of the same id throws (one component instance per
             id per graph build - python parity). */
         void claim_component_id(std::string_view fq_recordable_id);
+        /** Select the checkpoint ownership scope; returns the previous scope. */
+        std::string checkpoint_component(std::string component_id);
+        /** Current checkpoint ownership scope, including for child-plan caches. */
+        [[nodiscard]] std::string_view checkpoint_component() const noexcept;
+        /** Include the component's complete returned binding in its compatibility identity. */
+        void checkpoint_component_output(const WiringPortRef &output);
 
       private:
         friend class WiringObservationScope;
@@ -1283,6 +1289,7 @@ namespace hgraph
         void end_observation(const WiringScopeEvent &event, std::string_view error);
         void apply_service_rank_dependencies();
         void finalize_extensions();
+        void assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs);
         /** Shared body of finish()/snapshot(): validate + rank + build; the
             wiring GlobalState is moved when consuming, copied otherwise. */
         [[nodiscard]] GraphBuilder finish_top_level(bool consume_state);
@@ -3486,6 +3493,13 @@ namespace hgraph
             auto arg_tuple    = std::forward_as_tuple(args...);
             auto default_args = call_args_detail::default_args_for<X>();
             call_args_detail::validate_call_args<typename sig::param_types>("wire<G>", arg_tuple, default_args);
+#if defined(_MSC_VER)
+            // Metadata-only callable instantiations can have unresolved graph
+            // arguments that always refuse wiring. MSVC then reports this
+            // forwarding call as C4702; valid graph specializations require it.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
             auto compose = [&]() -> decltype(auto) {
                 return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
                     return X::compose(
@@ -3495,6 +3509,9 @@ namespace hgraph
                                                           default_args)...);
                 }(std::make_index_sequence<sig::param_count()>{});
             };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
             if (!w.has_wiring_observers()) { return compose(); }
 
             const std::string label = static_node_detail::diagnostic_name<X>();

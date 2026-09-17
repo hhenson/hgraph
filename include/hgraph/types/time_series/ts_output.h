@@ -13,6 +13,8 @@
 #include <hgraph/types/time_series/ts_output/window_view.h>
 
 #include <memory>
+#include <optional>
+#include <functional>
 
 namespace hgraph
 {
@@ -22,6 +24,20 @@ namespace hgraph
     }
 
     class TSEndpointSchema;
+
+    /** One reversible adaptation step; source identity is never dereferenced. */
+    struct TSOutputAlternativeDescriptor
+    {
+        TSOutputHandle source{};
+        const TSValueTypeMetaData *requested_schema{nullptr};
+        std::vector<std::size_t> path{};
+    };
+
+    struct TSOutputAlternativeCheckpoint
+    {
+        TSOutputAlternativeDescriptor binding{};
+        TSCheckpointImage clocks{};
+    };
 
     /**
      * Owning output-side time-series endpoint.
@@ -72,6 +88,28 @@ namespace hgraph
         /** Binding data for a canonical or alternative representation of ``source``. */
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema) const;
+
+        /** Describe one cached adapter in linear time without following its target.
+         * Bulk checkpoint callers use visit_checkpoint_alternative_endpoints once.
+         */
+        [[nodiscard]] std::optional<TSOutputAlternativeDescriptor> checkpoint_alternative(
+            const TSOutputHandle &handle) const;
+        /** Enumerate live adapter cursors in one pass, including owned structural
+         * children. Target links and references are identity leaves, never followed.
+         * Descriptors are borrowed for the duration of the callback.
+         */
+        void visit_checkpoint_alternative_endpoints(
+            const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor) const;
+        /** Filter source identity before reading cached adapter storage. */
+        [[nodiscard]] std::vector<TSOutputAlternativeCheckpoint> capture_checkpoint_alternatives(
+            const std::function<bool(const TSOutputHandle &)> &include_source = {}) const;
+        /** Allocate an adapter without observing or publishing source history. */
+        [[nodiscard]] TSOutputHandle checkpoint_binding_for(const TSOutputView &source,
+            const TSValueTypeMetaData &requested_schema) const;
+        /** Rebuild one adapter after raw REF import, retaining its exact clocks. */
+        void restore_checkpoint_alternative(const TSOutputView &source,
+            const TSValueTypeMetaData &requested_schema, const TSCheckpointImage &clocks,
+            DateTime evaluation_time) const;
 
         /** Dynamic output payload, observer, and alternative-binding storage. */
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
