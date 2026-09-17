@@ -39,7 +39,11 @@ namespace
     {
         std::set<Int> keys;
         const auto    bundle = delta.view().as_indexed_view();
-        for (const auto entry : bundle.at(1).as_map())
+        // Named rather than chained into the range expression: GCC 14 reads
+        // the chain as a reference into a temporary and -Wdangling-reference
+        // fails the build (it is the only compiler that does).
+        const auto    modified = bundle.at(1);
+        for (const auto entry : modified.as_map())
         {
             keys.insert(entry.first.checked_as<Int>());
         }
@@ -49,8 +53,9 @@ namespace
     std::set<Int> removed_keys(const Value &delta)
     {
         std::set<Int> keys;
-        const auto    bundle = delta.view().as_indexed_view();
-        for (const auto element : bundle.at(0).as_set())
+        const auto    bundle  = delta.view().as_indexed_view();
+        const auto    removed = bundle.at(0);
+        for (const auto element : removed.as_set())
         {
             keys.insert(element.checked_as<Int>());
         }
