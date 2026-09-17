@@ -408,8 +408,14 @@ void check_distributed_client() {
 }
 }
 
-int main()
+void check_spawn_consumer();
+void register_spawn_consumer_recipes();
+
+int main(int argc, char **argv)
 {
+    register_spawn_consumer_recipes();
+    if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
+    check_spawn_consumer();
     using namespace hgraph;
 
     static_assert(std::is_standard_layout_v<SchemaHeader>);
@@ -424,7 +430,7 @@ int main()
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 9);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     // ABI 20 adds timestamp-preserving window sample replacement.
     static_assert(TS_DATA_OPS_ABI_VERSION == 20);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));

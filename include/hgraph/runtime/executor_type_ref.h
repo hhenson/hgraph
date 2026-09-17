@@ -15,9 +15,8 @@ namespace hgraph
     struct GraphExecutorOps;
     struct GraphExecutorTypeMetaData;
 
-    // 6: GraphExecutorOps gained external_start/step/stop for the
-    //    ExternallyDriven mode (RFC 0037).
-    inline constexpr std::uint16_t EXECUTOR_OPS_ABI_VERSION = 6;
+    // 7: GraphExecutorOps gained attach_activity/detach_activity (RFC 0038).
+    inline constexpr std::uint16_t EXECUTOR_OPS_ABI_VERSION = 7;
 
     class ExecutorTypeRef
     {

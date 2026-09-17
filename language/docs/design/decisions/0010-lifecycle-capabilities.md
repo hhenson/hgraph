@@ -56,7 +56,8 @@ blocker LIB-002). Both are the scheduler case.
    function is vacuously true and its implicit `modified()` never holds.
 
 5. **`passivate(input)` and `activate(input)`** are runtime statements
-   whose argument is a direct temporal parameter of the function. They
+   whose argument is a direct temporal parameter of the function. They are
+   evaluation-only: `start` and `stop` have no temporal input access. They
    lower to the input view's `make_passive()` / `make_active()`. A passive
    input still holds its value and validity; it just no longer activates the
    node. The node's static activation policy is unchanged; activity is a
@@ -64,8 +65,11 @@ blocker LIB-002). Both are the scheduler case.
 
 ## Consequences
 
-- `schedule`, `freeze`, `take` and `until_true` become authorable as
-  parallel identities; `throttle`, `batch`, `gate`, `lag` and `window` still
+- `freeze`, `take` and `until_true` become authorable as parallel identities.
+  `schedule` remains blocked: its native counter is non-recordable `State<Int>`,
+  while HGL `state` is checkpointed. The cache declarations in ADR 0008 and
+  positive-delay validation in `start` are still required.
+  Likewise, `throttle`, `batch`, `gate`, `lag` and `window` still
   need the buffered-delta and queue state contracts (MIG-005) and remain B2.
 - The language model's open questions on bare handlers without temporal
   parameters and on the explicit empty activation set are closed by

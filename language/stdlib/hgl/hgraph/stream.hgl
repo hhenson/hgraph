@@ -9,8 +9,6 @@ operator filter_<T>(condition: bool, ts: T) -> T
 operator take<T>(ts: T, const count: i64 = 1) -> T
 operator freeze<T>(predicate: bool, ts: T) -> T
 operator until_true(ts: bool) -> bool
-operator schedule(const delay: duration, const initial_delay: bool = true,
-                  const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool
 
 # Input activity and the node scheduler (ADR 0010). These bodies mirror the
 # native nodes tick for tick; a restored exhausted `take` passivates on its
@@ -55,29 +53,8 @@ impl fn until_true(ts: bool) -> bool {
     }
 }
 
-# A scheduler-driven source: the native node's positive-delay validation in
-# start is not reproduced here.
-impl fn schedule(const delay: duration, const initial_delay: bool = true,
-                 const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool {
-    state ticks: i64 = 0
-    inject scheduler
-    start {
-        if max_ticks > 0 {
-            if initial_delay {
-                scheduler.schedule(delay, use_wall_clock)
-            } else {
-                scheduler.schedule(0s, use_wall_clock)
-            }
-        }
-    }
-    when scheduled() {
-        ticks += 1
-        if ticks < max_ticks {
-            scheduler.schedule(delay, use_wall_clock)
-        }
-        return true
-    }
-}
+# `schedule` remains native-only until HGL can represent its non-recordable
+# tick counter and its positive-delay validation in start (ADR 0008/0010).
 
 impl fn sample<T>(signal: signal, ts: T) -> T {
     when modified(signal) && valid(signal, ts) {

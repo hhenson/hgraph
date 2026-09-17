@@ -264,8 +264,8 @@ bindings count; delegation to an existing temporal operator stays pending.
   construction/removal and named scalar
   conversions (`to_int`, `to_float`, `to_bool`, `to_date`, `to_datetime`).
 - `stream.hgl`: sample/drop/filter/dedup, running sum/mean/extrema and internal tick counting;
-  `take`, `freeze` and `until_true` through `passivate`, and the `schedule` source through
-  `inject scheduler` (ADR 0010).
+  `take`, `freeze` and `until_true` through `passivate` (ADR 0010).
+  `schedule` remains blocked on non-recordable counter storage and start validation.
 - `control.hgl`: if_true, scalar null_sink and pass_through bodies; pending
   variadic control contracts remain declarations.
 - `temporal.hgl`: Date/DateTime/Time/Duration fields and modification metadata.

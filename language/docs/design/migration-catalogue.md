@@ -38,7 +38,8 @@ and readable generated C++; exercise it through public native wiring and
 scripted HGL tests where the test harness supports the input shape. Existing
 core implementations remain in place during this authoring milestone.
 
-The recovered PR #801 provides the `HGL-MIG-001`–`015` and
-`HGL-LIB-001`–`004` references. Its branch and proposed sources are guidance,
-never an integration dependency. Missing language semantics remain separate
-design work; the catalogue does not authorize inventing them.
+The [migration requirements ledger](migration-requirements.md) defines the
+`HGL-MIG-001`–`015` and `HGL-LIB-001`–`004` identifiers that reviews cite and
+records each open decision. It was extracted from PR #801, which is closed.
+Missing language semantics remain separate design work; the catalogue does
+not authorize inventing them.

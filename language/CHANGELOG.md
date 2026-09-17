@@ -9,7 +9,13 @@
   selector, under which a handler adds no input to the activation set and a
   runtime function may have no temporal parameters at all; and the
   `passivate(input)`/`activate(input)` statements. `hgraph.std` gains parallel
-  `take`, `freeze`, `until_true` and `schedule` with native-parity tests.
+  `take`, `freeze` and `until_true` with native-parity tests. The `schedule`
+  operator remains blocked on non-recordable counter storage and start validation.
+- Record the standard-library migration requirements ledger
+  (`docs/design/migration-requirements.md`): the `HGL-MIG-001`–`015` and
+  `HGL-LIB-001`–`004` identifiers the catalogue cites, each mapped to its
+  catalogue blocker, accepted record and open decision. PR #801 is closed;
+  the roadmap's corrective-programme table now links the merged PRs.
 - Keep implementation-only constraints on `impl fn`: the executable HGL
   operator contracts no longer expose their candidates' native delegation
   requirements, and the guides distinguish public semantic constraints from

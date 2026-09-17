@@ -21,6 +21,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -32,6 +33,29 @@ namespace hgraph
 {
     namespace detail
     {
+        struct ExecutorActivityWakeState
+        {
+            std::mutex mutex{};
+            std::function<void()> notify{};
+        };
+
+        struct ExecutorActivityAccess
+        {
+            static ExecutorActivityWake make(std::function<void()> notify)
+            {
+                ExecutorActivityWake wake;
+                wake.state_ = std::make_shared<ExecutorActivityWakeState>();
+                wake.state_->notify = std::move(notify);
+                return wake;
+            }
+            static void close(const ExecutorActivityWake &wake) noexcept
+            {
+                if (!wake.state_) { return; }
+                std::lock_guard lock{wake.state_->mutex};
+                wake.state_->notify = {};
+            }
+        };
+
         struct GraphExecutorPhaseActionAccess
         {
             static GraphExecutorPhaseAction make(void *context,
@@ -44,6 +68,86 @@ namespace hgraph
 
     namespace
     {
+        struct RegisteredActivity
+        {
+            ExecutorActivity activity;
+            ExecutorActivityWake wake;
+        };
+
+        struct ExecutorActivities
+        {
+            // Owner-thread only. Context indexing keeps bulk teardown linear.
+            std::unordered_map<void *, RegisteredActivity> entries{};
+            bool dispatching{false};
+            DateTime completed_time{MIN_DT};
+
+            ~ExecutorActivities() { close(); }
+
+            void close() noexcept
+            {
+                for (const auto &[context, entry] : entries)
+                {
+                    static_cast<void>(context);
+                    detail::ExecutorActivityAccess::close(entry.wake);
+                }
+                entries.clear();
+            }
+
+            ExecutorActivityWake attach(ExecutorActivity activity, std::function<void()> notify)
+            {
+                if (dispatching) { throw std::logic_error("Cannot attach an activity from an activity callback"); }
+                if (activity.context() == nullptr) { throw std::invalid_argument("Executor activity context is null"); }
+                auto wake = detail::ExecutorActivityAccess::make(std::move(notify));
+                if (!entries.emplace(activity.context(), RegisteredActivity{activity, wake}).second)
+                {
+                    throw std::logic_error("Executor activity context is already registered");
+                }
+                return wake;
+            }
+
+            void detach(ExecutorActivity activity)
+            {
+                if (dispatching) { throw std::logic_error("Cannot detach an activity from an activity callback"); }
+                const auto it = entries.find(activity.context());
+                if (it == entries.end() || it->second.activity != activity)
+                {
+                    throw std::logic_error("Executor activity is not registered");
+                }
+                detail::ExecutorActivityAccess::close(it->second.wake);
+                entries.erase(it);
+            }
+
+            DateTime next_time(bool wait)
+            {
+                dispatching = true;
+                auto reset = make_scope_exit([&] { dispatching = false; });
+                DateTime next = MAX_DT;
+                for (const auto &[context, entry] : entries)
+                {
+                    static_cast<void>(context);
+                    const auto requested = entry.activity.next_time(wait);
+                    if (requested != MAX_DT && requested <= completed_time)
+                    {
+                        throw std::logic_error("Executor activity requested an already completed time");
+                    }
+                    next = std::min(next, requested);
+                }
+                return next;
+            }
+
+            void completed(DateTime time)
+            {
+                completed_time = time;
+                dispatching = true;
+                auto reset = make_scope_exit([&] { dispatching = false; });
+                for (const auto &[context, entry] : entries)
+                {
+                    static_cast<void>(context);
+                    entry.activity.completed(time);
+                }
+            }
+        };
+
         struct SimulationExecutorStorage;
         struct RealTimeExecutorStorage;
 
@@ -85,6 +189,7 @@ namespace hgraph
                 cycle_wall_start = current_wall_time();
             }
 
+            ExecutorActivities activities{};
             LifecycleObserverList lifecycle_observers{}; // declared first so it is constructed before graph
             std::shared_ptr<spdlog::logger> logger{};
             const LoggerOps *logger_ops{&plain_logger_ops()};
@@ -136,6 +241,7 @@ namespace hgraph
                 evaluation_time = value;
             }
 
+            ExecutorActivities activities{};
             LifecycleObserverList lifecycle_observers{}; // declared first so it is constructed before graph
             std::shared_ptr<spdlog::logger> logger{};
             const LoggerOps               *logger_ops{&plain_logger_ops()};
@@ -157,6 +263,7 @@ namespace hgraph
             std::condition_variable      condition{};
             std::atomic_bool             stop_requested{false};
             bool                         push_update_pending{false};
+            bool                         activity_update_pending{false};
             GraphExecutorPhaseRunner     phase_runner{};
             bool                         run_logging_enabled{false};
         };
@@ -357,7 +464,7 @@ namespace hgraph
             return pending;
         }
 
-        [[nodiscard]] DateTime advance_simulation(SimulationExecutorStorage &state, DateTime next_scheduled_time)
+        [[nodiscard]] std::optional<DateTime> advance_simulation(SimulationExecutorStorage &state, DateTime next_scheduled_time)
         {
             const DateTime pending_time =
                 state.push_update_pending.load(std::memory_order_acquire)
@@ -374,7 +481,7 @@ namespace hgraph
         // loop exceeds it almost immediately.
         constexpr std::uint32_t max_immediate_drain_cycles = 1024;
 
-        [[nodiscard]] DateTime advance_realtime(RealTimeExecutorStorage &state, DateTime next_scheduled_time)
+        [[nodiscard]] std::optional<DateTime> advance_realtime(RealTimeExecutorStorage &state, DateTime next_scheduled_time)
         {
             // Whichever comes first bounds this cycle: the next scheduled work
             // or the run's end. An idle graph therefore waits for end_time
@@ -388,7 +495,7 @@ namespace hgraph
             {
                 std::unique_lock lock{state.mutex};
                 const auto wake_requested = [&state] {
-                    return state.push_update_pending ||
+                    return state.activity_update_pending || state.push_update_pending ||
                            state.stop_requested.load(std::memory_order_acquire);
                 };
                 // A push delivered while the previous cycle was evaluating is
@@ -404,6 +511,13 @@ namespace hgraph
                         wake_requested);
                     wall_now = current_wall_time();
                     if (wake_requested_before_timeout) { break; }
+                }
+                if (state.activity_update_pending)
+                {
+                    state.activity_update_pending = false;
+                    // Recompute the requested time before moving the clock.
+                    // A control wake is not an input and must not invent a tick.
+                    return std::nullopt;
                 }
             }
 
@@ -426,19 +540,6 @@ namespace hgraph
             // `target` is `start_time`, which is already the evaluation time,
             // and that cycle still has to run.
             const DateTime next = std::min(target, wall_or_next_cycle);
-            if (wall_now >= state.end_time && next <= next_cycle &&
-                state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
-            {
-                // Past wall-clock end_time the executor only drains: a lagging
-                // graph still evaluates its scheduled work at the scheduled
-                // times, but a graph advancing exactly MIN_TD per cycle is
-                // making no material logical progress (the shape of a failing
-                // retry loop) and would starve the end_time bound indefinitely
-                // (see execution_layer.rst, end-of-run enforcement). The
-                // counter is maintained by the run loop.
-                state.set_evaluation_time(state.end_time);
-                return state.end_time;
-            }
             state.set_evaluation_time(next);
             return next;
         }
@@ -566,6 +667,7 @@ namespace hgraph
 
         SimulationExecutorStorage::~SimulationExecutorStorage()
         {
+            auto close_activities = make_scope_exit([&] { activities.close(); });
             if (graph.has_value() && graph.view().started())
             {
                 static_cast<void>(fallback_on_exception(false, [&] {
@@ -577,6 +679,7 @@ namespace hgraph
 
         RealTimeExecutorStorage::~RealTimeExecutorStorage()
         {
+            auto close_activities = make_scope_exit([&] { activities.close(); });
             if (graph.has_value() && graph.view().started())
             {
                 static_cast<void>(fallback_on_exception(false, [&] {
@@ -592,6 +695,7 @@ namespace hgraph
             validate_times(state.start_time, state.end_time);
             state.stop_requested.store(false, std::memory_order_release);
             state.set_evaluation_time(state.start_time);
+            state.activities.completed_time = state.start_time - MIN_TD;
 
             auto graph = state.graph.view();
             ComponentRecoverySession recovery{graph, state.start_time, state.end_time,
@@ -617,15 +721,53 @@ namespace hgraph
 
             while (!state.stop_requested.load(std::memory_order_acquire))
             {
-                DateTime next = graph.next_scheduled_time();
+                DateTime next = std::min(graph.next_scheduled_time(), state.activities.next_time(false));
                 if (next == MAX_DT || next >= state.end_time)
                 {
-                    if (!idle_run_continues(state, graph)) { break; }
-                    next = state.end_time;
+                    if constexpr (std::is_same_v<Storage, SimulationExecutorStorage>)
+                    {
+                        // Simulation cannot conclude until child processing has
+                        // settled: it may still discover a request before end.
+                        next = std::min(next, state.activities.next_time(true));
+                    }
+                    if (next == MAX_DT || next >= state.end_time)
+                    {
+                        if (!idle_run_continues(state, graph)) { break; }
+                        next = state.end_time;
+                    }
                 }
 
                 const DateTime previous_evaluation_time = state.evaluation_time;
-                const DateTime evaluation_time = advance(state, next);
+                const auto advanced_time = advance(state, next);
+                if (!advanced_time) { continue; }
+                DateTime evaluation_time = *advanced_time;
+                if constexpr (std::is_same_v<Storage, RealTimeExecutorStorage>)
+                {
+                    if (evaluation_time >= state.end_time &&
+                        !state.stop_requested.load(std::memory_order_acquire))
+                    {
+                        // A lagging child may discover work before the end
+                        // only after the wall clock has passed it. Settle at
+                        // termination, then drain at the requested timestamp.
+                        const auto requested = state.activities.next_time(true);
+                        if (requested < state.end_time)
+                        {
+                            evaluation_time = requested;
+                            state.set_evaluation_time(evaluation_time);
+                        }
+                    }
+                    // Apply the end-of-run drain bound to the final candidate,
+                    // including work discovered while settling a lagging child.
+                    // Checking only in advance_realtime would let an initially
+                    // idle schedule hide an unbounded MIN_TD retry loop.
+                    if (current_wall_time() >= state.end_time &&
+                        evaluation_time <= previous_evaluation_time + MIN_TD &&
+                        state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
+                    {
+                        state.set_evaluation_time(state.end_time);
+                        break;
+                    }
+                }
                 if (state.stop_requested.load(std::memory_order_acquire) ||
                     evaluation_time == MAX_DT ||
                     evaluation_time >= state.end_time)
@@ -675,6 +817,7 @@ namespace hgraph
                     // means a pausing node (e.g. a mesh_subscribe) escaped its mesh scope.
                     throw std::logic_error("root graph evaluation paused with no resolver");
                 }
+                state.activities.completed(evaluation_time);
             }
 
             if (!state.stop_requested.load(std::memory_order_acquire)) { recovery.capture(graph); }
@@ -900,6 +1043,45 @@ namespace hgraph
                     : state.after_evaluation_notifications).push_back(std::move(fn));
         }
 
+        ExecutorActivityWake simulation_attach_activity_impl(const void *, void *memory,
+                                                               ExecutorActivity activity)
+        {
+            return simulation_storage(memory).activities.attach(activity, [] {});
+        }
+
+        void simulation_detach_activity_impl(const void *, void *memory, ExecutorActivity activity)
+        {
+            simulation_storage(memory).activities.detach(activity);
+        }
+
+        ExecutorActivityWake realtime_attach_activity_impl(const void *, void *memory,
+                                                             ExecutorActivity activity)
+        {
+            auto &state = realtime_storage(memory);
+            return state.activities.attach(activity, [&state] {
+                {
+                    std::lock_guard lock{state.mutex};
+                    state.activity_update_pending = true;
+                }
+                state.condition.notify_all();
+            });
+        }
+
+        void realtime_detach_activity_impl(const void *, void *memory, ExecutorActivity activity)
+        {
+            realtime_storage(memory).activities.detach(activity);
+        }
+
+        ExecutorActivityWake unsupported_attach_activity_impl(const void *, void *, ExecutorActivity)
+        {
+            throw std::logic_error("ExternallyDriven executors cannot own asynchronous activities");
+        }
+
+        void unsupported_detach_activity_impl(const void *, void *, ExecutorActivity)
+        {
+            throw std::logic_error("ExternallyDriven executors cannot own asynchronous activities");
+        }
+
         bool simulation_stop_requested_impl(const void *, const void *memory) noexcept
         {
             return simulation_storage(memory).stop_requested.load(std::memory_order_acquire);
@@ -1018,6 +1200,8 @@ namespace hgraph
                 .external_stop_impl = &unsupported_external_stop_impl,
                 .request_stop_impl = &simulation_request_stop_impl,
                 .add_evaluation_notification_impl = &simulation_add_evaluation_notification_impl,
+                .attach_activity_impl = &simulation_attach_activity_impl,
+                .detach_activity_impl = &simulation_detach_activity_impl,
                 .stop_requested_impl = &simulation_stop_requested_impl,
                 .start_time_impl = &simulation_start_time_impl,
                 .end_time_impl = &simulation_end_time_impl,
@@ -1044,6 +1228,8 @@ namespace hgraph
             ops.external_start_impl = &external_start_impl;
             ops.external_step_impl  = &external_step_impl;
             ops.external_stop_impl  = &external_stop_impl;
+            ops.attach_activity_impl = &unsupported_attach_activity_impl;
+            ops.detach_activity_impl = &unsupported_detach_activity_impl;
             return ops;
         }
 
@@ -1057,6 +1243,8 @@ namespace hgraph
                 .external_stop_impl = &unsupported_external_stop_impl,
                 .request_stop_impl = &realtime_request_stop_impl,
                 .add_evaluation_notification_impl = &realtime_add_evaluation_notification_impl,
+                .attach_activity_impl = &realtime_attach_activity_impl,
+                .detach_activity_impl = &realtime_detach_activity_impl,
                 .stop_requested_impl = &realtime_stop_requested_impl,
                 .start_time_impl = &realtime_start_time_impl,
                 .end_time_impl = &realtime_end_time_impl,
@@ -1349,6 +1537,51 @@ namespace hgraph
     const GraphExecutorOps &PushQueueEngineView::ops() const
     {
         return ExecutorTypeRef{pointer_.record()}.ops_ref();
+    }
+
+    namespace
+    {
+        const ExecutorActivityOps inert_activity_ops{
+            [](void *, bool) { return MAX_DT; },
+            [](void *, DateTime) {},
+        };
+    }
+
+    ExecutorActivity::ExecutorActivity() noexcept : ops_(&inert_activity_ops) {}
+
+    ExecutorActivity::ExecutorActivity(void *context, const ExecutorActivityOps &ops)
+        : context_(context), ops_(&ops)
+    {
+        if (ops.next_time == nullptr || ops.completed == nullptr)
+        {
+            throw std::invalid_argument("Executor activity requires a complete ops table");
+        }
+    }
+
+    DateTime ExecutorActivity::next_time(bool wait) const { return ops_->next_time(context_, wait); }
+    void ExecutorActivity::completed(DateTime time) const { ops_->completed(context_, time); }
+
+    void ExecutorActivityWake::notify() const noexcept
+    {
+        if (!state_) { return; }
+        std::lock_guard lock{state_->mutex};
+        if (state_->notify) { state_->notify(); }
+    }
+
+    ExecutorActivityWake EngineControlView::attach_activity(ExecutorActivity activity) const
+    {
+        if (!valid()) { throw std::logic_error("Cannot attach activity to an invalid executor"); }
+        GraphExecutorView view{pointer_};
+        const auto &ops = view.type().ops_ref();
+        return ops.attach_activity_impl(ops.context, view.data(), activity);
+    }
+
+    void EngineControlView::detach_activity(ExecutorActivity activity) const
+    {
+        if (!valid()) { throw std::logic_error("Cannot detach activity from an invalid executor"); }
+        GraphExecutorView view{pointer_};
+        const auto &ops = view.type().ops_ref();
+        ops.detach_activity_impl(ops.context, view.data(), activity);
     }
 
     EngineControlView::EngineControlView() noexcept = default;

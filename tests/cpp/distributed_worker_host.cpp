@@ -24,6 +24,8 @@
 #include <windows.h>
 #endif
 
+namespace hgraph_test { void register_spawn_test_recipes(); }
+
 int run_host(int argc, char **argv)
 {
     try
@@ -52,6 +54,7 @@ int run_host(int argc, char **argv)
         (void)hgraph::TypeRegistry::instance().register_scalar<hgraph::Int>("int");
         hgraph::stdlib::register_standard_operators();
         hgraph_test::register_distributed_test_recipes();
+        hgraph_test::register_spawn_test_recipes();
 
         if (!hgraph::distributed::run_worker_if_requested(argc, argv))
         {

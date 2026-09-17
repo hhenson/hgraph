@@ -568,6 +568,13 @@ namespace hgl::ir
                             collect_capabilities(node, id);
                             if (node.kind == FunctionKind::Runtime && node.block_body.valid()) {
                                 check_runtime_layout(node.block_body);
+                                if (!node.is_const &&
+                                    std::ranges::all_of(node.signature.parameters, [](const Parameter &parameter) {
+                                        return parameter.is_const;
+                                    }) && !injects_capability(id, "scheduler")) {
+                                    diagnostics_.report(syntax::Category::Injectable, declaration.range,
+                                                        "a runtime function without temporal parameters must 'inject scheduler' and schedule itself");
+                                }
                             }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
                             active_native_phase_ = NativePhase::Wiring;
@@ -3116,17 +3123,21 @@ namespace hgl::ir
                     if (args.size() != 1U) {
                         type_error(expression.range, "'" + name + "' takes one temporal parameter");
                     } else {
-                        Expr       &target    = check_expr(args.front());
-                        const auto *reference = std::get_if<SymbolRef>(&target.node);
+                        Expr       &input     = check_expr(args.front());
+                        const auto *reference = std::get_if<SymbolRef>(&input.node);
                         const bool  parameter = reference != nullptr && reference->symbol.valid() &&
                                                module_.symbol(reference->symbol).kind == SymbolKind::SignalParameter;
                         if (!parameter) {
-                            type_error(target.range, "'" + name + "' takes a temporal parameter of this function, not a projection");
+                            type_error(input.range, "'" + name + "' takes a temporal parameter of this function, not a projection");
                         }
                     }
                     if (!runtime_owner(expression.owner)) {
                         diagnostics_.report(syntax::Category::Phase, expression.range,
                                             "'" + name + "' is only available in a runtime function");
+                    } else if (active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'" + name + "' needs temporal inputs, which are unavailable during " +
+                                                (active_native_phase_ == NativePhase::Stop ? "stop" : "start"));
                     } else if (active_when_condition_) {
                         type_error(expression.range, "'" + name + "' is a statement, not a 'when' predicate");
                     }

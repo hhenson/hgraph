@@ -236,7 +236,8 @@ def render(data: dict) -> str:
     lines += ["", "## Maintenance", "", "```sh", "python tools/hgl_catalogue.py --check",
               "# After changing native library registrations, use a freshly built wheel:",
               "python tools/hgl_catalogue.py --refresh-registry", "```", "",
-              "See [the design record](../../docs/design/migration-catalogue.md). PR #801 is reference material only.", ""]
+              "See [the design record](../../docs/design/migration-catalogue.md) and the",
+              "[requirements ledger](../../docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.", ""]
     return "\n".join(lines)
 
 

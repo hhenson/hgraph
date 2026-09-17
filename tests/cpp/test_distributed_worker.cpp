@@ -26,6 +26,7 @@
 #include <vector>
 #include <filesystem>
 #include <chrono>
+#include <thread>
 #include <catch2/generators/catch_generators.hpp>
 
 #ifdef _WIN32
@@ -66,6 +67,7 @@ TEST_CASE("distributed worker: a spawned worker is another process, and serves")
         spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, test_recipe_key(), MIN_ST, worker_end);
     REQUIRE(worker.running());
     CHECK(worker.pid() != this_pid());
+    CHECK_FALSE(worker.try_wait_for_exit().has_value());
 
     // A cycle with nothing staged: the child has no work, so the interesting
     // assertion is that the whole round trip -- spawn, recipe lookup, decode,
@@ -212,4 +214,24 @@ TEST_CASE("distributed worker: Unicode executable paths survive spawning")
     worker.dispatch(slots, request);
     CHECK(worker.collect(slots).error.empty());
     CHECK_NOTHROW(worker.stop());
+}
+
+TEST_CASE("distributed worker: nonblocking exit polling reaps without losing the live channel")
+{
+    hgraph_test::register_distributed_test_recipes();
+    WorkerProcess worker = spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, test_recipe_key(), MIN_ST, worker_end);
+    REQUIRE_FALSE(worker.try_wait_for_exit().has_value());
+    CHECK(worker.channel().open());
+    worker.channel().close();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    std::optional<int> code;
+    while (!(code = worker.try_wait_for_exit()) && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    REQUIRE(code.has_value());
+    CHECK(*code == 0);
+    CHECK_FALSE(worker.running());
+    CHECK(worker.pid() == 0);
+    CHECK_FALSE(worker.channel().open());
+    CHECK(worker.try_wait_for_exit() == 0);
+    CHECK(worker.wait_for_exit() == 0);
 }

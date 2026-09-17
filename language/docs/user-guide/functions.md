@@ -974,7 +974,9 @@ fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
     inject scheduler
 
     start {
-        scheduler.schedule(0s)
+        if ticks < max_ticks {
+            scheduler.schedule(0s)
+        }
     }
 
     when scheduled() {
@@ -989,19 +991,24 @@ fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
 
 `passivate(input)` stops a temporal parameter from activating the node;
 `activate(input)` lets it again. Both are runtime statements whose argument
-is a direct parameter of the function, not a projection. A passive input keeps
-its value and validity and can still be read:
+is a direct parameter of the function, not a projection. They are available
+only during evaluation; `start` and `stop` cannot access temporal inputs.
+A passive input keeps its value and validity and can still be read:
 
 ```hgl
 fn first_ticks(value: i64, const count: i64) -> i64 {
     state seen: i64 = 0
 
     when modified(value) && valid(value) {
-        seen += 1
         if seen >= count {
             passivate(value)
+        } else {
+            seen += 1
+            if seen >= count {
+                passivate(value)
+            }
+            return value
         }
-        return value
     }
 }
 ```

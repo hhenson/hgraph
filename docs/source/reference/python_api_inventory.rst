@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 213
+     - 216
    * - Public operator groups
      - 188
    * - Public submodules
@@ -146,6 +146,7 @@ Top-level wildcard exports
    * - ``ZonedDateTime``
    * - ``adaptor``
    * - ``adaptor_impl``
+   * - ``bind_``
    * - ``cast_``
    * - ``collect``
    * - ``combine``
@@ -202,6 +203,7 @@ Top-level wildcard exports
    * - ``pass_through``
    * - ``pass_through_node``
    * - ``passive``
+   * - ``pipeline_``
    * - ``push_queue``
    * - ``record_replay_scope``
    * - ``reduce``
@@ -229,6 +231,7 @@ Top-level wildcard exports
    * - ``set_time_zone_provider``
    * - ``shape_of_table_type``
    * - ``sink_node``
+   * - ``spawn_``
    * - ``subscription_service``
    * - ``switch_``
    * - ``table_schema``

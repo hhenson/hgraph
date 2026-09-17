@@ -2952,3 +2952,18 @@ TEST_CASE("collection intrinsics reject unsupported shapes and argument forms", 
         CHECK(unit.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("a scheduler source admits a bare handler with vacuous defaults", "[codegen][runtime][lifecycle]") {
+    Unit unit{R"(
+module checks.bare_source
+export fn dormant() -> bool {
+    inject scheduler
+    start { scheduler.schedule(0s) }
+    when { return true }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "scheduler.schedule("));
+}

@@ -10,6 +10,7 @@
 #define HGRAPH_RUNTIME_EXECUTOR_H
 
 #include <hgraph/runtime/executor_type_ref.h>
+#include <hgraph/runtime/executor_activity.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
 
@@ -148,6 +149,8 @@ namespace hgraph
             Eval-thread only. */
         void (*add_evaluation_notification_impl)(const void *context, void *memory,
                                                  std::function<void()> fn, bool before) = nullptr;
+        ExecutorActivityWake (*attach_activity_impl)(const void *context, void *memory, ExecutorActivity activity) = nullptr;
+        void (*detach_activity_impl)(const void *context, void *memory, ExecutorActivity activity) = nullptr;
         bool (*stop_requested_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*start_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*end_time_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -221,6 +224,10 @@ namespace hgraph
             ``EvaluationEngineApi.add_*_evaluation_notification``). */
         void add_before_evaluation_notification(std::function<void()> fn) const;
         void add_after_evaluation_notification(std::function<void()> fn) const;
+
+        /** Owner-thread only. Externally driven executors refuse activities. */
+        [[nodiscard]] ExecutorActivityWake attach_activity(ExecutorActivity activity) const;
+        void detach_activity(ExecutorActivity activity) const;
 
       private:
         ExecutorPtr pointer_{};

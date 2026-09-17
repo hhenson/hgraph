@@ -2436,6 +2436,31 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
               .find("injectable: 'out' requires a function output") != std::string::npos);
 }
 
+TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lifecycle]") {
+    CHECK(completion_diagnostics("module checks.unscheduled_source\n"
+                                 "fn source(const value: i64) -> i64 { when { return value } }\n")
+              .find("injectable: a runtime function without temporal parameters must 'inject scheduler'") != std::string::npos);
+    CHECK(completes("module checks.scheduled_source\n"
+                    "fn source() -> bool {\n"
+                    "    inject scheduler\n"
+                    "    start { scheduler.schedule(0s) }\n"
+                    "    when scheduled() { return true }\n"
+                    "}\n"));
+}
+
+TEST_CASE("typed HIR rejects input activity in lifecycle hooks", "[ir][typed][lifecycle]") {
+    for (const std::string hook : {"start", "stop"}) {
+        for (const std::string operation : {"passivate", "activate"}) {
+            const std::string source = "module checks.activity_hook\n"
+                                       "fn f(value: i64) -> i64 {\n    " + hook + " { " + operation +
+                                       "(value) }\n    when { return value }\n}\n";
+            INFO(source);
+            CHECK(completion_diagnostics(source).find("phase: '" + operation +
+                  "' needs temporal inputs, which are unavailable during " + hook) != std::string::npos);
+        }
+    }
+}
+
 TEST_CASE("typed HIR constrains functional output mutations", "[ir][typed][collection][mutation]") {
     CHECK(completes("module checks.output_mutations\n"
                     "fn set_ops(value: i64) -> set<i64> {\n"
