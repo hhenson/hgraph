@@ -112,6 +112,25 @@ and body are real C++. HGL generates the function name and return type, marks
 the function `noexcept`, formats it with `clang-format`, and emits a direct call.
 It does not create or subclass an hgraph operator for the helper.
 
+A body that may raise says so with `throws` after the signature:
+
+```hgl
+native fn checked_reciprocal(value: f64) -> f64 throws {
+    cpp(hgraph::Float value) {
+        if (value == 0.0) { throw std::domain_error("checked_reciprocal: division by zero"); }
+        return 1.0 / value;
+    }
+}
+```
+
+The generated function is then not `noexcept`. A raise ends the node's
+evaluation: if the node's error output is captured (`exception_time_series`,
+or `try_except` around the graph) it ticks a `NodeError` carrying the message;
+otherwise the exception propagates out of the graph. Outputs written earlier in
+the same evaluation stand, so call fallible helpers before writing. HGL has no
+`try` of its own. A `noexcept` body that raises anyway terminates the process,
+as in C++.
+
 For temporal `list`, `set`, `map`, and `rolling` parameters, C++ receives the
 corresponding live input view. A scalar temporal parameter receives its current
 value. Generics in the HGL signature can select the overload even when the C++

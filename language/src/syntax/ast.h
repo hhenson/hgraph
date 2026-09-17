@@ -514,6 +514,9 @@ namespace hgl::syntax::ast
         Name                          name{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
+        /// `throws`: the C++ body may raise; the exception ends the evaluation
+        /// under hgraph's node error model (ADR 0009).
+        bool                          throws{false};
         ConstraintId                  requirements{no_node};
         CppImplementation             implementation{};
     };

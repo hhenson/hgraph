@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_input/base_view.h>
@@ -14,7 +15,6 @@
 #include <hgraph/types/time_series/ts_input/set_view.h>
 #include <hgraph/types/time_series/ts_input/window_view.h>
 
-#include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -60,6 +60,11 @@ namespace hgraph_::native
         hgraph::Int      bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
         hgraph::Int      bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
         hgraph::Int      as_int(const hgraph::Bool &value) noexcept;
+        hgraph::Int      power(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Float    power__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs);
+        hgraph::Int      shift_left(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Int      shift_right(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Str      slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) noexcept;
         hgraph::Int      as_int__candidate_2(const hgraph::Float &value) noexcept;
         hgraph::Float    as_float(const hgraph::Bool &value) noexcept;
         hgraph::Float    as_float__candidate_2(const hgraph::Int &value) noexcept;

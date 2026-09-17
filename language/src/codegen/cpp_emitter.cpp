@@ -762,7 +762,10 @@ namespace hgl::codegen
             const std::string           symbol    = native_cpp_symbol(id);
             const std::size_t           separator = symbol.rfind("::");
             const std::string           name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
-            const std::string signature = native_result_type(function) + " " + name + "(" + function.cpp_parameters + ") noexcept";
+            // A `throws` native may raise; its exception ends the evaluation
+            // under hgraph's node error model. Everything else stays noexcept.
+            const std::string signature = native_result_type(function) + " " + name + "(" + function.cpp_parameters + ")" +
+                                          (function.throws ? "" : " noexcept");
             if (declaration) {
                 out.line(signature + ";");
                 return;

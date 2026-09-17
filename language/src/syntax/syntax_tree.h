@@ -91,6 +91,7 @@ namespace hgl::syntax
         Constraint,
         RequiresClause,
         OptionalRequiresClause,
+        ThrowsClause,
         FunctionDecl,
         CppImplementation,
         CppIncludeDecl,

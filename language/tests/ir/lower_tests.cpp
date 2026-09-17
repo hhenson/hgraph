@@ -656,7 +656,7 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 }
 
-native fn len<T>(value: set<T>) -> i64 {
+native fn len<T>(value: set<T>) -> i64 throws {
     cpp(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 }
 
@@ -673,6 +673,8 @@ fn size(value: set<i64>) -> i64 {
     const hir::NativeFunction &set_len  = lowered.hir.native_functions[1];
     CHECK(list_len.source_defined);
     CHECK(set_len.source_defined);
+    CHECK_FALSE(list_len.throws);
+    CHECK(set_len.throws);
     CHECK(list_len.family == set_len.family);
     CHECK(list_len.family != list_len.symbol);
     CHECK(list_len.candidate_identity == "checks.source_native::len#0");

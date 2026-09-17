@@ -751,6 +751,7 @@ namespace hgl::hgraph_ir
                     }
                     target.result                 = lower_type(source.result);
                     target.phases                 = source.phases;
+                    target.throws                 = source.throws;
                     target.public_headers         = source.public_headers;
                     target.cmake_packages         = source.cmake_packages;
                     target.imported_targets       = source.imported_targets;

@@ -1423,15 +1423,18 @@
       ]
     },
     "lshift_": {
-      "status": "blocked",
+      "status": "implemented",
       "priority": 1,
-      "reason": "Checked shift-count kernel and error propagation.",
-      "completed_domains": [],
+      "reason": "i64 body through the checked `shift_left` native binding; negative and too-large counts raise the native kernel's exception (ADR 0009). Itemwise TSL/TSB candidates remain (B4).",
+      "completed_domains": [
+        "i64 body through the checked `shift_left` native binding."
+      ],
       "blockers": [
-        "B1"
+        "B4"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/logical.h"
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "lt_": {
@@ -1832,15 +1835,19 @@
       ]
     },
     "pow_": {
-      "status": "blocked",
+      "status": "implemented-slice",
       "priority": 1,
-      "reason": "Checked/error-capable kernels or non-scalar result/domain bindings.",
-      "completed_domains": [],
+      "reason": "i64/f64 and mixed numeric bodies through the checked `power` native binding; the native exceptions (negative integer exponent, overflow, zero to a negative power) are raised identically (ADR 0009). Remaining: the `divide_by_zero` policy parameter (enum, B3) and itemwise TSL/TSB candidates (B4).",
+      "completed_domains": [
+        "i64/f64 and mixed numeric bodies through the checked `power` native binding."
+      ],
       "blockers": [
-        "B1"
+        "B3",
+        "B4"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/arithmetic.h"
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "print_": {
@@ -2171,15 +2178,18 @@
       ]
     },
     "rshift_": {
-      "status": "blocked",
+      "status": "implemented",
       "priority": 1,
-      "reason": "Checked shift-count kernel and error propagation.",
-      "completed_domains": [],
+      "reason": "i64 body through the checked `shift_right` native binding; negative and too-large counts raise the native kernel's exception (ADR 0009). Itemwise TSL/TSB candidates remain (B4).",
+      "completed_domains": [
+        "i64 body through the checked `shift_right` native binding."
+      ],
       "blockers": [
-        "B1"
+        "B4"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/logical.h"
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "sample": {
@@ -2352,15 +2362,16 @@
       ]
     },
     "substr": {
-      "status": "blocked",
+      "status": "implemented",
       "priority": 1,
-      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
-      "completed_domains": [],
-      "blockers": [
-        "B1"
+      "reason": "Live str/i64/i64 slice through the `slice` native value binding with Python slice normalisation. The parallel identity names the positions `begin`/`end` because `start` is an HGL reserved word.",
+      "completed_domains": [
+        "Live str/i64/i64 slice through the `slice` native value binding."
       ],
+      "blockers": [],
       "evidence": [
-        "include/hgraph/lib/std/operators/string.h"
+        "include/hgraph/lib/std/operators/string.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "sum_": {
@@ -2759,11 +2770,11 @@
   "blockers": {
     "B1": {
       "priority": 1,
-      "summary": "Native errors and owned results: source native functions currently use a noexcept value/view envelope. Checked arithmetic, parsing, allocation-heavy strings and throwing policies need the admitted exception/ownership contract before binding them.",
+      "summary": "Native errors and owned results: the exception half is admitted (ADR 0009: `throws` natives, descriptor policy `translated`, a raise ends the evaluation under hgraph's node error model) and scalar results including `str` are returned by value. Still missing: owned sequence/collection results (`split`), regex and formatting kernels that carry compiled state or packs (`match_`, `replace`, `format_`), and the coupled quotient/remainder result of `divmod_`.",
       "evidence": [
+        "language/docs/design/decisions/0009-native-errors-and-the-node-error-model.md",
         "language/docs/design/native-interface.md",
-        "language/docs/design/roadmap.md",
-        "include/hgraph/lib/std/operators/impl/arithmetic_impl.h"
+        "include/hgraph/lib/std/operators/impl/string_impl.h"
       ]
     },
     "B2": {

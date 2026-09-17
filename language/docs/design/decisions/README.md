@@ -13,4 +13,5 @@ syntax unresolved and named as such.
 - [0006: Explicit source parts form one logical module](0006-multi-file-module-parts.md)
 - [0007: Explicit parameter-pack shapes](0007-parameter-packs.md)
 - [0008: Temporal programming, value functions, and target mappings](0008-temporal-contracts-and-target-mappings.md)
+- [0009: Native functions may raise, under hgraph's node error model](0009-native-errors-and-the-node-error-model.md)
 - [0010: Clock and scheduler capabilities, scheduled handlers, and input activity](0010-lifecycle-capabilities.md)

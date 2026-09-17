@@ -666,7 +666,7 @@ namespace hgl::hgraph_ir
                 if (index != 0U) { out << ", "; }
                 out << native_phase_names[static_cast<std::size_t>(native.phases[index])];
             }
-            out << "]\n";
+            out << "] exception=" << (native.throws ? "translated" : "noexcept") << '\n';
         }
 
         out << "callables\n";

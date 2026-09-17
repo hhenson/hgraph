@@ -263,8 +263,8 @@ reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
 through each applied parent, so a child contract refers only to its own generic
 scope even when parent parameters have different names. `hgl check
---dump-hgraph-ir` prints that representation. The
-result is marked `Bodies`. No HIR symbol, expression, statement, block, or
+--dump-hgraph-ir` prints that representation, including each native function's
+`exception=noexcept` or `exception=translated` policy. The result is marked `Bodies`. No HIR symbol, expression, statement, block, or
 declaration ID remains in it. The direct evaluator can consume this form and
 perform in-process registry resolution while it wires.
 
@@ -1116,8 +1116,8 @@ membership history across source rebinds; use a composition projection for it.
 Runtime `contains`, strict `at`, `front`/`back`, and window `time_at`/
 `removed_value` lower directly to the typed public input APIs. Child value reads
 check validity before accessing retained storage. These are compiler intrinsics,
-not source-native `noexcept` functions: lookup errors propagate through node
-evaluation. See the [surface completion record](../design/native-surface-proposal.md)
+not source-native functions: lookup errors propagate through node evaluation,
+the same path a `throws` native takes (ADR 0009). See the [surface completion record](../design/native-surface-proposal.md)
 for current shape coverage and the outstanding nullable `get` lowering.
 
 For runtime collection-value operands, the typed HIR represents `keys`,
@@ -1281,8 +1281,9 @@ or consult the registry.
 The descriptor's native section shares the same type and signature arenas as
 the HGL interface. It records opaque and atomic native types plus declaration
 phase, effects, ownership and borrowed-lifetime relationships, exception
-policy, and thread-safety policy. The reader enforces the first native safety
-envelope: evaluation declarations cannot block or translate exceptions,
+policy, and thread-safety policy. The reader enforces the native safety
+envelope: evaluation declarations cannot block (a `translated` exception
+policy is admitted there since ADR 0009; a raise ends the evaluation),
 mutation must name exactly one mutable borrowed argument, shared ownership is
 not part of ABI version 1, borrowed results must name a borrowed argument, and
 lifecycle metadata must match the installed ABI contract.
@@ -1812,7 +1813,9 @@ expression is read from the syntax tree.
   implicitly lifts the native function into a node. Argument order/names,
   exact types, and `const` roles are rechecked at the IR and emission boundaries.
   A source native emits a plain `noexcept` function in the generated module's
-  `native` namespace and a descriptor declaration naming that exact symbol.
+  `native` namespace and a descriptor declaration naming that exact symbol;
+  with `throws` the function has no exception specification and the
+  declaration's policy is `translated`.
   Same-named HGL candidates receive stable `__candidate_N` suffixes after the
   first candidate, preventing erased view projections with identical C++
   signatures from becoming redefinitions.

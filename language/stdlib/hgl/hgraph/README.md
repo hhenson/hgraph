@@ -259,7 +259,9 @@ source signatures, test evidence and outstanding capabilities. Native value
 bindings count; delegation to an existing temporal operator stays pending.
 
 - `operators.hgl`: HGL arithmetic/comparison/Boolean bodies and exposed native
-  value projections; binary extrema, mean and string membership.
+  value projections; binary extrema, mean, string membership and `substr`;
+  checked `pow_`, `lshift_` and `rshift_` through `throws` native bindings
+  of the reviewed lifted kernels (a raise ends the evaluation, ADR 0009).
 - `standard.hgl`: collection queries, membership/index search, map accumulation, keyed
   construction/removal and named scalar
   conversions (`to_int`, `to_float`, `to_bool`, `to_date`, `to_datetime`).

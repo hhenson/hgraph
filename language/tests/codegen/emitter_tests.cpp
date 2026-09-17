@@ -543,15 +543,36 @@ native fn increment(value: f64) -> f64 {
     }
 }
 
+native fn reciprocal(value: f64) -> f64 throws {
+    cpp(hgraph::Float value) {
+        if (value == 0.0) { throw std::domain_error("reciprocal: division by zero"); }
+        return 1.0 / value;
+    }
+}
+
 export fn incremented(value: f64) -> f64 {
     when {
         return increment(value)
+    }
+}
+
+export fn inverted(value: f64) -> f64 {
+    when {
+        return reciprocal(value)
     }
 }
 )"};
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
+    // A `throws` native is emitted without noexcept; its siblings keep it.
+    CHECK(contains(emitted->header, "hgraph::Float reciprocal(hgraph::Float value);"));
+    CHECK(contains(emitted->source, "hgraph::Float reciprocal(hgraph::Float value)"));
+    CHECK_FALSE(contains(emitted->source, "reciprocal(hgraph::Float value) noexcept"));
+    CHECK(contains(emitted->header, "checks::inline_native::native::reciprocal(value.value())"));
+    CHECK(contains(emitted->descriptor, "\"identity\": \"checks.inline_native::reciprocal\""));
+    CHECK(contains(emitted->descriptor, "\"exception\": \"translated\""));
+    CHECK(contains(emitted->descriptor, "\"exception\": \"noexcept\""));
     CHECK(contains(emitted->header, "#include <cstdint>"));
     CHECK(contains(emitted->header, "#include \"native/helpers.h\""));
     CHECK(emitted->header.find("#include <cstdint>") == emitted->header.rfind("#include <cstdint>"));

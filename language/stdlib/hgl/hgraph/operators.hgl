@@ -571,6 +571,43 @@ operator contains_(ts: str, item: str) -> bool
 impl fn contains_(ts: str, item: str) -> bool {
     when { return native::contains(ts, item) }
 }
+
+# Python slice semantics through the exposed native value function; the
+# native operator's live start/end positions are ordinary temporal inputs.
+# `start` is a reserved word in HGL, so the parallel identity names the
+# positions `begin`/`end`; positional calls are unaffected.
+operator substr(s: str, begin: i64, end: i64) -> str
+impl fn substr(s: str, begin: i64, end: i64) -> str {
+    when { return native::slice(s, begin, end) }
+}
+
+# Checked arithmetic: the native `throws` bindings raise on a negative
+# integer exponent, an overflowing integer power, zero raised to a negative
+# power, and a negative or too-large shift count. The raise ends the
+# evaluation under hgraph's node error model (ADR 0009); there is no divide-
+# by-zero policy parameter on these parallel identities yet.
+operator pow_<L, R, O>(lhs: L, rhs: R) -> O
+impl fn pow_(lhs: i64, rhs: i64) -> i64 {
+    when { return native::power(lhs, rhs) }
+}
+impl fn pow_(lhs: f64, rhs: f64) -> f64 {
+    when { return native::power(lhs, rhs) }
+}
+impl fn pow_(lhs: i64, rhs: f64) -> f64 {
+    when { return native::power(lhs + 0.0, rhs) }
+}
+impl fn pow_(lhs: f64, rhs: i64) -> f64 {
+    when { return native::power(lhs, rhs + 0.0) }
+}
+
+operator lshift_<T>(lhs: T, rhs: T) -> T
+operator rshift_<T>(lhs: T, rhs: T) -> T
+impl fn lshift_(lhs: i64, rhs: i64) -> i64 {
+    when { return native::shift_left(lhs, rhs) }
+}
+impl fn rshift_(lhs: i64, rhs: i64) -> i64 {
+    when { return native::shift_right(lhs, rhs) }
+}
 operator mean<L, R>(lhs: L, rhs: R) -> f64
 impl fn mean(lhs: i64, rhs: i64) -> f64 {
     when { return ((lhs + 0.0) + (rhs + 0.0)) / 2.0 }
@@ -598,6 +635,20 @@ test {
     test zero_sign_and_mean {
         assert eval(positive_sign, ts: [-1, 0, 1]) == [-1, 1, 1]
         assert eval(average, lhs: [2, 4], rhs: [4, 8]) == [3.0, 6.0]
+    }
+    fn integer_power(lhs: i64, rhs: i64) -> i64 => pow_(lhs, rhs)
+    fn mixed_power(lhs: i64, rhs: f64) -> f64 => pow_(lhs, rhs)
+    fn shifted_left(lhs: i64, rhs: i64) -> i64 => lshift_(lhs, rhs)
+    fn shifted_right(lhs: i64, rhs: i64) -> i64 => rshift_(lhs, rhs)
+    fn sliced(s: str, begin: i64, end: i64) -> str => substr(s, begin, end)
+    test checked_arithmetic_values {
+        assert eval(integer_power, lhs: [2, 3, _], rhs: [10, _, 2]) == [1024, 59049, 9]
+        assert eval(mixed_power, lhs: [4, 2], rhs: [0.5, -1.0]) == [2.0, 0.5]
+        assert eval(shifted_left, lhs: [1, 0], rhs: [4, 70]) == [16, 0]
+        assert eval(shifted_right, lhs: [-16, 1], rhs: [2, 70]) == [-4, 0]
+    }
+    test substring_slices {
+        assert eval(sliced, s: ["hgraph", _, "hgraph"], begin: [1, 2, -2], end: [3, 4, 100]) == ["gr", "ra", "ph"]
     }
 }
 

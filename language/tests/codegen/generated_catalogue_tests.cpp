@@ -78,6 +78,33 @@ TEST_CASE("catalogue lifecycle bodies passivate exactly as the native nodes do",
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
 }
 
+TEST_CASE("catalogue checked kernels raise exactly as the native operators do", "[codegen][catalogue][throws]") {
+    register_catalogue();
+    check_parity<scalar::pow_, stdlib::pow_>(values<Int>(2, 3, none, -2), values<Int>(10, none, 2, 3));
+    check_parity<scalar::pow_, stdlib::pow_>(values<Float>(2.0, 4.0, 0.0), values<Float>(0.5, -1.0, 2.0));
+    check_parity<scalar::pow_, stdlib::pow_>(values<Int>(4, 2), values<Float>(0.5, -1.0));
+    check_parity<scalar::pow_, stdlib::pow_>(values<Float>(2.5, 9.0), values<Int>(2, 0));
+    check_parity<scalar::lshift_, stdlib::lshift_>(values<Int>(1, 0, -1, 3), values<Int>(4, 70, 1, 62));
+    check_parity<scalar::rshift_, stdlib::rshift_>(values<Int>(-16, 1, -1), values<Int>(2, 70, 70));
+    check_parity<scalar::substr, stdlib::substr>(values<Str>("hgraph", "hgraph", none, "hgraph"), values<Int>(1, -2, 0, 4),
+                                                 values<Int>(3, 100, 2, 2));
+
+    // The HGL bodies raise the native kernel's own exception. It ends the
+    // evaluation and reaches the harness exactly as the native node's does.
+    CHECK_THROWS_WITH(eval_node<scalar::pow_>(values<Int>(2), values<Int>(-1)),
+                      Catch::Matchers::ContainsSubstring("pow_: negative exponent cannot produce an integer result"));
+    CHECK_THROWS_WITH(eval_node<scalar::pow_>(values<Int>(2), values<Int>(64)),
+                      Catch::Matchers::ContainsSubstring("overflow"));
+    CHECK_THROWS_WITH(eval_node<scalar::pow_>(values<Float>(0.0), values<Float>(-1.0)),
+                      Catch::Matchers::ContainsSubstring("pow_: zero cannot be raised to a negative power"));
+    CHECK_THROWS_WITH(eval_node<scalar::lshift_>(values<Int>(1), values<Int>(-1)),
+                      Catch::Matchers::ContainsSubstring("shift count must be non-negative"));
+    CHECK_THROWS_WITH(eval_node<scalar::lshift_>(values<Int>(1), values<Int>(64)),
+                      Catch::Matchers::ContainsSubstring("shift count is too large"));
+    CHECK_THROWS_WITH(eval_node<scalar::rshift_>(values<Int>(1), values<Int>(-1)),
+                      Catch::Matchers::ContainsSubstring("shift count must be non-negative"));
+}
+
 TEST_CASE("catalogue equality keeps native tolerance and Boolean bodies keep truthiness", "[codegen][catalogue]") {
     register_catalogue();
     const auto floating = values<Float>(0.0, -0.0, 1.0, 1.0 + 1e-11, 2.0);

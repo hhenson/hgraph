@@ -566,6 +566,9 @@ namespace hgl::ir::hir
         std::vector<NativeParameter>  parameters{};
         TypeId                        result{};
         std::vector<NativePhase>      phases{};
+        /// The call may raise; a raised exception ends the evaluation under
+        /// hgraph's node error model. Descriptor policy "translated".
+        bool                          throws{false};
         std::vector<std::string>      public_headers{};
         std::vector<std::string>      cmake_packages{};
         std::vector<std::string>      imported_targets{};

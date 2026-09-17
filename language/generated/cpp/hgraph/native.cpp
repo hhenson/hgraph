@@ -109,13 +109,44 @@ namespace hgraph_::native
         // scalar_values.hgl:195
         hgraph::Int as_int(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:199
+        // scalar_values.hgl:207
+        hgraph::Int power(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:213
+        hgraph::Float power__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
+            return hgraph::stdlib::scalar_pow<hgraph::Float>::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:219
+        hgraph::Int shift_left(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_lshift::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:225
+        hgraph::Int shift_right(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_rshift::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:233
+        hgraph::Str slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) noexcept {
+            const auto size      = static_cast<hgraph::Int>(value.size());
+            const auto normalize = [size](hgraph::Int index) {
+                return static_cast<std::size_t>(std::clamp(index < 0 ? size + index : index, hgraph::Int{0}, size));
+            };
+            const std::size_t first  = normalize(begin);
+            const std::size_t finish = std::max(first, normalize(end));
+            return value.substr(first, finish - first);
+        }
+
+        // scalar_values.hgl:268
         hgraph::Int as_int__candidate_2(const hgraph::Float &value) noexcept { return static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:203
+        // scalar_values.hgl:272
         hgraph::Float as_float(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Float>(value); }
 
-        // scalar_values.hgl:207
+        // scalar_values.hgl:276
         hgraph::Float as_float__candidate_2(const hgraph::Int &value) noexcept { return static_cast<hgraph::Float>(value); }
 
         // sequences.hgl:6

@@ -204,7 +204,7 @@ function_decl   = ( [ "export" | "impl" ], "fn" | "const", "fn" ), identifier,
                   [ requires_clause ], function_body;
 native_function_decl
                 = "native", "fn", identifier, [ generic_parameters ],
-                  function_signature, [ requires_clause ],
+                  function_signature, [ "throws" ], [ requires_clause ],
                   "{", [ NL ], cpp_implementation, [ NL ], "}";
 cpp_implementation
                 = "cpp", cpp_parameter_list, cpp_compound_statement;
@@ -316,7 +316,12 @@ endpoint types rather than values.
 
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have
-defaults. The grammar recognizes an optional `requires` clause so the syntax
+defaults. An optional `throws` after the signature declares that the body may
+raise; the generated function then has no `noexcept` and the descriptor
+records the `translated` policy. `throws` is a contextual keyword, like
+`native`, and cannot be used as a name. A raise ends the evaluation under
+hgraph's node error model
+([ADR 0009](../design/decisions/0009-native-errors-and-the-node-error-model.md)). The grammar recognizes an optional `requires` clause so the syntax
 tree remains future-compatible; semantic analysis currently rejects it because
 descriptor constraints cannot yet be reconstructed on import. The lexer
 retains the balanced C++ parameter list and compound statement verbatim,
