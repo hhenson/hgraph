@@ -83,6 +83,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::Constraint, "constraint"},
             KindName{SyntaxKind::RequiresClause, "requires_clause"},
             KindName{SyntaxKind::OptionalRequiresClause, "optional_requires_clause"},
+            KindName{SyntaxKind::ThrowsClause, "throws_clause"},
             KindName{SyntaxKind::FunctionDecl, "function_decl"},
             KindName{SyntaxKind::CppImplementation, "cpp_implementation"},
             KindName{SyntaxKind::CppIncludeDecl, "cpp_include_decl"},

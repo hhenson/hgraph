@@ -811,10 +811,109 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:575
-        struct mean_impl_98
+        // operators.hgl:580
+        struct substr_impl_98
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#98";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.substr#98";
+            static void eval([[maybe_unused]] hgraph::In<"s", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     s,
+                             [[maybe_unused]] hgraph::In<"begin", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> begin,
+                             [[maybe_unused]] hgraph::In<"end", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   end,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
+                if ((s.modified() || begin.modified() || end.modified()) && (s.valid() && begin.valid() && end.valid())) {
+                    hgl_output.set(hgraph_::native::native::slice(s.value(), begin.value(), end.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:590
+        struct pow__impl_100
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pow_#100";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::power(lhs.value(), rhs.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:593
+        struct pow__impl_101
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pow_#101";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::power__candidate_2(lhs.value(), rhs.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:596
+        struct pow__impl_102
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pow_#102";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::power__candidate_2((lhs.value() + hgraph::Float{0.0}), rhs.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:599
+        struct pow__impl_103
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pow_#103";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::power__candidate_2(lhs.value(), (rhs.value() + hgraph::Float{0.0})));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:605
+        struct lshift__impl_106
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.lshift_#106";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::shift_left(lhs.value(), rhs.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:608
+        struct rshift__impl_107
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.rshift_#107";
+            static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
+                             [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    hgl_output.set(hgraph_::native::native::shift_right(lhs.value(), rhs.value()));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:612
+        struct mean_impl_109
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#109";
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
@@ -826,10 +925,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:578
-        struct mean_impl_99
+        // operators.hgl:615
+        struct mean_impl_110
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#99";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#110";
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
@@ -841,10 +940,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:581
-        struct mean_impl_100
+        // operators.hgl:618
+        struct mean_impl_111
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#100";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#111";
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
@@ -856,10 +955,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:584
-        struct mean_impl_101
+        // operators.hgl:621
+        struct mean_impl_112
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#101";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.mean#112";
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
@@ -871,10 +970,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:587
-        struct pos__impl_102
+        // operators.hgl:624
+        struct pos__impl_113
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pos_#102";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.pos_#113";
             static void eval([[maybe_unused]] hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::TimeDelta>> hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -884,10 +983,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:608
-        struct eq_epsilon_impl_110
+        // operators.hgl:659
+        struct eq_epsilon_impl_128
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#110";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#128";
             static auto                            defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
@@ -901,10 +1000,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:614
-        struct eq_epsilon_impl_111
+        // operators.hgl:665
+        struct eq_epsilon_impl_129
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#111";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#129";
             static auto                            defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
@@ -918,10 +1017,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:620
-        struct eq_epsilon_impl_112
+        // operators.hgl:671
+        struct eq_epsilon_impl_130
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#112";
+            [[maybe_unused]] static constexpr auto name = "hgraph.operators.eq_epsilon#130";
             static auto                            defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval([[maybe_unused]] hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              [[maybe_unused]] hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
@@ -2060,14 +2159,21 @@ namespace hgraph_::operators_
             hgraph::register_overload<operators::max_, max__impl_93>();
             hgraph::register_overload<operators::max_, max__impl_94>();
             hgraph::register_overload<operators::contains_, contains__impl_96>();
-            hgraph::register_overload<operators::mean, mean_impl_98>();
-            hgraph::register_overload<operators::mean, mean_impl_99>();
-            hgraph::register_overload<operators::mean, mean_impl_100>();
-            hgraph::register_overload<operators::mean, mean_impl_101>();
-            hgraph::register_overload<operators::pos_, pos__impl_102>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_110>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_111>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_112>();
+            hgraph::register_overload<operators::substr, substr_impl_98>();
+            hgraph::register_overload<operators::pow_, pow__impl_100>();
+            hgraph::register_overload<operators::pow_, pow__impl_101>();
+            hgraph::register_overload<operators::pow_, pow__impl_102>();
+            hgraph::register_overload<operators::pow_, pow__impl_103>();
+            hgraph::register_overload<operators::lshift_, lshift__impl_106>();
+            hgraph::register_overload<operators::rshift_, rshift__impl_107>();
+            hgraph::register_overload<operators::mean, mean_impl_109>();
+            hgraph::register_overload<operators::mean, mean_impl_110>();
+            hgraph::register_overload<operators::mean, mean_impl_111>();
+            hgraph::register_overload<operators::mean, mean_impl_112>();
+            hgraph::register_overload<operators::pos_, pos__impl_113>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_128>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_129>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_130>();
             hgraph::register_overload<operators::add_, add__impl_19__i64__i64__i64__m0>();
             hgraph::register_overload<operators::add_, add__impl_19__i64__f64__f64__m1>();
             hgraph::register_overload<operators::add_, add__impl_19__f64__i64__f64__m2>();

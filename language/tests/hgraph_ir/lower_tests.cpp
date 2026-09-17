@@ -7,6 +7,7 @@
 #include "syntax/parser.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -82,7 +83,7 @@ namespace
         return nullptr;
     }
 
-    hgl::semantics::ModuleCatalog native_catalog() {
+    hgl::semantics::ModuleCatalog native_catalog(bool throws = false) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
         module.identity = "acme.stats";
@@ -95,6 +96,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = {hgl::semantics::NativeCallPhase::Evaluation},
+            .throws                 = throws,
             .public_headers         = {"acme/stats.h"},
             .cmake_packages         = {"acme"},
             .imported_targets       = {"acme::stats"},
@@ -440,7 +442,8 @@ fn adjusted(value: f64) -> f64 => double(value) - 1.0
 }
 
 TEST_CASE("hgraph IR owns descriptor-native exact calls and build metadata", "[hgraph-ir][native]") {
-    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    const bool throws = GENERATE(false, true);
+    const hgl::semantics::ModuleCatalog catalog = native_catalog(throws);
     Lowered                             lowered{R"(
 module checks.native
 use acme.stats::{blend}
@@ -456,6 +459,9 @@ fn smooth(value: f64) -> f64 {
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.identity == "acme.stats::blend");
     CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.throws == throws);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(
+              throws ? "phases=[evaluation] exception=translated" : "phases=[evaluation] exception=noexcept") != std::string::npos);
     CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
 
     const auto call = std::ranges::find_if(
@@ -480,7 +486,7 @@ module checks.source_native
 cpp include <hgraph/types/time_series/ts_input/list_view.h>
 cpp include "native/helpers.h"
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 throws {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
     }
@@ -502,6 +508,8 @@ fn list_size(value: list<i64, 2>) -> i64 {
     REQUIRE(lowered.graph->native_functions.size() == 1U);
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.source_defined);
+    CHECK(native.throws);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("phases=[evaluation] exception=translated") != std::string::npos);
     CHECK(native.identity == "checks.source_native::len");
     CHECK(native.candidate_identity == "checks.source_native::len#0");
     REQUIRE(native.generics.size() == 2U);

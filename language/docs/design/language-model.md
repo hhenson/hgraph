@@ -946,10 +946,13 @@ decisions below. Each entry records what the compiler does today as observed
 behavior; none of it is an agreed language rule until its design record
 exists, and a backend description is not a substitute for one.
 
-- **Error model for runtime nodes.** No language rule. A generated node has
-  no exception surface of its own; what a throwing native kernel or a failed
-  evaluation does to the graph is whatever hgraph's node error capture does
-  ([Switch](switch.md) says only "the normal error path").
+- **Error model for runtime nodes.** Decided
+  ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)): a
+  raise, from a `throws` native, a strict intrinsic or a delegated native
+  operator, ends the evaluation under hgraph's node error model. Earlier
+  writes in that evaluation stand; a captured error output ticks a
+  `NodeError`, otherwise the exception propagates. HGL has no exception
+  surface of its own.
 - **Integer division, overflow, and NaN.** `i64 / i64` is typed `f64` by the
   checker (`src/ir/type_check.cpp`, `arithmetic_result`) and folded as a
   `Float` division (compiler-and-lowering.md, "Bodies"); the other operators

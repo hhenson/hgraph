@@ -303,8 +303,11 @@ namespace hgl::ir::detail
         const Signature   *signature = std::visit(
             [](const auto &node) -> const Signature   *{
                 using T = std::decay_t<decltype(node)>;
-                if constexpr (std::is_same_v<T, FunctionDecl> || std::is_same_v<T, OperatorDecl>) { return &node.signature; }
-                return nullptr;
+                if constexpr (std::is_same_v<T, FunctionDecl> || std::is_same_v<T, OperatorDecl>) {
+                    return &node.signature;
+                } else {
+                    return nullptr;
+                }
             },
             owner.node);
         if (signature == nullptr) { return nullptr; }

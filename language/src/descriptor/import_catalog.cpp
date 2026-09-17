@@ -215,6 +215,7 @@ namespace hgl::descriptor
             function.imported_targets       = descriptor.build.imported_targets;
             function.runtime_images         = descriptor.build.runtime_images;
             function.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            function.throws                 = declaration.exception_policy == NativeExceptionPolicy::Translated;
             if (function.name.empty()) {
                 return ReadError{"$.native.declarations[" + std::to_string(declaration_index) + "].identity",
                                  "native function identity must be '" + descriptor.module_identity + "::<name>'"};

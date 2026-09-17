@@ -276,6 +276,9 @@ namespace hgl::hgraph_ir
         std::vector<NativeParameter>      parameters{};
         TypeId                            result{};
         std::vector<ir::hir::NativePhase> phases{};
+        /// The call may raise (descriptor policy "translated"); a source
+        /// native is then emitted without `noexcept`.
+        bool                              throws{false};
         std::vector<std::string>          public_headers{};
         std::vector<std::string>          cmake_packages{};
         std::vector<std::string>          imported_targets{};

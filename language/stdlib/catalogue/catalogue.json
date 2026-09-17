@@ -5,11 +5,11 @@
   "blockers": {
     "B1": {
       "priority": 1,
-      "summary": "Native errors and owned results: source native functions currently use a noexcept value/view envelope. Checked arithmetic, parsing, allocation-heavy strings and throwing policies need the admitted exception/ownership contract before binding them.",
+      "summary": "Native errors and owned results: the exception half is admitted (ADR 0009: `throws` natives, descriptor policy `translated`, a raise ends the evaluation under hgraph's node error model) and scalar results including `str` are returned by value. Still missing: owned sequence/collection results (`split`), regex and formatting kernels that carry compiled state or packs (`match_`, `replace`, `format_`), and the coupled quotient/remainder result of `divmod_`.",
       "evidence": [
+        "language/docs/design/decisions/0009-native-errors-and-the-node-error-model.md",
         "language/docs/design/native-interface.md",
-        "language/docs/design/roadmap.md",
-        "include/hgraph/lib/std/operators/impl/arithmetic_impl.h"
+        "include/hgraph/lib/std/operators/impl/string_impl.h"
       ]
     },
     "B2": {
@@ -13120,7 +13120,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 607,
+          "line": 658,
           "declaration": "operator eq_epsilon<L, R>(lhs: L, rhs: R, const epsilon: f64 = 1e-10) -> bool"
         },
         {
@@ -13129,7 +13129,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 608,
+          "line": 659,
           "declaration": "impl fn eq_epsilon(lhs: f64, rhs: f64, const epsilon: f64 = 1e-10) -> bool"
         },
         {
@@ -13138,7 +13138,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 614,
+          "line": 665,
           "declaration": "impl fn eq_epsilon(lhs: i64, rhs: f64, const epsilon: f64 = 1e-10) -> bool"
         },
         {
@@ -13147,7 +13147,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 620,
+          "line": 671,
           "declaration": "impl fn eq_epsilon(lhs: f64, rhs: i64, const epsilon: f64 = 1e-10) -> bool"
         }
       ],
@@ -21080,15 +21080,18 @@
     {
       "name": "lshift_",
       "review": {
-        "status": "blocked",
+        "status": "implemented",
         "priority": 1,
-        "reason": "Checked shift-count kernel and error propagation.",
-        "completed_domains": [],
+        "reason": "i64 body through the checked `shift_left` native binding; negative and too-large counts raise the native kernel's exception (ADR 0009). Itemwise TSL/TSB candidates remain (B4).",
+        "completed_domains": [
+          "i64 body through the checked `shift_left` native binding."
+        ],
         "blockers": [
-          "B1"
+          "B4"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/logical.h"
+          "include/hgraph/lib/std/operators/logical.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -21304,7 +21307,26 @@
           "id": "lshift_:fd2fdf07b55f"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.operators",
+          "name": "lshift_",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 603,
+          "declaration": "operator lshift_<T>(lhs: T, rhs: T) -> T"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "lshift_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 605,
+          "declaration": "impl fn lshift_(lhs: i64, rhs: i64) -> i64"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -24789,7 +24811,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 574,
+          "line": 611,
           "declaration": "operator mean<L, R>(lhs: L, rhs: R) -> f64"
         },
         {
@@ -24798,7 +24820,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 575,
+          "line": 612,
           "declaration": "impl fn mean(lhs: i64, rhs: i64) -> f64"
         },
         {
@@ -24807,7 +24829,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 578,
+          "line": 615,
           "declaration": "impl fn mean(lhs: f64, rhs: f64) -> f64"
         },
         {
@@ -24816,7 +24838,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 581,
+          "line": 618,
           "declaration": "impl fn mean(lhs: i64, rhs: f64) -> f64"
         },
         {
@@ -24825,7 +24847,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 584,
+          "line": 621,
           "declaration": "impl fn mean(lhs: f64, rhs: i64) -> f64"
         },
         {
@@ -30320,7 +30342,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/operators.hgl",
-          "line": 587,
+          "line": 624,
           "declaration": "impl fn pos_(ts: duration) -> duration"
         }
       ],
@@ -30329,15 +30351,19 @@
     {
       "name": "pow_",
       "review": {
-        "status": "blocked",
+        "status": "implemented-slice",
         "priority": 1,
-        "reason": "Checked/error-capable kernels or non-scalar result/domain bindings.",
-        "completed_domains": [],
+        "reason": "i64/f64 and mixed numeric bodies through the checked `power` native binding; the native exceptions (negative integer exponent, overflow, zero to a negative power) are raised identically (ADR 0009). Remaining: the `divide_by_zero` policy parameter (enum, B3) and itemwise TSL/TSB candidates (B4).",
+        "completed_domains": [
+          "i64/f64 and mixed numeric bodies through the checked `power` native binding."
+        ],
         "blockers": [
-          "B1"
+          "B3",
+          "B4"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/arithmetic.h"
+          "include/hgraph/lib/std/operators/arithmetic.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -30861,7 +30887,53 @@
           "id": "pow_:fd2fdf07b55f"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.operators",
+          "name": "pow_",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 589,
+          "declaration": "operator pow_<L, R, O>(lhs: L, rhs: R) -> O"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "pow_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 590,
+          "declaration": "impl fn pow_(lhs: i64, rhs: i64) -> i64"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "pow_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 593,
+          "declaration": "impl fn pow_(lhs: f64, rhs: f64) -> f64"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "pow_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 596,
+          "declaration": "impl fn pow_(lhs: i64, rhs: f64) -> f64"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "pow_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 599,
+          "declaration": "impl fn pow_(lhs: f64, rhs: i64) -> f64"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -34519,15 +34591,18 @@
     {
       "name": "rshift_",
       "review": {
-        "status": "blocked",
+        "status": "implemented",
         "priority": 1,
-        "reason": "Checked shift-count kernel and error propagation.",
-        "completed_domains": [],
+        "reason": "i64 body through the checked `shift_right` native binding; negative and too-large counts raise the native kernel's exception (ADR 0009). Itemwise TSL/TSB candidates remain (B4).",
+        "completed_domains": [
+          "i64 body through the checked `shift_right` native binding."
+        ],
         "blockers": [
-          "B1"
+          "B4"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/logical.h"
+          "include/hgraph/lib/std/operators/logical.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -34743,7 +34818,26 @@
           "id": "rshift_:fd2fdf07b55f"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.operators",
+          "name": "rshift_",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 604,
+          "declaration": "operator rshift_<T>(lhs: T, rhs: T) -> T"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "rshift_",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 608,
+          "declaration": "impl fn rshift_(lhs: i64, rhs: i64) -> i64"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -37381,15 +37475,16 @@
     {
       "name": "substr",
       "review": {
-        "status": "blocked",
+        "status": "implemented",
         "priority": 1,
-        "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
-        "completed_domains": [],
-        "blockers": [
-          "B1"
+        "reason": "Live str/i64/i64 slice through the `slice` native value binding with Python slice normalisation. The parallel identity names the positions `begin`/`end` because `start` is an HGL reserved word.",
+        "completed_domains": [
+          "Live str/i64/i64 slice through the `slice` native value binding."
         ],
+        "blockers": [],
         "evidence": [
-          "include/hgraph/lib/std/operators/string.h"
+          "include/hgraph/lib/std/operators/string.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -37452,7 +37547,26 @@
           "id": "substr:503ce70f49cc"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.operators",
+          "name": "substr",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 579,
+          "declaration": "operator substr(s: str, begin: i64, end: i64) -> str"
+        },
+        {
+          "module": "hgraph.operators",
+          "name": "substr",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/operators.hgl",
+          "line": 580,
+          "declaration": "impl fn substr(s: str, begin: i64, end: i64) -> str"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -42137,11 +42251,56 @@
     },
     {
       "module": "hgraph.native",
+      "name": "power",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
+      "line": 207,
+      "declaration": "native fn power(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "power",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
+      "line": 213,
+      "declaration": "native fn power(lhs: f64, rhs: f64) -> f64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "shift_left",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
+      "line": 219,
+      "declaration": "native fn shift_left(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "shift_right",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
+      "line": 225,
+      "declaration": "native fn shift_right(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "slice",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
+      "line": 233,
+      "declaration": "native fn slice(value: str, begin: i64, end: i64) -> str"
+    },
+    {
+      "module": "hgraph.native",
       "name": "as_int",
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 199,
+      "line": 268,
       "declaration": "native fn as_int(value: f64) -> i64"
     },
     {
@@ -42150,7 +42309,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 203,
+      "line": 272,
       "declaration": "native fn as_float(value: bool) -> f64"
     },
     {
@@ -42159,7 +42318,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 207,
+      "line": 276,
       "declaration": "native fn as_float(value: i64) -> f64"
     },
     {
@@ -42608,12 +42767,12 @@
     },
     {
       "source": "language/stdlib/hgl/hgraph/operators.hgl",
-      "line": 605,
+      "line": 656,
       "declaration": "instantiate eq_<date, date>, eq_<datetime, datetime>, eq_<duration, duration>, ne_<date, date>, ne_<datetime, datetime>, ne_<duration, duration>, lt_<date, date>, lt_<datetime, datetime>, lt_<duration, duration>, le_<date, date>, le_<datetime, datetime>, le_<duration, duration>, gt_<date, date>, gt_<datetime, datetime>, gt_<duration, duration>, ge_<date, date>, ge_<datetime, datetime>, ge_<duration, duration>"
     },
     {
       "source": "language/stdlib/hgl/hgraph/operators.hgl",
-      "line": 627,
+      "line": 678,
       "declaration": "instantiate eq_<time, time>, ne_<time, time>"
     },
     {

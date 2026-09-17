@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Admit native functions that raise: `native fn ... throws` emits the C++
+  body without `noexcept`, records the descriptor policy `translated`, and
+  the reader accepts that policy in the evaluation phase. A raise ends the
+  evaluation under hgraph's node error model, now the language rule
+  (ADR 0009). `hgraph.native` binds the checked `power`, `shift_left`,
+  `shift_right` kernels and a Python-slice `slice`; `hgraph.operators` gains
+  parallel `pow_`, `lshift_`, `rshift_` and `substr` with native-parity
+  tests, including the exceptions.
 - Record the standard-library migration requirements ledger
   (`docs/design/migration-requirements.md`): the `HGL-MIG-001`–`015` and
   `HGL-LIB-001`–`004` identifiers the catalogue cites, each mapped to its

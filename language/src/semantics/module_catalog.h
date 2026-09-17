@@ -121,6 +121,8 @@ namespace hgl::semantics
         std::vector<ImportedParameter> parameters{};
         std::optional<ImportedType>    result{};
         std::vector<NativeCallPhase>   phases{};
+        /// Descriptor exception policy "translated": the call may raise.
+        bool                           throws{false};
         std::vector<std::string>       public_headers{};
         std::vector<std::string>       cmake_packages{};
         std::vector<std::string>       imported_targets{};

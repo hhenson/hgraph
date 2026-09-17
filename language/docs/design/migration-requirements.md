@@ -33,7 +33,7 @@ implies that every operator family using it has migrated.
 | MIG-001 module parts | implemented | — | [ADR 0006](decisions/0006-multi-file-module-parts.md) | Automatic discovery and package manifests are tooling, not language. |
 | MIG-002 parameter packs | implemented | B6 | [ADR 0007](decisions/0007-parameter-packs.md); stack #889–#897 merged 2026-09-11/12 | A runtime function accepts one aggregate pack input. |
 | MIG-003 algebraic properties | implemented, scoped | — | [Operators](operators.md) | Claims are not optimizer permissions; inverse/group/field vocabulary deferred. |
-| MIG-004 scalar/native boundary | partial | B1, B3 | [Native interface](native-interface.md), [native surface](native-surface-proposal.md) | Throwing/owning native results; imported atomic types; typed view shapes. |
+| MIG-004 scalar/native boundary | partial | B1, B3 | [Native interface](native-interface.md), [ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md), [native surface](native-surface-proposal.md) | Owned non-scalar native results; imported atomic types; typed view shapes. |
 | MIG-005 recordable state | partial | B4 | [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) settles cache vs state | Generic state without a default; sparse state; queues and windows; owned native state construction. |
 | MIG-006 collection mutation | implemented, node scope | B4 | [Language model](language-model.md#function-abstraction), typed C++ wrappers (#881–#885) | Graph-form mutation; live structural-child writes. |
 | MIG-007 delta forwarding | open | B4 | — | Type-preserving delta value versus a dedicated forwarding effect. |
@@ -41,7 +41,7 @@ implies that every operator family using it has migrated.
 | MIG-009 operator identity | partial | — (LIB-001) | Symbol mapping in [Operators](operators.md#fixed-symbol-to-name-mapping); imported-operator checkpoints 1–3 in the [roadmap](roadmap.md#imported-operator-migration-checkpoints) | Binding a compiled body to an imported production identity; keyword-colliding native names. |
 | MIG-010 implementation arity | partial | B6 | Pack cardinality (#891–#892), ranking in ADR 0007 | Fixed candidates refining a pack contract; implementation-specific scalar parameters. |
 | MIG-011 higher-order forms | partial | B6 | [Switch](switch.md), [Iteration](iteration.md), temporal `if` lowering | Explicit `switch` implementation; general map/reduce/mesh callable contracts. |
-| MIG-012 effects and capabilities | partial | B1, B2, B5 | Descriptor phase/effect/ownership metadata ([native interface](native-interface.md#descriptor-is-the-contract)) | Throwing calls, resources, additional approved effects, a closed vocabulary shared with descriptors. |
+| MIG-012 effects and capabilities | partial | B1, B2, B5 | Descriptor phase/effect/ownership metadata ([native interface](native-interface.md#descriptor-is-the-contract)); throwing evaluation calls ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)) | Resources, additional approved effects, a closed vocabulary shared with descriptors. |
 | MIG-013 library metadata | open | — | — | Structured documentation, defaults, stability and compatibility metadata on HGL declarations. |
 | MIG-014 empty input policies | open | B2 (LIB-002) | The gap is recorded in the [language model](language-model.md#function-abstraction) | A source form for an explicitly empty activation/validity set. |
 | MIG-015 generic publication | partial | B3 | `instantiate` with retained `_` slots; typed native views read live metadata | Who materializes open downstream types and how a body reads a resolver-selected generic. |
@@ -121,11 +121,13 @@ and never leak to sibling implementations.
 
 ### MIG-012: effects and capabilities
 
-Source-native evaluation functions are non-blocking and `noexcept`; a C++ body
-is not permission to publish a contract the descriptor cannot enforce. The
-next slice is throwing calls and owned results (catalogue B1), then resource
-and scheduler capabilities (B2). The vocabulary must be closed and shared
-between HGL source, descriptors and the backend-neutral runtime specification.
+Source-native evaluation functions remain non-blocking. ADR 0009 admits
+`throws` and the descriptor's `translated` policy under hgraph's node error
+model; functions without `throws` remain `noexcept`. Owned scalar results are
+admitted, while owned non-scalar results remain B1. Resource and scheduler
+capabilities remain B2. A C++ body is not permission to publish a contract the
+descriptor cannot enforce: the vocabulary must be closed and shared between
+HGL source, descriptors and the backend-neutral runtime specification.
 
 ### MIG-013: library documentation and compatibility metadata
 

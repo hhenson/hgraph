@@ -286,6 +286,35 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     REQUIRE(dump_clean(source).find("NativeFunctionDecl native fn len") != std::string::npos);
 }
 
+TEST_CASE("native functions may declare that their C++ body throws", "[parser][native][throws]") {
+    const std::string source = R"hgl(
+module checks.throws
+native fn parse(value: str) -> i64 throws {
+    cpp(const hgraph::Str &value) {
+        return std::stoll(value);
+    }
+}
+native fn quiet(value: str) -> i64 {
+    cpp(const hgraph::Str &value) {
+        return 0;
+    }
+}
+)hgl";
+    Parsed            parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 3U);
+    const auto *throwing = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(parsed.module.declarations[1]).node);
+    const auto *quiet    = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(parsed.module.declarations[2]).node);
+    REQUIRE(throwing != nullptr);
+    REQUIRE(quiet != nullptr);
+    CHECK(throwing->throws);
+    CHECK_FALSE(quiet->throws);
+    const std::string tree = dump_clean(source);
+    CHECK(tree.find("NativeFunctionDecl native fn parse throws") != std::string::npos);
+    CHECK(tree.find("NativeFunctionDecl native fn quiet\n") != std::string::npos);
+}
+
 TEST_CASE("native functions accept the contextual schema type", "[parser][native][schema]") {
     const std::string tree = dump_clean(R"hgl(
 module checks.schema

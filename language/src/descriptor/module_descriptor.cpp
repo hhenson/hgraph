@@ -495,6 +495,8 @@ namespace hgl::descriptor
             declaration.cpp_symbol = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
             declaration.signature  = schema.native_signature(function);
             declaration.phases     = {NativePhase::Evaluation};
+            declaration.exception_policy =
+                function.throws ? NativeExceptionPolicy::Translated : NativeExceptionPolicy::NoThrow;
             for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
                 declaration.parameters.push_back(NativeParameterPolicy{
                     .name = parameter.name,

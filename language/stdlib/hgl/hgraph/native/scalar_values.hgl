@@ -196,6 +196,75 @@ native fn as_int(value: bool) -> i64 {
     cpp(const hgraph::Bool &value) { return static_cast<hgraph::Int>(value); }
 }
 
+# Checked kernels bind the reviewed scalar algorithms in hgraph's lifted
+# kernel library. `throws` records that a call may raise: a negative or
+# too-large shift count, a negative integer exponent, an overflowing integer
+# power, and zero raised to a negative power are all errors, exactly as the
+# native temporal operators report them. The raise ends the evaluation under
+# hgraph's node error model (ADR 0009).
+cpp include <hgraph/lib/std/lifted_kernels.h>
+
+native fn power(lhs: i64, rhs: i64) -> i64 throws {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
+    }
+}
+
+native fn power(lhs: f64, rhs: f64) -> f64 throws {
+    cpp(const hgraph::Float &lhs, const hgraph::Float &rhs) {
+        return hgraph::stdlib::scalar_pow<hgraph::Float>::apply(lhs, rhs);
+    }
+}
+
+native fn shift_left(lhs: i64, rhs: i64) -> i64 throws {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return hgraph::stdlib::scalar_lshift::apply(lhs, rhs);
+    }
+}
+
+native fn shift_right(lhs: i64, rhs: i64) -> i64 throws {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return hgraph::stdlib::scalar_rshift::apply(lhs, rhs);
+    }
+}
+
+# Python slice positions: a negative index counts from the end, positions are
+# clamped to the string, and an inverted range is empty. Never raises.
+native fn slice(value: str, begin: i64, end: i64) -> str {
+    cpp(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) {
+        const auto size      = static_cast<hgraph::Int>(value.size());
+        const auto normalize = [size](hgraph::Int index) {
+            return static_cast<std::size_t>(std::clamp(index < 0 ? size + index : index, hgraph::Int{0}, size));
+        };
+        const std::size_t first  = normalize(begin);
+        const std::size_t finish = std::max(first, normalize(end));
+        return value.substr(first, finish - first);
+    }
+}
+
+test {
+    const fn integer_power(lhs: i64, rhs: i64) -> i64 => power(lhs, rhs)
+    const fn float_power(lhs: f64, rhs: f64) -> f64 => power(lhs, rhs)
+    const fn left(lhs: i64, rhs: i64) -> i64 => shift_left(lhs, rhs)
+    const fn right(lhs: i64, rhs: i64) -> i64 => shift_right(lhs, rhs)
+    const fn text_slice(value: str, begin: i64, end: i64) -> str => slice(value, begin, end)
+
+    test checked_powers {
+        assert eval(integer_power, lhs: [2, -3, 0], rhs: [10, 3, 0]) == [1024, -27, 1]
+        assert eval(float_power, lhs: [2.0, 4.0], rhs: [0.5, -1.0]) == [1.4142135623730951, 0.25]
+    }
+
+    test checked_shifts {
+        assert eval(left, lhs: [1, 0, -1], rhs: [3, 70, 1]) == [8, 0, -2]
+        assert eval(right, lhs: [8, -8, 1], rhs: [3, 1, 70]) == [1, -4, 0]
+    }
+
+    test python_slices {
+        assert eval(text_slice, value: ["hgraph", "hgraph", "hgraph", "hgraph"],
+                    begin: [0, -5, 4, 9], end: [2, 3, 2, 12]) == ["hg", "gr", "", ""]
+    }
+}
+
 native fn as_int(value: f64) -> i64 {
     cpp(const hgraph::Float &value) { return static_cast<hgraph::Int>(value); }
 }
