@@ -84,20 +84,32 @@ acceptable, and an unconstrained generic `O` on a contract is not a resolver.
 
 ### MIG-009: source names versus native identities
 
-Two native identities, `const` and `default`, are HGL keywords. Their
-contracts are fixed and cannot be spelled as declarations today:
+Two native identities collide with HGL source spellings: `const` is an HGL
+keyword, and `default` is the fallback label of the planned `switch` form. Their
+contracts are fixed by the operator markers in
+`include/hgraph/lib/std/operators/conversion.h` and cannot be spelled as
+declarations today:
 
 ```text
-native identity "const":   (const value: T, const delay: duration) -> T
-native identity "default": (value: T, default_value: T) -> T
+native identity "const"   (marker const_):
+    Scalar<"value", ScalarVar<"T">>, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+    Scalar<"delay", TimeDelta>, Out<TsVar<"S">>
+native identity "default" (marker default_):
+    In<"ts", TsVar<"S">>, In<"default_value", TsVar<"S">>, Out<TsVar<"S">>
 ```
 
-The library needs a reviewable mapping from a legal source declaration to the
-stable native identity. Renaming a source symbol must never create a new
-overload family. Internal `__`-prefixed identities (`__lag_proxy`,
-`__print_sink`, `__log_sink`, `__assert_fmt`, `__apply_value_callable`,
-`__call_value_callable`, `__json_object`, `__json_array`) are compiler-selected
-kernels; they are never public HGL names, whatever their catalogue disposition.
+The parameter names and type relationships are part of the contract. `const`
+takes an independent scalar `T`; its output shape `S` is auto-resolved from the
+value or selected explicitly (`const[TS[float]](1)`), and `delay` is an optional
+keyword after `tp`. `default` names its first input `ts`, so named calls such as
+`default(ts=price, default_value=zero)` are established call shapes. The library
+needs a reviewable mapping from a legal source declaration to the stable native
+identity that preserves these names, defaults and type relationships. Renaming a
+source symbol must never create a new overload family. Internal `__`-prefixed
+identities (`__lag_proxy`, `__print_sink`, `__log_sink`, `__assert_fmt`,
+`__apply_value_callable`, `__call_value_callable`, `__json_object`,
+`__json_array`) are compiler-selected kernels; they are never public HGL names,
+whatever their catalogue disposition.
 
 ### MIG-010: fixed candidates beside pack contracts
 
