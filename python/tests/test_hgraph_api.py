@@ -22,6 +22,14 @@ def test_graph_with_operator_sugar():
     check(eval_node(calc, [1, None, 3], [10, 20, None]) == [22, 42, 46], "sugar")
 
 
+def test_eval_node_elide_returns_none_when_output_never_ticks():
+    @graph
+    def never(a: TS[int]) -> TS[int]:
+        return hg.filter_(hg.const(False), a)
+
+    assert eval_node(never, [1], __elide__=True) is None
+
+
 def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
     class Result(TimeSeriesSchema):
         value: TS[int]
