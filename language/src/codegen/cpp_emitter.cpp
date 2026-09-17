@@ -4245,13 +4245,8 @@ namespace hgl::codegen
         std::optional<std::int64_t> Emitter::runtime_integer_constant(gir::ValueId id, gir::CallableId decl) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             if (!expression.constant) { return std::nullopt; }
-            return std::visit(
-                [](const auto &value) -> std::optional<std::int64_t> {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, std::int64_t>) { return value; }
-                    return std::nullopt;
-                },
-                *expression.constant);
+            if (const auto *integer = std::get_if<std::int64_t>(&*expression.constant)) { return *integer; }
+            return std::nullopt;
         }
 
         std::optional<std::string> Emitter::runtime_selector_key(gir::ValueId id, gir::CallableId decl) {

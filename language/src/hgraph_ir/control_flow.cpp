@@ -157,21 +157,22 @@ namespace hgl::hgraph_ir
                 return std::visit(
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
+                        bool falls = true;
                         if constexpr (std::is_same_v<T, Reference>) {
                             if (node.kind == ReferenceKind::Binding) { capture(expression, node.binding); }
                         } else if constexpr (std::is_same_v<T, Unary>) {
-                            return scan_value(node.operand);
+                            falls = scan_value(node.operand);
                         } else if constexpr (std::is_same_v<T, Binary>) {
-                            return scan_value(node.lhs) && scan_value(node.rhs);
+                            falls = scan_value(node.lhs) && scan_value(node.rhs);
                         } else if constexpr (std::is_same_v<T, Call>) {
                             if (!scan_value(node.callee)) { return false; }
                             for (const Argument &argument : node.arguments) {
                                 if (!scan_value(argument.value)) { return false; }
                             }
                         } else if constexpr (std::is_same_v<T, Index>) {
-                            return scan_value(node.target) && scan_value(node.index);
+                            falls = scan_value(node.target) && scan_value(node.index);
                         } else if constexpr (std::is_same_v<T, Field>) {
-                            return scan_value(node.target);
+                            falls = scan_value(node.target);
                         } else if constexpr (std::is_same_v<T, Sequence>) {
                             for (const SequenceElement &element : node.elements) {
                                 if (!scan_value(element.key) || !scan_value(element.value)) { return false; }
@@ -208,9 +209,9 @@ namespace hgl::hgraph_ir
                             } else if (otherwise_falls) {
                                 defined_outer_ = when_false;
                             }
-                            return then_falls || otherwise_falls;
+                            falls = then_falls || otherwise_falls;
                         } else if constexpr (std::is_same_v<T, BlockValue>) {
-                            return scan_block(node.block);
+                            falls = scan_block(node.block);
                         } else if constexpr (std::is_same_v<T, HarnessEval>) {
                             if (!scan_value(node.callee)) { return false; }
                             for (const Argument &argument : node.arguments) {
@@ -221,7 +222,7 @@ namespace hgl::hgraph_ir
                                 if (!scan_value(argument.value)) { return false; }
                             }
                         }
-                        return true;
+                        return falls;
                     },
                     expression.node);
             }

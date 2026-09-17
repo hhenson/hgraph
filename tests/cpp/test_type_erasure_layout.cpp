@@ -50,7 +50,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     static_assert(sizeof(ClockTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ClockTypeRef>);
     static_assert(sizeof(ValueView) == sizeof(void *) * 2);

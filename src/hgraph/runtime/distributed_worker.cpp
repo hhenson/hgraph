@@ -1,4 +1,5 @@
 #include <hgraph/runtime/distributed_worker.h>
+#include <hgraph/runtime/spawn.h>
 
 #include <hgraph/runtime/distributed_child.h>
 
@@ -232,6 +233,16 @@ namespace hgraph::distributed
         }
 
         if (!requested) { return false; }
+
+        if (key.starts_with(spawn_worker_prefix))
+        {
+            if (read_handle < 0 || write_handle < 0)
+                throw std::invalid_argument("spawn_: launched without a channel");
+            auto channel = PipeEndpoint::adopt(read_handle, write_handle);
+            serve_registered_spawn_worker(channel, key.substr(spawn_worker_prefix.size()),
+                DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}});
+            return true;
+        }
 
         const WorkerRecipe *recipe = worker_recipe(key);
         const auto selection = recipe == nullptr ? prepared_selection(key) : std::nullopt;

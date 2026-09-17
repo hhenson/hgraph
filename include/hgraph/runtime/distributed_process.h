@@ -20,6 +20,7 @@
 #include <hgraph/runtime/distributed_transport.h>
 #include <hgraph/util/date_time.h>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -62,6 +63,12 @@ namespace hgraph::distributed
          * hung worker must not hang the caller (RFC 0037, failure handling).
          */
         int wait_for_exit();
+        /** Nonblocking exit check. Returns nullopt while running; otherwise
+         * closes the channel, reaps the process and returns its exit code.
+         * Returns zero when no process is owned. Use from the process owner
+         * thread only, just like wait_for_exit and terminate.
+         */
+        [[nodiscard]] std::optional<int> try_wait_for_exit();
         /** Close and terminate a failed or timed-out worker, then reap it. */
         void terminate() noexcept;
 

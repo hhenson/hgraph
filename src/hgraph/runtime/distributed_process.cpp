@@ -176,6 +176,15 @@ namespace hgraph::distributed
         return path;
     }
 
+    std::optional<int> WorkerProcess::try_wait_for_exit()
+    {
+        if (pid_ == 0) return 0;
+        const auto result = ::WaitForSingleObject(static_cast<HANDLE>(process_handle_), 0);
+        if (result == WAIT_TIMEOUT) return std::nullopt;
+        if (result != WAIT_OBJECT_0) fail("WaitForSingleObject");
+        return wait_for_exit(); // Already exited: preserves exit status and closes handles.
+    }
+
     int WorkerProcess::wait_for_exit()
     {
         if (pid_ == 0) { return 0; }
@@ -301,6 +310,20 @@ namespace hgraph::distributed
         path.resize(static_cast<std::size_t>(written));
         return path;
 #endif
+    }
+
+    std::optional<int> WorkerProcess::try_wait_for_exit()
+    {
+        if (pid_ == 0) return 0;
+        int status = 0;
+        pid_t reaped;
+        do { reaped = ::waitpid(static_cast<pid_t>(pid_), &status, WNOHANG); }
+        while (reaped < 0 && errno == EINTR);
+        if (reaped == 0) return std::nullopt;
+        if (reaped < 0 && errno != ECHILD) fail("waitpid");
+        channel_.close();
+        pid_ = 0;
+        return reaped < 0 ? -1 : (WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
 
     int WorkerProcess::wait_for_exit()

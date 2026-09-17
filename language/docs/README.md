@@ -73,6 +73,12 @@ imply an implemented compatibility promise.
     recordable state, native type lifecycles, and the separation of semantic
     contracts from target realizations; agreed direction with open syntax and
     implementation work explicitly identified.
+16. [Migration catalogue](design/migration-catalogue.md) — the checked
+    inventory workflow: what counts as authored, how blockers are named, and
+    why parallel identities do not replace core registrations.
+17. [Migration requirements](design/migration-requirements.md) — the
+    `HGL-MIG-*` / `HGL-LIB-*` ledger: which contract each catalogue blocker
+    waits on, what is accepted, and the decision still open.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language
@@ -81,11 +87,12 @@ constraints.
 
 ## Standard library and design corpus
 
-The [standard-library folder](../stdlib/README.md) contains the first compiled
-HGL-authored `len_` and `is_empty` operator families as well as agreed examples
-that drive broader core-library coverage and expose missing language features.
-Those first operators are an integration prototype with production identity and
-first-tick parity blockers stated beside the source. The design corpus starts
+The [standard-library folder](../stdlib/README.md) contains the compiled
+parallel HGL implementations (scalar arithmetic and comparisons, stream state,
+collection queries, conversions and calendar projections) and the checked
+[migration catalogue](../stdlib/catalogue/README.md) that records what is
+authored and what each remaining operator waits on. Those operators are
+parallel identities with production cutover deferred. The design corpus starts
 with conditional-result examples; the fixed-list and independent dynamic
 collection cases have graduated into the compiler's runnable example corpus. A
 single escaping conditional result and a bundle of several escaping results

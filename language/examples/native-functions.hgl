@@ -75,3 +75,15 @@ export fn map_size(value: map<i64, f64>) -> i64 {
         return len(value)
     }
 }
+
+# Writes before a raise remain visible. Capturing the error lets subsequent
+# evaluations continue with the updated state (ADR 0009).
+export fn counted_reciprocal(value: f64) -> f64 {
+    state attempts: i64 = 0
+    inject out
+    when {
+        attempts += 1
+        out = 0.0
+        return checked_reciprocal(value) * attempts
+    }
+}

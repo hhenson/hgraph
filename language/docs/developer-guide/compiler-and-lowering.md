@@ -263,8 +263,8 @@ reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
 through each applied parent, so a child contract refers only to its own generic
 scope even when parent parameters have different names. `hgl check
---dump-hgraph-ir` prints that representation. The
-result is marked `Bodies`. No HIR symbol, expression, statement, block, or
+--dump-hgraph-ir` prints that representation, including each native function's
+`exception=noexcept` or `exception=translated` policy. The result is marked `Bodies`. No HIR symbol, expression, statement, block, or
 declaration ID remains in it. The direct evaluator can consume this form and
 perform in-process registry resolution while it wires.
 
