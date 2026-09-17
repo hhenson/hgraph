@@ -3095,6 +3095,42 @@ namespace hgl::ir
                 } else if (name == "insert" || name == "update" || name == "upsert" || name == "remove" || name == "discard" ||
                            name == "invalidate" || name == "clear" || name == "push" || name == "pop") {
                     check_output_mutation_call(expression, call, name, args);
+                } else if (name == "scheduled") {
+                    // The scheduler handler selector (ADR 0010): a zero-argument
+                    // predicate in a function-level `when` of a function that
+                    // injects `scheduler`. It contributes no input activation.
+                    if (!args.empty()) { type_error(expression.range, "'scheduled' takes no arguments"); }
+                    if (!runtime_owner(expression.owner) || !active_when_condition_) {
+                        type_error(expression.range, "'scheduled' is only valid in a function-level 'when' condition");
+                    } else if (!injects_capability(expression.owner, "scheduler")) {
+                        diagnostics_.report(syntax::Category::Injectable, expression.range,
+                                            "'scheduled' requires 'inject scheduler'");
+                    }
+                    expression.type = scalar(ScalarType::Bool);
+                } else if (name == "passivate" || name == "activate") {
+                    // Input activity (ADR 0010): the argument is a direct
+                    // temporal parameter of this runtime function.
+                    for (const Argument &argument : call.arguments) {
+                        if (!argument.name.empty()) { type_error(argument.range, "'" + name + "' takes a positional argument"); }
+                    }
+                    if (args.size() != 1U) {
+                        type_error(expression.range, "'" + name + "' takes one temporal parameter");
+                    } else {
+                        Expr       &target    = check_expr(args.front());
+                        const auto *reference = std::get_if<SymbolRef>(&target.node);
+                        const bool  parameter = reference != nullptr && reference->symbol.valid() &&
+                                               module_.symbol(reference->symbol).kind == SymbolKind::SignalParameter;
+                        if (!parameter) {
+                            type_error(target.range, "'" + name + "' takes a temporal parameter of this function, not a projection");
+                        }
+                    }
+                    if (!runtime_owner(expression.owner)) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'" + name + "' is only available in a runtime function");
+                    } else if (active_when_condition_) {
+                        type_error(expression.range, "'" + name + "' is a statement, not a 'when' predicate");
+                    }
+                    expression.type = void_type_;
                 } else {
                     type_error(expression.range, "unsupported intrinsic '" + name + "'");
                 }
@@ -3126,9 +3162,79 @@ namespace hgl::ir
                 expression.value_kind = ValueKind::Void;
                 expression.effects    = member.effects | Effect::UseCapability;
                 for (ExprId argument : args) { expression.effects |= module_.expr(argument).effects; }
+                const std::string &identity = member.operation.identity;
+                if (identity.starts_with("clock.") || identity.starts_with("scheduler.")) {
+                    check_lifecycle_capability_call(expression, call, identity, args);
+                }
                 expression.operation = Operation{.kind     = OperationKind::Capability,
                                                  .target   = reference ? reference->symbol : SymbolId{},
-                                                 .identity = member.operation.identity};
+                                                 .identity = identity};
+                if (expression.type != void_type_) { expression.value_kind = ValueKind::RuntimeValue; }
+            }
+
+            /// The clock and scheduler surfaces admitted by ADR 0010. Each
+            /// method maps to one hgraph selector call; the result type is
+            /// fixed here so a runtime body can use it as an ordinary value.
+            void check_lifecycle_capability_call(Expr &expression, const Call &call, const std::string &identity,
+                                                 const std::vector<ExprId> &args) {
+                for (const Argument &argument : call.arguments) {
+                    if (!argument.name.empty()) {
+                        type_error(argument.range, "'" + identity + "' takes positional arguments");
+                        return;
+                    }
+                }
+                const auto arity = [&](std::size_t low, std::size_t high) {
+                    if (args.size() < low || args.size() > high) {
+                        type_error(expression.range, "'" + identity + "' takes " +
+                                                         (low == high ? std::to_string(low)
+                                                                      : std::to_string(low) + " or " + std::to_string(high)) +
+                                                         (high == 1U ? " argument" : " arguments"));
+                        return false;
+                    }
+                    return true;
+                };
+                const auto argument_is = [&](std::size_t index, ScalarType expected, std::string_view what) {
+                    if (index < args.size()) { require_assignable(scalar(expected), module_.expr(args[index]), what); }
+                };
+                if (identity == "clock.evaluation_time" || identity == "clock.now" ||
+                    identity == "clock.next_cycle_evaluation_time") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::DateTime); }
+                } else if (identity == "scheduler.schedule") {
+                    if (arity(1U, 2U)) {
+                        argument_is(0U, ScalarType::Duration, "scheduler.schedule delay");
+                        argument_is(1U, ScalarType::Bool, "scheduler.schedule on_wall_clock");
+                    }
+                } else if (identity == "scheduler.schedule_at") {
+                    if (arity(1U, 2U)) {
+                        argument_is(0U, ScalarType::DateTime, "scheduler.schedule_at time");
+                        argument_is(1U, ScalarType::Bool, "scheduler.schedule_at on_wall_clock");
+                    }
+                } else if (identity == "scheduler.is_scheduled") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::Bool); }
+                } else if (identity == "scheduler.next_scheduled_time") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::DateTime); }
+                } else {
+                    type_error(expression.range,
+                               "'" + identity + "' is not a capability method; clock has evaluation_time, now and "
+                                                "next_cycle_evaluation_time; scheduler has schedule, schedule_at, "
+                                                "is_scheduled and next_scheduled_time");
+                }
+            }
+
+            /// Whether the function owning `owner` injects `name`. Capabilities
+            /// are gathered onto the declaration only after its body is checked,
+            /// so this reads the inject statements directly.
+            [[nodiscard]] bool injects_capability(DeclarationId owner, std::string_view name) const noexcept {
+                for (const Stmt &statement : module_.stmts) {
+                    if (statement.owner != owner) { continue; }
+                    const auto *inject = std::get_if<InjectDecl>(&statement.node);
+                    if (inject == nullptr) { continue; }
+                    if (std::ranges::any_of(inject->symbols,
+                                            [&](SymbolId symbol) { return module_.symbol(symbol).name == name; })) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             void check_stmt(StmtId id, TypeId expected_return, TypeId expected_tail, bool is_tail) {
@@ -3175,9 +3281,8 @@ namespace hgl::ir
                                 Symbol &symbol = module_.symbols[symbol_id.value];
                                 // `inject` names compiler-approved capabilities only
                                 // (syntax-and-semantics.md, "Runtime state,
-                                // injectables, and lifecycle"). `out` and `logger`
-                                // lower today; `clock` and `scheduler` are agreed
-                                // and fail closed until their selectors exist.
+                                // injectables, and lifecycle"): `out`, `logger`,
+                                // `clock` and `scheduler` (ADR 0010).
                                 if (symbol.name == "out") {
                                     const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
                                     if (!result.valid() || same(result, void_type_)) {
@@ -3186,12 +3291,7 @@ namespace hgl::ir
                                     }
                                     symbol.type = fn ? fn->signature.result : void_type_;
                                 } else {
-                                    if (symbol.name == "clock" || symbol.name == "scheduler") {
-                                        diagnostics_.report(syntax::Category::Injectable, symbol.range,
-                                                            "the '" + symbol.name +
-                                                                "' injectable is agreed but not implemented yet; "
-                                                                "'out' and 'logger' are available");
-                                    } else if (symbol.name != "logger") {
+                                    if (symbol.name != "logger" && symbol.name != "clock" && symbol.name != "scheduler") {
                                         diagnostics_.report(syntax::Category::Injectable, symbol.range,
                                                             "'" + symbol.name +
                                                                 "' is not an approved runtime capability; the "

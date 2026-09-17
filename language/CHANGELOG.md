@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Implement the `clock` and `scheduler` injectables (ADR 0010):
+  `clock.evaluation_time()`/`now()`/`next_cycle_evaluation_time()`,
+  `scheduler.schedule(delay[, on_wall_clock])`, `schedule_at`,
+  `is_scheduled()` and `next_scheduled_time()`; the `scheduled()` handler
+  selector, under which a handler adds no input to the activation set and a
+  runtime function may have no temporal parameters at all; and the
+  `passivate(input)`/`activate(input)` statements. `hgraph.std` gains parallel
+  `take`, `freeze`, `until_true` and `schedule` with native-parity tests.
 - Keep implementation-only constraints on `impl fn`: the executable HGL
   operator contracts no longer expose their candidates' native delegation
   requirements, and the guides distinguish public semantic constraints from

@@ -1783,7 +1783,12 @@ expression is read from the syntax tree.
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
-  block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`.
+  block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`;
+  `inject clock` and `inject scheduler` add `EvaluationClockView` and
+  `NodeScheduler` selectors to every hook, `scheduled()` lowers to
+  `scheduler.is_scheduled_now()` and marks a handler as adding no input to
+  the activation set, and `passivate`/`activate` lower to the input view's
+  `make_passive`/`make_active` (ADR 0010).
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
@@ -1872,8 +1877,7 @@ The rules the language reference states as semantic restrictions are typed
 HIR completion's, not a backend's (`type_check.cpp`, `check_type_shape`,
 `check_runtime_layout`, the `inject` and `out` checks): rolling-window size
 kinds and ranges, positive fixed list sizes, the approved injectable list
-(`out` and `logger` lower; `clock` and `scheduler` are agreed names that fail
-closed), `out` requiring a function output, `state` and `inject` before the
+(`out`, `logger`, `clock` and `scheduler`), `out` requiring a function output, `state` and `inject` before the
 executable blocks, at most one `start` and one `stop`, no nested `when`, and
 no `out` or `return` inside a lifecycle block. `hgl check` reports them; the
 copies both backends used to carry are now internal consistency assertions

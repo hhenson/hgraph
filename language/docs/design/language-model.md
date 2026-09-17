@@ -678,7 +678,9 @@ combining both state selectors.
 capabilities. It does not add caller-visible parameters. `out` is a special
 injectable whose type comes from the function result and permits the runtime
 body to inspect or incrementally update its output. Other injectables, such as
-`logger`, `clock`, and `scheduler`, map to their hgraph selector contracts.
+`logger`, `clock`, and `scheduler`, map to their hgraph selector contracts
+(`LoggerView`, `EvaluationClockView`, `NodeScheduler`; ADR 0010 fixes the
+clock and scheduler method surfaces).
 
 `start` and `stop` execute once at node startup and teardown. State storage and
 injected capabilities are runtime-owned; `stop` expresses semantic
@@ -714,15 +716,22 @@ It is equivalent to `when modified() && valid() { ... }`. The compiler
 converts activation predicates into hgraph input metadata when they are
 statically representable and retains admission and residual conditions in the
 ordered per-tick body. Empty selector calls outside a function-level `when`
-are rejected because this decision assigns them no meaning there. The behavior
-of a bare handler in a runtime function with no temporal parameters but an
-explicit scheduler remains a separate lifecycle decision.
+are rejected because this decision assigns them no meaning there.
 
-Because empty `modified()` and `valid()` mean the complete input list, they
-cannot also spell an explicitly empty activation or validity set. That source
-form remains open. It is required by scheduler-only handlers and native nodes
-that intentionally admit invalid inputs; the backend contract must keep its
-empty selector distinct from its default selector in the meantime.
+`scheduled()` is the scheduler's handler selector
+([ADR 0010](decisions/0010-lifecycle-capabilities.md)): true when the current
+evaluation is the node's alarm. A handler naming it at top level receives no
+implicit `modified()` and contributes no input to the activation set; its
+implicit `valid()` is unchanged. When no handler names an input the activation
+set is explicitly empty, which is the agreed spelling of that set. A runtime
+function with no temporal parameters is a source and must inject `scheduler`;
+its implicit `valid()` is vacuous and its implicit `modified()` never holds.
+The other half of the open question, a handler that intentionally admits
+invalid inputs with an explicitly empty validity set, remains open.
+
+`passivate(input)` and `activate(input)` are runtime statements on a direct
+temporal parameter; they change what activates the node from that evaluation
+on, not the node's static activation policy.
 
 In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation

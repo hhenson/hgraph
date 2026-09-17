@@ -68,6 +68,19 @@ TEST_CASE("catalogue scalar bodies preserve sparse and repeated native ticks", "
                       Catch::Matchers::ContainsSubstring("mod_: division by zero"));
 }
 
+TEST_CASE("catalogue lifecycle bodies passivate and schedule exactly as the native nodes do", "[codegen][catalogue][lifecycle]") {
+    register_catalogue();
+    check_parity<standard::until_true, stdlib::until_true>(values<Bool>(false, false, true, false, true));
+    check_parity<standard::freeze, stdlib::freeze>(values<Bool>(false, false, true, false), values<Int>(1, 2, 3, 4));
+    check_parity<standard::freeze, stdlib::freeze>(values<Bool>(none, true, false), values<Int>(1, none, 3));
+    check_parity<standard::take, stdlib::take>(values<Int>(1, 2, 3, 4), Int{2});
+    check_parity<standard::take, stdlib::take>(values<Int>(1, none, 3, 4), Int{2});
+    check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{false}, Int{3}, Bool{false});
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{true}, Int{2}, Bool{false});
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD, Bool{true}, Int{0}, Bool{false});
+}
+
 TEST_CASE("catalogue equality keeps native tolerance and Boolean bodies keep truthiness", "[codegen][catalogue]") {
     register_catalogue();
     const auto floating = values<Float>(0.0, -0.0, 1.0, 1.0 + 1e-11, 2.0);

@@ -924,10 +924,9 @@ the callable signature:
 inject out, logger, clock, scheduler
 ```
 
-Status: `out` and `logger` are implemented; `clock` and `scheduler` are
-provisional, with no implementation in the compiler (`emit-cpp` reports
-`injectable 'clock' is not supported by emit-cpp yet`). See the
-[roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
+All four are implemented: `out` and `logger` since the first runtime slice,
+`clock` and `scheduler` under
+[ADR 0010](../design/decisions/0010-lifecycle-capabilities.md).
 
 The comma-separated form may span lines and may have a trailing comma:
 
@@ -942,11 +941,72 @@ inject
 Capabilities are function-level declarations at the same level as `state`.
 The compiler supplies each injectable only to lifecycle or evaluation hooks
 that use it. Duplicate, unknown, and phase-incompatible injectables are errors.
-Status: `out` and `logger` are implemented; `clock` and `scheduler` are agreed
-names that `hgl check` rejects as not yet implemented; any other name is
-rejected as unapproved, and `out` requires a function output. Reading or
-writing `out` inside `start` or `stop` is rejected while lifecycle output
-access remains an open question.
+Any other name is rejected as unapproved, and `out` requires a function
+output. Reading or writing `out` inside `start` or `stop` is rejected while
+lifecycle output access remains an open question.
+
+## Scheduling, the clock, and input activity
+
+`inject clock` gives the evaluation clock: `clock.evaluation_time()` is the
+engine time of the current cycle, `clock.now()` the wall clock, and
+`clock.next_cycle_evaluation_time()` the earliest time of the next cycle. All
+three return a `datetime`.
+
+`inject scheduler` gives the node scheduler. `scheduler.schedule(delay)`
+requests an evaluation `delay` after the current evaluation time;
+`scheduler.schedule_at(time)` requests one at a `datetime`. A second `bool`
+argument selects the wall clock, which only a real-time executor accepts.
+`scheduler.is_scheduled()` and `scheduler.next_scheduled_time()` inspect the
+pending alarm. In `start`, `scheduler.schedule(0s)` asks for evaluation in the
+starting cycle; that is how a node schedules itself on start.
+
+`scheduled()` is a handler selector: it is true when the current evaluation
+is the node's own alarm firing. A handler whose condition names `scheduled()`
+at top level gets no implicit `modified()`, and it adds no input to the node's
+activation. When no handler names an input, the node's activation set is
+explicitly empty and the node evaluates only when scheduled. A runtime
+function with no temporal parameters at all is a source and must inject
+`scheduler`:
+
+```hgl
+fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
+    state ticks: i64 = 0
+    inject scheduler
+
+    start {
+        scheduler.schedule(0s)
+    }
+
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay)
+        }
+        return ticks
+    }
+}
+```
+
+`passivate(input)` stops a temporal parameter from activating the node;
+`activate(input)` lets it again. Both are runtime statements whose argument
+is a direct parameter of the function, not a projection. A passive input keeps
+its value and validity and can still be read:
+
+```hgl
+fn first_ticks(value: i64, const count: i64) -> i64 {
+    state seen: i64 = 0
+
+    when modified(value) && valid(value) {
+        seen += 1
+        if seen >= count {
+            passivate(value)
+        }
+        return value
+    }
+}
+```
+
+See [`lifecycle-capabilities.hgl`](../../examples/lifecycle-capabilities.hgl).
 
 ## Lifecycle
 

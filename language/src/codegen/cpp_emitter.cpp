@@ -184,6 +184,8 @@ namespace hgl::codegen
             bool                                     when_condition{false};
             bool                                     runtime_inputs_available{true};
             bool                                     output_available{false};
+            /// `inject scheduler` is bound in this frame (ADR 0010).
+            bool                                     scheduler_available{false};
         };
 
         struct RuntimeState
@@ -205,7 +207,12 @@ namespace hgl::codegen
             std::unordered_set<std::size_t> value_active_parameters{};
             gir::BindingId                  out_binding{};
             gir::BindingId                  logger_binding{};
+            gir::BindingId                  clock_binding{};
+            gir::BindingId                  scheduler_binding{};
             bool                            has_when{false};
+            /// A handler is activated by `scheduled()` (ADR 0010); such a
+            /// handler adds no input to the node's activation set.
+            bool                            uses_scheduled{false};
         };
 
         Value                       make_const(std::string code, HType type, SourceRange range,
@@ -2535,10 +2542,11 @@ namespace hgl::codegen
                         return wire(marker, {target.code, argument_code(index)}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
                         const Value target = eval_planned_expr(node.target, frame);
-                        if (target.kind == Value::Kind::Intrinsic && target.name == "logger") {
+                        if (target.kind == Value::Kind::Intrinsic &&
+                            (target.name == "logger" || target.name == "clock" || target.name == "scheduler")) {
                             Value value;
                             value.kind  = Value::Kind::Intrinsic;
-                            value.name  = "logger." + node.name;
+                            value.name  = target.name + "." + node.name;
                             value.range = expression.range;
                             return value;
                         }
@@ -2943,6 +2951,70 @@ namespace hgl::codegen
 
         Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
             const std::string &name = callee.name;
+            if (name.starts_with("clock.") || name.starts_with("scheduler.")) {
+                // ADR 0010: each method is one call on the injected hgraph
+                // selector; typed HIR fixed the arities and argument types.
+                if (!frame.runtime) { fail(Category::Phase, range, "'" + name + "' is only available in runtime hooks"); }
+                std::vector<std::string> arguments;
+                for (const gir::Argument &argument : call.arguments) {
+                    const Value value = eval_planned_expr(argument.value, frame);
+                    if (!value.is_const() && !value.is_runtime()) {
+                        fail(Category::Type, argument.range, "'" + name + "' takes scalar arguments");
+                    }
+                    arguments.push_back(value.code);
+                }
+                const std::string method = name.substr(name.find('.') + 1U);
+                const auto        result_of = [&](std::string code, std::optional<hir::ScalarType> scalar) {
+                    if (!scalar) {
+                        Value result;
+                        result.kind  = Value::Kind::Void;
+                        result.code  = std::move(code);
+                        result.range = range;
+                        return result;
+                    }
+                    return make_runtime(std::move(code), scalar_type(*scalar), range);
+                };
+                if (name == "clock.evaluation_time" || name == "clock.now" || name == "clock.next_cycle_evaluation_time") {
+                    return result_of("clock." + method + "()", hir::ScalarType::DateTime);
+                }
+                if (name == "scheduler.schedule" || name == "scheduler.schedule_at") {
+                    if (arguments.size() == 2U) {
+                        return result_of("scheduler.schedule(" + arguments[0] + ", std::nullopt, " + arguments[1] + ")",
+                                         std::nullopt);
+                    }
+                    return result_of("scheduler.schedule(" + arguments[0] + ")", std::nullopt);
+                }
+                if (name == "scheduler.is_scheduled") { return result_of("scheduler.is_scheduled()", hir::ScalarType::Bool); }
+                if (name == "scheduler.next_scheduled_time") {
+                    return result_of("scheduler.next_scheduled_time()", hir::ScalarType::DateTime);
+                }
+                backend(range, "typed HIR admitted the capability method '" + name + "'");
+            }
+            if (name == "scheduled") {
+                if (!frame.runtime || !frame.when_condition) {
+                    fail(Category::Type, range, "'scheduled' is only available in a function-level 'when' condition");
+                }
+                if (!frame.scheduler_available) { fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler'"); }
+                return make_runtime("scheduler.is_scheduled_now()", scalar_type(hir::ScalarType::Bool), range);
+            }
+            if (name == "passivate" || name == "activate") {
+                if (!frame.runtime) { fail(Category::Phase, range, "'" + name + "' is only available in runtime hooks"); }
+                if (call.arguments.size() != 1U) { backend(range, "'" + name + "' has one argument after typed HIR"); }
+                const std::optional<std::size_t> parameter = runtime_parameter(call.arguments.front().value, frame.fn);
+                if (!parameter) { fail(Category::Type, range, "'" + name + "' takes a temporal parameter of this function"); }
+                if (!frame.runtime_inputs_available) {
+                    fail(Category::Phase, range, "'" + name + "' needs the temporal inputs; they are not available here");
+                }
+                const Value &input = frame.params[*parameter];
+                if (!input.is_runtime() || input.selector.empty()) {
+                    backend(range, "'" + name + "' argument is not a temporal input selector");
+                }
+                Value result;
+                result.kind  = Value::Kind::Void;
+                result.code  = input.selector + (name == "passivate" ? ".make_passive()" : ".make_active()");
+                result.range = range;
+                return result;
+            }
             if (name.starts_with("logger.")) {
                 if (!frame.runtime) { fail(Category::Phase, range, "logger methods are only available in runtime hooks"); }
                 if (name != "logger.info") { unsupported(range, "logger method '" + name.substr(7) + "'"); }
@@ -3985,7 +4057,8 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         std::vector<std::string> conditions;
                         const bool               has_modified =
-                            node.condition.valid() && runtime_top_level_selector_present(node.condition, frame.fn, "modified");
+                            node.condition.valid() && (runtime_top_level_selector_present(node.condition, frame.fn, "modified") ||
+                                                       runtime_top_level_selector_present(node.condition, frame.fn, "scheduled"));
                         const bool has_valid =
                             node.condition.valid() && (runtime_top_level_selector_present(node.condition, frame.fn, "valid") ||
                                                        runtime_top_level_selector_present(node.condition, frame.fn, "all_valid"));
@@ -4315,7 +4388,14 @@ namespace hgl::codegen
                 }
                 tests.push_back(value.selector + "." + std::string{method});
             }
-            if (tests.empty()) { backend(planned.range, "a runtime default predicate requires a temporal input"); }
+            if (tests.empty()) {
+                // A scheduler-driven source has no temporal input: its implicit
+                // `valid()` is vacuous and its implicit `modified()` never holds.
+                if (!frame.scheduler_available) {
+                    backend(planned.range, "a runtime default predicate requires a temporal input");
+                }
+                return method == "valid()" ? "true" : "false";
+            }
             return "(" + join(tests, joiner) + ")";
         }
 
@@ -4404,8 +4484,9 @@ namespace hgl::codegen
                             : reference->registry_name.empty() ? local_identity(reference->identity)
                                                                : std::string_view{reference->registry_name};
                         if (name == "valid" || name == "all_valid" || name == "modified" || name == "last_modified" ||
-                            name == "last_modified_time" || name == "schemas") {
-                            // Metadata intrinsics inspect endpoint selectors; they do not read payloads.
+                            name == "last_modified_time" || name == "schemas" || name == "passivate" || name == "activate") {
+                            // Metadata intrinsics inspect endpoint selectors; they do not read
+                            // payloads. Input activity acts on the endpoint too (ADR 0010).
                             for (const gir::Argument &argument : node.arguments) {
                                 check_runtime_selector(argument.value, decl, valid);
                             }
@@ -4633,8 +4714,6 @@ namespace hgl::codegen
                 }
                 if (!parameter.is_const) { ++temporal_count; }
             }
-            if (temporal_count == 0) { backend(planned.range, "generated runtime sources are not supported by emit-cpp yet"); }
-
             std::unordered_set<std::uint32_t> injected_bindings;
             const gir::Block                 &body = planned_block(planned.block_body, planned.range);
             for (gir::StatementId id : body.statements) {
@@ -4686,6 +4765,16 @@ namespace hgl::codegen
                                         backend(binding.range, "runtime function injects 'logger' more than once");
                                     }
                                     info.logger_binding = id;
+                                } else if (binding.name == "clock") {
+                                    if (info.clock_binding.valid()) {
+                                        backend(binding.range, "runtime function injects 'clock' more than once");
+                                    }
+                                    info.clock_binding = id;
+                                } else if (binding.name == "scheduler") {
+                                    if (info.scheduler_binding.valid()) {
+                                        backend(binding.range, "runtime function injects 'scheduler' more than once");
+                                    }
+                                    info.scheduler_binding = id;
                                 } else {
                                     // The checker admits only the approved names
                                     // and rejects the agreed-but-unimplemented ones.
@@ -4698,7 +4787,11 @@ namespace hgl::codegen
                             (node.kind == gir::LifecycleKind::Stop ? info.stop_blocks : info.start_blocks).push_back(node.block);
                         } else if constexpr (std::is_same_v<T, gir::Activation>) {
                             info.has_when = true;
-                            if (!node.condition.valid() || !runtime_top_level_selector_present(node.condition, decl, "modified")) {
+                            const bool scheduled =
+                                node.condition.valid() && runtime_top_level_selector_present(node.condition, decl, "scheduled");
+                            if (scheduled) { info.uses_scheduled = true; }
+                            if (!node.condition.valid() ||
+                                (!scheduled && !runtime_top_level_selector_present(node.condition, decl, "modified"))) {
                                 add_all_runtime_parameters(decl, info);
                             } else {
                                 collect_runtime_activation(node.condition, decl, info);
@@ -4722,7 +4815,15 @@ namespace hgl::codegen
             if (info.stop_blocks.size() > 1U) {
                 backend(planned_block(info.stop_blocks[1], body.range).range, "typed HIR admitted a second 'stop' block");
             }
-            if (info.has_when && info.active_parameters.empty()) {
+            if (info.uses_scheduled && !info.scheduler_binding.valid()) {
+                backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
+            }
+            if (temporal_count == 0 && !info.scheduler_binding.valid()) {
+                // A source with nothing to activate it never evaluates (ADR 0010).
+                fail(Category::Injectable, planned.range,
+                     "a runtime function without temporal parameters must 'inject scheduler' and schedule itself");
+            }
+            if (info.has_when && info.active_parameters.empty() && !info.uses_scheduled) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
             }
             if (!info.has_when) { add_all_runtime_parameters(decl, info); }
@@ -4789,6 +4890,14 @@ namespace hgl::codegen
                 params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::LoggerView" +
                                  std::string{with_names ? " logger" : ""});
             }
+            if (info.clock_binding.valid()) {
+                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::EvaluationClockView" +
+                                 std::string{with_names ? " clock" : ""});
+            }
+            if (info.scheduler_binding.valid()) {
+                params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::NodeScheduler" +
+                                 std::string{with_names ? " scheduler" : ""});
+            }
             if (include_output && has_planned_result(fn.result, fn.range)) {
                 params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::Out<" +
                                  schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">" +
@@ -4804,6 +4913,7 @@ namespace hgl::codegen
             frame.runtime                  = true;
             frame.runtime_inputs_available = include_inputs;
             frame.output_available         = include_output;
+            frame.scheduler_available      = info.scheduler_binding.valid();
             frame.params.resize(planned.parameters.size());
             frame.planned_bindings.clear();
             local_counts_.clear();
@@ -4811,6 +4921,8 @@ namespace hgl::codegen
             local_names_.insert("hgl_state");
             local_names_.insert("hgl_output");
             local_names_.insert("logger");
+            local_names_.insert("clock");
+            local_names_.insert("scheduler");
             for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
                 const gir::Parameter &parameter = planned.parameters[index];
                 const gir::Binding   &binding   = planned_binding(parameter.binding, planned.range);
@@ -4866,6 +4978,15 @@ namespace hgl::codegen
                 logger.name = "logger";
                 if (!frame.planned_bindings.emplace(info.logger_binding.value, std::move(logger)).second) {
                     backend(planned.range, "hgraph IR callable repeats the logger capability binding");
+                }
+            }
+            for (const auto &[binding, name] : {std::pair{info.clock_binding, "clock"}, std::pair{info.scheduler_binding, "scheduler"}}) {
+                if (!binding.valid()) { continue; }
+                Value capability;
+                capability.kind = Value::Kind::Intrinsic;
+                capability.name = name;
+                if (!frame.planned_bindings.emplace(binding.value, std::move(capability)).second) {
+                    backend(planned.range, std::string{"hgraph IR callable repeats the "} + name + " capability binding");
                 }
             }
         }

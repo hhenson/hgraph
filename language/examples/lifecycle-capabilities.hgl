@@ -1,0 +1,50 @@
+# Runtime lifecycle capabilities: the node scheduler, the evaluation clock,
+# and input activity (ADR 0010).
+
+module examples.lifecycle_capabilities
+
+# A scheduler-driven source. It has no temporal input: the start block asks
+# for evaluation in the starting cycle, and each evaluation schedules the
+# next one until the count is reached. `when scheduled()` runs only on the
+# node's own alarm; with no `modified(...)` in any handler the activation set
+# is explicitly empty.
+export fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
+    state ticks: i64 = 0
+    inject scheduler
+
+    start {
+        scheduler.schedule(0s)
+    }
+
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay)
+        }
+        return ticks
+    }
+}
+
+# Input activity: forward the first `count` ticks, then stop listening to the
+# input. The input keeps its value and validity; it just no longer activates
+# this node.
+export fn first_ticks(value: i64, const count: i64) -> i64 {
+    state seen: i64 = 0
+
+    when modified(value) && valid(value) {
+        seen += 1
+        if seen >= count {
+            passivate(value)
+        }
+        return value
+    }
+}
+
+# The evaluation clock reads the engine's current evaluation time.
+export fn stamped(value: i64) -> datetime {
+    inject clock
+
+    when modified(value) && valid(value) {
+        return clock.evaluation_time()
+    }
+}

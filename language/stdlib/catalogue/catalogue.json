@@ -14,9 +14,9 @@
     },
     "B2": {
       "priority": 1,
-      "summary": "Lifecycle and activation: startup output/schedule_on_start, mutable input activity, scheduler/clock and external resource ownership are not all admitted in runtime HGL. Emission-only imitations would lose native behavior.",
+      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector (explicitly empty activation set, scheduler-driven sources) and passivate/activate are admitted (ADR 0010). Still missing: buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
       "evidence": [
-        "language/docs/design/roadmap.md",
+        "language/docs/design/decisions/0010-lifecycle-capabilities.md",
         "include/hgraph/lib/std/operators/impl/stream_impl.h",
         "include/hgraph/lib/std/operators/impl/control_impl.h"
       ]
@@ -831,7 +831,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 370,
+          "line": 458,
           "declaration": "operator tick_count(ts: signal) -> i64"
         },
         {
@@ -840,7 +840,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 371,
+          "line": 459,
           "declaration": "impl fn tick_count(ts: signal) -> i64"
         }
       ],
@@ -10587,7 +10587,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 52,
+          "line": 128,
           "declaration": "impl fn dedup(ts: bool) -> bool"
         },
         {
@@ -10596,7 +10596,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 65,
+          "line": 141,
           "declaration": "impl fn dedup(ts: i64) -> i64"
         },
         {
@@ -10605,7 +10605,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 78,
+          "line": 154,
           "declaration": "impl fn dedup(ts: str) -> str"
         },
         {
@@ -10614,7 +10614,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 91,
+          "line": 167,
           "declaration": "impl fn dedup(ts: date) -> date"
         },
         {
@@ -10623,7 +10623,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 104,
+          "line": 180,
           "declaration": "impl fn dedup(ts: time) -> time"
         },
         {
@@ -10632,7 +10632,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 117,
+          "line": 193,
           "declaration": "impl fn dedup(ts: datetime) -> datetime"
         },
         {
@@ -10641,7 +10641,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 130,
+          "line": 206,
           "declaration": "impl fn dedup(ts: duration) -> duration"
         },
         {
@@ -10650,7 +10650,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 170,
+          "line": 258,
           "declaration": "operator dedup_float(ts: f64, abs_tol: f64) -> f64"
         },
         {
@@ -10659,7 +10659,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 171,
+          "line": 259,
           "declaration": "impl fn dedup_float(ts: f64, abs_tol: f64) -> f64"
         },
         {
@@ -10668,7 +10668,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 331,
+          "line": 419,
           "declaration": "impl fn dedup(ts: f64) -> f64"
         }
       ],
@@ -12270,7 +12270,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 16,
+          "line": 88,
           "declaration": "impl fn drop<T>(ts: T, const count: i64 = 1) -> T"
         }
       ],
@@ -13454,7 +13454,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 27,
+          "line": 99,
           "declaration": "impl fn filter_<T>(condition: bool, ts: T) -> T"
         }
       ],
@@ -14666,15 +14666,19 @@
     {
       "name": "freeze",
       "review": {
-        "status": "blocked",
+        "status": "implemented-slice",
         "priority": 1,
-        "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-        "completed_domains": [],
+        "reason": "Eight scalar domains: forward until the predicate is true, then passivate both inputs (ADR 0010). Remaining: structural delta forwarding and the callable-predicate compositions.",
+        "completed_domains": [
+          "Eight scalar domains with passivation on the predicate."
+        ],
         "blockers": [
-          "B2"
+          "B4",
+          "B6"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/stream.h"
+          "include/hgraph/lib/std/operators/stream.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -14810,7 +14814,26 @@
           "id": "freeze:a7e1382c11e0"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.std",
+          "name": "freeze",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 10,
+          "declaration": "operator freeze<T>(predicate: bool, ts: T) -> T"
+        },
+        {
+          "module": "hgraph.std",
+          "name": "freeze",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 35,
+          "declaration": "impl fn freeze<T>(predicate: bool, ts: T) -> T"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -21971,14 +21994,14 @@
           "marker": "map_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 429
+          "line": 432
         },
         {
           "name": "map_",
           "marker": "map_sink_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 438
+          "line": 441
         }
       ],
       "registration_sites": [
@@ -23535,7 +23558,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 187,
+          "line": 275,
           "declaration": "operator max_<T>(ts: T) -> T"
         },
         {
@@ -23544,7 +23567,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 254,
+          "line": 342,
           "declaration": "impl fn max_(ts: i64) -> i64"
         },
         {
@@ -23553,7 +23576,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 268,
+          "line": 356,
           "declaration": "impl fn max_(ts: f64) -> f64"
         },
         {
@@ -23562,7 +23585,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 282,
+          "line": 370,
           "declaration": "impl fn max_(ts: str) -> str"
         },
         {
@@ -23571,7 +23594,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 296,
+          "line": 384,
           "declaration": "impl fn max_(ts: date) -> date"
         },
         {
@@ -23580,7 +23603,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 310,
+          "line": 398,
           "declaration": "impl fn max_(ts: datetime) -> datetime"
         },
         {
@@ -23589,7 +23612,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 324,
+          "line": 412,
           "declaration": "impl fn max_(ts: duration) -> duration"
         },
         {
@@ -23598,7 +23621,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 364,
+          "line": 452,
           "declaration": "impl fn max_(ts: bool) -> bool"
         }
       ],
@@ -24834,7 +24857,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 185,
+          "line": 273,
           "declaration": "operator mean<T>(ts: T) -> f64"
         },
         {
@@ -24843,7 +24866,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 208,
+          "line": 296,
           "declaration": "impl fn mean(ts: i64) -> f64"
         },
         {
@@ -24852,7 +24875,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 237,
+          "line": 325,
           "declaration": "impl fn mean(ts: f64) -> f64"
         }
       ],
@@ -25120,7 +25143,7 @@
           "marker": "mesh_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 466
+          "line": 469
         }
       ],
       "registration_sites": [
@@ -26634,7 +26657,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 186,
+          "line": 274,
           "declaration": "operator min_<T>(ts: T) -> T"
         },
         {
@@ -26643,7 +26666,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 247,
+          "line": 335,
           "declaration": "impl fn min_(ts: i64) -> i64"
         },
         {
@@ -26652,7 +26675,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 261,
+          "line": 349,
           "declaration": "impl fn min_(ts: f64) -> f64"
         },
         {
@@ -26661,7 +26684,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 275,
+          "line": 363,
           "declaration": "impl fn min_(ts: str) -> str"
         },
         {
@@ -26670,7 +26693,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 289,
+          "line": 377,
           "declaration": "impl fn min_(ts: date) -> date"
         },
         {
@@ -26679,7 +26702,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 303,
+          "line": 391,
           "declaration": "impl fn min_(ts: datetime) -> datetime"
         },
         {
@@ -26688,7 +26711,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 317,
+          "line": 405,
           "declaration": "impl fn min_(ts: duration) -> duration"
         },
         {
@@ -26697,7 +26720,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 360,
+          "line": 448,
           "declaration": "impl fn min_(ts: bool) -> bool"
         }
       ],
@@ -34833,7 +34856,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 10,
+          "line": 82,
           "declaration": "impl fn sample<T>(signal: signal, ts: T) -> T"
         }
       ],
@@ -34842,15 +34865,18 @@
     {
       "name": "schedule",
       "review": {
-        "status": "blocked",
+        "status": "implemented-slice",
         "priority": 1,
-        "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-        "completed_domains": [],
+        "reason": "Constant-delay source through `inject scheduler`, `start { scheduler.schedule(...) }` and `when scheduled()`, including initial_delay, max_ticks and use_wall_clock (ADR 0010). Remaining: the time-series delay and start-time overloads (clock arithmetic in a runtime body) and the positive-delay validation in start.",
+        "completed_domains": [
+          "Constant-delay source with initial_delay, max_ticks and use_wall_clock."
+        ],
         "blockers": [
-          "B2"
+          "B3"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/stream.h"
+          "include/hgraph/lib/std/operators/stream.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -35035,7 +35061,26 @@
           "id": "schedule:a064db36c9e6"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.std",
+          "name": "schedule",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 12,
+          "declaration": "operator schedule(const delay: duration, const initial_delay: bool = true,\n                  const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool"
+        },
+        {
+          "module": "hgraph.std",
+          "name": "schedule",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 60,
+          "declaration": "impl fn schedule(const delay: duration, const initial_delay: bool = true,\n                 const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -38525,7 +38570,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 183,
+          "line": 271,
           "declaration": "operator sum<T>(ts: T) -> T"
         },
         {
@@ -38534,7 +38579,7 @@
           "kind": "contract",
           "form": null,
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 184,
+          "line": 272,
           "declaration": "operator sum_reset<T>(ts: T, reset: bool) -> T"
         },
         {
@@ -38543,7 +38588,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 189,
+          "line": 277,
           "declaration": "impl fn sum(ts: i64) -> i64"
         },
         {
@@ -38552,7 +38597,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 196,
+          "line": 284,
           "declaration": "impl fn sum_reset(ts: i64, reset: bool) -> i64"
         },
         {
@@ -38561,7 +38606,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 218,
+          "line": 306,
           "declaration": "impl fn sum(ts: f64) -> f64"
         },
         {
@@ -38570,7 +38615,7 @@
           "kind": "implementation",
           "form": "hgl-runtime",
           "source": "language/stdlib/hgl/hgraph/stream.hgl",
-          "line": 225,
+          "line": 313,
           "declaration": "impl fn sum_reset(ts: f64, reset: bool) -> f64"
         }
       ],
@@ -38806,15 +38851,19 @@
     {
       "name": "take",
       "review": {
-        "status": "blocked",
+        "status": "implemented-slice",
         "priority": 1,
-        "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-        "completed_domains": [],
+        "reason": "Eight scalar domains with `passivate` once the count is reached (ADR 0010). Remaining: structural delta forwarding, the reset and by-time overloads, and passivating a restored exhausted counter in `start` (a start block cannot reach the inputs).",
+        "completed_domains": [
+          "Eight scalar domains with passivation at the count."
+        ],
         "blockers": [
-          "B2"
+          "B2",
+          "B4"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/stream.h"
+          "include/hgraph/lib/std/operators/stream.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -39037,7 +39086,26 @@
           "id": "take:c0f5b54c923b"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.std",
+          "name": "take",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 9,
+          "declaration": "operator take<T>(ts: T, const count: i64 = 1) -> T"
+        },
+        {
+          "module": "hgraph.std",
+          "name": "take",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 19,
+          "declaration": "impl fn take<T>(ts: T, const count: i64 = 1) -> T"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -40940,15 +41008,18 @@
     {
       "name": "until_true",
       "review": {
-        "status": "blocked",
+        "status": "implemented-slice",
         "priority": 1,
-        "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
-        "completed_domains": [],
+        "reason": "Boolean body that passivates its input once true (ADR 0010). Remaining: the value-callable and wired-function predicate overloads.",
+        "completed_domains": [
+          "Boolean body with passivation once true."
+        ],
         "blockers": [
-          "B2"
+          "B6"
         ],
         "evidence": [
-          "include/hgraph/lib/std/operators/stream.h"
+          "include/hgraph/lib/std/operators/stream.h",
+          "language/tests/codegen/generated_catalogue_tests.cpp"
         ]
       },
       "declarations": [
@@ -41077,7 +41148,26 @@
           "id": "until_true:e0830e6f042a"
         }
       ],
-      "hgl": [],
+      "hgl": [
+        {
+          "module": "hgraph.std",
+          "name": "until_true",
+          "kind": "contract",
+          "form": null,
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 11,
+          "declaration": "operator until_true(ts: bool) -> bool"
+        },
+        {
+          "module": "hgraph.std",
+          "name": "until_true",
+          "kind": "implementation",
+          "form": "hgl-runtime",
+          "source": "language/stdlib/hgl/hgraph/stream.hgl",
+          "line": 49,
+          "declaration": "impl fn until_true(ts: bool) -> bool"
+        }
+      ],
       "core_cutover": "deferred"
     },
     {
@@ -42643,8 +42733,8 @@
     },
     {
       "source": "language/stdlib/hgl/hgraph/stream.hgl",
-      "line": 45,
-      "declaration": "instantiate sample<bool>, sample<i64>, sample<f64>, sample<str>, sample<date>, sample<time>, sample<datetime>, sample<duration>, drop<bool>, drop<i64>, drop<f64>, drop<str>, drop<date>, drop<time>, drop<datetime>, drop<duration>, filter_<bool>, filter_<i64>, filter_<f64>, filter_<str>, filter_<date>, filter_<time>, filter_<datetime>, filter_<duration>"
+      "line": 117,
+      "declaration": "instantiate sample<bool>, sample<i64>, sample<f64>, sample<str>, sample<date>, sample<time>, sample<datetime>, sample<duration>, drop<bool>, drop<i64>, drop<f64>, drop<str>, drop<date>, drop<time>, drop<datetime>, drop<duration>, filter_<bool>, filter_<i64>, filter_<f64>, filter_<str>, filter_<date>, filter_<time>, filter_<datetime>, filter_<duration>, take<bool>, take<i64>, take<f64>, take<str>, take<date>, take<time>, take<datetime>, take<duration>, freeze<bool>, freeze<i64>, freeze<f64>, freeze<str>, freeze<date>, freeze<time>, freeze<datetime>, freeze<duration>"
     }
   ],
   "all_registration_sites": [

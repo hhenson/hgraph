@@ -263,7 +263,9 @@ bindings count; delegation to an existing temporal operator stays pending.
 - `standard.hgl`: collection queries, membership/index search, map accumulation, keyed
   construction/removal and named scalar
   conversions (`to_int`, `to_float`, `to_bool`, `to_date`, `to_datetime`).
-- `stream.hgl`: sample/drop/filter/dedup, running sum/mean/extrema and internal tick counting.
+- `stream.hgl`: sample/drop/filter/dedup, running sum/mean/extrema and internal tick counting;
+  `take`, `freeze` and `until_true` through `passivate`, and the `schedule` source through
+  `inject scheduler` (ADR 0010).
 - `control.hgl`: if_true, scalar null_sink and pass_through bodies; pending
   variadic control contracts remain declarations.
 - `temporal.hgl`: Date/DateTime/Time/Duration fields and modification metadata.

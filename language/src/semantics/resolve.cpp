@@ -30,7 +30,7 @@ namespace hgl::semantics
             "const",  "valid",    "modified",   "all_valid", "last_modified", "delta",  "key_set", "keys",
             "values", "elements", "items",      "added",     "removed",       "insert", "update",  "upsert",
             "remove", "discard",  "invalidate", "clear",     "push",          "pop",    "schemas", "contains",
-            "at",     "time_at",  "front",      "back",      "removed_value",
+            "at",     "time_at",  "front",      "back",      "removed_value", "scheduled", "passivate", "activate",
         };
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {

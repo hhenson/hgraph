@@ -40,6 +40,10 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   predicates,
   `last_modified`, and mutable lexical `var`. Tests: none in the file; native
   behaviour in `generated_example_tests.cpp`.
+- [`lifecycle-capabilities.hgl`](lifecycle-capabilities.hgl) injects the
+  node scheduler and the evaluation clock: a scheduler-driven source with no
+  temporal input (`start { scheduler.schedule(0s) }`, `when scheduled()`),
+  `passivate(input)` after a count, and `clock.evaluation_time()` (ADR 0010).
 - [`native-functions.hgl`](native-functions.hgl) defines real top-level C++
   scalar and collection-view helpers with `native fn`, declares their public
   hgraph view headers with `cpp include`, overloads `len` across list, set, and
