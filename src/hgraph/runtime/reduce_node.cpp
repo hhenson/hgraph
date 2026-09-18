@@ -1070,15 +1070,22 @@ namespace hgraph
             // inputs would only create redundant subscription/scheduler work.
             if (context.spec.lifted_kernel == nullptr)
             {
+                // Phase 1 appended to ``created`` while walking the same
+                // positions in the other direction, so it is an ordered
+                // subsequence of this walk and one cursor answers "created this
+                // cycle?". Searching it per position made a bulk add, and every
+                // capacity crossing, quadratic in the combiners created.
+                auto created_cursor = created.rbegin();
                 for (auto position_it = storage.structural_positions.rbegin();
                      position_it != storage.structural_positions.rend(); ++position_it)
                 {
                     const std::size_t position = *position_it;
+                    const bool created_now = created_cursor != created.rend() && *created_cursor == position;
+                    if (created_now) { ++created_cursor; }
                     auto &entry = storage.combiners[position];
                     if (entry == nullptr) { continue; }
                     const Aggregate left  = resolve_aggregate(storage, 2 * position + 1);
                     const Aggregate right = resolve_aggregate(storage, 2 * position + 2);
-                    const bool created_now = std::ranges::find(created, position) != created.end();
                     bind_combiner_inputs(view, context, storage, *entry, left, right, evaluation_time,
                                          !created_now);
                 }
