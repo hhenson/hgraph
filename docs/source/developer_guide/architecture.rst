@@ -84,6 +84,8 @@ In ``ExternallyDriven`` mode neither the schedule nor the wall clock decides whe
 
 The engine does not skip scheduled events. If event coalescing or collapsing is required, that behavior belongs to a source node. A collapsing source node may choose to combine external events before introducing them into the runtime, but that is source-node behavior, not scheduler behavior.
 
+A stepped graph can also be captured and restarted whole (RFC 0039). ``capture_external`` returns the image of every node at the last completed step — between two calls nothing is in flight, so that boundary is the consistency cut — and ``start_external_restored`` replaces ``start_external``, importing an image before the start phase runs. Both drive ``GraphCheckpointCoordinator`` with a whole-graph selection, so the graph must be wired inside a checkpoint scope: an image names its nodes by checkpoint identity. They are the mechanism without the completed-day policy; configured component recovery stays refused on this mode.
+
 That invariant is what makes ``step`` **refuse** an evaluation time later than ``next_scheduled_time()``. A node is evaluated only when its scheduled slot is exactly the evaluation time, and a slot already in the past is neither evaluated nor carried into the next scheduled time — so stepping over due work would discard it silently. The looping modes cannot reach that state because they always evaluate at ``next_scheduled_time()``; a caller must honour it just as ``single_nested_graph_propagate_schedule`` makes a local parent do.
 
 Distributed evaluation

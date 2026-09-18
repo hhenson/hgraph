@@ -18,6 +18,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/executor.cpp
     hgraph/runtime/checkpoint_codec.cpp
     hgraph/runtime/component_checkpoint.cpp
+    hgraph/runtime/graph_checkpoint_coordinator.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
     hgraph/runtime/graph.cpp

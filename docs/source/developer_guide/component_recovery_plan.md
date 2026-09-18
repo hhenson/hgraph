@@ -72,7 +72,19 @@ state is rejected while wiring where possible, with runtime validation before
 import as a second guard. The application revision covers semantic code changes
 that structural signatures cannot detect.
 
-The executor owns a `ComponentRecoverySession`. Recovery uses these phases:
+The graph-image mechanics live in `GraphCheckpointCoordinator`
+(`hgraph/runtime/graph_checkpoint_coordinator.h`, RFC 0039): capture, static
+validation, the prepare / fix-up / finalise restore, reference locators and the
+restored-start observer. It has two clients. `ComponentRecoverySession` is the
+completed-day client the executor owns: it selects one component
+(`GraphCheckpointSelection::owned_by`), reads its configuration from
+`GlobalState`, requires simulation with a finite end, wraps the image in a
+`ComponentCheckpoint` envelope and publishes only after a successful stop. An
+externally driven executor is the other: `start_external_restored` and
+`capture_external` select the whole graph and carry no policy, which is what a
+worker-hosted graph needs.
+
+Recovery uses these phases:
 
 1. Load the explicitly selected predecessor and validate version, component,
    revision, static graph contracts, and interval bounds.

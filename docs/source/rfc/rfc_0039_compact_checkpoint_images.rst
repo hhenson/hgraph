@@ -318,6 +318,47 @@ executor verbs on the externally driven mode, beside ``start_external`` /
 RFC 0023 consistency cut: the externally driven executor has no in-flight
 cycle between calls by construction.
 
+The coordinator (``hgraph/runtime/graph_checkpoint_coordinator.h``) is one class
+with one selection rule and four operations:
+
+``GraphCheckpointSelection``
+   ``owned_by(component)`` selects the nodes a component, or a component nested
+   in it, owns; ``whole_graph()`` selects every node. A whole-graph selection
+   refuses a node that carries no checkpoint identity, because an image whose
+   nodes are all named ``""`` would validate against any graph.
+
+``shape(graph)``
+   Identities and contract signatures only: what an image must match. It is
+   what a client hashes into its own signature (``signature(image, revision)``).
+
+``capture(graph)``
+   The owned image at ``graph.evaluation_time()``. A pending schedule beyond
+   that time is refused, as RFC 0023 requires.
+
+``restore(graph, image, start, cut)``
+   Validates the whole static graph, imports endpoints, resolves reference
+   locators and adapter clocks, then finalises owners -- all before the graph
+   starts. Every restored timestamp must be at or before ``cut``. A failure
+   detaches the whole preparation before it propagates. The image is borrowed
+   and must outlive the start phase.
+
+``complete_start()``
+   Releases the preparation inventory once the root start has succeeded.
+
+The coordinator is the ``LifecycleObserver`` that restores saved input activity
+after each node's start hook. A client registers it for the start phase only.
+
+``start_external_restored`` carries no cut of its own. The rule it needs is that
+restored state lies strictly in the past of the first evaluation, so it
+validates against ``start_time - MIN_TD``. A ``dmap_`` owner could not supply
+anything stronger: ``NodeCheckpointOps::restore_impl`` is handed the start time
+and nothing else. ``ComponentRecoverySession`` keeps the stronger check against
+the cut its envelope records.
+
+Configured component recovery stays refused on the externally driven mode: it
+is a completed-day policy, and a stepped run has no completed-interval
+publication boundary. The two verbs are the mechanism without the policy.
+
 Worker graphs are wired inside a checkpoint scope so their nodes receive
 identities and signatures through the same ``assign_checkpoint_identity`` path
 as component members. The recipe's boundary source and sink nodes declare
@@ -446,6 +487,7 @@ Stages
    (``developer_guide/data_structures/plans_and_ops/time_series.rst``) and is
    independent of checkpointing. Columnar leaf images remain open.
 3. **Whole-graph coordinator** and the two externally driven executor verbs.
+   *Implemented.*
 4. **``dmap_`` recovery**, in-process then process hosting.
 5. **``spawn`` recovery** at the completed boundary.
 

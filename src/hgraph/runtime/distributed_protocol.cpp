@@ -1,5 +1,6 @@
 #include <hgraph/runtime/distributed_protocol.h>
 
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_view.h>
@@ -271,6 +272,31 @@ namespace hgraph::distributed
 
 namespace hgraph::distributed
 {
+    namespace
+    {
+        std::string boundary_checkpoint_signature(const NodeBuilder &builder)
+        {
+            manifest::CanonicalWriter writer;
+            writer.varint(1);
+            writer.string_field(builder.scalars().view().as_bundle().at("slot").checked_as<Str>());
+            const auto &bytes = writer.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+    }
+
+    const NodeCheckpointOps &boundary_source_checkpoint_ops() noexcept
+    {
+        static const NodeCheckpointOps ops{.supported = true, .signature_impl = &boundary_checkpoint_signature};
+        return ops;
+    }
+
+    const NodeCheckpointOps &boundary_sink_checkpoint_ops() noexcept
+    {
+        static const NodeCheckpointOps ops{
+            .supported = true, .captures_output = false, .signature_impl = &boundary_checkpoint_signature};
+        return ops;
+    }
+
     CycleReply serve_cycle(const DistributedChildHost &host, const BoundarySlots &slots,
                            const CycleRequest &request)
     {

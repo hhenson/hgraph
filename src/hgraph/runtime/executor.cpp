@@ -1,6 +1,7 @@
 #include <hgraph/runtime/diagnostic_path.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/runtime/graph_checkpoint_coordinator.h>
 
 #include "registry_snapshot_detail.h"
 
@@ -700,9 +701,9 @@ namespace hgraph
             auto graph = state.graph.view();
             ComponentRecoverySession recovery{graph, state.start_time, state.end_time,
                 std::is_same_v<Storage, SimulationExecutorStorage>};
-            if (recovery.active()) { state.lifecycle_observers.add(&recovery); }
+            if (auto *observer = recovery.observer()) { state.lifecycle_observers.add(observer); }
             auto remove_recovery = make_scope_exit([&] {
-                if (recovery.active()) { state.lifecycle_observers.remove(&recovery); }
+                if (auto *observer = recovery.observer()) { state.lifecycle_observers.remove(observer); }
             });
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
                 recovery.prepare(graph);
@@ -845,8 +846,11 @@ namespace hgraph
          * executor is a simulation executor whose clock is set rather than
          * derived, so every other op is reused verbatim.
          */
-        void external_start_impl(const void *, const GraphExecutorView &executor,
-                                 DateTime start_time)
+        // ``restored`` is the image to import before the start phase, or null
+        // for a fresh start. One body: a restored start that drifted from the
+        // fresh one would be a second start contract.
+        void external_start(const GraphExecutorView &executor, DateTime start_time,
+                            const GraphCheckpointImage *restored)
         {
             auto &state = simulation_storage(executor.data());
             auto  graph = state.graph.view();
@@ -870,9 +874,44 @@ namespace hgraph
             // graph actually started.
             state.start_time = start_time;
             state.set_evaluation_time(start_time);
+            if (restored == nullptr)
+            {
+                run_executor_phase(state, GraphExecutorPhase::Start, [&] { graph.start(start_time); });
+                return;
+            }
+            GraphCheckpointCoordinator coordinator{GraphCheckpointSelection::whole_graph()};
+            state.lifecycle_observers.add(&coordinator);
+            auto remove_coordinator = make_scope_exit([&] { state.lifecycle_observers.remove(&coordinator); });
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
+                // Restored state lies strictly in the past of the first cycle.
+                coordinator.restore(graph, *restored, start_time, start_time - MIN_TD);
                 graph.start(start_time);
+                coordinator.complete_start();
             });
+        }
+
+        void external_start_impl(const void *, const GraphExecutorView &executor, DateTime start_time)
+        {
+            external_start(executor, start_time, nullptr);
+        }
+
+        void external_start_restored_impl(const void *, const GraphExecutorView &executor,
+                                          DateTime start_time, const GraphCheckpointImage &image)
+        {
+            external_start(executor, start_time, &image);
+        }
+
+        GraphCheckpointImage external_capture_impl(const void *, const GraphExecutorView &executor)
+        {
+            auto &state = simulation_storage(executor.data());
+            auto  graph = state.graph.view();
+            if (!graph.started())
+            {
+                throw std::logic_error(
+                    "GraphExecutorView::capture_external requires a started graph");
+            }
+            GraphCheckpointCoordinator coordinator{GraphCheckpointSelection::whole_graph()};
+            return coordinator.capture(graph);
         }
 
         bool external_step_impl(const void *, const GraphExecutorView &executor,
@@ -984,6 +1023,17 @@ namespace hgraph
         void unsupported_external_stop_impl(const void *, const GraphExecutorView &)
         {
             refuse_external("stop_external");
+        }
+
+        void unsupported_external_start_restored_impl(const void *, const GraphExecutorView &, DateTime,
+                                                      const GraphCheckpointImage &)
+        {
+            refuse_external("start_external_restored");
+        }
+
+        GraphCheckpointImage unsupported_external_capture_impl(const void *, const GraphExecutorView &)
+        {
+            refuse_external("capture_external");
         }
 
         /** ``run()`` is not the driving model for this mode; stepping is. */
@@ -1198,6 +1248,8 @@ namespace hgraph
                 .external_start_impl = &unsupported_external_start_impl,
                 .external_step_impl = &unsupported_external_step_impl,
                 .external_stop_impl = &unsupported_external_stop_impl,
+                .external_start_restored_impl = &unsupported_external_start_restored_impl,
+                .external_capture_impl = &unsupported_external_capture_impl,
                 .request_stop_impl = &simulation_request_stop_impl,
                 .add_evaluation_notification_impl = &simulation_add_evaluation_notification_impl,
                 .attach_activity_impl = &simulation_attach_activity_impl,
@@ -1228,6 +1280,8 @@ namespace hgraph
             ops.external_start_impl = &external_start_impl;
             ops.external_step_impl  = &external_step_impl;
             ops.external_stop_impl  = &external_stop_impl;
+            ops.external_start_restored_impl = &external_start_restored_impl;
+            ops.external_capture_impl        = &external_capture_impl;
             ops.attach_activity_impl = &unsupported_attach_activity_impl;
             ops.detach_activity_impl = &unsupported_detach_activity_impl;
             return ops;
@@ -1241,6 +1295,8 @@ namespace hgraph
                 .external_start_impl = &unsupported_external_start_impl,
                 .external_step_impl = &unsupported_external_step_impl,
                 .external_stop_impl = &unsupported_external_stop_impl,
+                .external_start_restored_impl = &unsupported_external_start_restored_impl,
+                .external_capture_impl = &unsupported_external_capture_impl,
                 .request_stop_impl = &realtime_request_stop_impl,
                 .add_evaluation_notification_impl = &realtime_add_evaluation_notification_impl,
                 .attach_activity_impl = &realtime_attach_activity_impl,
@@ -1781,6 +1837,18 @@ namespace hgraph
     {
         const auto &ops = external_ops(*this, "stop_external");
         ops.external_stop_impl(ops.context, *this);
+    }
+
+    void GraphExecutorView::start_external_restored(DateTime start_time, const GraphCheckpointImage &image) const
+    {
+        const auto &ops = external_ops(*this, "start_external_restored");
+        ops.external_start_restored_impl(ops.context, *this, start_time, image);
+    }
+
+    GraphCheckpointImage GraphExecutorView::capture_external() const
+    {
+        const auto &ops = external_ops(*this, "capture_external");
+        return ops.external_capture_impl(ops.context, *this);
     }
 
     void GraphExecutorView::run() const

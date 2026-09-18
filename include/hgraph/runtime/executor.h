@@ -141,6 +141,13 @@ namespace hgraph
         bool (*external_step_impl)(const void *context, const GraphExecutorView &executor,
                                    DateTime evaluation_time) = nullptr;
         void (*external_stop_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
+        // Whole-graph recovery of a stepped graph (RFC 0039). Same rule: every
+        // mode binds them, and the looping modes bind the refusal.
+        void (*external_start_restored_impl)(const void *context, const GraphExecutorView &executor,
+                                             DateTime start_time,
+                                             const GraphCheckpointImage &image) = nullptr;
+        GraphCheckpointImage (*external_capture_impl)(const void *context,
+                                                      const GraphExecutorView &executor) = nullptr;
         void (*request_stop_impl)(const void *context, void *memory) noexcept = nullptr;
         /** One-shot cycle-boundary notification (2026-08-01): ``before``
             selects the FIFO queue drained just before the next root
@@ -329,6 +336,30 @@ namespace hgraph
         void start_external(DateTime start_time) const;
         [[nodiscard]] bool step(DateTime evaluation_time) const;
         void stop_external() const;
+
+        /**
+         * Whole-graph recovery of a stepped graph (RFC 0039).
+         *
+         * ``capture_external`` returns the owned image of every node at the
+         * last completed step. Between two calls a stepped executor has no
+         * cycle in flight, so that boundary is the consistency cut; a node
+         * with a schedule still pending beyond it is refused.
+         *
+         * ``start_external_restored`` replaces ``start_external``: it imports
+         * ``image`` into the unstarted graph and then runs the start phase, so
+         * start hooks see restored state. Every restored timestamp must
+         * precede ``start_time``. A refused image leaves the graph unstarted.
+         * Afterwards ``graph().next_scheduled_time()`` reports what the
+         * restored graph wants, as it does after any step.
+         *
+         * The graph must be wired inside a checkpoint scope
+         * (``Wiring::checkpoint_component``): an image names its nodes by
+         * checkpoint identity. Both throw ``std::logic_error`` on an executor
+         * that is not ``ExternallyDriven``. Neither is component recovery --
+         * that completed-day policy stays refused on this mode.
+         */
+        void start_external_restored(DateTime start_time, const GraphCheckpointImage &image) const;
+        [[nodiscard]] GraphCheckpointImage capture_external() const;
         void request_stop() const noexcept;
 
       private:
