@@ -20,11 +20,22 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
 {
     using namespace hgraph;
+
+    // "prefix" + std::to_string(n) builds a temporary that GCC 14 at -O3 then
+    // misjudges (-Warray-bounds on the moved-from small buffer), and the tree
+    // is built with -Werror. Appending into a named string avoids it.
+    Str labelled(std::string_view prefix, std::int64_t number)
+    {
+        Str text{prefix};
+        text += std::to_string(number);
+        return text;
+    }
 
     const ValueTypeMetaData *row_schema()
     {
@@ -47,7 +58,7 @@ namespace
         fields.set("quantity", Value{Float{static_cast<double>(1 + index % 13)}});
         fields.set("time", Value{MIN_ST + TimeDelta{index * 1000}});
         fields.set("live", Value{Bool{index % 3 != 0}});
-        fields.set("symbol", Value{Str{"SYM" + std::to_string(index % 50)}});
+        fields.set("symbol", Value{labelled("SYM", index % 50)});
         return fields.build();
     }
 
@@ -226,7 +237,7 @@ TEST_CASE("binary profiles: columns nest, and the shapes with no column form sti
             fields.set("inner", inner_fields.build());
         }
         MapBuilder lookup{registry.scalar_type<Str>(), registry.scalar_type<Int>()};
-        lookup.set_item(Value{Str{"k" + std::to_string(index)}}.view(), Value{Int{index}}.view());
+        lookup.set_item(Value{labelled("k", index)}.view(), Value{Int{index}}.view());
         fields.set("lookup", lookup.build());
         nested.push_back(fields.build().view());
     }
@@ -436,7 +447,7 @@ TEST_CASE("binary profiles: Compact writes repeated text once", "[binary-profile
         for (std::size_t index = 0; index < count; ++index)
         {
             BundleBuilder fields{binding};
-            fields.set("symbol", Value{Str{"a-rather-long-symbol-name-" + std::to_string(index % distinct)}});
+            fields.set("symbol", Value{labelled("a-rather-long-symbol-name-", static_cast<std::int64_t>(index % distinct))});
             rows.push_back(fields.build().view());
         }
         return rows.build();
@@ -534,7 +545,7 @@ TEST_CASE("binary profiles: a run of keys is a column where the profile has one"
     std::vector<Value> keys;
     for (std::int64_t key = 0; key < 50; ++key) { keys.emplace_back(Int{key * 10 + 3}); }
     std::vector<Value> names;
-    for (std::int64_t key = 0; key < 6; ++key) { names.emplace_back(Str{"k" + std::to_string(key)}); }
+    for (std::int64_t key = 0; key < 6; ++key) { names.emplace_back(labelled("k", key)); }
 
     const auto round_trip = [](const std::vector<Value> &values, const BoundBinaryConverter &converter) {
         std::string  bytes;
