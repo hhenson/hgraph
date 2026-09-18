@@ -7,7 +7,7 @@
 // 2603-aligned interface: schedule (absolute / delta / tagged / immediate),
 // query (is_scheduled / next_scheduled_time / has_tag / tag_time), cancel
 // (pop_tag / un_schedule / reset), the post-eval advance, and the throw paths
-// (missing state, wall-clock alarms without realtime support).
+// (missing state and wall-clock fallback without realtime support).
 
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/util/date_time.h>
@@ -212,14 +212,18 @@ TEST_CASE("node scheduler: multiple untagged events accumulate and advance in ti
     CHECK(at_five.next_scheduled_time() == base + TimeDelta{6});
 }
 
-TEST_CASE("node scheduler: wall-clock alarms require realtime support")
+TEST_CASE("node scheduler: wall-clock alarms fall back to graph time in simulation")
 {
     NodeSchedulerState state;
     NodeScheduler      sched{state, nullptr, 0, base};
 
-    CHECK_THROWS_AS(sched.schedule(base + one, "wc", /*on_wall_clock=*/true), std::logic_error);
-    CHECK_THROWS_AS(sched.schedule(one, "wc", /*on_wall_clock=*/true), std::logic_error);
+    CHECK(sched.scheduling_time(/*on_wall_clock=*/true) == base);
+    sched.schedule(base + one, "wc", /*on_wall_clock=*/true);
+    CHECK(sched.tag_time("wc") == base + one);
+    sched.schedule(one * 2, "wc", /*on_wall_clock=*/true);
+    CHECK(sched.tag_time("wc") == base + one * 2);
 
+    state = {};
     NodeScheduler realtime{state,
                            nullptr,
                            0,

@@ -340,13 +340,12 @@ def test_lag_timedelta_ts():
     assert eval_node(g, [1, 2, 3, 4, 5], [MIN_TD * 2]) == [None, None, 1, 2, 3, 4, 5]
 
 
-def test_lag_wall_clock_option_wires():
+def test_lag_wall_clock_option_uses_graph_time_in_simulation():
     @graph
     def g(ts: TS[int]) -> TS[int]:
-        return lag(ts, timedelta(milliseconds=1), on_wall_clock=True)
+        return lag(ts, MIN_TD, on_wall_clock=True)
 
-    with wiring_context():
-        g(const(1))
+    assert eval_node(g, [1]) == [None, 1]
 
 
 def test_schedule():
@@ -380,6 +379,19 @@ def test_schedule_wall_clock_options_wire():
         scalar_delay()
         ts_delay(const(timedelta(milliseconds=1)))
         ts_delay_with_start(const(timedelta(milliseconds=1)), const(MIN_ST))
+
+
+def test_schedule_wall_clock_option_uses_graph_time_in_simulation():
+    @graph
+    def g() -> TS[bool]:
+        return schedule(MIN_TD, max_ticks=2, use_wall_clock=True)
+
+    @graph
+    def g_with_start(delay: TS[timedelta], start: TS[datetime]) -> TS[bool]:
+        return schedule(delay, start=start, max_ticks=1, use_wall_clock=True)
+
+    assert eval_node(g) == [None, True, True]
+    assert eval_node(g_with_start, [MIN_TD], [MIN_ST]) == [None, True]
 
 
 def test_schedule_ts():

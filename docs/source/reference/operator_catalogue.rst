@@ -413,7 +413,7 @@ are fixed when the graph is built.
    Maximum number of queued values. Optional in overloads that show ``= ...``.
 
 ``use_wall_clock`` : scalar; ``bool``
-   Schedule delayed releases against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   Use host time for delayed releases in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -3679,7 +3679,7 @@ are fixed when the graph is built.
    Positive tick count or duration selected at wiring time.
 
 ``on_wall_clock`` : scalar; ``bool``
-   For duration lag, schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   For duration lag, use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 ``proxy`` : time-series; ``SIGNAL``
    Optional proxy stream whose count defines progress for proxy-lag overloads.
@@ -6470,7 +6470,7 @@ are fixed when the graph is built.
    Optional upper bound after which the source becomes passive. Optional in overloads that show ``= ...``.
 
 ``use_wall_clock`` : scalar; ``bool``
-   Schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   Use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 ``start`` : time-series; ``TS[date]``, ``TS[datetime]``
    Optional time-series start instant that re-bases the schedule grid.

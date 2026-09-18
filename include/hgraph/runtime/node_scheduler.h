@@ -92,10 +92,10 @@ namespace hgraph
      * graph; ``advance`` (run after each evaluation) consumes fired events and
      * re-arms the next.
      *
-     * Wall-clock alarms (``on_wall_clock = true``) are supported when the
+     * Wall-clock alarms (``on_wall_clock = true``) use the host clock when the
      * scheduler is injected by a real-time graph executor. Simulation and
-     * manually constructed schedulers without explicit wall-clock support reject
-     * them, because the simulation engine cannot advance from host wall time.
+     * manually constructed schedulers fall back to logical graph time, allowing
+     * the same graph to run deterministically under either executor.
      */
     class HGRAPH_CLASS_EXPORT NodeScheduler
     {
@@ -144,6 +144,17 @@ namespace hgraph
 
         /** The current evaluation time. */
         [[nodiscard]] DateTime now() const noexcept { return now_; }
+
+        /**
+         * The clock against which a scheduling request will be interpreted.
+         * Wall-clock requests use host time only when the executor supports
+         * them; simulation treats the request as graph-time scheduling.
+         */
+        [[nodiscard]] DateTime scheduling_time(bool on_wall_clock = false) const noexcept
+        {
+            if (!on_wall_clock || !supports_wall_clock_) { return now_; }
+            return std::max(now_, wall_clock_.now());
+        }
 
         /** Earliest pending time, or ``MIN_DT`` when nothing is scheduled. */
         [[nodiscard]] DateTime next_scheduled_time() const noexcept
@@ -205,15 +216,16 @@ namespace hgraph
          * (start) time via ``schedule(now())`` — this is how a source initiates
          * itself. A non-empty ``tag`` replaces any prior event under the same tag.
          * ``on_wall_clock`` interprets ``when`` as an absolute host wall-clock
-         * time and requires a real-time graph executor. Mirrors the authoritative
-         * Python guard for started nodes, while preserving the start-cycle
-         * ``schedule(now())`` source pattern before the node has started.
+         * time in a real-time executor and as graph time in simulation. Preserves
+         * the start-cycle ``schedule(now())`` source pattern before the node has
+         * started.
          */
         void schedule(DateTime when, std::optional<std::string> tag = std::nullopt,
                       bool on_wall_clock = false) const
         {
             require_state("schedule");
-            const DateTime reference_now = scheduling_reference_time(on_wall_clock);
+            on_wall_clock = on_wall_clock && supports_wall_clock_;
+            const DateTime reference_now = scheduling_time(on_wall_clock);
             // Started: only the future. Not yet started: the start cycle onward.
             // A wall-clock alarm that is already due is delivered on the next
             // evaluatable cycle rather than dropped: the wall clock may cross
@@ -259,7 +271,8 @@ namespace hgraph
                       bool on_wall_clock = false) const
         {
             require_state("schedule");
-            schedule(scheduling_reference_time(on_wall_clock) + delta, std::move(tag), on_wall_clock);
+            on_wall_clock = on_wall_clock && supports_wall_clock_;
+            schedule(scheduling_time(on_wall_clock) + delta, std::move(tag), on_wall_clock);
         }
 
         /** Cancel the event registered under ``tag`` (no-op if absent). */
@@ -323,16 +336,6 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] DateTime scheduling_reference_time(bool on_wall_clock) const
-        {
-            if (!on_wall_clock) { return now_; }
-            if (!supports_wall_clock_)
-            {
-                throw std::logic_error("NodeScheduler: wall-clock alarms require a real-time graph executor");
-            }
-            return std::max(now_, wall_clock_.now());
-        }
-
         static NodeSchedulerState checkpoint_state(const NodeSchedulerCheckpoint &image, DateTime restart)
         {
             NodeSchedulerState restored;
@@ -347,7 +350,6 @@ namespace hgraph
             }
             return restored;
         }
-
         NodeSchedulerState *state_{nullptr};
         GraphValue         *graph_{nullptr};
         std::size_t         node_index_{0};
