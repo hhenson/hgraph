@@ -1,10 +1,13 @@
 #include <hgraph/runtime/distributed_boundary.h>
+
+#include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_hash.h>
 
+#include <limits>
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
@@ -29,7 +32,7 @@ namespace hgraph::distributed
     struct BoundaryTransfer::Plan
     {
         using Capture = void (*)(const Plan &, const TSInputView &, bool, std::size_t,
-                                  std::size_t, std::string &);
+                                  std::size_t, BinaryWriter &);
         // Decode a delta completely before publishing any of its mutations. Values
         // are decoded once; staging is proportional to the changed subtree.
         struct Decoded
@@ -58,6 +61,9 @@ namespace hgraph::distributed
         Apply apply{};
         Decode decode{};
         bool full_when_unbound{false};
+        // Some value under this boundary can be an ``Any`` -- which is what a
+        // Python object is -- so the payload carries a session's tables.
+        bool needs_session{false};
 
         explicit Plan(const TSValueTypeMetaData *type) : schema(type)
         {
@@ -66,15 +72,15 @@ namespace hgraph::distributed
             {
                 case TSTypeKind::TS:
                 case TSTypeKind::SIGNAL:
-                    value = bind_binary_converter(schema->delta_value_schema);
+                    value = bind_binary_converter(schema->delta_value_schema, BinaryProfile::Fast);
                     capture = &capture_atomic; apply = &apply_atomic; decode = &decode_atomic; break;
                 case TSTypeKind::TSS:
                     full_when_unbound = true;
-                    key = bind_binary_converter(schema->value_schema->element_type);
+                    key = bind_binary_converter(schema->value_schema->element_type, BinaryProfile::Fast);
                     capture = &capture_set; apply = &apply_set; decode = &decode_set; break;
                 case TSTypeKind::TSD:
                     full_when_unbound = true;
-                    key = bind_binary_converter(schema->data.tsd.key_type);
+                    key = bind_binary_converter(schema->data.tsd.key_type, BinaryProfile::Fast);
                     children.push_back(std::make_unique<Plan>(schema->element_ts()));
                     capture = &capture_dict; apply = &apply_dict; decode = &decode_dict; break;
                 case TSTypeKind::TSL:
@@ -91,22 +97,25 @@ namespace hgraph::distributed
                     capture = &capture_bundle; apply = &apply_bundle; decode = &decode_bundle; break;
                 case TSTypeKind::TSW:
                     full_when_unbound = true;
-                    value = bind_binary_converter(schema->value_type);
-                    time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"));
+                    value = bind_binary_converter(schema->value_type, BinaryProfile::Fast);
+                    time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"), BinaryProfile::Fast);
                     element_binding = value.binding();
                     capture = &capture_window; apply = &apply_window; decode = &decode_window; break;
                 case TSTypeKind::REF:
                     throw std::invalid_argument("distributed boundaries require recursively materialized REF values");
             }
+            needs_session = (value && value.needs_session()) || (key && key.needs_session());
+            for (const auto &child : children) { needs_session = needs_session || child->needs_session; }
         }
 
         void write(const TSInputView &in, bool full, std::size_t group, std::size_t groups,
-                   std::string &bytes) const
+                   BinaryWriter &writer) const
         {
+            auto &bytes = writer.out;
             full = full || in.delta_is_sampled_rebind() ||
                    (full_when_unbound && !in.data_view().valid());
             byte((in.valid() ? live_flag : 0) | (full ? full_flag : 0), bytes);
-            capture(*this, in, full, group, groups, bytes);
+            capture(*this, in, full, group, groups, writer);
         }
         [[nodiscard]] Decoded read(BinaryReader &reader, DateTime evaluation_time) const
         {
@@ -216,12 +225,12 @@ namespace hgraph::distributed
         }
 
         static void capture_atomic(const Plan &plan, const TSInputView &in, bool,
-                                   std::size_t, std::size_t, std::string &bytes)
+                                   std::size_t, std::size_t, BinaryWriter &writer)
         {
             if (!in.valid()) return;
             if (plan.schema->kind == TSTypeKind::SIGNAL)
-                plan.value.write(Value{true}.view(), bytes);
-            else plan.value.write(in.value(), bytes);
+                plan.value.write(Value{true}.view(), writer);
+            else plan.value.write(in.value(), writer);
         }
         static void apply_atomic(const Plan &, const TSOutputView &out, const Decoded &decoded,
                                  bool)
@@ -235,24 +244,25 @@ namespace hgraph::distributed
         }
 
         static void capture_set(const Plan &plan, const TSInputView &in, bool full,
-                                std::size_t, std::size_t, std::string &bytes)
+                                std::size_t, std::size_t, BinaryWriter &writer)
         {
+            auto &bytes = writer.out;
             const auto set = in.as_set();
             if (full)
             {
                 byte(0, bytes);
-                for (const auto item : set.values()) { byte(1, bytes); plan.key.write(item, bytes); }
+                for (const auto item : set.values()) { byte(1, bytes); plan.key.write(item, writer); }
             }
             else
             {
                 const auto data = in.data_view().as_set();
                 for (auto slot = data.next_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
                      slot = data.next_removed_slot(slot))
-                { byte(1, bytes); plan.key.write(data.at_slot(slot), bytes); }
+                { byte(1, bytes); plan.key.write(data.at_slot(slot), writer); }
                 byte(0, bytes);
                 for (auto slot = data.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
                      slot = data.next_added_slot(slot))
-                { byte(1, bytes); plan.key.write(data.at_slot(slot), bytes); }
+                { byte(1, bytes); plan.key.write(data.at_slot(slot), writer); }
             }
             byte(0, bytes);
         }
@@ -282,13 +292,14 @@ namespace hgraph::distributed
         }
 
         static void capture_dict(const Plan &plan, const TSInputView &in, bool full,
-                                 std::size_t group, std::size_t groups, std::string &bytes)
+                                 std::size_t group, std::size_t groups, BinaryWriter &writer)
         {
+            auto &bytes = writer.out;
             const auto dict = in.as_dict();
             const auto write_item = [&](const ValueView &key, const TSInputView &child, bool sample) {
                 if (groups != 0 && !selected(plan.key.portable_hash(key), group, groups)) return;
-                byte(1, bytes); plan.key.write(key, bytes);
-                plan.children.front()->write(child, sample, 0, 0, bytes);
+                byte(1, bytes); plan.key.write(key, writer);
+                plan.children.front()->write(child, sample, 0, 0, writer);
             };
             if (full)
             {
@@ -309,7 +320,7 @@ namespace hgraph::distributed
                     {
                         const auto key = keys.at_slot(slot);
                         if (groups == 0 || selected(plan.key.portable_hash(key), group, groups))
-                        { byte(1, bytes); plan.key.write(key, bytes); }
+                        { byte(1, bytes); plan.key.write(key, writer); }
                     }
                 byte(0, bytes);
                 if (structure_changed)
@@ -370,8 +381,9 @@ namespace hgraph::distributed
         }
 
         static void capture_list(const Plan &plan, const TSInputView &in, bool full,
-                                 std::size_t group, std::size_t groups, std::string &bytes)
+                                 std::size_t group, std::size_t groups, BinaryWriter &writer)
         {
+            auto &bytes = writer.out;
             const auto list = in.as_list();
             if (!in.data_view().valid())
             {
@@ -383,7 +395,7 @@ namespace hgraph::distributed
             const auto write_item = [&](std::size_t index, const TSInputView &child) {
                 if (!selected(index, group, groups)) return;
                 byte(1, bytes); write_varint(index, bytes);
-                plan.children.front()->write(child, full, 0, 0, bytes);
+                plan.children.front()->write(child, full, 0, 0, writer);
             };
             if (full)
                 for (const auto &[index, child] : list.items()) write_item(index, child);
@@ -430,15 +442,16 @@ namespace hgraph::distributed
         }
 
         static void capture_bundle(const Plan &plan, const TSInputView &in, bool full,
-                                   std::size_t, std::size_t, std::string &bytes)
+                                   std::size_t, std::size_t, BinaryWriter &writer)
         {
+            auto &bytes = writer.out;
             const auto bundle = in.as_bundle();
             const auto items = full ? bundle.items() : bundle.modified_items();
             for (const auto &[name, child] : items)
             {
                 const auto index = plan.fields.at(name);
                 byte(1, bytes); write_varint(index, bytes);
-                plan.children[index]->write(child, full, 0, 0, bytes);
+                plan.children[index]->write(child, full, 0, 0, writer);
             }
             byte(0, bytes);
         }
@@ -460,16 +473,17 @@ namespace hgraph::distributed
         }
 
         static void capture_window(const Plan &plan, const TSInputView &in, bool full,
-                                   std::size_t, std::size_t, std::string &bytes)
+                                   std::size_t, std::size_t, BinaryWriter &writer)
         {
+            auto &bytes = writer.out;
             const auto window = in.as_window();
             if (full)
             {
                 write_varint(window.size(), bytes);
                 for (std::size_t index = 0; index < window.size(); ++index)
                 {
-                    plan.time.write(Value{window.time_at(index)}.view(), bytes);
-                    plan.value.write(window.at(index), bytes);
+                    plan.time.write(Value{window.time_at(index)}.view(), writer);
+                    plan.value.write(window.at(index), writer);
                 }
             }
             else
@@ -477,7 +491,7 @@ namespace hgraph::distributed
                 byte(window.data_view().cleared(in.evaluation_time()), bytes);
                 const auto delta = in.delta_value();
                 byte(delta.has_value(), bytes);
-                if (delta.has_value()) plan.value.write(delta, bytes);
+                if (delta.has_value()) plan.value.write(delta, writer);
             }
         }
         static void apply_window(const Plan &, const TSOutputView &out, const Decoded &decoded,
@@ -505,7 +519,24 @@ namespace hgraph::distributed
     };
 
     BoundaryTransfer::BoundaryTransfer(const TSValueTypeMetaData *schema, BinaryDecodeLimits limits)
-        : plan_(std::make_shared<const Plan>(schema)), limits_(limits) {}
+        : BoundaryTransfer(schema, "a dmap_ / spawn boundary", limits) {}
+
+    BoundaryTransfer::BoundaryTransfer(const TSValueTypeMetaData *schema, std::string_view needed_by,
+                                       BinaryDecodeLimits limits)
+        : limits_(limits)
+    {
+        // The plan binds every converter the boundary will use, so a scalar
+        // that cannot cross it is found here -- while the graph is being wired
+        // -- and named with the boundary and the whole schema it sits in.
+        try
+        {
+            plan_ = std::make_shared<const Plan>(schema);
+        }
+        catch (const BinaryWireFormError &error)
+        {
+            throw error.with_context(needed_by, schema != nullptr ? schema->name() : std::string_view{});
+        }
+    }
     const TSValueTypeMetaData *BoundaryTransfer::schema() const noexcept { return plan_->schema; }
     const ValueTypeMetaData *BoundaryTransfer::payload_schema()
     { return TypeRegistry::instance().register_scalar<std::string>("str"); }
@@ -517,7 +548,26 @@ namespace hgraph::distributed
         if (input.schema() != schema()) throw std::invalid_argument("distributed capture schema mismatch");
         if (groups && group >= groups) throw std::invalid_argument("distributed capture group out of range");
         std::string bytes;
-        plan_->write(input, full, group, groups, bytes);
+        if (!plan_->needs_session)
+        {
+            BinaryWriter writer{bytes};
+            plan_->write(input, full, group, groups, writer);
+            return Value{std::move(bytes)};
+        }
+        // body, then the session's tables, then where the body ended. The body
+        // stays first so that whatever reads the head of a payload still does;
+        // a boundary with no ``Any`` under it writes none of this.
+        BinaryEncodeSession session{BinaryProfile::Fast};
+        BinaryWriter        writer{bytes, &session};
+        plan_->write(input, full, group, groups, writer);
+        const std::size_t body = bytes.size();
+        if (body > std::numeric_limits<std::uint32_t>::max())
+            throw std::length_error("distributed boundary payload exceeds 4 GiB");
+        session.write_tables(bytes);
+        for (std::size_t byte_index = 0; byte_index < sizeof(std::uint32_t); ++byte_index)
+        {
+            bytes.push_back(static_cast<char>((body >> (8 * byte_index)) & 0xFFu));
+        }
         return Value{std::move(bytes)};
     }
     std::optional<std::size_t> BoundaryTransfer::root_list_size(const ValueView &payload) const
@@ -533,7 +583,29 @@ namespace hgraph::distributed
     void BoundaryTransfer::apply(const TSOutputView &output, const ValueView &payload, bool merge) const
     {
         if (output.schema() != schema()) throw std::invalid_argument("distributed apply schema mismatch");
-        BinaryReader reader{payload.checked_as<std::string>(), 0, limits_};
+        const std::string_view bytes{payload.checked_as<std::string>()};
+        if (!plan_->needs_session)
+        {
+            BinaryReader reader{bytes, 0, limits_};
+            const auto decoded = plan_->read(reader, output.evaluation_time());
+            if (reader.remaining()) throw std::invalid_argument("trailing distributed boundary bytes");
+            plan_->apply(*plan_, output, decoded, merge);
+            return;
+        }
+        if (bytes.size() < sizeof(std::uint32_t)) throw std::invalid_argument("truncated distributed boundary payload");
+        std::uint32_t body = 0;
+        for (std::size_t byte_index = 0; byte_index < sizeof(std::uint32_t); ++byte_index)
+        {
+            body |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[bytes.size() - 4 + byte_index]))
+                    << (8 * byte_index);
+        }
+        if (body > bytes.size() - sizeof(std::uint32_t)) throw std::invalid_argument("invalid distributed boundary payload");
+        BinaryDecodeSession session{BinaryProfile::Fast};
+        BinaryReader        tables{bytes.substr(body, bytes.size() - sizeof(std::uint32_t) - body), 0, limits_};
+        session.read_tables(tables);
+        if (tables.remaining()) throw std::invalid_argument("trailing distributed boundary bytes");
+        BinaryReader reader{bytes.substr(0, body), 0, limits_};
+        reader.session = &session;
         const auto decoded = plan_->read(reader, output.evaluation_time());
         if (reader.remaining()) throw std::invalid_argument("trailing distributed boundary bytes");
         plan_->apply(*plan_, output, decoded, merge);

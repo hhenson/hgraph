@@ -730,6 +730,14 @@ cover:
 - ``apply_ref_result`` still converts through ``py_to_value_as`` when a
   Python node writes a ``REF`` value directly (rare; not observed on any
   benchmarked path).
+- A ``dmap_`` / ``spawn_`` boundary whose schema can hold an ``Any`` -- which
+  is what a Python object is -- carries a codec session in each payload (RFC
+  0040), and that session binds a converter the first time it meets a content
+  schema, *per payload*. Such a boundary pickles or converts every value it
+  carries, which dominates the bind; a boundary with a schema binds everything
+  once, when it is wired, and takes no lock per cycle
+  (``test_distributed_protocol.cpp`` holds that). The fix, if it is ever
+  wanted, is a session the owning node keeps across cycles.
 
 Two sanctioned cache patterns keep hot paths off the mutexes without
 weakening reset semantics (the registry's ``reset()`` is test-only but

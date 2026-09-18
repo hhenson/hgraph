@@ -140,6 +140,13 @@ What is preserved
 The image contains direct input source baselines and boundary alias clocks,
 ordinary outputs, hidden recordable state and error outputs,
 validity, and original modification times.
+
+Values are stored with the binary value codec, so any value that codec can
+carry is ordinary component state. That includes ``Frame`` and ``Series`` --
+untyped, ``Frame[Row]`` and ``Frame[Row, Metadata]`` alike -- held in an output,
+in recordable state, inside a bundle or as an input baseline. A frame recovers
+with its table contents, Arrow schema and schema metadata. Floating-point
+values recover bit for bit, including infinities, NaN payloads and signed zero.
 Fixed and dynamic lists, bundles, sets, and dictionaries use representation-owned
 checkpoint operations. Unsupported representations refuse checkpointing.
 
@@ -223,9 +230,13 @@ the directory; actual power-loss durability depends on the filesystem. The
 store does not publish several independent state streams and infer a completed
 day from their presence. Existing checkpoint keys cannot be overwritten.
 
-Before publication, the extension verifies that every stored value can be
-decoded without loss. Unsupported payloads, including non-finite floats in
-the current scalar codec, fail the commit and leave the predecessor intact.
+Encoding fails closed. A value the codec cannot represent -- opaque Python
+storage, for example -- raises while the image is being encoded, before
+anything is published, and leaves the predecessor intact. Every image carries
+a checksum over its whole content, verified on every read before any of it is
+interpreted. ``ComponentCheckpointStore.write(..., verify=True)`` additionally
+decodes the encoded image and requires that encoding it again reproduces the
+same bytes; it roughly doubles the cost of a write and is off by default.
 
 The caller selects the predecessor and new key explicitly. There is no mutable
 latest pointer, graph migration, multi-writer run-head protocol, broker
@@ -260,10 +271,18 @@ contract; ordinary recordable-state endpoints already receive the component
 reference context. General references crossing the component boundary remain
 outside this implementation.
 
-The first released durable image format is version 1. Unreleased development
-snapshots are not a compatibility contract; start with a fresh checkpoint.
-Unsupported format versions are refused explicitly, with no implicit schema
-or topology migration.
+Images are written in format version 2
+(:doc:`../rfc/rfc_0039_compact_checkpoint_images`). Version 1 images, published
+by hgraph 0.8.25-0.8.27, remain readable: a day recovered from one publishes a
+version 2 successor, and nothing needs migrating. Any other version is refused
+explicitly, with no implicit schema or topology migration.
+
+Image size and cost follow the state, not its shape. Each distinct schema, node
+identifier and contract signature is written once per image; a collection
+child names no schema, and a dense keyed collection stores no slot data. A
+``TSD[int, TS[float]]`` costs about 19 bytes per key, which is less than the
+three packed arrays a hand-written record of the same keys, values and times
+would need.
 
 An image is a full component checkpoint at a completed run boundary. Online
 snapshot requests, suspend triggers, incremental physical chunks, and a durable

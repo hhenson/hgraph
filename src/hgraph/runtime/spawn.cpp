@@ -466,7 +466,8 @@ namespace hgraph
         for (std::size_t i = 0; i < schemas.size(); ++i)
         {
             append_identity(schemas[i]);
-            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(schemas[i]);
+            auto transfer =
+                std::make_shared<const distributed::BoundaryTransfer>(schemas[i], "spawn_ input " + std::to_string(i));
             const Str slot = "__spawn_input_" + std::to_string(i);
             plan.slots.add(slot, distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Input);
             inputs.push_back(wire<distributed::boundary_transfer_source_impl>(child, slot, transfer, schemas[i]).erased());
@@ -478,7 +479,7 @@ namespace hgraph
         {
             plan.output = TypeRegistry::instance().dereference(result.schema);
             append_identity(plan.output);
-            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(plan.output);
+            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(plan.output, "the output of a spawn_ stage");
             plan.slots.add("__spawn_output", distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Output);
             const auto *sink_schema = TypeRegistry::instance().un_named_tsb({{"ts", plan.output}});
             NodeTypeMetaData meta;
@@ -587,7 +588,7 @@ namespace hgraph
                     prepared.flow_slot = i;
                     schema = previous_output;
                 }
-                auto transfer = std::make_shared<const BoundaryTransfer>(schema);
+                auto transfer = std::make_shared<const BoundaryTransfer>(schema, "spawn_ input " + std::to_string(i));
                 input_schemas.push_back(schema);
                 if (ports[i])
                 {

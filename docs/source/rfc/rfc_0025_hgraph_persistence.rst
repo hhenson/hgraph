@@ -270,6 +270,13 @@ lineage-based recovery selection, incremental images, compaction,
 retention, GC).  The detailed mechanics remain specified by RFC 0023,
 re-read under this RFC's ownership boundary.
 
+One refinement (:doc:`rfc_0039_compact_checkpoint_images`, 2026-09-18): the
+canonical byte form of the owned state image belongs to core, beside the RFC
+0017 value codec.  It is the transfer form a worker-hosted graph returns to
+its owner, and ``dmap_`` and ``spawn`` are core.  The extension's durable
+envelope carries those bytes opaquely and still owns every durable consequence
+listed above.
+
 The persistence LIFECYCLE recorded in RFC 0023 (2026-08-18) follows the
 same split: core owns the ``snapshot``/``suspend``/``restore`` verbs, the
 node-level ``snapshot``/``restore`` hook pair beside start/stop, the

@@ -154,7 +154,12 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 16. ABI 16 adds
+    ``TS_DATA_OPS_ABI_VERSION`` is 21. ABI 21 adds ``find_stored_slot`` to
+    the set ops -- the hashed lookup that also answers for a key awaiting
+    erase (see "TSS Storage" below). ABI 20 added the membership delta
+    slots and ``replace_samples`` for the distributed-map boundaries. ABI 17
+    to 19 (RFC 0023) added the checkpoint ops table, the target link's
+    key-set time for recovery, and the checkpoint context parameter. ABI 16 adds
     ``TSDataLayout::canonical_delta_binding`` -- the portable delta type a
     captured or empty delta is built as, resolved when the layout is built
     so per-tick delta capture never consults the realization snapshot
@@ -503,14 +508,25 @@ their cached local child storage types and in-plan storage addresses; regular
 fixed contexts return their cached fixed child types and local absolute
 addresses. Dynamic lists expose their owned child handles to this traversal;
 windows and TargetLinks are leaves. Keyed shapes coordinate child destruction
-through their slot stores. No function address or schema kind is used as a
+through their slot stores.
+
+The projection's ``child_count`` is the size of an **ordinal space**, not a
+number of children: an ordinal may be vacant, ``child_at`` answers a vacant
+ordinal with an empty child, and every traversal skips it. Both operations are
+constant time. Each traversal visits the whole space, so a ``child_at`` that
+searched for the *n*-th occupied entry made start, stop and teardown of a keyed
+collection quadratic in its size (found 2026-09-18 as the dominant cost of
+tearing down a large ``map_``). Keyed shapes therefore use their slot bank as
+the ordinal space -- ordinal 0 is the key set and ordinal *n* + 1 is slot *n* --
+and report the slot as the child's identity. No function address or schema kind is used as a
 runtime implementation identifier. Consequently attach, reparent,
 invalidation, and auxiliary-memory accounting cannot follow a visible
 TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 16.
+``TS_DATA_OPS_ABI_VERSION`` (the ops-ABI ledger in :doc:`ops_catalogue` has
+the current value).
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the
@@ -1467,10 +1483,18 @@ container.
 The C++ TSData API uses the standard set-view names:
 ``TSDataView::as_set()``
 returns ``TSSDataView`` with ``size()``, ``empty()``, ``contains()``,
-``find_slot()``, ``values()``, ``added_values()``,
+``find_slot()``, ``find_stored_slot()``, ``values()``, ``added_values()``,
 ``removed_values()``, ``added()``, ``removed()``,
 ``slot_added()``, and ``slot_removed()``. ``TSSDataMutationView`` adds
 ``add()``, ``remove()``, ``clear()``, and ``reserve()``.
+
+``find_slot()`` is the membership lookup: it answers only for a live key.
+``find_stored_slot()`` also answers for a key removed this cycle and awaiting
+erase, which is what lets a reader ask about a removed key by hash rather than
+by walking the removed slots. Both are O(1). ``TSDDataView`` exposes the same
+pair, and a key-set projection or target link forwards them to the collection
+it reads. Adding the op moved ``TS_DATA_OPS_ABI_VERSION`` (20 → 21); compiled
+extensions must be rebuilt.
 
 TSD Storage
 -----------

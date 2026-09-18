@@ -37,6 +37,15 @@ namespace hgraph
         if (view_.inherited_sampled_transition()) { return values(); }
         return data_view().added();
     }
+    bool TSSInputView::was_added(const ValueView &key) const
+    {
+        if (!modified()) { return false; }
+        const auto data = data_view();
+        if (view_.inherited_sampled_transition()) { return data.contains(key); }
+        const auto slot = data.find_slot(key);
+        return slot != TS_DATA_NO_CHILD_ID && data.slot_added(slot);
+    }
+
     Range<ValueView> TSSInputView::removed() const
     {
         if (!modified()) { return detail::empty_input_range<ValueView>(); }

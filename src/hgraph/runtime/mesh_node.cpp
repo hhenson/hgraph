@@ -86,6 +86,13 @@ struct MeshEntry {
   // Pause/resume settle state, per cycle:
   bool paused{false};            // paused this cycle, awaiting a dependency
   DateTime settled_time{MIN_DT}; // completed (no pause) at this evaluation time
+  // Dependency-aware wake-up. An instance that pauses on a dependency which
+  // will settle this cycle is PARKED on it: it leaves the candidate set and is
+  // offered again only when that dependency settles or is removed. Retrying
+  // every paused instance on every pass made a chain of depth D discovered in
+  // one cycle cost D * D child evaluations.
+  std::size_t awaiting_slot{KeySlotStore::npos}; // the dependency parked on, if any
+  std::vector<std::size_t> waiters{};            // instances parked on this one
 };
 
 struct MeshNodeStorage final : SlotObserver {
@@ -136,6 +143,31 @@ struct MeshNodeStorage final : SlotObserver {
   // depends_on -> set of keys that depend on it (reverse edges).
   ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
       dependents{};
+  // requester -> the keys it depends on: the mirror of ``dependents``, so that
+  // removing an instance visits its own edges rather than every dependency in
+  // the mesh. The two maps change together, and only through add_edge,
+  // remove_edge and remove_requester_edges.
+  ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
+      dependencies{};
+
+  void add_edge(const Value &depends_on, const Value &requester) {
+    dependents[depends_on].insert(requester);
+    dependencies[requester].insert(depends_on);
+  }
+
+  /** True when ``depends_on`` lost its last dependent and left the map. */
+  bool remove_edge(const ValueView &depends_on, const ValueView &requester) {
+    auto it = dependents.find(depends_on);
+    if (it == dependents.end()) { return false; }
+    it->second.erase(value_impl::graph_local_value(requester));
+    if (auto forward = dependencies.find(requester); forward != dependencies.end()) {
+      forward->second.erase(value_impl::graph_local_value(depends_on));
+      if (forward->second.empty()) { dependencies.erase(forward); }
+    }
+    if (!it->second.empty()) { return false; }
+    dependents.erase(it);
+    return true;
+  }
 
   std::vector<Value>
       graphs_to_remove{}; // lost a dependent; remove if unreferenced
@@ -143,10 +175,23 @@ struct MeshNodeStorage final : SlotObserver {
   // sparse worklist. Only those slots need dependency-rank ordering.
   SlotBitmap evaluation_candidates{};
   std::vector<std::pair<int, std::size_t>> evaluation_order{};
+  // Set by add_dependency when the evaluating instance should park on a
+  // dependency rather than simply be retried; read by the settle loop when that
+  // evaluation pauses.
+  std::size_t pause_dependency_slot{KeySlotStore::npos};
+  // Instances currently parked. Non-zero when the settle loop runs dry means a
+  // dependency never settled, which is the failure the pass guard reports.
+  std::size_t parked_count{0};
   // Min-heap of child wake-ups, fed by the nested out-of-band observer and by
   // the pull after mesh-driven child evaluation.
   std::vector<MeshChildSchedule> child_schedule_queue{};
-  int max_rank{0};
+  // Requested instances start high so that a dependency created on demand can
+  // take the rank just below its requester. Putting every new dependency at
+  // rank zero forced the whole chain above it up by one each time, so a chain
+  // discovered from its top cost the square of its depth in re-ranking alone.
+  // Ranks stay non-negative, which the checkpoint image requires.
+  static constexpr int base_rank = 1 << 30;
+  int max_rank{base_rank};
   bool primed{false};
   // The instance whose child graph is currently being evaluated; a
   // mesh_subscribe inside it reads this as its "my_key" (the requester).
@@ -242,13 +287,16 @@ struct MeshNodeStorage final : SlotObserver {
     }
     entries.destroy_all();
     dependents.clear();
+    dependencies.clear();
     graphs_to_remove.clear();
     outer_sources.clear();
     refresh_all_bindings = false;
     evaluation_candidates.reset();
+    parked_count = 0;
+    pause_dependency_slot = KeySlotStore::npos;
     evaluation_order.clear();
     child_schedule_queue.clear();
-    max_rank = 0;
+    max_rank = base_rank;
     primed = false;
     current_eval_key = {};
     retirement_time = MIN_DT;
@@ -318,6 +366,7 @@ struct MeshNodeStorage final : SlotObserver {
   void on_erase(std::size_t slot) override { entries.destroy_at(slot); }
   void on_clear() override {
     evaluation_candidates.reset();
+    parked_count = 0;
     entries.destroy_all();
   }
 };
@@ -656,15 +705,50 @@ void queue_graph_removal(MeshNodeStorage &storage, const ValueView &key) {
   storage.graphs_to_remove.push_back(value_impl::graph_local_value(key));
 }
 
+/** Offer every instance parked on ``dependency`` again. */
+void wake_waiters(MeshNodeStorage &storage, MeshEntry &dependency,
+                  std::size_t dependency_slot) {
+  for (const std::size_t waiter : dependency.waiters) {
+    MeshEntry *requester = storage.entries.entry_at(waiter);
+    // A waiter re-selected for another reason has already left this list in
+    // all but name; only one still parked on this slot is woken.
+    if (requester == nullptr || requester->awaiting_slot != dependency_slot) {
+      continue;
+    }
+    requester->awaiting_slot = KeySlotStore::npos;
+    --storage.parked_count;
+    storage.evaluation_candidates.set(waiter);
+    // Join the pass in progress. The order is a worklist, not a snapshot: a
+    // woken instance handled only on the NEXT pass made a chain of depth D
+    // take D passes to unwind, one instance each.
+    storage.evaluation_order.emplace_back(requester->rank, waiter);
+  }
+  dependency.waiters.clear();
+}
+
+/** A parked instance chosen for evaluation anyway is no longer parked. */
+void unpark(MeshNodeStorage &storage, MeshEntry &entry) {
+  if (entry.awaiting_slot == KeySlotStore::npos) { return; }
+  entry.awaiting_slot = KeySlotStore::npos;
+  --storage.parked_count;
+}
+
+// Walks the requester's own edges. Sweeping every dependency in the mesh for
+// it made removing k instances cost k times the number of dependencies.
 void remove_requester_edges(MeshNodeStorage &storage,
                             const ValueView &requester) {
-  for (auto it = storage.dependents.begin(); it != storage.dependents.end();) {
-    it->second.erase(value_impl::graph_local_value(requester));
+  auto forward = storage.dependencies.find(requester);
+  if (forward == storage.dependencies.end()) { return; }
+  const ValueSet depends_on = std::move(forward->second);
+  storage.dependencies.erase(forward);
+  const Value local_requester = value_impl::graph_local_value(requester);
+  for (const Value &dependency : depends_on) {
+    auto it = storage.dependents.find(dependency);
+    if (it == storage.dependents.end()) { continue; }
+    it->second.erase(local_requester);
     if (it->second.empty()) {
       queue_graph_removal(storage, it->first.view());
-      it = storage.dependents.erase(it);
-    } else {
-      ++it;
+      storage.dependents.erase(it);
     }
   }
 }
@@ -727,12 +811,15 @@ void stop_and_clear_all_instances(const NodeView &view,
     }
   }
   storage.dependents.clear();
+  storage.dependencies.clear();
   storage.graphs_to_remove.clear();
   storage.evaluation_candidates.reset();
+  storage.parked_count = 0;
+  storage.pause_dependency_slot = KeySlotStore::npos;
   storage.evaluation_order.clear();
   storage.child_schedule_queue.clear();
   storage.refresh_all_bindings = false;
-  storage.max_rank = 0;
+  storage.max_rank = MeshNodeStorage::base_rank;
   storage.primed = false;
   storage.current_eval_key = {};
   exceptions.rethrow_if_any();
@@ -765,6 +852,8 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
   entry.rank = rank;
   entry.paused = true;
   entry.settled_time = MIN_DT;
+  entry.awaiting_slot = KeySlotStore::npos;
+  entry.waiters.clear();
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();
@@ -826,6 +915,8 @@ void remove_instance(const NodeView &view, const MeshNodeContext &context,
   }
 
   clear_instance_output_binding(view, context, *entry, evaluation_time);
+  wake_waiters(storage, *entry, slot);
+  unpark(storage, *entry);
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();
@@ -915,8 +1006,11 @@ void reconcile_requested_keys(const NodeView &view,
   storage.primed = true;
 }
 
+// ``on_stack`` holds the keys of the re-ranking in progress, for cycle
+// detection. It is a set: asking "is this dependent already on the stack?" by
+// scanning a list cost the depth of the recursion for every edge visited.
 void re_rank(MeshNodeStorage &storage, const ValueView &key,
-             const ValueView &depends_on, std::vector<Value> &stack) {
+             const ValueView &depends_on, ValueSet &on_stack) {
   MeshEntry *key_entry = storage.find(key);
   MeshEntry *dep_entry = storage.find(depends_on);
   if (key_entry == nullptr || dep_entry == nullptr) {
@@ -929,20 +1023,18 @@ void re_rank(MeshNodeStorage &storage, const ValueView &key,
   key_entry->rank = dep_entry->rank + 1;
   storage.max_rank = std::max(storage.max_rank, key_entry->rank);
 
-  stack.push_back(value_impl::graph_local_value(key));
+  const Value local_key = value_impl::graph_local_value(key);
+  on_stack.insert(local_key);
   // Re-rank everything that depends on ``key``.
   if (auto it = storage.dependents.find(key); it != storage.dependents.end()) {
     for (const Value &dependent : it->second) {
-      const bool on_stack =
-          std::any_of(stack.begin(), stack.end(),
-                      [&](const Value &s) { return s.equals(dependent); });
-      if (on_stack) {
+      if (on_stack.contains(dependent)) {
         throw std::runtime_error("mesh_ has a dependency cycle");
       }
-      re_rank(storage, dependent.view(), key, stack);
+      re_rank(storage, dependent.view(), key, on_stack);
     }
   }
-  stack.pop_back();
+  on_stack.erase(local_key);
 }
 
 // ---- evaluation ----
@@ -1023,6 +1115,36 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
   //    can add/rank a missing dependency for the next pass.
   prepare_mesh_evaluation_candidates(view, context, storage, evaluation_time);
 
+  const auto unsettled_detail = [&] {
+    std::string detail;
+    for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
+         ++slot) {
+      if (!storage.instance_keys->slot_live(slot)) {
+        continue;
+      }
+      const MeshEntry *entry = storage.entries.entry_at(slot);
+      if (entry == nullptr || !entry->graph.has_value()) {
+        continue;
+      }
+      const auto child = entry->graph.view();
+      if (entry->settled_time == evaluation_time ||
+          (!entry->paused && child.next_scheduled_time() > evaluation_time)) {
+        continue;
+      }
+      if (!detail.empty()) {
+        detail.append(", ");
+      }
+      detail.append(entry->key.view().to_string());
+      detail.append(fmt::format("[rank={}, paused={}, settled={}, next={}]",
+                                entry->rank, entry->paused,
+                                entry->settled_time == evaluation_time,
+                                child.next_scheduled_time()
+                                    .time_since_epoch()
+                                    .count()));
+    }
+    return detail;
+  };
+
   std::size_t guard = 0;
   while (true) {
     static_cast<void>(drain_due_mesh_schedules(storage, evaluation_time));
@@ -1031,7 +1153,14 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     materialize_mesh_evaluation_order(storage);
     bool evaluated = false;
 
-    for (const auto &ranked : storage.evaluation_order) {
+    // A worklist, not a snapshot: an instance woken by a dependency that
+    // settles, or a dependency created on demand, is appended and handled in
+    // this same pass. Rank order is a heuristic that avoids needless pauses;
+    // correctness rests on parking, so an appended instance out of rank order
+    // merely parks and is woken in its turn. ``ranked`` is copied because the
+    // worklist may reallocate while its entry is being handled.
+    for (std::size_t position = 0; position < storage.evaluation_order.size(); ++position) {
+      const auto ranked = storage.evaluation_order[position];
       MeshEntry *entry = storage.entries.entry_at(ranked.second);
       if (!storage.instance_keys->slot_live(ranked.second)) {
         continue;
@@ -1042,6 +1171,9 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       if (entry->settled_time == evaluation_time) {
         continue;
       } // already done this cycle
+      if (entry->awaiting_slot != KeySlotStore::npos) {
+        continue;
+      } // parked: it runs when what it waits for settles, not before
 
       bind_instance_inputs(view, context, *entry, evaluation_time);
       bind_instance_output(view, context, *entry, evaluation_time);
@@ -1064,15 +1196,43 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       auto clear_current_key = make_scope_exit(
           [&storage]() noexcept { storage.current_eval_key = {}; });
       entry->paused = false;
+      storage.pause_dependency_slot = KeySlotStore::npos;
       if (child.evaluate(evaluation_time)) {
         entry->settled_time = evaluation_time;
+        // Settled instances are skipped for the rest of the cycle, so stop
+        // offering them: every later pass re-sorted and re-visited them.
+        storage.evaluation_candidates.reset(ranked.second);
+        wake_waiters(storage, *entry, ranked.second);
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
             context.access.output,
             entry->key.view());
       } else {
         entry->paused = true;
+        // Park on the dependency it asked for, if that dependency is going to
+        // settle this cycle; otherwise it stays a candidate and is retried.
+        const std::size_t awaited = storage.pause_dependency_slot;
+        MeshEntry *dependency = awaited == KeySlotStore::npos
+                                    ? nullptr
+                                    : storage.entries.entry_at(awaited);
+        if (dependency != nullptr && awaited != ranked.second &&
+            storage.instance_keys->slot_live(awaited) &&
+            dependency->graph.has_value() &&
+            dependency->settled_time != evaluation_time) {
+          entry->awaiting_slot = awaited;
+          dependency->waiters.push_back(ranked.second);
+          ++storage.parked_count;
+          storage.evaluation_candidates.reset(ranked.second);
+          // Make sure what it waits for is itself handled, in this pass,
+          // unless that is parked further down the chain and will be woken in
+          // its turn.
+          if (dependency->awaiting_slot == KeySlotStore::npos) {
+            storage.evaluation_candidates.set(awaited);
+            storage.evaluation_order.emplace_back(dependency->rank, awaited);
+          }
+        }
       } // a dependency was created / ranked; re-scan
+      storage.pause_dependency_slot = KeySlotStore::npos;
       evaluated = true;
 
       if (const DateTime next = child.next_scheduled_time();
@@ -1084,34 +1244,8 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     }
 
     if (++guard > storage.active_count() + 64) {
-      std::string detail;
-      for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
-           ++slot) {
-        if (!storage.instance_keys->slot_live(slot)) {
-          continue;
-        }
-        const MeshEntry *entry = storage.entries.entry_at(slot);
-        if (entry == nullptr || !entry->graph.has_value()) {
-          continue;
-        }
-        const auto child = entry->graph.view();
-        if (entry->settled_time == evaluation_time ||
-            (!entry->paused && child.next_scheduled_time() > evaluation_time)) {
-          continue;
-        }
-        if (!detail.empty()) {
-          detail.append(", ");
-        }
-        detail.append(entry->key.view().to_string());
-        detail.append(fmt::format("[rank={}, paused={}, settled={}, next={}]",
-                                  entry->rank, entry->paused,
-                                  entry->settled_time == evaluation_time,
-                                  child.next_scheduled_time()
-                                      .time_since_epoch()
-                                      .count()));
-      }
-      throw std::runtime_error(
-          fmt::format("mesh_ failed to settle within the cycle: {}", detail));
+      throw std::runtime_error(fmt::format(
+          "mesh_ failed to settle within the cycle: {}", unsettled_detail()));
     }
 
     // Output propagation or an input rebind may have scheduled another child
@@ -1122,6 +1256,13 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     if (!evaluated && !added_during_pass) {
       break;
     }
+  }
+  // Nothing is left to evaluate. An instance still parked is waiting for a
+  // dependency that never settled -- the failure the pass guard used to reach
+  // by retrying it until the guard tripped.
+  if (storage.parked_count != 0) {
+    throw std::runtime_error(fmt::format(
+        "mesh_ failed to settle within the cycle: {}", unsettled_detail()));
   }
   storage.current_eval_key = {};
   process_graphs_to_remove(view, context, storage, evaluation_time);
@@ -1648,8 +1789,8 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
   }
   storage.instance_keys->restore_free_slots(free);
   for (auto [dependency, requester] : edges) {
-    storage.dependents[storage.entries.entry_at(dependency)->key].insert(
-        storage.entries.entry_at(requester)->key);
+    storage.add_edge(storage.entries.entry_at(dependency)->key,
+                     storage.entries.entry_at(requester)->key);
   }
   for (auto slot : pending) { storage.graphs_to_remove.push_back(storage.entries.entry_at(slot)->key); }
   storage.max_rank = static_cast<int>(max_rank);
@@ -1955,8 +2096,8 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   const auto &context = *static_cast<const MeshNodeContext *>(context_);
   const DateTime t = view_.graph().evaluation_time();
 
-  storage.dependents[value_impl::graph_local_value(depends_on)].insert(
-      value_impl::graph_local_value(key));
+  storage.add_edge(value_impl::graph_local_value(depends_on),
+                   value_impl::graph_local_value(key));
 
   MeshEntry *key_entry = storage.find(key);
   if (key_entry == nullptr) {
@@ -1965,19 +2106,24 @@ bool MeshNodeView::add_dependency(const ValueView &key,
 
   MeshEntry *dep_entry = storage.find(depends_on);
   if (dep_entry == nullptr) {
-    // Create the dependency on demand, same cycle, ranked below the requester;
-    // the resolver evaluates it first (lower rank) and then resumes us.
-    create_instance(view_, context, storage, depends_on, 0, t);
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    // Create the dependency on demand, same cycle, ranked just below the
+    // requester, which therefore already outranks it and nothing is re-ranked.
+    // Only a requester that has reached rank zero falls back to pushing
+    // everything above it up.
+    create_instance(view_, context, storage, depends_on,
+                    key_entry->rank > 0 ? key_entry->rank - 1 : 0, t);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
+    // The new instance is evaluated next pass; wait for it.
+    storage.pause_dependency_slot = storage.find_slot(depends_on);
     return false;
   }
 
   if (key_entry->rank <= dep_entry->rank) {
     // The requester must outrank its dependency; re-rank and re-evaluate in
     // order.
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
     return false;
   }
 
@@ -1991,23 +2137,25 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   if (dep_entry->settled_time == t) {
     return true;
   }
-  if (dep_entry->paused || !dep_entry->graph.has_value()) {
+  if (!dep_entry->graph.has_value()) {
     return false;
   }
-  return dep_entry->graph.view().next_scheduled_time() > t;
+  if (dep_entry->paused || dep_entry->graph.view().next_scheduled_time() <= t) {
+    // Due or paused: it will settle this cycle, so wait for that rather than
+    // be retried on every pass until it does.
+    storage.pause_dependency_slot = storage.find_slot(depends_on);
+    return false;
+  }
+  return true;
 }
 
 void MeshNodeView::remove_dependency(const ValueView &key,
                                      const ValueView &depends_on) const {
   auto &storage = *MemoryUtils::cast<MeshNodeStorage>(storage_);
-  auto it = storage.dependents.find(depends_on);
-  if (it == storage.dependents.end()) {
-    return;
-  }
-  it->second.erase(value_impl::graph_local_value(key));
-  if (it->second.empty()) {
-    queue_graph_removal(storage, depends_on);
-    storage.dependents.erase(it);
+  // Queue before the edge goes: ``depends_on`` may be the map's own key.
+  const Value dependency = value_impl::graph_local_value(depends_on);
+  if (storage.remove_edge(dependency.view(), key)) {
+    queue_graph_removal(storage, dependency.view());
   }
 }
 

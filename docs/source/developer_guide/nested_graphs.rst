@@ -437,17 +437,53 @@ wiring/runtime errors rather than an arbitrary dictionary ordering. Python
 ``TS[tuple[E, ...]]`` uses the existing native enumerated-TSD conversion and
 then this same ordered kernel; it is not a second Python reduction runtime.
 
-Each chain generation occupies one ``InPlaceGraphSlotStore`` bank. A length
-change builds and binds the replacement chain in the inactive bank, forwards
-the outer output to its new tail, then stops the old chain from tail to head.
-The stopped generation remains alive through the engine cycle and is destroyed
-tail-first on a later evaluation. Stable addresses, stop-before-destroy, and
-subscriber-before-producer teardown therefore hold without per-child graph
-allocations. Value changes and live-zero ticks use standing bindings and do
-not rebuild the chain.
+The chain is **extended and truncated at its tail, and nothing else is
+touched** (corrected 2026-09-18). The input is an ordered list, so only its
+tail can change: growing constructs, binds and starts the new links alone;
+shrinking stops the removed links alone. No surviving link is rebuilt, rebound
+or restarted, so its state survives a change of length. This is the contract
+of the reference implementation
+(hgraph 0.5, ``PythonTsdNonAssociativeReduceNodeImpl._extend_nodes_to`` /
+``_erase_nodes_from``), of which this node is the native form.
+
+An earlier version built a complete replacement chain in a second bank on
+every change of length. That reset every link's state and made a list grown one
+element at a time cost the square of its length -- growing to 4,000 elements
+took 10.3 s and now takes 12 ms, at a flat ~3 µs per element. Four things keep
+it linear, and each was separately quadratic before:
+
+* **Links live in one ``InPlaceGraphSlotStore``**, slot = position. A truncated
+  tail is stopped at once but destroyed only on a later evaluation, because the
+  node's output and anything sampled this cycle may still read its last link;
+  stop-before-destroy and tail-first teardown hold as before.
+* **Each link caches what it publishes**, resolved when it is bound, so binding
+  link *n* to link *n* - 1 never walks the chain.
+* **A link is rebound only when what it is bound to has moved**: the collection
+  or the zero re-pointed (every link, which is inherent), or an element was
+  removed and put back in the same cycle (that link and everything after it,
+  since they may publish something different). A collection that merely ticks
+  rebinds nothing; value changes and live-zero ticks use the standing bindings.
+* **Only due links are visited.** A link is scheduled by its element or by the
+  link before it, and its graph reports that through the child-schedule
+  observer; the node keeps a heap of due link indices and visits those in
+  order, rather than asking every link whether it is due. Schedules a link makes
+  while it is itself evaluating are not observed, so they are pulled after it
+  runs, exactly as the keyed map does.
+
+The length and the ``0..n-1`` key contract are checked from the change, not by
+walking every key: the keys are distinct and non-negative, so they are exactly
+``0..n-1`` as soon as none is ``n`` or more, and only an added key or a key in
+the removed tail can break that. A first bind or a re-point walks the keys once.
+
+``InPlaceGraphSlotStore`` grows to exactly the capacity it is asked for,
+copying its slot table and allocating one block each time. A node that grows an
+element at a time must therefore request capacity geometrically; the ordered
+chain and the list map both do.
 
 Runtime: ``runtime/ordered_reduce_node.{h,cpp}``. Tests:
-``tests/cpp/test_reduce.cpp`` and ``python/tests/test_python_authoring.py``.
+``tests/cpp/test_reduce.cpp`` -- including the link start/stop counts that tell
+a kept link from a rebuilt one, and the ``[ordered-reduce-scaling]`` benchmark --
+and ``python/tests/test_python_authoring.py``.
 
 
 Scheduling delegation

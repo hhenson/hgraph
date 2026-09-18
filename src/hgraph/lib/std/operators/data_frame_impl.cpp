@@ -1,3 +1,4 @@
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/lib/std/operators/impl/data_frame_impl.h>
 
 #include <hgraph/lib/std/operators/container.h>
@@ -16,6 +17,8 @@
 #include <arrow/compute/api.h>
 #include <arrow/table.h>
 #include <fmt/format.h>
+
+#include <ankerl/unordered_dense.h>
 
 #include <algorithm>
 #include <memory>
@@ -115,6 +118,73 @@ namespace hgraph::stdlib
                 return lhs.binding() == rhs.binding() &&
                        lhs.binding().ops_ref().equals(lhs.data(), rhs.data());
             }
+
+            /**
+             * Rows grouped by key, in order of first appearance, under
+             * ``key_equal``. The index is what keeps grouping linear: finding a
+             * row's bucket by searching the list made a frame of r rows and k
+             * keys cost r * k, and the stale-key pass k * k again.
+             */
+            class RowBuckets
+            {
+              public:
+                using Entry = std::pair<Value, std::vector<Value>>;
+
+                RowBuckets() : positions_(0, Hash{&entries_}, Equal{&entries_}) {}
+                // The index refers to ``entries_`` by address.
+                RowBuckets(const RowBuckets &)            = delete;
+                RowBuckets &operator=(const RowBuckets &) = delete;
+
+                [[nodiscard]] std::vector<Value> &rows_for(Value key)
+                {
+                    if (const auto found = positions_.find(key.view()); found != positions_.end())
+                    {
+                        return entries_[*found].second;
+                    }
+                    entries_.emplace_back(std::move(key), std::vector<Value>{});
+                    positions_.insert(entries_.size() - 1);
+                    return entries_.back().second;
+                }
+
+                [[nodiscard]] bool contains(const ValueView &key) const
+                {
+                    return positions_.find(key) != positions_.end();
+                }
+
+                [[nodiscard]] std::vector<Entry> &entries() noexcept { return entries_; }
+
+              private:
+                struct Hash
+                {
+                    using is_transparent = void;
+                    const std::vector<Entry> *entries;
+                    [[nodiscard]] std::size_t operator()(std::size_t index) const
+                    {
+                        return ValueHash{}((*entries)[index].first);
+                    }
+                    [[nodiscard]] std::size_t operator()(const ValueView &key) const { return ValueHash{}(key); }
+                };
+                struct Equal
+                {
+                    using is_transparent = void;
+                    const std::vector<Entry> *entries;
+                    [[nodiscard]] bool operator()(std::size_t lhs, std::size_t rhs) const
+                    {
+                        return lhs == rhs || key_equal((*entries)[lhs].first.view(), (*entries)[rhs].first.view());
+                    }
+                    [[nodiscard]] bool operator()(const ValueView &lhs, std::size_t rhs) const
+                    {
+                        return key_equal((*entries)[rhs].first.view(), lhs);
+                    }
+                    [[nodiscard]] bool operator()(std::size_t lhs, const ValueView &rhs) const
+                    {
+                        return key_equal((*entries)[lhs].first.view(), rhs);
+                    }
+                };
+
+                std::vector<Entry> entries_{};
+                ankerl::unordered_dense::set<std::size_t, Hash, Equal> positions_;
+            };
         }  // namespace
 
         // -----------------------------------------------------------------
@@ -882,7 +952,7 @@ namespace hgraph::stdlib
             const Frame    &frame = view.checked_as<Frame>();
             const auto      rows  = frame.has_value() ? frame_rows(frame) : 0;
 
-            std::vector<std::pair<Value, std::vector<Value>>> buckets;
+            RowBuckets buckets;
             for (std::int64_t r = 0; r < rows; ++r)
             {
                 Value key{checked_binding(plan.key_meta, "group_by")};
@@ -908,15 +978,7 @@ namespace hgraph::stdlib
                     assign_cell(dest, cell.view());
                 }
 
-                auto bucket = std::find_if(buckets.begin(), buckets.end(), [&](const auto &entry) {
-                    return key_equal(entry.first.view(), key.view());
-                });
-                if (bucket == buckets.end())
-                {
-                    buckets.emplace_back(std::move(key), std::vector<Value>{});
-                    bucket = std::prev(buckets.end());
-                }
-                bucket->second.push_back(read_row(*plan.converter, frame, r));
+                buckets.rows_for(std::move(key)).push_back(read_row(*plan.converter, frame, r));
             }
 
             auto dict     = out.as_dict();
@@ -927,16 +989,12 @@ namespace hgraph::stdlib
             std::vector<Value> stale;
             for (ValueView key : dict.keys())
             {
-                const bool present =
-                    std::any_of(buckets.begin(), buckets.end(), [&](const auto &entry) {
-                        return key_equal(entry.first.view(), key);
-                    });
-                if (!present) { stale.emplace_back(key); }
+                if (!buckets.contains(key)) { stale.emplace_back(key); }
             }
             for (const Value &key : stale) { static_cast<void>(mutation.erase(key.view())); }
 
             const auto *child_schema = out.schema()->element_ts();
-            for (auto &[key, bucket_rows] : buckets)
+            for (auto &[key, bucket_rows] : buckets.entries())
             {
                 Frame sub = frame_from_values(*plan.converter, bucket_rows);
                 Value boxed{checked_binding(child_schema->value_schema, "group_by")};

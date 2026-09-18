@@ -184,6 +184,12 @@ namespace hgraph
         return ops.find_slot_impl(ops.context, storage_.data(), key);
     }
 
+    std::size_t TSDDataView::find_stored_slot(const ValueView &key) const
+    {
+        const auto &ops = dict_ops();
+        return ops.find_stored_slot_impl(ops.context, storage_.data(), key);
+    }
+
     TSDataView TSDDataView::at_slot(std::size_t slot) const
     {
         if (!slot_occupied(slot)) { throw std::out_of_range("TSDDataView::at_slot: slot is not occupied"); }

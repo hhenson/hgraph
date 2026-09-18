@@ -29,6 +29,8 @@ namespace hgraph::detail
         ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*contains)(const TSDataView &target, const ValueView &key) = nullptr;
         std::size_t (*find_slot)(const TSDataView &target, const ValueView &key) = nullptr;
+        /** Live, or removed this cycle and awaiting erase. */
+        std::size_t (*find_stored_slot)(const TSDataView &target, const ValueView &key) = nullptr;
     };
 
     struct TSInputTargetLinkIndexedAccess
@@ -302,18 +304,14 @@ namespace hgraph::detail
             if (!previous.modified(link->structural_transition_time())) { return false; }
 
             // find_slot deliberately exposes only live keys. A key removed
-            // earlier in this transition can still have been published, so
-            // fall back to the small per-cycle removed set for that case.
-            for (std::size_t slot = 0; slot < capacity; ++slot)
-            {
-                if (state->slot_access->slot_removed(previous, slot) &&
-                    target_link_previous_slot_was_published(context, memory, slot) &&
-                    target_link_key_view(*state, previous, slot).equals(key))
-                {
-                    return true;
-                }
-            }
-            return false;
+            // earlier in this transition can still have been published, and the
+            // key store still holds it until it is erased, so look it up there
+            // by hash. This runs once per new key: searching the previous
+            // target for it made a re-point cost new keys times the old
+            // source's capacity.
+            const auto stored_slot = state->slot_access->find_stored_slot(previous, key);
+            return stored_slot < capacity && state->slot_access->slot_removed(previous, stored_slot) &&
+                   target_link_previous_slot_was_published(context, memory, stored_slot);
         }
 
         [[nodiscard]] std::size_t set_access_size(const TSDataView &target)
@@ -365,6 +363,11 @@ namespace hgraph::detail
         [[nodiscard]] std::size_t set_access_find_slot(const TSDataView &target, const ValueView &key)
         {
             return target.as_set().find_slot(key);
+        }
+
+        [[nodiscard]] std::size_t set_access_find_stored_slot(const TSDataView &target, const ValueView &key)
+        {
+            return target.as_set().find_stored_slot(key);
         }
 
         [[nodiscard]] std::size_t dict_access_size(const TSDataView &target)
@@ -419,6 +422,11 @@ namespace hgraph::detail
             return target.as_dict().find_slot(key);
         }
 
+        [[nodiscard]] std::size_t dict_access_find_stored_slot(const TSDataView &target, const ValueView &key)
+        {
+            return target.as_dict().find_stored_slot(key);
+        }
+
         [[nodiscard]] std::size_t bundle_access_size(const TSDataView &target)
         {
             return target.as_bundle().size();
@@ -452,6 +460,7 @@ namespace hgraph::detail
             .key_at_slot = &set_access_key_at_slot,
             .contains = &set_access_contains,
             .find_slot = &set_access_find_slot,
+            .find_stored_slot = &set_access_find_stored_slot,
         };
 
         const TSInputTargetLinkSlotAccess target_link_dict_key_access{
@@ -465,6 +474,7 @@ namespace hgraph::detail
             .key_at_slot = &dict_access_key_at_slot,
             .contains = &dict_access_contains,
             .find_slot = &dict_access_find_slot,
+            .find_stored_slot = &dict_access_find_stored_slot,
         };
 
         const TSInputTargetLinkIndexedAccess target_link_bundle_access{
@@ -642,6 +652,16 @@ namespace hgraph::detail
             auto target = target_link_target_view(context, memory);
             assert(state->slot_access != nullptr);
             return state->slot_access->find_slot(target, key);
+        }
+
+        [[nodiscard]] std::size_t target_link_set_find_stored_slot(const void *context,
+                                                                   const void *memory,
+                                                                   const ValueView &key)
+        {
+            const auto *state = static_cast<const TSInputTargetLinkContext *>(context);
+            auto target = target_link_target_view(context, memory);
+            assert(state->slot_access != nullptr);
+            return state->slot_access->find_stored_slot(target, key);
         }
 
         [[nodiscard]] ValueView target_link_set_key_projector(const void *context,
@@ -1346,6 +1366,7 @@ namespace hgraph::detail
             ops.key_at_slot_impl               = &target_link_set_key_at_slot;
             ops.contains_impl                  = &target_link_set_contains;
             ops.find_slot_impl                 = &target_link_set_find_slot;
+            ops.find_stored_slot_impl          = &target_link_set_find_stored_slot;
             ops.make_values_range_impl         = &target_link_set_live_range;
             ops.make_added_values_range_impl   = &target_link_set_added_range;
             ops.make_removed_values_range_impl = &target_link_set_removed_range;

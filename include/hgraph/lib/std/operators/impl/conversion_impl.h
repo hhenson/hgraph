@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_CONVERSION_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_CONVERSION_IMPL_H
 
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/lib/std/value_util.h>              // ResolvedBindings (start-cached)
 #include <hgraph/lib/std/operators/arithmetic.h>    // add_ / mul_ (zero_ op mapping)
@@ -1201,18 +1202,13 @@ namespace hgraph::stdlib
     {
         auto items = value.as_indexed_view();
 
-        const auto contains_in_desired = [&](const ValueView &element) {
-            for (std::size_t index = 0; index < items.size(); ++index)
-            {
-                if (items.at(index).equals(element)) { return true; }
-            }
-            return false;
-        };
+        // Asked once per existing element, so the desired elements are a set.
+        const IndexedValueKeySet desired{items};
         std::vector<Value> stale;
         const auto mutation_view = mutation.view();
         for (const ValueView &element : mutation_view.values())
         {
-            if (!contains_in_desired(element)) { stale.emplace_back(element); }
+            if (!desired.contains(element)) { stale.emplace_back(element); }
         }
         for (const Value &element : stale) { static_cast<void>(mutation.remove(element.view())); }
         for (std::size_t index = 0; index < items.size(); ++index)
@@ -1445,18 +1441,16 @@ namespace hgraph::stdlib
                 else { desired.emplace_back(value); }
             }
 
-            const auto is_desired = [&](const ValueView &candidate) {
-                for (const Value &want : desired)
-                {
-                    if (want.view().equals(candidate)) { return true; }
-                }
-                return false;
-            };
+            // Asked once per existing key; ``desired`` is complete, so its
+            // keys can be borrowed. Searching it per key was quadratic.
+            BorrowedValueSet wanted;
+            wanted.reserve(desired.size());
+            for (const Value &want : desired) { wanted.insert(&want); }
             std::vector<Value> stale;
             const auto mutation_view = mutation.view();
             for (const ValueView &existing : mutation_view.keys())
             {
-                if (!is_desired(existing)) { stale.emplace_back(existing); }
+                if (!wanted.contains(existing)) { stale.emplace_back(existing); }
             }
             for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
 
@@ -1908,12 +1902,11 @@ namespace hgraph::stdlib
             auto        values  = ts.valid() ? std::optional{ts.base().value().as_indexed_view()} : std::nullopt;
             const std::size_t count = (keys && values) ? std::min(keys->size(), values->size()) : 0;
 
+            // Asked once per existing key, so the wanted keys are a set.
+            const std::optional<IndexedValueKeySet> wanted_keys =
+                count != 0 ? std::optional<IndexedValueKeySet>{std::in_place, *keys, count} : std::nullopt;
             const auto wanted = [&](const ValueView &candidate) {
-                for (std::size_t index = 0; index < count; ++index)
-                {
-                    if (keys->at(index).equals(candidate)) { return true; }
-                }
-                return false;
+                return wanted_keys.has_value() && wanted_keys->contains(candidate);
             };
             std::vector<Value> stale;
             const auto mutation_view = mutation.view();
@@ -2776,13 +2769,9 @@ namespace hgraph::stdlib
 
             if (fresh)
             {
-                const auto keeps = [&](const ValueView &candidate) {
-                    for (std::size_t index = 0; index < count; ++index)
-                    {
-                        if (keys.at(index).equals(candidate)) { return true; }
-                    }
-                    return false;
-                };
+                // Asked once per existing key, so the kept keys are a set.
+                const IndexedValueKeySet kept{keys, count};
+                const auto keeps = [&](const ValueView &candidate) { return kept.contains(candidate); };
                 std::vector<Value> stale;
                 const auto mutation_view = mutation.view();
                 for (const ValueView &existing : mutation_view.keys())

@@ -117,6 +117,38 @@ namespace hgraph
                 });
         }
 
+        /** Selects the constructor that takes built storage instead of copying it. */
+        struct AdoptStorage
+        {
+        };
+
+        /**
+         * Move-construct the payload from ``src``, storage of ``binding``'s
+         * own representation that the caller has just built and gives up.
+         *
+         * The copying constructor above is the wrong tool for a builder or a
+         * decoder: it built every element once into its storage and then the
+         * copy built every element again. ``src`` is left moved-from. A binding
+         * whose owning representation differs (``Shared<T>`` and the like) has
+         * to be materialised by its own ops, so that case still copies.
+         */
+        Value(const ValueTypeRef &binding, void *src, AdoptStorage)
+        {
+            const auto owning_type = value_owning_type(binding);
+            if (!owning_type || src == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Value(binding, storage): binding and storage must be live");
+            }
+            if (owning_type != binding)
+            {
+                *this = Value{binding, static_cast<const void *>(src)};
+                return;
+            }
+            storage_ = storage_type::owning_constructed(
+                *binding.record(), [&](void *dst) { binding.move_construct_at(dst, src); });
+        }
+
         /**
          * Materialise ``source`` into a possibly different owning
          * representation. This is the construction path for wrappers such as

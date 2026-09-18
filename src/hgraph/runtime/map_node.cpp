@@ -80,6 +80,34 @@ namespace hgraph
             GraphValue                     graph{};
         };
 
+        /** The key-set slots named by one cycle's changed-key list. */
+        struct ChangedKeySlots
+        {
+            SlotBitmap slots{};
+            bool       any{false};
+
+            /** One hash lookup per changed key; a key no longer in the set names no slot. */
+            template <typename KeySet>
+            void assign(const std::vector<Value> &keys, const KeySet &key_set)
+            {
+                clear();
+                if (keys.empty()) { return; }
+                slots.resize(key_set.slot_capacity());
+                for (const Value &key : keys) { slots.set(key_set.find_slot(key.view())); }
+                any = true;
+            }
+
+            /** Costs nothing on the common cycle that changed no membership. */
+            void clear() noexcept
+            {
+                if (!any) { return; }
+                slots.reset();
+                any = false;
+            }
+
+            [[nodiscard]] bool test(std::size_t slot) const noexcept { return any && slots.test(slot); }
+        };
+
         struct MapNodeStorage final : SlotObserver
         {
             MapNodeStorage() = default;
@@ -120,6 +148,13 @@ namespace hgraph
             bool               selective_repoint_bindings{false};
             std::vector<Value> membership_changed_keys{};
             std::vector<Value> repoint_modified_keys{};
+            // The evaluation loop asks, for every candidate slot, whether that
+            // child's key is in one of the lists above. Each list is resolved
+            // to key-set slots once per cycle so the answer is a bit test:
+            // comparing keys made a tick that adds n keys cost n * n equality
+            // calls. A child's slot is its key's slot in the key set.
+            ChangedKeySlots membership_changed_slots{};
+            ChangedKeySlots repoint_modified_slots{};
 
             // Candidate slots are sparse for ordinary multiplexed value ticks.
             // Full scans remain the conservative path for broadcast/repoint and
@@ -496,7 +531,13 @@ namespace hgraph
         {
             const MapNodeSpec &spec     = context.spec;
             const ValueView    key_view = keys_set.at_slot(slot);
-            storage.entries.reserve_to(std::max(storage.entries.slot_capacity(), slot + 1));
+            // Normally already sized by the key set's capacity. When it is not, grow
+            // geometrically: the store grows to exactly what it is asked for,
+            // copying its slot table each time.
+            if (slot >= storage.entries.slot_capacity())
+            {
+                storage.entries.reserve_to(std::max(slot + 1, storage.entries.slot_capacity() * 2));
+            }
             MapKeyEntry *existing = storage.entries.entry_at(slot);
             auto &entry = existing != nullptr
                               ? *existing
@@ -789,27 +830,6 @@ namespace hgraph
             return bindings_need_refresh;
         }
 
-        [[nodiscard]] bool map_entry_membership_changed(
-            const MapNodeStorage &storage,
-            const ValueView &key)
-        {
-            for (const Value &changed_key : storage.membership_changed_keys)
-            {
-                if (changed_key.equals(key)) { return true; }
-            }
-            return false;
-        }
-
-        [[nodiscard]] bool map_entry_repoint_modified(const MapNodeStorage &storage,
-                                                      const ValueView &key)
-        {
-            for (const Value &modified_key : storage.repoint_modified_keys)
-            {
-                if (modified_key.equals(key)) { return true; }
-            }
-            return false;
-        }
-
         void add_map_evaluation_slot(MapNodeStorage &storage, std::size_t slot)
         {
             if (slot == TS_DATA_NO_CHILD_ID || storage.entry_at(slot) == nullptr) { return; }
@@ -875,11 +895,15 @@ namespace hgraph
                 }
             }
 
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             if (keys_input.valid())
             {
                 const auto &keys_data = keys_input.data_view();
                 auto keys = keys_data.as_set();
                 const void *keys_storage = keys.base().storage_ref().data();
+                storage.membership_changed_slots.assign(storage.membership_changed_keys, keys);
+                storage.repoint_modified_slots.assign(storage.repoint_modified_keys, keys);
                 if (keys_input.modified())
                 {
                     for (std::size_t slot = keys.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
@@ -1018,13 +1042,12 @@ namespace hgraph
                 // schedule enqueued before the stop) lingers this cycle —
                 // stopped children never evaluate.
                 if (!child.started()) { continue; }
-                const bool membership_changed =
-                    map_entry_membership_changed(storage, entry->key.view());
+                const bool membership_changed = storage.membership_changed_slots.test(slot);
                 if (storage.refresh_all_bindings || membership_changed)
                 {
                     const bool silent_repoint = storage.selective_repoint_bindings &&
                                                 !membership_changed &&
-                                                !map_entry_repoint_modified(storage, entry->key.view());
+                                                !storage.repoint_modified_slots.test(slot);
                     const TSOutputView key_source = entry->key_source.bound()
                                                         ? entry->key_source.view(evaluation_time)
                                                         : TSOutputView{};
@@ -1082,6 +1105,8 @@ namespace hgraph
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
             storage.repoint_modified_keys.clear();
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             // Current-cycle observer callbacks can enqueue a due entry after
             // the queue was drained at the start of this evaluation (for
             // example while a newly created child samples a valid config
@@ -1136,6 +1161,8 @@ namespace hgraph
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
             storage.repoint_modified_keys.clear();
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             storage.evaluation_slots.clear();
             storage.resume_position_plus_one = 0;
             storage.child_schedule_queue.clear();

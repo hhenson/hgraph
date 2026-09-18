@@ -188,6 +188,19 @@ Snapshots own their strings, hierarchy, timings, and storage counters. With
 after nested slot erase and executor destruction. ``reset`` is a between-runs
 operation and throws ``std::logic_error`` while an executor is active.
 
+Value capture also records *navigation targets* -- which node and output each
+input binding or reference leads to -- one record per element, so a keyed
+collection contributes one per key. A target reached twice within one captured
+value is listed once. That rule belongs to one file-local owner,
+``TargetRecorder``, which answers "already recorded?" from a hash of the records
+taken so far. It is created once per captured value by the capture entry points
+and handed down through the functions that gather targets, because they recurse
+through each other and the rule has to span all of them. Comparing each new
+record against every earlier one instead made a capture cost the square of the
+key count, and capture runs after every evaluation of the node: 1.6 s per
+capture at 32,000 keys against 40 ms, flat at about 1 us per key
+(``hgraph_unit_tests '[diagnostics-scaling]'``).
+
 Storage inspection is a cold path through ``NodeView::storage_metrics`` and is
 never called when no diagnostics collector is registered.
 
@@ -248,7 +261,17 @@ Each entry names the layer that owns the rule:
 * ``thread_local`` in the runtime;
 * a bare ``catch (...)`` outside ``util/scope.h`` and the three documented
   translation boundaries -- an exception boundary without a name (see
-  ``architecture.rst``, "Named exception boundaries").
+  ``architecture.rst``, "Named exception boundaries");
+* JSON on a serialization path (RFC 0040, guardrail (v) in ``CLAUDE.md``): the
+  JSON codec's names under ``runtime/``, where the floor is
+  ``graph_diagnostics.cpp`` rendering values for a person, and under the
+  persistence, Fabric and Kafka extensions, where the floor is the named
+  ``json`` store codec -- for a store that is *meant* to hold JSON, never a
+  default -- the read-only version 1 checkpoint reader, and Fabric's
+  notification codec. That last one is the rule's other half: the binary
+  codecs are for internal communication and state storage, and what hgraph
+  encodes onto Kafka, an external boundary, is JSON, Avro or protobuf. The rule
+  was only ever spoken, and JSON reached the internal paths twice because of it.
 
 The test fails when a count moves in either direction. A rise is a new copy
 of a rule that already has an owner: fix it at the owning layer, or record the

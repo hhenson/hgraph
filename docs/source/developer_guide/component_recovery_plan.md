@@ -110,19 +110,29 @@ activity inside a peered collection is explicitly refused.
 At a completed root cycle, capture runs after deferred notifications and before
 stop destroys nested graphs. Commit runs only after normal stop succeeds. Error
 capture inside managed nodes is rejected so a swallowed exception cannot turn
-a partial evaluation into a completed day. The extension checks that the entire
-encoded image round-trips before publishing its immutable object.
+a partial evaluation into a completed day. Encoding fails closed before
+publication and every image carries a checksum verified on read; a full
+decode-and-re-encode comparison is available on request (RFC 0039).
 
 Core exposes owned images and load/commit callbacks through `GlobalState`; it
-has no dependency on the persistence extension. The extension owns the codec,
-storage configuration, predecessor selection, and publication. Python adapts
+has no dependency on the persistence extension. Core also owns the canonical
+image encoding (`hgraph/runtime/checkpoint_codec.h`, RFC 0039), because the same
+bytes are what a worker-hosted graph returns to its owner. The extension owns
+the durable envelope, storage configuration, predecessor selection, and
+publication. Python adapts
 user callables and configuration to these native paths.
 
 Bulk endpoint import and storage are proportional to the complete retained image,
 including reserved keyed capacity. Key import plans the free stack once, then
 imports live slots in constant time apart from key hashing/copying. The coordinator
 indexes child images and adapter cursors once instead of searching each inventory
-for every restored child or reference. Graph ordinal ordering and mesh dependency
+for every restored child or reference. Its endpoint *position* index -- one
+locator per dictionary child, bundle field and list element -- costs as much as
+the state it describes and is consulted only by reference locators and adapter
+inventories, so it is built on the first lookup; a component with no references
+never builds it. Keyed validation claims slots in one bitmap pass and detects
+duplicate keys through a flat set of borrowed keys, converting a key only when
+it does not already carry the destination binding. Graph ordinal ordering and mesh dependency
 ordering retain their ordered-container/sorting costs. Windows instead store one typed sequence
 of live samples and their chronological timestamps, without ring spare capacity,
 per-sample endpoint images, or transient removed/reset deltas. Their restore is
@@ -225,6 +235,6 @@ endpoint images whose owner does not supply reference-aware checkpointing.
 Ordinary node recordable-state endpoints do receive the reference context.
 Owner-specific forwarding-terminal restrictions still apply. A full graph
 image, pending semantic schedules, online snapshot/suspend, and input journal
-replay remain future work. The durable envelope and endpoint/component image
-versions are 1 for the first release. Unreleased development snapshots are not
-a compatibility contract; unsupported versions are rejected rather than migrated.
+replay remain future work. Images are written in format version 2 (RFC 0039);
+version 1, published by hgraph 0.8.25-0.8.27, remains readable. Any other
+version is rejected rather than migrated.

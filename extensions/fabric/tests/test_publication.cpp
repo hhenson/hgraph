@@ -286,7 +286,8 @@ TEST_CASE("publication makes the accepted revision durable before advertising it
     const auto notice = notices.try_pop();
     REQUIRE(notice.has_value());
     CHECK(notice->data_id == "result");
-    CHECK(hgf::data_revision_input(metadata_store(config).decode(
+    // A notice is a message, so it is the notification codec's, not the store's.
+    CHECK(hgf::data_revision_input(hgf::notification_codec().decode(
                                       hgf::data_revision_meta(), notice->revision).view()) ==
           *candidate);
     CHECK(machine.advance() ==
@@ -435,7 +436,7 @@ TEST_CASE("publication races are first-writer-wins and losers never become the n
         const auto notice = notices.try_pop();
         REQUIRE(notice);
         CHECK(hgf::data_revision_input(
-                  metadata_store(config).decode(
+                  hgf::notification_codec().decode(
                       hgf::data_revision_meta(), notice->revision).view()) ==
               *first.candidate_revision());
     }

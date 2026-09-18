@@ -246,6 +246,7 @@ namespace hgraph
                 key_set_ts_ops.key_at_slot_impl               = &key_at_slot;
                 key_set_ts_ops.contains_impl                  = &set_contains;
                 key_set_ts_ops.find_slot_impl                 = &find_slot;
+                key_set_ts_ops.find_stored_slot_impl          = &find_stored_slot;
                 key_set_ts_ops.make_values_range_impl         = &set_range<TSDProxySetSurface::Live>;
                 key_set_ts_ops.make_added_values_range_impl   = &set_range<TSDProxySetSurface::Added>;
                 key_set_ts_ops.make_removed_values_range_impl = &set_range<TSDProxySetSurface::Removed>;
@@ -552,10 +553,8 @@ namespace hgraph
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) return std::size_t{0};
                         const auto &proxy = proxy_storage(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                            count += proxy.has_child(slot) ? 1U : 0U;
-                        return count;
+                        // Ordinal 0 is the key set; ordinal n + 1 is slot n.
+                        return proxy.child_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -567,18 +566,14 @@ namespace hgraph
                                 .attach_parent = false,
                             };
                         auto &proxy = proxy_storage(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                        {
-                            if (!proxy.has_child(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = proxy.element_type(),
-                                    .data = proxy.owned_child_memory(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= proxy.child_capacity() || !proxy.has_child(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = proxy.element_type(),
+                            .data = proxy.owned_child_memory(slot),
+                            .parent_child_id = slot,
+                        };
                     },
                     .stop = [](const void *, void *memory) noexcept {
                         if (memory != nullptr) proxy_storage(memory).stop();
@@ -828,6 +823,13 @@ namespace hgraph
             {
                 if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
                 return source_available(memory) ? source_dict(memory).find_slot(key) : TS_DATA_NO_CHILD_ID;
+            }
+
+            [[nodiscard]] static std::size_t find_stored_slot(const void *context, const void *memory,
+                                                              const ValueView &key)
+            {
+                if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
+                return source_available(memory) ? source_dict(memory).find_stored_slot(key) : TS_DATA_NO_CHILD_ID;
             }
 
             template <TSDProxySetSurface Surface>

@@ -52,6 +52,28 @@ namespace hgraph::stdlib
             ResolvedBindings inner{};
             ResolvedBindings outer{};
         };
+
+        /**
+         * Inner map builders grouped by label, in order of first appearance.
+         * The label index is what keeps grouping n items linear: finding the
+         * group by searching the list made it n times the number of groups.
+         */
+        struct GroupedMapBuilders
+        {
+            std::vector<std::pair<Value, MapBuilder>> groups{};
+            ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> positions{};
+
+            template <typename Make> [[nodiscard]] MapBuilder &at(const ValueView &label, Make &&make)
+            {
+                if (const auto found = positions.find(label); found != positions.end())
+                {
+                    return groups[found->second].second;
+                }
+                positions.emplace(Value{label}, groups.size());
+                groups.emplace_back(Value{label}, make());
+                return groups.back().second;
+            }
+        };
     }  // namespace collection_impl_detail
 }  // namespace hgraph::stdlib
 
@@ -1174,18 +1196,98 @@ namespace hgraph::stdlib
 
                 // Removed SUBTREES erase every output tuple-key with the
                 // matching prefix (own-output reconciliation - the removed
-                // child's keys are no longer readable).
-                const auto erase_prefix = [&](const std::vector<Value> &prefix) {
+                // child's keys are no longer readable). The prefixes are
+                // collected first and the output is swept ONCE, before anything
+                // is published: sweeping it per removed key made a removal tick
+                // cost removed keys times output keys. Order is preserved,
+                // because a level's removals always precede the descent that
+                // could republish under the same prefix.
+                using Prefix = std::vector<Value>;
+                struct PrefixProbe
+                {
+                    const IndexedValueView *components;
+                    std::size_t             length;
+                };
+                struct PrefixHash
+                {
+                    using is_transparent = void;
+                    [[nodiscard]] static std::size_t mix(std::size_t seed, std::size_t value) noexcept
+                    {
+                        return seed * 0x9e3779b97f4a7c15ULL + value;
+                    }
+                    [[nodiscard]] std::size_t operator()(const Prefix &prefix) const
+                    {
+                        std::size_t result = prefix.size();
+                        for (const Value &component : prefix) { result = mix(result, ValueHash{}(component)); }
+                        return result;
+                    }
+                    [[nodiscard]] std::size_t operator()(const PrefixProbe &probe) const
+                    {
+                        std::size_t result = probe.length;
+                        for (std::size_t index = 0; index < probe.length; ++index)
+                            result = mix(result, ValueHash{}(probe.components->at(index)));
+                        return result;
+                    }
+                };
+                struct PrefixEqual
+                {
+                    using is_transparent = void;
+                    [[nodiscard]] bool operator()(const Prefix &lhs, const Prefix &rhs) const
+                    {
+                        if (lhs.size() != rhs.size()) { return false; }
+                        for (std::size_t index = 0; index < lhs.size(); ++index)
+                            if (!lhs[index].equals(rhs[index])) { return false; }
+                        return true;
+                    }
+                    [[nodiscard]] bool operator()(const PrefixProbe &probe, const Prefix &prefix) const
+                    {
+                        if (probe.length != prefix.size()) { return false; }
+                        for (std::size_t index = 0; index < probe.length; ++index)
+                            if (!probe.components->at(index).equals(prefix[index].view())) { return false; }
+                        return true;
+                    }
+                    [[nodiscard]] bool operator()(const Prefix &prefix, const PrefixProbe &probe) const
+                    {
+                        return (*this)(probe, prefix);
+                    }
+                };
+                ankerl::unordered_dense::set<Prefix, PrefixHash, PrefixEqual> removed_prefixes;
+                std::vector<std::uint8_t> removed_lengths(depth + 1, 0);   // not vector<bool>: GCC 14 array-bounds
+
+                const std::function<void(const TSDInputView &, Prefix &)> collect_removed =
+                    [&](const TSDInputView &level, Prefix &path) {
+                        for (const ValueView &removed : level.removed_keys())
+                        {
+                            path.emplace_back(removed);
+                            removed_lengths[path.size()] = 1;
+                            removed_prefixes.insert(path);
+                            path.pop_back();
+                        }
+                        if (path.size() + 1 >= depth) { return; }
+                        for (const auto [key, child] : level.modified_items())
+                        {
+                            if (!child.valid()) { continue; }
+                            path.emplace_back(key);
+                            collect_removed(TSDInputView{child.borrowed_ref()}, path);
+                            path.pop_back();
+                        }
+                    };
+
+                const auto erase_removed_prefixes = [&] {
+                    if (removed_prefixes.empty()) { return; }
                     std::vector<Value> stale;
                     for (const auto [key, child] : dict_out.items())
                     {
-                        auto components = key.as_indexed_view();
-                        bool match = true;
-                        for (std::size_t index = 0; index < prefix.size(); ++index)
+                        const auto components = key.as_indexed_view();
+                        for (std::size_t length = 1; length <= depth; ++length)
                         {
-                            if (!components.at(index).equals(prefix[index].view())) { match = false; break; }
+                            if (removed_lengths[length] != 0 &&
+                                removed_prefixes.contains(PrefixProbe{&components, length}))
+                            {
+                                stale.emplace_back(key);
+                                break;
+                            }
                         }
-                        if (match) { stale.emplace_back(key); }
                     }
                     for (const Value &key : stale) { (void)mutation.erase(key.view()); }
                 };
@@ -1199,17 +1301,11 @@ namespace hgraph::stdlib
                     return builder.build();
                 };
 
-                // Recursive delta walk: at each level removed keys erase the
-                // prefix, modified children descend; at the leaf level the
-                // element's REFERENCE publishes under the full tuple key.
+                // Recursive delta walk: modified children descend; at the leaf
+                // level the element's REFERENCE publishes under the full tuple
+                // key. Removed prefixes were swept above.
                 const std::function<void(const TSDInputView &, std::vector<Value> &)> walk =
                     [&](const TSDInputView &level, std::vector<Value> &path) {
-                        for (const ValueView &removed : level.removed_keys())
-                        {
-                            path.emplace_back(removed);
-                            erase_prefix(path);
-                            path.pop_back();
-                        }
                         for (const auto [key, child] : level.modified_items())
                         {
                             path.emplace_back(key);
@@ -1241,6 +1337,8 @@ namespace hgraph::stdlib
 
                 const TSDInputView &root = ts;
                 std::vector<Value>  path;
+                collect_removed(root, path);
+                erase_removed_prefixes();
                 walk(root, path);
             }
         };
@@ -1468,14 +1566,14 @@ namespace hgraph::stdlib
                     {
                         auto current      = root_dict.at(group_key.view());
                         auto current_dict = current.as_dict();
+                        // One set per group: searching ``members`` for each current
+                        // member cost the square of every group's size per evaluation.
+                        BorrowedValueSet wanted_members;
+                        wanted_members.reserve(members.size());
+                        for (const auto &entry : members) { wanted_members.insert(&entry.first); }
                         for (const auto [member_key, member] : current_dict.items())
                         {
-                            bool keep = false;
-                            for (const auto &entry : members)
-                            {
-                                if (entry.first.view().equals(member_key)) { keep = true; break; }
-                            }
-                            if (!keep) { gone.emplace_back(member_key); }
+                            if (!wanted_members.contains(member_key)) { gone.emplace_back(member_key); }
                         }
                         for (const auto &[member_key, reference] : members)
                         {
@@ -1688,12 +1786,13 @@ namespace hgraph::stdlib
                         if (current.valid())
                         {
                             auto current_set = current.data_view().as_set();
+                            // One set per group, as in flip_keys_tsd above.
+                            BorrowedValueSet wanted_members;
+                            wanted_members.reserve(members.size());
+                            for (const Value &candidate : members) { wanted_members.insert(&candidate); }
                             for (const ValueView &member : current_set.values())
                             {
-                                const bool keep = std::ranges::any_of(members, [&](const Value &candidate) {
-                                    return candidate.view().equals(member);
-                                });
-                                if (!keep) { gone.emplace_back(member); }
+                                if (!wanted_members.contains(member)) { gone.emplace_back(member); }
                             }
                             for (const Value &member : members)
                             {
@@ -2415,25 +2514,14 @@ namespace hgraph::stdlib
                 const auto resolved = bindings.get();
 
                 // label -> inner builder (ordered by first appearance)
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 for (const auto [key, item] : data)
                 {
                     if (!labels.contains(key)) { continue; }
-                    auto label = labels.at(key);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(label)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{label}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(key, item);
+                    grouped.at(labels.at(key), [&] { return map_builder_for(resolved.inner); }).set_item(key, item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, inner] : groups)
+                for (auto &[label, inner] : grouped.groups)
                 {
                     Value built = finish_map(inner, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2487,28 +2575,19 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto outer_values = ts.base().value().as_map();
                 for (const auto [outer_key, inner_value] : outer_values)
                 {
                     const auto inner_values = inner_value.as_map();
                     for (const auto [inner_key, item] : inner_values)
                     {
-                        MapBuilder *group = nullptr;
-                        for (auto &[seen, builder] : groups)
-                        {
-                            if (seen.view().equals(inner_key)) { group = &builder; break; }
-                        }
-                        if (group == nullptr)
-                        {
-                            groups.emplace_back(Value{inner_key}, map_builder_for(resolved.inner));
-                            group = &groups.back().second;
-                        }
-                        group->set_item(outer_key, item);
+                        grouped.at(inner_key, [&] { return map_builder_for(resolved.inner); })
+                            .set_item(outer_key, item);
                     }
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2615,26 +2694,16 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto values = ts.base().value().as_map();
                 for (const auto [key, item] : values)
                 {
                     auto pair = key.as_indexed_view();
-                    auto outer = pair.at(0);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(outer)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{outer}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(pair.at(1), item);
+                    grouped.at(pair.at(0), [&] { return map_builder_for(resolved.inner); })
+                        .set_item(pair.at(1), item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2791,15 +2860,17 @@ namespace hgraph::stdlib
             auto dict_out = out.data_view().as_dict();
             auto mutation = dict_out.begin_mutation(out.evaluation_time());
 
+            // Asked once per key already in the output, so the wanted keys are
+            // a set: searching ``pairs`` for each made every evaluation cost
+            // output keys times wanted keys.
+            BorrowedValueSet wanted;
+            wanted.reserve(pairs.size());
+            for (const auto &pair : pairs) { wanted.insert(&pair.first); }
+
             std::vector<Value> stale;
             for (auto &&[key, child] : dict_out.items())
             {
-                bool keep = false;
-                for (const auto &pair : pairs)
-                {
-                    if (pair.first.view().equals(key)) { keep = true; break; }
-                }
-                if (!keep) { stale.emplace_back(key); }
+                if (!wanted.contains(key)) { stale.emplace_back(key); }
             }
             for (const Value &key : stale) { (void)mutation.erase(key.view()); }
 
@@ -3050,15 +3121,12 @@ namespace hgraph::stdlib
                 auto        dict_out = erased.data_view().as_dict();
                 auto        mutation = dict_out.begin_mutation(erased.evaluation_time());
 
+                // Asked once per key already in the output, so the keys are a set.
+                const IndexedValueKeySet wanted{key_list};
                 std::vector<Value> stale;
                 for (auto &&[key, child] : dict_out.items())
                 {
-                    bool keep = false;
-                    for (std::size_t index = 0; index < key_list.size(); ++index)
-                    {
-                        if (key_list.at(index).equals(key)) { keep = true; break; }
-                    }
-                    if (!keep) { stale.emplace_back(key); }
+                    if (!wanted.contains(key)) { stale.emplace_back(key); }
                 }
                 for (const Value &key : stale) { (void)mutation.erase(key.view()); }
 

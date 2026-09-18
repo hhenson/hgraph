@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <chrono>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
@@ -2334,6 +2336,131 @@ TEST_CASE("TSD input structural ranges do not repeat a prior removal on a forwar
     CHECK(removed_keys.begin() == removed_keys.end());
     CHECK(removed_values.begin() == removed_values.end());
     CHECK(removed_items.begin() == removed_items.end());
+}
+
+TEST_CASE("TSD input re-point does not re-add a key the old source removed in the same cycle")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+
+    TSOutput first{*dict_schema};
+    TSOutput second{*dict_schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(
+        *dict_schema, TSEndpointSchema::peered(dict_schema))};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value dropped_key{std::int32_t{1}};
+    Value shared_key{std::int32_t{2}};
+    Value new_key{std::int32_t{3}};
+    Value initial{std::int32_t{10}};
+
+    {
+        auto output_view = first.view(t1);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        mutation.set(dropped_key.view(), initial.view());
+        mutation.set(shared_key.view(), initial.view());
+    }
+    {
+        auto output_view = second.view(t1);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        mutation.set(dropped_key.view(), initial.view());
+        mutation.set(shared_key.view(), initial.view());
+        mutation.set(new_key.view(), initial.view());
+    }
+
+    input.view(nullptr, t1).bind_output(first.view(t1));
+
+    // The old source drops a key in the very cycle the input is re-pointed at
+    // a source that still holds it. The consumer has already seen that key, so
+    // it is neither added nor removed; only the genuinely new key is added.
+    // The old source no longer lists the key as live, so this is answered from
+    // its pending-erase slot.
+    {
+        auto output_view = first.view(t2);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t2);
+        REQUIRE(mutation.erase(dropped_key.view()));
+    }
+    input.view(nullptr, t2).bind_output_sampled(second.view(t2), t2);
+
+    auto input_view = input.view(nullptr, t2);
+    auto current = input_view.as_dict();
+    REQUIRE(current.modified());
+    std::vector<std::int32_t> added;
+    for (auto &&key : current.added_keys()) { added.push_back(key.checked_as<std::int32_t>()); }
+    std::vector<std::int32_t> removed;
+    for (auto &&key : current.removed_keys()) { removed.push_back(key.checked_as<std::int32_t>()); }
+    CHECK(added == std::vector<std::int32_t>{3});
+    CHECK(removed.empty());
+}
+
+TEST_CASE("TSD input re-point cost is linear in the keys the old source removed", "[.][target-link-scaling]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value initial{std::int32_t{10}};
+
+    std::printf("%10s %14s %14s\n", "keys", "repoint_ms", "us_per_key");
+    for (const std::int32_t count : {2'000, 4'000, 8'000, 16'000, 32'000})
+    {
+        TSOutput first{*dict_schema};
+        TSOutput second{*dict_schema};
+        TSInput input{TSInputBuilderFactory::checked_builder_for(
+            *dict_schema, TSEndpointSchema::peered(dict_schema))};
+
+        for (TSOutput *source : {&first, &second})
+        {
+            auto output_view = source->view(t1);
+            auto dict = output_view.as_dict();
+            auto mutation = dict.begin_mutation(t1);
+            for (std::int32_t key = 0; key < count; ++key)
+            {
+                Value key_value{key};
+                mutation.set(key_value.view(), initial.view());
+            }
+        }
+        input.view(nullptr, t1).bind_output(first.view(t1));
+
+        // Every key leaves the old source in the cycle of the re-point, so
+        // each key of the new source is looked up among the removed ones.
+        {
+            auto output_view = first.view(t2);
+            auto dict = output_view.as_dict();
+            auto mutation = dict.begin_mutation(t2);
+            for (std::int32_t key = 0; key < count; ++key)
+            {
+                Value key_value{key};
+                REQUIRE(mutation.erase(key_value.view()));
+            }
+        }
+        input.view(nullptr, t2).bind_output_sampled(second.view(t2), t2);
+
+        const auto started = std::chrono::steady_clock::now();
+        auto input_view = input.view(nullptr, t2);
+        auto current = input_view.as_dict();
+        std::size_t added = 0;
+        for (auto &&key : current.added_keys())
+        {
+            static_cast<void>(key);
+            ++added;
+        }
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
+        REQUIRE(added == 0);
+        std::printf("%10d %14.3f %14.4f\n", count, elapsed, elapsed * 1000.0 / count);
+    }
 }
 
 TEST_CASE("dynamic TSL input reports the truncated indices and their retained values")

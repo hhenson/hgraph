@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -28,11 +29,37 @@ namespace hgraph
     {
         constexpr std::string_view ordered_reduce_storage_field_name{"ordered_reduce"};
 
+        struct OrderedReduceStorage;
+
+        /** Identifies a link to the schedule observer of its graph. */
+        struct OrderedReduceLinkSchedule
+        {
+            OrderedReduceStorage *storage{nullptr};
+            std::size_t index{0};
+        };
+
         struct OrderedReduceEntry
         {
             GraphValue graph{};
+            OrderedReduceLinkSchedule schedule{};
+            DateTime future_when{MAX_DT};
+            // What this link of the chain publishes, resolved when it is bound:
+            // the combiner's terminal, or -- for a combiner that returns one of
+            // its arguments -- the accumulator or element it passes through.
+            // Cached so that binding link n never walks links 0..n-1.
+            TSOutputHandle output{};
         };
 
+        /**
+         * The chain: link ``i`` combines the output of link ``i - 1`` (the zero
+         * for link 0) with element ``i``, so the input is an ordered list and
+         * only its TAIL can change. Growing constructs and starts the new links
+         * alone; shrinking stops the removed ones alone. No other link is
+         * rebuilt, rebound or restarted, so its state survives -- which is the
+         * contract of the reference implementation (hgraph 0.5,
+         * ``PythonTsdNonAssociativeReduceNodeImpl._extend_nodes_to`` /
+         * ``_erase_nodes_from``).
+         */
         struct OrderedReduceStorage
         {
             OrderedReduceStorage() = default;
@@ -43,69 +70,134 @@ namespace hgraph
 
             ~OrderedReduceStorage()
             {
-                destroy_previous_generation();
-                destroy_current_generation();
+                for (std::size_t index = std::max(live_count, retired_end); index-- > 0;) { entries.destroy_at(index); }
             }
 
-            void initialise(MemoryUtils::StorageLayout graph_layout)
-            {
-                for (auto &bank : banks) { bank.bind_graph_layout(graph_layout); }
-            }
+            void initialise(MemoryUtils::StorageLayout graph_layout) { entries.bind_graph_layout(graph_layout); }
 
-            void stop_generation(std::size_t bank_index, std::size_t count)
+            /** Stop links ``[from, to)``, last first. */
+            void stop_links(std::size_t from, std::size_t to)
             {
-                auto &bank = banks[bank_index];
                 FirstExceptionRecorder errors;
-                for (std::size_t index = count; index-- > 0;)
+                for (std::size_t index = to; index-- > from;)
                 {
-                    auto *entry = bank.entry_at(index);
-                    if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started()) { continue; }
-                    errors.capture([&] { entry->graph.view().stop(); });
+                    auto *entry = entries.entry_at(index);
+                    if (entry != nullptr && entry->graph.has_value() && entry->graph.view().started())
+                    {
+                        errors.capture([&] { entry->graph.view().stop(); });
+                    }
+                    clear_future(index);
                 }
                 errors.rethrow_if_any();
             }
 
-            void destroy_generation(std::size_t bank_index, std::size_t count) noexcept
+            /** A truncated tail is stopped at once but destroyed only after the
+                cycle that removed it: the node's output, and anything sampled
+                this cycle, may still be reading its last link. */
+            void destroy_retired_before(DateTime evaluation_time) noexcept
             {
-                auto &bank = banks[bank_index];
-                for (std::size_t index = count; index-- > 0;) { bank.destroy_at(index); }
+                if (retired_end <= live_count || retired_time >= evaluation_time) { return; }
+                for (std::size_t index = retired_end; index-- > live_count;) { entries.destroy_at(index); }
+                retired_end = 0;
+                retired_time = MIN_DT;
             }
 
-            void destroy_current_generation() noexcept
+            // At most one future deadline per live link. Unlike lazy heap
+            // duplicates, this stays O(live links) across input ticks, timer
+            // replacement and slot reuse. Updating a deadline costs O(log N).
+            void clear_future(std::size_t index)
             {
-                destroy_generation(current_bank, live_count);
-                live_count = 0;
+                auto *entry = entries.entry_at(index);
+                if (entry == nullptr || entry->future_when == MAX_DT) { return; }
+                future.erase({entry->future_when, index});
+                entry->future_when = MAX_DT;
             }
 
-            void destroy_previous_generation() noexcept
+            void set_future(std::size_t index, DateTime when)
             {
-                if (previous_count == 0) { return; }
-                destroy_generation(1U - current_bank, previous_count);
-                previous_count = 0;
-                previous_time = MIN_DT;
-            }
-
-            void destroy_previous_generation_before(DateTime evaluation_time) noexcept
-            {
-                if (previous_count != 0 && previous_time < evaluation_time)
+                auto &entry = *entries.entry_at(index);
+                if (entry.future_when == when) { return; }
+                clear_future(index);
+                if (when != MAX_DT)
                 {
-                    destroy_previous_generation();
+                    future.emplace(when, index);
+                    entry.future_when = when;
                 }
             }
 
-            std::array<InPlaceGraphSlotStore<OrderedReduceEntry>, 2> banks{};
-            std::size_t current_bank{0};
+            void note_schedule(std::size_t index, DateTime when)
+            {
+                if (when == MAX_DT) { return; }
+                if (when <= evaluating_time)
+                {
+                    due.push_back(index);
+                    std::push_heap(due.begin(), due.end(), std::greater<>{});
+                }
+                else if (when < entries.entry_at(index)->future_when)
+                {
+                    set_future(index, when);
+                }
+            }
+
+            /** Move every schedule that has come due onto the due heap. */
+            void admit_due(DateTime evaluation_time)
+            {
+                while (!future.empty() && future.begin()->first <= evaluation_time)
+                {
+                    const std::size_t index = future.begin()->second;
+                    clear_future(index);
+                    note_schedule(index, evaluation_time);
+                }
+            }
+
+            /** The lowest due link, with its duplicates; ``npos`` when none. */
+            [[nodiscard]] std::size_t pop_due() noexcept
+            {
+                if (due.empty()) { return static_cast<std::size_t>(-1); }
+                const std::size_t index = due.front();
+                while (!due.empty() && due.front() == index)
+                {
+                    std::pop_heap(due.begin(), due.end(), std::greater<>{});
+                    due.pop_back();
+                }
+                return index;
+            }
+
+            void observe(OrderedReduceEntry &entry, std::size_t index)
+            {
+                entry.schedule = OrderedReduceLinkSchedule{this, index};
+                entry.graph.view().set_child_schedule_observer(
+                    [](void *raw, DateTime when) {
+                        auto &link = *static_cast<OrderedReduceLinkSchedule *>(raw);
+                        link.storage->note_schedule(link.index, when);
+                    },
+                    &entry.schedule);
+            }
+
+            InPlaceGraphSlotStore<OrderedReduceEntry> entries{};   // slot == position in the chain
+            std::vector<std::size_t> due{};                               // min-heap of link indices
+            std::set<std::pair<DateTime, std::size_t>> future{};          // one (when, link) per pending link
+            DateTime evaluating_time{MIN_DT};
             std::size_t live_count{0};
-            std::size_t previous_count{0};
-            DateTime previous_time{MIN_DT};
+            std::size_t retired_end{0};                            // [live_count, retired_end) await destruction
+            DateTime retired_time{MIN_DT};
+            // The outputs the chain is bound to. A link is rebound only when one
+            // of these re-points, never merely because the collection ticked.
+            TSOutputHandle collection_source{};
+            TSOutputHandle zero_source{};
             bool primed{false};
             bool published{false};
             std::size_t resume_index_plus_one{0};
         };
 
+        constexpr std::size_t unvalidated = static_cast<std::size_t>(-1);
+
         struct OrderedReduceCollectionOps
         {
-            std::size_t (*size)(TSInputView &input);
+            /** The list's length. ``validated`` is the length this same source
+                was last seen to have, or ``unvalidated``; it lets a dictionary
+                confirm its keys are still 0..n-1 from the change alone. */
+            std::size_t (*size)(TSInputView &input, std::size_t validated);
             TSOutputView (*element_output)(TSOutputView source, std::size_t index);
         };
 
@@ -161,14 +253,13 @@ namespace hgraph
             const auto &storage = *MemoryUtils::cast<const OrderedReduceStorage>(
                 MemoryUtils::advance(memory, context.storage_offset));
             NodeStorageMetrics result{};
-            for (const auto &bank : storage.banks)
-            {
-                result.nested_graph_count += bank.entry_count();
-                result.nested_graph_capacity += bank.slot_capacity();
-                result.nested_graph_blocks += bank.block_count();
-                result.dynamic_live_bytes += bank.live_bytes();
-                result.dynamic_reserved_bytes += bank.reserved_bytes();
-            }
+            result.nested_graph_count += storage.entries.entry_count();
+            result.nested_graph_capacity += storage.entries.slot_capacity();
+            result.nested_graph_blocks += storage.entries.block_count();
+            result.dynamic_live_bytes += storage.entries.live_bytes();
+            result.dynamic_live_bytes += storage.future.size() * sizeof(decltype(storage.future)::value_type);
+            result.dynamic_reserved_bytes += storage.entries.reserved_bytes();
+            result.dynamic_reserved_bytes += storage.future.size() * sizeof(decltype(storage.future)::value_type);
             return result;
         }
 
@@ -183,75 +274,94 @@ namespace hgraph
                                   : TSOutputView{};
         }
 
-        [[nodiscard]] TSOutputView child_output(
+        [[nodiscard]] TSOutputView zero_output(const NodeView &view, DateTime evaluation_time)
+        {
+            return view.input(evaluation_time).indexed_child_at(1).bound_output();
+        }
+
+        /** What link ``index`` accumulates onto: the zero, or the link before it. */
+        [[nodiscard]] TSOutputView accumulator_source(
             const NodeView &view,
-            const OrderedReduceContext &context,
-            const InPlaceGraphSlotStore<OrderedReduceEntry> &bank,
+            const OrderedReduceStorage &storage,
             std::size_t index,
             DateTime evaluation_time)
         {
-            const auto &binding = *context.spec.child.output_binding;
-            if (binding.kind == NestedGraphOutputBinding::Kind::ParentInput)
-            {
-                TSOutputView source;
-                if (binding.parent_source_path[0] == 0)
-                {
-                    source = index == 0
-                                 ? view.input(evaluation_time).indexed_child_at(1).bound_output()
-                                 : child_output(view, context, bank, index - 1, evaluation_time);
-                }
-                else
-                {
-                    source = collection_element_output(view, context, index, evaluation_time);
-                }
-                if (source.bound() && binding.parent_source_path.size() > 1)
-                {
-                    source = walk_ts_path(
-                        std::move(source),
-                        std::span<const std::size_t>{binding.parent_source_path}.subspan(1));
-                }
-                return source;
-            }
-            const auto *entry = bank.entry_at(index);
-            if (entry == nullptr || !entry->graph.has_value()) { return TSOutputView{}; }
-            return walk_ts_path(
-                entry->graph.view().node_at(binding.source.node).output(evaluation_time),
-                binding.source.path);
+            if (index == 0) { return zero_output(view, evaluation_time); }
+            const auto *previous = storage.entries.entry_at(index - 1);
+            return previous != nullptr && previous->output.bound() ? previous->output.view(evaluation_time)
+                                                                   : TSOutputView{};
         }
 
-        [[nodiscard]] std::size_t ordered_input_size(const TSDInputView &dict)
+        [[nodiscard]] TSOutputView link_output(
+            const OrderedReduceStorage &storage, std::size_t index, DateTime evaluation_time)
         {
-            std::size_t count = 0;
-            std::size_t max_index = 0;
+            const auto *entry = storage.entries.entry_at(index);
+            return entry != nullptr && entry->output.bound() ? entry->output.view(evaluation_time) : TSOutputView{};
+        }
+
+        [[nodiscard]] std::size_t ordered_key_index(const ValueView &key)
+        {
+            const Int value = key.checked_as<Int>();
+            if (value < 0) { throw std::invalid_argument("ordered reduce requires non-negative integer keys"); }
+            const auto unsigned_value = static_cast<std::uint64_t>(value);
+            if (unsigned_value >= std::numeric_limits<std::size_t>::max())
+            {
+                throw std::overflow_error("ordered reduce key does not fit in size_t");
+            }
+            return static_cast<std::size_t>(unsigned_value);
+        }
+
+        [[noreturn]] void not_contiguous()
+        {
+            throw std::invalid_argument("ordered reduce requires contiguous integer keys from zero");
+        }
+
+        [[nodiscard]] std::size_t ordered_input_size(const TSDInputView &dict, std::size_t validated)
+        {
+            const std::size_t count = dict.size();
+            // The keys are distinct and non-negative, so they are exactly
+            // 0..count-1 as soon as none of them is count or more. When this
+            // same dictionary was last seen to hold 0..validated-1, only what
+            // changed can break that: a key added at or beyond the new length,
+            // or a key in the removed tail that is still there. Checking those
+            // is proportional to the change. Walking every key on every
+            // evaluation made a list grown one element at a time quadratic.
+            if (validated != unvalidated)
+            {
+                if (!dict.structure_modified())
+                {
+                    if (count != validated) { not_contiguous(); }
+                    return count;
+                }
+                const auto data = dict.data_view();
+                if (data.structural_delta_current(dict.evaluation_time()))
+                {
+                    for (std::size_t slot = data.next_membership_added_slot(); slot != TS_DATA_NO_CHILD_ID;
+                         slot = data.next_membership_added_slot(slot))
+                    {
+                        if (ordered_key_index(data.key_at_slot(slot)) >= count) { not_contiguous(); }
+                    }
+                    for (std::size_t index = count; index < validated; ++index)
+                    {
+                        const Value key{static_cast<Int>(index)};
+                        if (dict.contains(key.view())) { not_contiguous(); }
+                    }
+                    return count;
+                }
+            }
             for (const ValueView &key : dict.keys())
             {
-                const Int value = key.checked_as<Int>();
-                if (value < 0)
-                {
-                    throw std::invalid_argument("ordered reduce requires non-negative integer keys");
-                }
-                const auto unsigned_value = static_cast<std::uint64_t>(value);
-                if (unsigned_value > std::numeric_limits<std::size_t>::max())
-                {
-                    throw std::overflow_error("ordered reduce key does not fit in size_t");
-                }
-                max_index = std::max(max_index, static_cast<std::size_t>(unsigned_value));
-                ++count;
-            }
-            if (count == 0) { return 0; }
-            if (max_index == std::numeric_limits<std::size_t>::max() || count != max_index + 1)
-            {
-                throw std::invalid_argument("ordered reduce requires contiguous integer keys from zero");
+                if (ordered_key_index(key) >= count) { not_contiguous(); }
             }
             return count;
         }
 
-        [[nodiscard]] std::size_t ordered_dict_size(TSInputView &input)
+        [[nodiscard]] std::size_t ordered_dict_size(TSInputView &input, std::size_t validated)
         {
-            return ordered_input_size(input.as_dict());
+            return ordered_input_size(input.as_dict(), validated);
         }
 
-        [[nodiscard]] std::size_t ordered_list_size(TSInputView &input)
+        [[nodiscard]] std::size_t ordered_list_size(TSInputView &input, std::size_t)
         {
             return input.as_list().size();
         }
@@ -283,125 +393,126 @@ namespace hgraph
             return schema.kind == TSTypeKind::TSD ? dict_ops : list_ops;
         }
 
-        void bind_child_inputs(
+        /** Bind link ``index`` to its accumulator and element, and resolve what it publishes. */
+        void bind_link(
             const NodeView &view,
             const OrderedReduceContext &context,
-            InPlaceGraphSlotStore<OrderedReduceEntry> &bank,
+            OrderedReduceStorage &storage,
             std::size_t index,
             DateTime evaluation_time)
         {
-            auto *entry = bank.entry_at(index);
+            auto *entry = storage.entries.entry_at(index);
             if (entry == nullptr || !entry->graph.has_value())
             {
                 throw std::logic_error("ordered reduce child entry is not constructed");
             }
 
+            const auto source_for = [&](const std::vector<std::size_t> &path) {
+                TSOutputView source = path[0] == 0
+                                          ? accumulator_source(view, storage, index, evaluation_time)
+                                          : collection_element_output(view, context, index, evaluation_time);
+                if (path.size() > 1 && source.bound())
+                {
+                    source = walk_ts_path(std::move(source), std::span<const std::size_t>{path}.subspan(1));
+                }
+                return source;
+            };
+
             auto child = entry->graph.view();
             for (const NestedGraphInputBinding &binding : context.spec.child.input_bindings)
             {
-                TSOutputView source;
-                if (binding.source_path[0] == 0)
-                {
-                    source = index == 0
-                                 ? view.input(evaluation_time).indexed_child_at(1).bound_output()
-                                 : child_output(view, context, bank, index - 1, evaluation_time);
-                }
-                else
-                {
-                    source = collection_element_output(view, context, index, evaluation_time);
-                }
-                if (binding.source_path.size() > 1 && source.bound())
-                {
-                    source = walk_ts_path(
-                        std::move(source),
-                        std::span<const std::size_t>{binding.source_path}.subspan(1));
-                }
                 auto target = walk_ts_path(
                     child.node_at(binding.target.node).input(evaluation_time),
                     binding.target.path);
-                bind_input_to_source(std::move(target), source);
+                bind_input_to_source(std::move(target), source_for(binding.source_path));
             }
+
+            const auto &output = *context.spec.child.output_binding;
+            TSOutputView published = output.kind == NestedGraphOutputBinding::Kind::ParentInput
+                                         ? source_for(output.parent_source_path)
+                                         : walk_ts_path(child.node_at(output.source.node).output(evaluation_time),
+                                                        output.source.path);
+            entry->output = published.bound() ? published.handle() : TSOutputHandle{};
         }
 
-        void publish_tail(
-            const NodeView &view,
-            const OrderedReduceContext &context,
-            const InPlaceGraphSlotStore<OrderedReduceEntry> &bank,
-            std::size_t count,
-            DateTime evaluation_time)
+        void publish_tail(const NodeView &view, const OrderedReduceStorage &storage, DateTime evaluation_time)
         {
-            TSOutputView source = view.input(evaluation_time).indexed_child_at(1).bound_output();
-            if (count != 0)
-            {
-                const auto *entry = bank.entry_at(count - 1);
-                if (entry == nullptr) { throw std::logic_error("ordered reduce tail entry is missing"); }
-                source = child_output(view, context, bank, count - 1, evaluation_time);
-            }
+            TSOutputView source = storage.live_count == 0
+                                      ? zero_output(view, evaluation_time)
+                                      : link_output(storage, storage.live_count - 1, evaluation_time);
             runtime_detail::bind_reduce_output(view.output(evaluation_time), source, evaluation_time);
         }
 
-        void rebuild_chain(
+        /** Construct, bind and start links ``[live_count, next_count)``. */
+        void extend_chain(
             const NodeView &view,
             const OrderedReduceContext &context,
             OrderedReduceStorage &storage,
             std::size_t next_count,
             DateTime evaluation_time)
         {
-            const std::size_t old_bank = storage.current_bank;
-            const std::size_t old_count = storage.live_count;
-            const std::size_t next_bank = 1U - old_bank;
-            auto &bank = storage.banks[next_bank];
-            if (bank.has_entries())
+            const std::size_t first = storage.live_count;
+            // The slot store grows to exactly what it is asked for, copying its
+            // slot table and allocating one block each time. A list that grows
+            // an element at a time must therefore ask geometrically, or growth
+            // is quadratic again and every link gets its own allocation.
+            if (next_count > storage.entries.slot_capacity())
             {
-                throw std::logic_error("ordered reduce inactive graph bank is still occupied");
+                storage.entries.reserve_to(std::max(next_count, storage.entries.slot_capacity() * 2));
             }
-            bank.reserve_to(next_count);
 
             std::size_t created = 0;
             auto rollback = UnwindCleanupGuard([&] {
                 FirstExceptionRecorder errors;
-                errors.capture([&] { storage.stop_generation(next_bank, created); });
-                storage.destroy_generation(next_bank, created);
+                errors.capture([&] { storage.stop_links(first, first + created); });
+                for (std::size_t index = first + created; index-- > first;) { storage.entries.destroy_at(index); }
                 errors.rethrow_if_any();
             });
 
-            for (std::size_t index = 0; index < next_count; ++index)
+            for (std::size_t index = first; index < next_count; ++index)
             {
-                auto &entry = bank.construct_at(index);
+                auto &entry = storage.entries.construct_at(index);
                 ++created;
                 entry.graph = context.spec.child.graph_builder.make_nested_graph(
-                    view.pointer(), bank.graph_memory(index), context.graph_layout);
-                bind_child_inputs(view, context, bank, index, evaluation_time);
+                    view.pointer(), storage.entries.graph_memory(index), context.graph_layout);
+                storage.observe(entry, index);
+                bind_link(view, context, storage, index, evaluation_time);
                 entry.graph.view().start(evaluation_time);
                 schedule_sampled_input_consumers(
                     entry.graph.view(), evaluation_time, context.spec.child.input_bindings);
+                // Start hooks schedule before the graph reports to its observer.
+                const DateTime next = entry.graph.view().next_scheduled_time();
+                storage.note_schedule(index, next);
+                if (next != MAX_DT && next > evaluation_time)
+                {
+                    view.graph().schedule_node(view.node_index(), next);
+                }
             }
-
-            publish_tail(view, context, bank, next_count, evaluation_time);
-            FirstExceptionRecorder errors;
-            errors.capture([&] { storage.stop_generation(old_bank, old_count); });
-            storage.current_bank = next_bank;
             storage.live_count = next_count;
-            storage.previous_count = old_count;
-            storage.previous_time = old_count == 0 ? MIN_DT : evaluation_time;
-            storage.published = true;
             rollback.release();
-            errors.rethrow_if_any();
         }
 
-        void refresh_chain_bindings(
+        /** Stop links ``[next_count, live_count)``; they are destroyed next cycle. */
+        void truncate_chain(OrderedReduceStorage &storage, std::size_t next_count, DateTime evaluation_time)
+        {
+            const std::size_t old_count = storage.live_count;
+            storage.live_count = next_count;
+            storage.retired_end = old_count;
+            storage.retired_time = evaluation_time;
+            storage.stop_links(next_count, old_count);
+        }
+
+        void rebind_links(
             const NodeView &view,
             const OrderedReduceContext &context,
             OrderedReduceStorage &storage,
+            std::size_t first,
             DateTime evaluation_time)
         {
-            auto &bank = storage.banks[storage.current_bank];
-            for (std::size_t index = 0; index < storage.live_count; ++index)
+            for (std::size_t index = first; index < storage.live_count; ++index)
             {
-                bind_child_inputs(view, context, bank, index, evaluation_time);
+                bind_link(view, context, storage, index, evaluation_time);
             }
-            publish_tail(view, context, bank, storage.live_count, evaluation_time);
-            storage.published = true;
         }
 
         void reconcile_chain(
@@ -412,14 +523,54 @@ namespace hgraph
         {
             auto root = view.input(evaluation_time);
             auto ts = root.indexed_child_at(0);
-            const std::size_t next_count = ts.valid() ? context.collection_ops->size(ts) : 0;
-            if (!storage.primed || next_count != storage.live_count)
+            const TSOutputView collection = ts.bound_output();
+            const TSOutputView zero = zero_output(view, evaluation_time);
+            const bool collection_repointed =
+                collection.bound() ? !collection.handle().same_as(storage.collection_source)
+                                   : storage.collection_source.bound();
+            const bool zero_repointed =
+                zero.bound() ? !zero.handle().same_as(storage.zero_source) : storage.zero_source.bound();
+
+            const std::size_t next_count =
+                ts.valid() ? context.collection_ops->size(
+                                 ts, storage.primed && !collection_repointed ? storage.live_count : unvalidated)
+                           : 0;
+            const std::size_t old_count = storage.live_count;
+            const std::size_t kept = std::min(old_count, next_count);
+
+            // A link is rebound only when what it is bound to has moved: the
+            // whole collection re-pointed, or an element that was removed and
+            // put back in the same cycle (its index is kept, its output is new).
+            // Everything from there down may publish something different, so it
+            // is rebound too -- and nothing above it is touched.
+            std::size_t rebind_from = kept;
+            if (collection_repointed) { rebind_from = 0; }
+            else if (zero_repointed && kept != 0) { rebind_from = 0; }
+            else if (ts.valid() && ts.modified() && ts.schema()->kind == TSTypeKind::TSD)
             {
-                rebuild_chain(view, context, storage, next_count, evaluation_time);
+                const auto dict = ts.as_dict();
+                if (dict.structure_modified())
+                {
+                    const auto data = dict.data_view();
+                    for (std::size_t slot = data.next_membership_added_slot(); slot != TS_DATA_NO_CHILD_ID;
+                         slot = data.next_membership_added_slot(slot))
+                    {
+                        rebind_from = std::min(rebind_from, ordered_key_index(data.key_at_slot(slot)));
+                    }
+                }
             }
-            else if (ts.modified() || !storage.published || root.indexed_child_at(1).modified())
+
+            storage.collection_source = collection.bound() ? collection.handle() : TSOutputHandle{};
+            storage.zero_source = zero.bound() ? zero.handle() : TSOutputHandle{};
+
+            if (next_count < old_count) { truncate_chain(storage, next_count, evaluation_time); }
+            if (rebind_from < kept) { rebind_links(view, context, storage, rebind_from, evaluation_time); }
+            if (next_count > old_count) { extend_chain(view, context, storage, next_count, evaluation_time); }
+
+            if (next_count != old_count || rebind_from < kept || zero_repointed || !storage.published)
             {
-                refresh_chain_bindings(view, context, storage, evaluation_time);
+                publish_tail(view, storage, evaluation_time);
+                storage.published = true;
             }
             storage.primed = ts.valid();
         }
@@ -434,25 +585,50 @@ namespace hgraph
             storage.initialise(context.graph_layout);
 
             const bool resuming = storage.resume_index_plus_one != 0;
+            // Set before reconciling: a link bound or started below is scheduled
+            // for this cycle and must land on the due heap.
+            storage.evaluating_time = evaluation_time;
             if (!resuming)
             {
-                storage.destroy_previous_generation_before(evaluation_time);
+                storage.destroy_retired_before(evaluation_time);
                 reconcile_chain(view, context, storage, evaluation_time);
+                storage.admit_due(evaluation_time);
+            }
+            else
+            {
+                storage.note_schedule(storage.resume_index_plus_one - 1, evaluation_time);
             }
 
-            const std::size_t start = resuming ? storage.resume_index_plus_one - 1 : 0;
-            auto &bank = storage.banks[storage.current_bank];
-            for (std::size_t index = start; index < storage.live_count; ++index)
+            const std::size_t resumed = resuming ? storage.resume_index_plus_one - 1 : static_cast<std::size_t>(-1);
+            // Lowest index first: a link's tick schedules the link after it,
+            // which is always still ahead of the cursor.
+            for (std::size_t index = storage.pop_due(); index != static_cast<std::size_t>(-1);
+                 index = storage.pop_due())
             {
-                auto *entry = bank.entry_at(index);
+                if (index >= storage.live_count) { continue; }
+                auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
-                if (!entry->graph.view().evaluate(evaluation_time))
+                auto child = entry->graph.view();
+                if (index != resumed && child.next_scheduled_time() > evaluation_time)
+                {
+                    storage.set_future(index, child.next_scheduled_time());
+                    continue;
+                }
+                if (!child.evaluate(evaluation_time))
                 {
                     storage.resume_index_plus_one = index + 1;
                     return false;
                 }
+                // The PULL half: what a link schedules while it is itself
+                // evaluating is not reported to the observer.
+                const DateTime next = child.next_scheduled_time();
+                storage.set_future(index, next > evaluation_time ? next : MAX_DT);
             }
             storage.resume_index_plus_one = 0;
+            if (!storage.future.empty())
+            {
+                view.graph().schedule_node(view.node_index(), storage.future.begin()->first);
+            }
             return true;
         }
 
@@ -465,7 +641,7 @@ namespace hgraph
         {
             auto typed = view.as<OrderedReduceNodeView>();
             auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(typed.internal_storage());
-            storage.stop_generation(storage.current_bank, storage.live_count);
+            storage.stop_links(0, storage.live_count);
         }
 
         [[nodiscard]] std::string ordered_reduce_checkpoint_signature(const NodeBuilder &builder)
@@ -517,10 +693,9 @@ namespace hgraph
             metadata.push_back(static_cast<Int>(storage.live_count));
             image.payload = metadata.build();
             image.endpoints.push_back(view.output(view.graph().evaluation_time()).checkpoint_forwarding());
-            const auto &bank = storage.banks[storage.current_bank];
             for (std::size_t index = 0; index < storage.live_count; ++index)
             {
-                const auto *entry = bank.entry_at(index);
+                const auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started() ||
                     entry->graph.view().failed_node().valid() || !capture_graph)
                 {
@@ -572,7 +747,7 @@ namespace hgraph
                 }
             }
             storage.initialise(context.graph_layout);
-            auto &bank = storage.banks[storage.current_bank];
+            auto &bank = storage.entries;
             bank.reserve_to(image.children.size());
             for (std::size_t index = 0; index < image.children.size(); ++index)
             {
@@ -580,6 +755,7 @@ namespace hgraph
                 ++storage.live_count;
                 entry.graph = context.spec.child.graph_builder.make_nested_graph(
                     view.pointer(), bank.graph_memory(index), context.graph_layout);
+                storage.observe(entry, index);
             }
             if (!image.children.empty() && !prepare_graph)
                 throw std::logic_error("ordered reduce checkpoint preparation callback is missing");
@@ -599,26 +775,29 @@ namespace hgraph
             const Int primed = storage.primed;
             const Int published = storage.published;
             auto input = view.input(time).indexed_child_at(0);
-            const auto current_count = input.valid() ? context.collection_ops->size(input) : 0;
+            const auto current_count = input.valid() ? context.collection_ops->size(input, unvalidated) : 0;
             if ((primed != 0 && current_count != image.children.size()) ||
                 (published != 0 && primed != static_cast<Int>(input.valid())))
             {
                 throw std::invalid_argument("ordered reduce checkpoint input size differs");
             }
-            auto &bank = storage.banks[storage.current_bank];
             for (std::size_t index = 0; index < image.children.size(); ++index)
             {
-                auto &entry = *bank.entry_at(index);
-                bind_child_inputs(view, context, bank, index, time);
-                restore_graph(entry.graph.view(), *image.children[index].graph, time);
+                bind_link(view, context, storage, index, time);
+                restore_graph(storage.entries.entry_at(index)->graph.view(), *image.children[index].graph, time);
             }
+            // The restored chain is bound to these; the first evaluation must
+            // not mistake them for a re-point and rebind every link.
+            const TSOutputView collection = input.bound_output();
+            const TSOutputView zero = zero_output(view, time);
+            storage.collection_source = collection.bound() ? collection.handle() : TSOutputHandle{};
+            storage.zero_source = zero.bound() ? zero.handle() : TSOutputHandle{};
             auto output = view.output(time);
             TSOutputView source;
             if (published != 0)
             {
-                source = storage.live_count != 0
-                    ? child_output(view, context, bank, storage.live_count - 1, time)
-                    : view.input(time).indexed_child_at(1).bound_output();
+                source = storage.live_count != 0 ? link_output(storage, storage.live_count - 1, time)
+                                                 : zero_output(view, time);
             }
             output.restore_checkpoint_forwarding(source, image.endpoints[0]);
         }
@@ -626,9 +805,23 @@ namespace hgraph
         void start_restored_ordered_reduce(const NodeView &view, DateTime time)
         {
             auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(view.as<OrderedReduceNodeView>().internal_storage());
-            auto &bank = storage.banks[storage.current_bank];
+            storage.evaluating_time = time;
+            storage.due.clear();
+            storage.future.clear();
             for (std::size_t index = 0; index < storage.live_count; ++index)
-                bank.entry_at(index)->graph.view().start(time);
+            {
+                auto &entry = *storage.entries.entry_at(index);
+                entry.future_when = MAX_DT;
+                auto child = entry.graph.view();
+                child.start(time);
+                // Whatever a restored link still has scheduled is not reported
+                // to the observer by start; pick it up once here.
+                if (const DateTime next = child.next_scheduled_time(); next != MAX_DT)
+                {
+                    storage.note_schedule(index, next);
+                    view.graph().schedule_node(view.node_index(), next);
+                }
+            }
         }
 
         [[nodiscard]] const NodeCheckpointOps &ordered_reduce_checkpoint_ops() noexcept
@@ -733,10 +926,9 @@ namespace hgraph
     bool OrderedReduceNodeView::child_graphs_use_in_place_storage() const noexcept
     {
         const auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(storage_);
-        const auto &bank = storage.banks[storage.current_bank];
         for (std::size_t index = 0; index < storage.live_count; ++index)
         {
-            const auto *entry = bank.entry_at(index);
+            const auto *entry = storage.entries.entry_at(index);
             if (entry != nullptr && entry->graph.has_value() && !entry->graph.uses_external_storage())
             {
                 return false;

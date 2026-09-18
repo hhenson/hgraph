@@ -246,6 +246,15 @@ namespace hgraph
         validate(validate, image, 0);
     }
 
+    void validate_ts_checkpoint_reference_placement(const TSCheckpointImage &image)
+    {
+        if (!image.reference) { return; }
+        if (image.schema == nullptr || image.schema->kind != TSTypeKind::REF || image.payload.has_value())
+            throw std::invalid_argument(
+                "reference metadata on a non-reference endpoint or beside a value payload");
+        validate_ts_reference_checkpoint(*image.reference);
+    }
+
     bool ts_checkpoint_schema_contains_reference(const TSValueTypeMetaData *schema)
     {
         if (schema == nullptr) { return false; }

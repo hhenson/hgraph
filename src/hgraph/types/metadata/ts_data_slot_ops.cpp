@@ -206,6 +206,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto slot = keys_.find_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
             [[nodiscard]] bool contains(const ValueView &key) const
             {
                 return keys_.contains(key);
@@ -484,6 +490,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
             {
                 const auto slot = keys_.find_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
             [[nodiscard]] bool contains(const ValueView &key) const
@@ -1005,6 +1017,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 set_ops.key_at_slot_impl               = &tss_key_at_slot;
                 set_ops.contains_impl                  = &tss_contains;
                 set_ops.find_slot_impl                 = &tss_find_slot;
+                set_ops.find_stored_slot_impl          = &tss_find_stored_slot;
                 set_ops.make_values_range_impl         = &tss_live_keys_range;
                 set_ops.make_added_values_range_impl   = &tss_added_keys_range;
                 set_ops.make_removed_values_range_impl = &tss_removed_keys_range;
@@ -1367,6 +1380,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<Storage>(memory).find_slot(key);
             }
 
+            [[nodiscard]] static std::size_t tss_find_stored_slot(const void *, const void *memory,
+                                                                  const ValueView &key)
+            {
+                return storage<Storage>(memory).find_stored_slot(key);
+            }
+
             [[nodiscard]] static SlotTSDataMutationResult tss_insert_key(const void *context, void *memory,
                                                                          const ValueView &key,
                                                                          DateTime modified_time)
@@ -1679,6 +1698,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 image.last_modified_time = view.last_modified_time();
                 image.slot_capacity = store.slot_capacity();
                 image.free_slots = store.keys().checkpoint_free_slots();
+                image.slots.reserve(store.size());
+                image.keys.reserve(store.size());
                 for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
                 {
                     if (!store.slot_live(slot)) { continue; }
@@ -1697,22 +1718,46 @@ namespace hgraph::ts_data_plan_factory_detail
                     image.keys.size() != image.slots.size() ||
                     image.free_slots.size() + image.slots.size() != image.slot_capacity)
                     throw std::invalid_argument("keyed checkpoint shape or fresh target mismatch");
-                std::unordered_set<std::size_t> slots;
-                std::unordered_set<Value, ValueHash, ValueEqual> unique_keys;
+                // One pass over the slot bank and one flat set of borrowed
+                // keys: validation must not cost more than the import it guards.
+                std::vector<std::uint8_t> claimed(image.slot_capacity, 0);
+                const auto claim = [&](std::size_t slot) {
+                    if (slot >= image.slot_capacity || claimed[slot] != 0) { return false; }
+                    claimed[slot] = 1;
+                    return true;
+                };
+                struct BorrowedKeyHash
+                {
+                    [[nodiscard]] std::size_t operator()(const Value *key) const { return key->hash(); }
+                };
+                struct BorrowedKeyEqual
+                {
+                    [[nodiscard]] bool operator()(const Value *lhs, const Value *rhs) const { return lhs->equals(*rhs); }
+                };
+                ankerl::unordered_dense::set<const Value *, BorrowedKeyHash, BorrowedKeyEqual> unique_keys;
+                unique_keys.reserve(image.keys.size());
+                // Reserved in full on first use, so the borrowed addresses hold.
+                std::vector<Value> normalized;
                 for (std::size_t i = 0; i < image.keys.size(); ++i)
                 {
-                    if (image.slots[i] >= image.slot_capacity || !slots.insert(image.slots[i]).second ||
-                        !image.keys[i].has_value() || image.keys[i].schema() != key_binding.schema())
+                    if (!claim(image.slots[i]) || !image.keys[i].has_value() ||
+                        image.keys[i].schema() != key_binding.schema())
                         throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
                     // Schema identity alone does not establish assignment
-                    // compatibility for a realized polymorphic key. Validate
-                    // the destination binding before importing any slot.
-                    const Value normalized_key{key_binding, image.keys[i].view()};
-                    if (!unique_keys.insert(normalized_key).second)
+                    // compatibility for a realized polymorphic key. A key that
+                    // does not already carry the destination binding is
+                    // converted here, before any slot is imported.
+                    const Value *key = &image.keys[i];
+                    if (key->binding() != key_binding)
+                    {
+                        if (normalized.empty()) { normalized.reserve(image.keys.size() - i); }
+                        key = &normalized.emplace_back(key_binding, key->view());
+                    }
+                    if (!unique_keys.insert(key).second)
                         throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
                 }
                 for (const auto slot : image.free_slots)
-                    if (slot >= image.slot_capacity || !slots.insert(slot).second)
+                    if (!claim(slot))
                         throw std::invalid_argument("keyed checkpoint free slots are not the live-slot complement");
             }
 
@@ -1801,13 +1846,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept
             {
                 static const detail::TSDataOwnershipOps ops{
+                    // Ordinal 0 is the key set; ordinal n + 1 is slot n, vacant
+                    // when the slot is. See TSDataOwnershipOps: O(1) each.
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) { return std::size_t{0}; }
-                        const auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                            count += store.slot_occupied(slot) ? 1U : 0U;
-                        return count;
+                        return storage<TSDSlotStorage>(memory).slot_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -1819,18 +1862,14 @@ namespace hgraph::ts_data_plan_factory_detail
                                 .attach_parent = false,
                             };
                         auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                        {
-                            if (!store.slot_occupied(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = state->dict_layout.element_type,
-                                    .data = store.child_memory_for_write(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= store.slot_capacity() || !store.slot_occupied(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = state->dict_layout.element_type,
+                            .data = store.child_memory_for_write(slot),
+                            .parent_child_id = slot,
+                        };
                     },
                 };
                 return ops;
@@ -1854,6 +1893,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 image.key_set_last_modified_time = store.key_set_tracking().last_modified_time;
                 image.slot_capacity = store.slot_capacity();
                 image.free_slots = store.keys().checkpoint_free_slots();
+                image.slots.reserve(store.size());
+                image.keys.reserve(store.size());
+                image.children.reserve(store.size());
                 for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
                 {
                     if (!store.slot_live(slot)) { continue; }
@@ -1875,6 +1917,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     (image.last_modified_time != MIN_DT &&
                      image.key_set_last_modified_time > image.last_modified_time))
                     throw std::invalid_argument("dictionary checkpoint shape or timestamp mismatch");
+                // Validation never writes, so one fresh element stands in for
+                // every child.
+                TSData prototype{self.dict_layout.element_type};
                 for (std::size_t i = 0; i < image.children.size(); ++i)
                 {
                     const auto &child = image.children[i];
@@ -1882,7 +1927,6 @@ namespace hgraph::ts_data_plan_factory_detail
                         throw std::invalid_argument("dictionary checkpoint child timestamp exceeds its parent");
                     if (child.last_modified_time != MIN_DT && !image.published[i])
                         throw std::invalid_argument("dictionary checkpoint has an unpublished valid child");
-                    TSData prototype{self.dict_layout.element_type};
                     validate_ts_checkpoint(prototype.view(), child, context);
                 }
             }

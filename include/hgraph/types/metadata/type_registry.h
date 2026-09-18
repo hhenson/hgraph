@@ -240,6 +240,10 @@ namespace hgraph
                                            const std::vector<std::pair<std::string, long long>> &members);
         /** Lookup-only: the enum registered under ``name`` (nullptr otherwise). */
         [[nodiscard]] const ValueTypeMetaData *named_enum(std::string_view name) const;
+        /** Lookup-only: the opaque Python type registered under exactly ``name``
+            (nullptr otherwise). The bridge names one after the annotation's
+            identity in THIS process, so another process never has it. */
+        [[nodiscard]] const ValueTypeMetaData *named_opaque_python(std::string_view name) const;
         /** Intern a nominal Python annotation over the Any storage representation. */
         const ValueTypeMetaData *opaque_python(
             std::string_view name,

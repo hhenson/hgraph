@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -96,6 +97,14 @@ namespace hgraph
         inline void copy_construct_elements(void *dst_buffer, const ElementSpan &src) noexcept(false)
         {
             const std::size_t stride      = src.plan->layout.size;
+            // Trivially copyable elements packed at the plan's own stride are
+            // one block: copy it as one, from wherever it lies -- a decoder's
+            // source is a byte buffer with no alignment to speak of.
+            if (src.plan->trivially_copyable && src.stride == stride)
+            {
+                if (src.size != 0) { std::memcpy(dst_buffer, src.bytes, src.size * stride); }
+                return;
+            }
             std::size_t       constructed = 0;
             auto rollback = make_scope_exit([&]() noexcept {
                 destroy_elements_reverse(dst_buffer, *src.plan, constructed);

@@ -45,9 +45,11 @@ def test_python_memory_config_validates_notification_backpressure_limit():
 def test_python_codec_round_trips_through_the_shared_native_codec():
     """The golden hex fixtures went with the hand-written codec they pinned.
 
-    Metadata is now a json document produced by the shared value codec, so the
-    byte layout is the library's business. What the Python surface owes is a
-    faithful round trip and a readable document.
+    A revision on the wire is produced by the shared value codec, so the byte
+    layout is the library's business. It is what fabric puts onto Kafka, and
+    Kafka is an external boundary, so it is an external message format -- JSON
+    here -- that the tools around a topic can read. What the Python surface owes
+    is a faithful round trip and a readable document.
     """
     encoded = hgf.encode_revision(_revision())
     assert encoded.startswith(b"{")

@@ -16,6 +16,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/graph_diagnostics.cpp
     hgraph/runtime/evaluation_trace.cpp
     hgraph/runtime/executor.cpp
+    hgraph/runtime/checkpoint_codec.cpp
     hgraph/runtime/component_checkpoint.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
@@ -54,6 +55,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/metadata/ts_data_window_ops.cpp
     hgraph/types/metadata/type_record_registry.cpp
     hgraph/types/metadata/type_realization.cpp
+    hgraph/types/metadata/schema_table.cpp
     hgraph/types/metadata/type_registry.cpp
     hgraph/types/metadata/value_plan_factory.cpp
     hgraph/types/python_ops.cpp
@@ -95,6 +97,8 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/impl/pooled_polymorphic_value_type.cpp
     hgraph/types/value/shared_value_pool.cpp
     hgraph/types/value/binary_codec.cpp
+    hgraph/types/value/binary_compression.cpp
+    hgraph/types/value/binary_session.cpp
     hgraph/types/value/json_codec.cpp
     hgraph/types/value/table_codec.cpp
     hgraph/types/value/value_view.cpp

@@ -18,6 +18,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -106,10 +107,63 @@ namespace hgraph
             bool     remove{false};
         };
 
+        /**
+         * Changes awaiting publication, in arrival order. A client that updates
+         * a request it already queued at the same observation time replaces that
+         * entry, so the queue is indexed by (request, observation time):
+         * searching it made n clients issuing requests in one cycle cost n * n.
+         */
+        struct RequestInputPending
+        {
+            struct Key
+            {
+                Int      request_id{0};
+                DateTime observed_at{};
+                bool     operator==(const Key &) const = default;
+            };
+            struct KeyHash
+            {
+                // Not marked avalanching: the table finishes the mixing.
+                [[nodiscard]] std::uint64_t operator()(const Key &key) const noexcept
+                {
+                    const auto time = static_cast<std::uint64_t>(key.observed_at.time_since_epoch().count());
+                    return static_cast<std::uint64_t>(key.request_id) * 0x9e3779b97f4a7c15ull + time;
+                }
+            };
+
+            std::vector<RequestInputChange>                           changes{};
+            ankerl::unordered_dense::map<Key, std::size_t, KeyHash>    positions{};
+
+            [[nodiscard]] bool empty() const noexcept { return changes.empty(); }
+
+            /** The queued change for this request and observation time, appended if absent. */
+            [[nodiscard]] RequestInputChange &at(Int request_id, DateTime observed_at)
+            {
+                const auto [entry, added] = positions.try_emplace(Key{request_id, observed_at}, changes.size());
+                if (added) { changes.push_back(RequestInputChange{.request_id = request_id, .observed_at = observed_at}); }
+                return changes[entry->second];
+            }
+
+            void assign(std::vector<RequestInputChange> replacement)
+            {
+                changes = std::move(replacement);
+                positions.clear();
+                positions.reserve(changes.size());
+                for (std::size_t index = 0; index < changes.size(); ++index)
+                    positions.try_emplace(Key{changes[index].request_id, changes[index].observed_at}, index);
+            }
+
+            void clear() noexcept
+            {
+                changes.clear();
+                positions.clear();
+            }
+        };
+
         struct RequestInputSourceStorage
         {
-            std::vector<RequestInputChange> pending{};
-            DateTime                        publish_time{MAX_DT};
+            RequestInputPending pending{};
+            DateTime            publish_time{MAX_DT};
         };
 
         struct RequestInputCaptureStorage
@@ -391,50 +445,18 @@ namespace hgraph
             void set(Int request_id, Value delta, DateTime schedule_time,
                      DateTime observed_at) const
             {
-                auto &pending = source_storage_of(view_, *context_).pending;
-                auto existing = std::ranges::find_if(
-                    pending, [&](const RequestInputChange &change) {
-                        return change.request_id == request_id
-                            && change.observed_at == observed_at;
-                    });
-                if (existing != pending.end())
-                {
-                    existing->delta  = std::move(delta);
-                    existing->remove = false;
-                    schedule_publication(schedule_time);
-                    return;
-                }
-                pending.push_back(RequestInputChange{
-                    .request_id  = request_id,
-                    .delta       = std::move(delta),
-                    .observed_at = observed_at,
-                    .remove      = false,
-                });
+                auto &change  = source_storage_of(view_, *context_).pending.at(request_id, observed_at);
+                change.delta  = std::move(delta);
+                change.remove = false;
                 schedule_publication(schedule_time);
             }
 
             void remove(Int request_id, DateTime schedule_time,
                         DateTime observed_at) const
             {
-                auto &pending = source_storage_of(view_, *context_).pending;
-                auto existing = std::ranges::find_if(
-                    pending, [&](const RequestInputChange &change) {
-                        return change.request_id == request_id
-                            && change.observed_at == observed_at;
-                    });
-                if (existing != pending.end())
-                {
-                    existing->delta  = Value{};
-                    existing->remove = true;
-                    schedule_publication(schedule_time);
-                    return;
-                }
-                pending.push_back(RequestInputChange{
-                    .request_id  = request_id,
-                    .delta       = Value{},
-                    .observed_at = observed_at,
-                    .remove      = true,
-                });
+                auto &change  = source_storage_of(view_, *context_).pending.at(request_id, observed_at);
+                change.delta  = Value{};
+                change.remove = true;
                 schedule_publication(schedule_time);
             }
 
@@ -590,17 +612,18 @@ namespace hgraph
         {
             auto dict     = output.as_dict();
             auto mutation = dict.begin_mutation(evaluation_time);
-            std::vector<Int> applied_request_ids{};
+            // One change per request is applied per cycle; a later one for the
+            // same request waits for the next.
+            ankerl::unordered_dense::set<Int> applied_request_ids{};
+            applied_request_ids.reserve(storage.pending.changes.size());
             std::vector<RequestInputChange> deferred{};
-            for (RequestInputChange &change : storage.pending)
+            for (RequestInputChange &change : storage.pending.changes)
             {
-                if (std::ranges::find(applied_request_ids, change.request_id)
-                    != applied_request_ids.end())
+                if (!applied_request_ids.insert(change.request_id).second)
                 {
                     deferred.push_back(std::move(change));
                     continue;
                 }
-                applied_request_ids.push_back(change.request_id);
 
                 Value request_id{change.request_id};
                 if (change.remove)
@@ -615,7 +638,7 @@ namespace hgraph
                     change.delta.view());
             }
             mutation.touch();
-            storage.pending = std::move(deferred);
+            storage.pending.assign(std::move(deferred));
         }
 
         bool subscription_key_source_evaluate_impl(const void *, const NodeView &view, DateTime evaluation_time)
@@ -815,12 +838,9 @@ namespace hgraph
                     output.borrowed_ref(), source, true));
             };
 
-            const auto key_was_added = [&]() {
-                if (!key.valid()) { return false; }
-                return std::ranges::any_of(
-                    subscriptions.added(),
-                    [&](const ValueView &added) { return added.equals(key.value()); });
-            };
+            // One gate per client asks this, so K clients subscribing in one
+            // cycle must not each walk the whole subscription set.
+            const auto key_was_added = [&]() { return key.valid() && subscriptions.was_added(key.value()); };
 
             const auto key_is_live = [&]() {
                 return key.valid() && subscriptions.contains(key.value());

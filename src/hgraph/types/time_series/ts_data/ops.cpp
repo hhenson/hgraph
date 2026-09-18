@@ -205,6 +205,7 @@ namespace hgraph::ts_data_detail
             table.key_at_slot_impl                = &sentinel_empty_key;
             table.contains_impl                   = &sentinel_contains;
             table.find_slot_impl                  = &sentinel_find;
+            table.find_stored_slot_impl           = &sentinel_find;
             table.make_values_range_impl          = &sentinel_value_range;
             table.make_added_values_range_impl    = &sentinel_value_range;
             table.make_removed_values_range_impl  = &sentinel_value_range;

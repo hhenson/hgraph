@@ -1,0 +1,353 @@
+// The binary codec's session and frame (RFC 0040, stage 1).
+//
+// A session is what lets an ``Any`` be written at all: the box names its
+// content's schema in a table the encoding carries once. The rule under test
+// is the same as the codec's -- decode(encode(v)) equals v -- plus the two
+// promises the frame makes: a value that needs no table pays almost nothing
+// for one, and bytes are refused by name rather than misread.
+
+#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/binary_compression.h>
+#include <hgraph/types/value/binary_session.h>
+#include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_view.h>
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+#include <cstdint>
+#include <string>
+
+namespace
+{
+    using namespace hgraph;
+    using Catch::Matchers::ContainsSubstring;
+
+    Value empty_any()
+    {
+        return Value{ValuePlanFactory::instance().type_for(TypeRegistry::instance().any())};
+    }
+
+    Value any_of(Value content)
+    {
+        Value box = empty_any();
+        box.as_any().begin_mutation().set(std::move(content));
+        return box;
+    }
+
+    Value framed_round_trip(const Value &value, BinaryProfile profile = BinaryProfile::Compact)
+    {
+        const std::string bytes = encode_binary_frame(value.view(), profile);
+        return decode_binary_frame(value.view().schema(), bytes);
+    }
+
+    void check_framed(const Value &value)
+    {
+        CHECK(framed_round_trip(value).view() == value.view());
+        CHECK(framed_round_trip(value, BinaryProfile::Fast).view() == value.view());
+    }
+}  // namespace
+
+TEST_CASE("binary session: a value that needs no table pays two bytes for one")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const Value value{Int{42}};
+
+    const std::string bytes = encode_binary_frame(value.view());
+    // profile, revision, four bytes of payload length, the payload -- a small
+    // integer is one byte under Compact -- and an empty value table and
+    // endpoint table. The reader's schema is not named.
+    CHECK(bytes.size() == 6 + 1 + 2);
+    CHECK(encode_binary_frame(value.view(), BinaryProfile::Fast).size() == 6 + 8 + 2);
+    CHECK(decode_binary_frame(value.view().schema(), bytes).view() == value.view());
+}
+
+TEST_CASE("binary session: an Any round trips, empty, full and nested")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<Int>("int");
+    const auto *text = registry.register_scalar<Str>("str");
+
+    check_framed(empty_any());
+    check_framed(any_of(Value{Int{-7}}));
+    check_framed(any_of(Value{Str{"boxed text"}}));
+    check_framed(any_of(any_of(Value{Float{2.5}})));
+    check_framed(any_of(any_of(empty_any())));
+
+    const auto *schema = registry.un_named_bundle({{"count", integer}, {"label", text}});
+    BundleBuilder fields{ValuePlanFactory::instance().type_for(schema)};
+    fields.set("count", Value{Int{7}});
+    fields.set("label", Value{Str{"seven"}});
+    check_framed(any_of(fields.build()));
+
+    MapBuilder map{registry.scalar_type<Str>(), registry.scalar_type<Int>()};
+    map.set_item(Value{Str{"key"}}.view(), Value{Int{8}}.view());
+    check_framed(any_of(map.build()));
+
+    // Every structural kind a box can hold has to be nameable in the table.
+    CyclicBufferBuilder ring{registry.scalar_type<Int>(), 2};
+    ring.push_back(Int{1});
+    ring.push_back(Int{2});
+    ring.push_back(Int{3});
+    check_framed(any_of(ring.build()));
+    QueueBuilder queue{registry.scalar_type<Int>(), 3};
+    queue.push(Int{10});
+    queue.push(Int{20});
+    check_framed(any_of(queue.build()));
+
+    const Value restored = framed_round_trip(any_of(Value{Int{-7}}));
+    REQUIRE(restored.as_any().has_value());
+    CHECK(restored.as_any().value_schema() == integer);
+    CHECK(restored.as_any().get().checked_as<Int>() == -7);
+}
+
+TEST_CASE("binary session: boxes of one schema share one table entry")
+{
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+    const auto *any = registry.any();
+    const auto *pair = registry.un_named_bundle({{"a", any}, {"b", any}});
+
+    const auto bundle_of = [&](Value a, Value b) {
+        BundleBuilder fields{ValuePlanFactory::instance().type_for(pair)};
+        fields.set("a", std::move(a));
+        fields.set("b", std::move(b));
+        return fields.build();
+    };
+    const Value one = bundle_of(any_of(Value{Int{1}}), empty_any());
+    const Value two = bundle_of(any_of(Value{Int{1}}), any_of(Value{Int{2}}));
+    check_framed(one);
+    check_framed(two);
+
+    // The second box costs its tag and its integer, less the one byte an empty
+    // box took: the schema it names is already in the table. The integer is
+    // eight bytes under Fast and one, as a varint, under Compact.
+    CHECK(encode_binary_frame(two.view(), BinaryProfile::Fast).size() ==
+          encode_binary_frame(one.view(), BinaryProfile::Fast).size() + 8);
+    CHECK(encode_binary_frame(two.view(), BinaryProfile::Compact).size() ==
+          encode_binary_frame(one.view(), BinaryProfile::Compact).size() + 1);
+}
+
+TEST_CASE("binary session: a full Any outside a session is refused by name")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const Value full = any_of(Value{Int{3}});
+
+    CHECK_THROWS_WITH(to_binary_string(full.view()), ContainsSubstring("session"));
+
+    // The bytes of a full box, met by a reader that has no session.
+    const std::string frame = encode_binary_frame(full.view());
+    const std::string payload = frame.substr(6, frame.size() - 6);
+    CHECK_THROWS_WITH(from_binary_string(full.view().schema(), payload), ContainsSubstring("session"));
+
+    // An empty box names no schema, so it needs no table.
+    const Value empty = empty_any();
+    CHECK(from_binary_string(empty.view().schema(), to_binary_string(empty.view())).view() == empty.view());
+
+    CHECK_THROWS_WITH(bind_binary_converter(full.view().schema()).portable_hash(full.view()),
+                      ContainsSubstring("partition key"));
+}
+
+TEST_CASE("binary session: a frame records its profile and a reader never guesses")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const Value value = any_of(Value{Int{11}});
+
+    const std::string compact = encode_binary_frame(value.view(), BinaryProfile::Compact);
+    const std::string fast = encode_binary_frame(value.view(), BinaryProfile::Fast);
+    CHECK(binary_frame_profile(compact) == BinaryProfile::Compact);
+    CHECK(binary_frame_profile(fast) == BinaryProfile::Fast);
+    CHECK(bind_binary_converter(value.view().schema(), BinaryProfile::Fast).profile() == BinaryProfile::Fast);
+    CHECK(bind_binary_converter(value.view().schema()).profile() == BinaryProfile::Compact);
+
+    std::string unknown_profile = compact;
+    unknown_profile[0] = '\x07';
+    CHECK_THROWS_WITH(decode_binary_frame(value.view().schema(), unknown_profile), ContainsSubstring("profile 7"));
+
+    std::string later_revision = compact;
+    later_revision[1] = static_cast<char>(binary_profile_revision(BinaryProfile::Compact) + 1);
+    CHECK_THROWS_WITH(decode_binary_frame(value.view().schema(), later_revision), ContainsSubstring("revision"));
+}
+
+TEST_CASE("binary session: a damaged frame is refused, not guessed")
+{
+    (void)TypeRegistry::instance().register_scalar<Str>("str");
+    const Value       value = any_of(Value{Str{"some text"}});
+    const std::string bytes = encode_binary_frame(value.view());
+
+    for (std::size_t cut = 0; cut < bytes.size(); ++cut)
+    {
+        CHECK_THROWS(decode_binary_frame(value.view().schema(), std::string_view{bytes}.substr(0, cut)));
+    }
+    CHECK_THROWS_WITH(decode_binary_frame(value.view().schema(), bytes + '\0'), ContainsSubstring("trailing"));
+
+    // A box that names a schema the table does not have.
+    std::string wrong_index = bytes;
+    wrong_index[6] = '\x09';
+    CHECK_THROWS_WITH(decode_binary_frame(value.view().schema(), wrong_index), ContainsSubstring("names schema"));
+}
+
+TEST_CASE("binary compression: a block says how it is stored, and only shrinks")
+{
+    const auto round_trip = [](std::string_view raw, BinaryCompression compression) {
+        std::string block;
+        write_compressed_block(raw, compression, block);
+        BinaryReader reader{block};
+        std::string  storage;
+        const auto   read = read_compressed_block(reader, storage);
+        CHECK(reader.remaining() == 0);
+        CHECK(read == raw);
+        return block;
+    };
+
+    const std::string repetitive(64 * 1024, 'r');
+    std::string noise(64 * 1024, '\0');
+    std::uint64_t state = 0x9E3779B97F4A7C15ull;
+    for (auto &byte : noise)
+    {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        byte = static_cast<char>(state);
+    }
+
+    for (const auto compression : {BinaryCompression::Zstd, BinaryCompression::Lz4})
+    {
+        if (!binary_compression_available(compression)) { continue; }
+        const auto squeezed = round_trip(repetitive, compression);
+        CHECK(squeezed.front() == static_cast<char>(compression));
+        CHECK(squeezed.size() < repetitive.size() / 10);
+
+        // Bytes that do not compress are stored as they are, not made larger.
+        const auto kept = round_trip(noise, compression);
+        CHECK(kept.front() == static_cast<char>(BinaryCompression::None));
+        CHECK(kept.size() <= noise.size() + 8);
+
+        // Below the threshold nothing is attempted.
+        CHECK(round_trip("short", compression).front() == static_cast<char>(BinaryCompression::None));
+        CHECK(round_trip("", compression).front() == static_cast<char>(BinaryCompression::None));
+    }
+    CHECK(round_trip(repetitive, BinaryCompression::None).size() == repetitive.size() + 1 + 3);
+    CHECK(default_binary_compression() ==
+          (binary_compression_available(BinaryCompression::Zstd)  ? BinaryCompression::Zstd
+           : binary_compression_available(BinaryCompression::Lz4) ? BinaryCompression::Lz4
+                                                                  : BinaryCompression::None));
+}
+
+TEST_CASE("binary compression: a damaged or dishonest block is refused")
+{
+    const auto compression = default_binary_compression();
+    if (compression == BinaryCompression::None) { SKIP("this build's Arrow provides no compression codec"); }
+    const std::string raw(8 * 1024, 'z');
+    std::string block;
+    write_compressed_block(raw, compression, block);
+    REQUIRE(block.front() == static_cast<char>(compression));
+
+    const auto read = [](std::string_view bytes, std::size_t limit = binary_compression_default_max_raw_bytes) {
+        BinaryReader reader{bytes};
+        std::string  storage;
+        return std::string{read_compressed_block(reader, storage, limit)};
+    };
+    CHECK(read(block) == raw);
+
+    for (std::size_t cut = 0; cut < block.size(); ++cut) { CHECK_THROWS(read(std::string_view{block}.substr(0, cut))); }
+
+    auto unknown = block;
+    unknown[0] = '\x09';
+    CHECK_THROWS_WITH(read(unknown), ContainsSubstring("unknown compression 9"));
+
+    // The raw length is the writer's claim: bounded before anything is sized by it.
+    CHECK_THROWS_WITH(read(block, 1024), ContainsSubstring("more than the 1024 allowed"));
+
+    auto damaged = block;
+    damaged[damaged.size() - 3] = static_cast<char>(damaged[damaged.size() - 3] ^ 0x5a);
+    CHECK_THROWS(read(damaged));
+}
+
+TEST_CASE("binary session: a value and what is boxed inside it are one encoding")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const Value value = any_of(Value{Int{300}});
+    const auto *schema = value.view().schema();
+
+    // A frame written for an older revision is that revision all the way down.
+    // The root converter says revision 0; the integer inside the box must then
+    // be eight field-wise bytes, not the one-or-two-byte varint of revision 1,
+    // or the header would promise something the payload does not keep.
+    const auto legacy = bind_binary_converter(schema, BinaryProfile::Compact, 0);
+    std::string old_frame;
+    encode_binary_frame(legacy, value.view(), old_frame);
+    CHECK(old_frame[1] == 0);
+    CHECK(decode_binary_frame(schema, old_frame).view() == value.view());
+    CHECK(decode_binary_frame(legacy, old_frame).view() == value.view());
+    const std::string current_frame = encode_binary_frame(value.view(), BinaryProfile::Compact);
+    CHECK(current_frame[1] == static_cast<char>(binary_profile_revision(BinaryProfile::Compact)));
+    CHECK(old_frame.size() > current_frame.size());
+
+    // A session refuses a converter bound for another encoding: the value
+    // would be written one way and what is boxed inside it the other.
+    BinaryEncodeSession compact{BinaryProfile::Compact};
+    std::string         out;
+    CHECK_THROWS_WITH(compact.write(bind_binary_converter(schema, BinaryProfile::Fast), value.view(), out),
+                      ContainsSubstring("Fast revision"));
+    CHECK_THROWS_WITH(compact.write(legacy, value.view(), out), ContainsSubstring("revision 0"));
+    CHECK(out.empty());
+    CHECK_NOTHROW(compact.write(bind_binary_converter(schema, BinaryProfile::Compact), value.view(), out));
+
+    BinaryDecodeSession decode{BinaryProfile::Compact};
+    BinaryReader        reader{out};
+    CHECK_THROWS_WITH(decode.read(bind_binary_converter(schema, BinaryProfile::Fast), reader),
+                      ContainsSubstring("Fast revision"));
+}
+
+TEST_CASE("binary session: a class used as a type is a box wherever it is read")
+{
+    // The bridge names an annotation after its identity in the process that
+    // registered it, so another process never has that schema. It does not
+    // need it: the box holds a Python object whose pickle says what it is, and
+    // the unconstrained box reads the same bytes.
+    auto       &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+    const std::string name = "python::tests.binary_session.Plain@7a118b3410";
+    const auto *annotated = registry.opaque_python(name, {});
+    const auto  box_binding = ValuePlanFactory::instance().type_for(annotated);
+
+    // A tuple of them behind ``object``: the annotated schema is met INSIDE a
+    // value, which is what puts it in the session's table.
+    ListBuilder boxes{box_binding};
+    for (const Int content : {Int{5}, Int{-9}})
+    {
+        Value box{box_binding};
+        box.as_any().begin_mutation().set(Value{content});
+        boxes.push_back(box.view());
+    }
+    const Value value = any_of(boxes.build());
+    const auto *schema = value.view().schema();
+
+    // Where the annotation is registered -- an in-process worker -- it is exact.
+    const std::string frame = encode_binary_frame(value.view(), BinaryProfile::Fast);
+    CHECK(decode_binary_frame(schema, frame).view() == value.view());
+
+    // Where it is not, the unconstrained box stands in, and so does the list
+    // built over it. Same bytes, same contents.
+    std::string elsewhere = frame;
+    const auto  at = elsewhere.find(name);
+    REQUIRE(at != std::string::npos);
+    elsewhere[at + name.size() - 1] = 'f';   // a different process: a different identity
+    REQUIRE(registry.named_opaque_python(name.substr(0, name.size() - 1) + "f") == nullptr);
+    const Value substituted = decode_binary_frame(schema, elsewhere);
+    const auto  decoded = substituted.as_any().get().as_list();
+    REQUIRE(decoded.size() == 2);
+    CHECK(decoded.at(0).schema() == registry.any());
+    CHECK(decoded.at(0).as_any().get().checked_as<Int>() == 5);
+    CHECK(decoded.at(1).as_any().get().checked_as<Int>() == -9);
+
+    // An ordinary named schema that is missing is still an error, not a guess.
+    std::string unknown = frame;
+    const auto  scalar_at = unknown.rfind("int");
+    REQUIRE(scalar_at != std::string::npos);
+    unknown[scalar_at] = 'j';
+    CHECK_THROWS(decode_binary_frame(schema, unknown));
+}

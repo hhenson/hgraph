@@ -30,6 +30,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <string>
 #include <string_view>
@@ -38,6 +40,30 @@
 namespace hgraph
 {
     struct ValueTypeMetaData;
+    class BinaryEncodeSession;
+    class BinaryDecodeSession;
+
+    /**
+     * What an encoding is optimised for (RFC 0040). Both are portable; neither
+     * is a memory image. ``Compact`` minimises bytes and is for what is stored;
+     * ``Fast`` minimises encode and decode time and is for bytes that live for
+     * one cycle. A converter is bound for one profile, and whatever frames its
+     * bytes records which.
+     */
+    enum class BinaryProfile : std::uint8_t
+    {
+        Compact = 0,
+        Fast = 1,
+    };
+
+    /**
+     * The revision of ``profile``'s encoding that this build writes. A
+     * profile's name is stable while its bytes change, so whatever frames the
+     * bytes records the revision beside the profile. Revision 0 of either
+     * profile is the RFC 0017 field-wise encoding. Older revisions of
+     * ``Compact`` stay readable, because they were stored.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept;
 
     /** Decode-wide limits, including zero-byte values and nested collections. */
     struct BinaryDecodeLimits
@@ -45,6 +71,14 @@ namespace hgraph
         std::uint64_t max_work{1'000'000};
         std::size_t max_depth{256};
     };
+
+    /** Budget for a framed value or checkpoint, before block compression.
+     * Compact columns expand to at most 16 atoms per encoded byte (including
+     * the capped Constant form). Row allocation, field preflight, text lookup
+     * and column decoding can charge a field up to six times. Zero-width
+     * values remain bounded by the fixed allowance. Arithmetic saturates.
+     */
+    [[nodiscard]] HGRAPH_EXPORT BinaryDecodeLimits binary_decode_limits_for_bytes(std::size_t bytes) noexcept;
 
     /** A read cursor. Subreaders borrow the parent's budget and cannot outlive it. */
     struct HGRAPH_CLASS_EXPORT BinaryReader
@@ -55,6 +89,8 @@ namespace hgraph
 
         std::string_view buffer{};
         std::size_t offset{0};
+        /** The tables an ``Any`` resolves its schema in; inherited by subreaders. */
+        BinaryDecodeSession *session{nullptr};
 
         [[nodiscard]] std::size_t remaining() const noexcept
         { return offset <= buffer.size() ? buffer.size() - offset : 0; }
@@ -85,12 +121,85 @@ namespace hgraph
     };
 
     /**
+     * How one scalar travels, registered beside the scalar (RFC 0040).
+     *
+     * The codec knows the built-in atoms. Any other scalar says how it is
+     * written here, so that the codec never has to enumerate types and an
+     * extension's scalar is as much a part of the format as ``int``. ``write``
+     * and ``read`` see the scalar's own storage; the codec frames what they
+     * produce with its length, so a form that reads too much or too little is
+     * caught at that value, not somewhere after it.
+     */
+    struct BinaryAtomOps
+    {
+        /** An ops table in the runtime's convention: the memory first, then
+            the implementation's context. */
+        void (*write)(const void *value, const void *context, std::string &out){nullptr};
+        /** ``value`` is default-constructed storage of the scalar. */
+        void (*read)(void *value, const void *context, BinaryReader &reader){nullptr};
+        /** Whatever the form needs; it must outlive the registration. */
+        const void *context{nullptr};
+        /** The bytes mean nothing to a native reader -- a pickle. Binding a
+            schema that reaches such a form warns, once per schema, because it
+            is slow, large, and usually a sign that a type could have a schema. */
+        bool opaque{false};
+    };
+
+    /** Register ``scalar``'s wire form. Build-time; replaces an earlier one. */
+    HGRAPH_EXPORT void register_binary_atom(const ValueTypeMetaData *scalar, BinaryAtomOps ops);
+
+    /**
+     * Declare that ``scalar``'s storage image IS its wire form. Only true of a
+     * trivially copyable type with no pointers and no padding-dependent
+     * layout; the codec cannot check the last two, which is why this is a
+     * declaration and not something it infers.
+     */
+    HGRAPH_EXPORT void declare_portable_binary_atom(const ValueTypeMetaData *scalar);
+
+    /**
+     * A scalar met while binding that has no wire form: not built in, none
+     * registered, not declared portable. It is a wiring-time failure -- a type
+     * that silently refused at the first checkpoint hours into a run would be
+     * worse than one that cannot be wired -- and ``with_context`` adds what
+     * the user needs: what required the wire form.
+     */
+    class HGRAPH_CLASS_EXPORT BinaryWireFormError : public std::logic_error
+    {
+      public:
+        explicit BinaryWireFormError(std::string scalar);
+        [[nodiscard]] const std::string &scalar() const noexcept { return scalar_; }
+        /** The same failure, naming what needs the wire form and the schema it sits in. */
+        [[nodiscard]] BinaryWireFormError with_context(std::string_view needed_by, std::string_view schema) const;
+
+      private:
+        BinaryWireFormError(std::string scalar, const std::string &message);
+        std::string scalar_;
+    };
+
+    /**
+     * A write cursor: the bytes being produced. The mirror of ``BinaryReader``.
+     *
+     * Converters write through it rather than into a bare string so that what
+     * an encoding shares across values -- RFC 0040's session tables -- has
+     * somewhere to travel. Without a session a value is self-contained, which
+     * is every value that holds no ``Any``.
+     */
+    struct HGRAPH_CLASS_EXPORT BinaryWriter
+    {
+        explicit BinaryWriter(std::string &bytes, BinaryEncodeSession *shared = nullptr) noexcept
+            : out(bytes), session(shared) {}
+
+        std::string &out;
+        BinaryEncodeSession *session{nullptr};
+    };
+
+    /**
      * Interned per-schema binary converter.
      */
     class HGRAPH_CLASS_EXPORT BinaryConverter
     {
       public:
-        using WriteFn = void (*)(const BinaryConverter &, const ValueView &, std::string &);
+        using WriteFn = void (*)(const BinaryConverter &, const ValueView &, BinaryWriter &);
         using ReadFn  = Value (*)(const BinaryConverter &, BinaryReader &);
         using HashFn = std::uint64_t (*)(const BinaryConverter &, const ValueView &);
 
@@ -101,7 +210,13 @@ namespace hgraph
         BinaryConverter &operator=(BinaryConverter &&other) noexcept;
         void swap(BinaryConverter &other) noexcept;
 
-        void write(const ValueView &view, std::string &out) const { write_(*this, view, out); }
+        void write(const ValueView &view, BinaryWriter &writer) const { write_(*this, view, writer); }
+        /** One value with nothing shared: a cursor over ``out`` alone. */
+        void write(const ValueView &view, std::string &out) const
+        {
+            BinaryWriter writer{out};
+            write_(*this, view, writer);
+        }
         [[nodiscard]] Value read(BinaryReader &reader) const;
 
         WriteFn                              write_;
@@ -115,6 +230,12 @@ namespace hgraph
         std::vector<const BinaryConverter *> children{};   ///< element / (key, value) / fields
         std::unordered_map<const ValueTypeMetaData *, const BinaryConverter *> write_alternatives{};
         std::unordered_map<std::string_view, const BinaryConverter *> read_alternatives{};
+        /** The registered wire form of a scalar the codec does not build in. */
+        const BinaryAtomOps                 *atom_ops{nullptr};
+        /** Column interpretation is metadata, never a function address: linkers
+            may fold distinct writer functions with identical machine code. */
+        enum class ColumnAtom : std::uint8_t { Opaque, Integer, Boolean };
+        ColumnAtom                           column_atom{ColumnAtom::Opaque};
     };
 
     /**
@@ -135,24 +256,66 @@ namespace hgraph
         BoundBinaryConverter() noexcept = default;
         [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
         [[nodiscard]] ValueTypeRef binding() const noexcept;
+        [[nodiscard]] const ValueTypeMetaData *schema() const noexcept;
+        [[nodiscard]] BinaryProfile profile() const noexcept;
+        [[nodiscard]] std::uint8_t revision() const noexcept;
+        /** True when a value of this schema can hold an ``Any``, and so can
+            only be written inside a session. Known when bound, so a format
+            decides once whether it carries tables. */
+        [[nodiscard]] bool needs_session() const noexcept;
         /** Stable process-independent hash for worker assignment. */
         [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
         void write(const ValueView &view, std::string &out) const;
+        void write(const ValueView &view, BinaryWriter &writer) const;
         [[nodiscard]] Value read(BinaryReader &reader) const;
+
+        /**
+         * A run of values of this schema that a format writes one after
+         * another -- the keys of a checkpointed collection. Under a revision
+         * with column forms a run of fixed-width atoms is one column, so
+         * sorted keys and timestamps delta-encode; under any other it is each
+         * value in turn, which is what the format wrote before. The count is
+         * the format's to record.
+         */
+        void write_run(std::span<const Value> values, BinaryWriter &writer) const;
+        void read_run(std::size_t count, BinaryReader &reader, std::vector<Value> &out) const;
 
       private:
         struct Impl;
         explicit BoundBinaryConverter(std::shared_ptr<const Impl> impl) : impl_(std::move(impl)) {}
         std::shared_ptr<const Impl> impl_{};
-        friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+        friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                        BinaryProfile profile, std::uint8_t revision);
     };
 
+    /** Bound for the RFC 0017 field-wise encoding (``Compact`` revision 0): the
+        bytes this function has always produced. It, ``to_binary_string`` and
+        ``from_binary_string`` have no frame to record a revision in, so their
+        bytes never move; name a profile to get that profile's current form. */
     [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+    /** Bound for ``profile`` at the revision this build writes. */
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                          BinaryProfile profile);
+    /** Bound for a stated revision: what a reader of stored bytes needs.
+        Throws for a revision later than this build writes. */
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                          BinaryProfile profile, std::uint8_t revision);
 
-    /** Clear the interned converters (registry reset). */
+    /**
+     * Bind ``schema`` for ``profile``, or fail saying what needed it.
+     *
+     * The wiring-time check: a ``dmap_`` / ``spawn`` boundary plan, a
+     * recoverable component and a store binding are all built at wiring or
+     * start, and each calls this with the name of the thing it is building.
+     */
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter_for(const ValueTypeMetaData *schema,
+                                                                              BinaryProfile profile,
+                                                                              std::string_view needed_by);
+
+    /** Clear the interned converters and the registered wire forms (registry reset). */
     HGRAPH_EXPORT void clear_binary_converters() noexcept;
 
-    /** Encode one value; the schema is the reader's, not the stream's. */
+    /** Encode one value, field-wise (RFC 0017); the schema is the reader's, not the stream's. */
     [[nodiscard]] HGRAPH_EXPORT std::string to_binary_string(const ValueView &view);
     HGRAPH_EXPORT void to_binary_string(const ValueView &view, std::string &out);
 

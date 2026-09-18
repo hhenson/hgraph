@@ -106,8 +106,11 @@ the caller's outputs. The design record is RFC 0037; the layers are:
     nested graph, which never has one.
 
 ``runtime/distributed_protocol.h``, ``runtime/distributed_transport.h``
-    One request and one reply per cycle, carrying deltas encoded by RFC 0017's
-    binary codec, length-prefixed over a blocking byte stream.
+    One request and one reply per cycle, carrying deltas encoded by the binary
+    value codec (RFC 0017; RFC 0040's ``Fast`` profile), length-prefixed over a
+    blocking byte stream. Converters are bound once, when a boundary slot is
+    declared: a cycle takes no type-system lock, and each payload is written in
+    place behind its length rather than encoded aside and copied.
 
 ``runtime/distributed_worker.h``, ``runtime/distributed_process.h``
     A worker cannot be **sent** its graph — a graph is code. It rebuilds the

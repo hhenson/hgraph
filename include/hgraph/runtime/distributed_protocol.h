@@ -23,8 +23,11 @@
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/util/date_time.h>
 
+#include <ankerl/unordered_dense.h>
+
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -75,6 +78,12 @@ namespace hgraph::distributed
      *
      * Order is the contract. Both sides must declare the same slots in the
      * same order; the index is what travels.
+     *
+     * Built at wiring time, and that is where each slot's converter is bound
+     * (RFC 0040: ``Fast``, the profile for bytes that live for one cycle).
+     * Binding locks the type system and allocates, so a message that bound per
+     * slot put both on every cycle, in both directions; encoding and decoding
+     * a cycle now take no lock.
      */
     class HGRAPH_CLASS_EXPORT BoundarySlots
     {
@@ -86,6 +95,8 @@ namespace hgraph::distributed
         [[nodiscard]] std::string_view name_at(std::size_t index) const;
         [[nodiscard]] const ValueTypeMetaData *schema_at(std::size_t index) const;
         [[nodiscard]] SlotDirection direction_at(std::size_t index) const;
+        /** The converter bound for the slot's schema when it was added. */
+        [[nodiscard]] const BoundBinaryConverter &converter_at(std::size_t index) const;
         /** The index of ``name``, or ``size()`` when it is not a slot here. */
         [[nodiscard]] std::size_t index_of(std::string_view name) const noexcept;
 
@@ -95,8 +106,21 @@ namespace hgraph::distributed
             std::string              name;
             const ValueTypeMetaData *schema;
             SlotDirection            direction;
+            BoundBinaryConverter     converter;
         };
+        struct NameHash
+        {
+            using is_transparent = void;
+            using is_avalanching = void;
+            [[nodiscard]] std::uint64_t operator()(std::string_view text) const noexcept
+            {
+                return ankerl::unordered_dense::hash<std::string_view>{}(text);
+            }
+        };
+        [[nodiscard]] const Slot &slot_at(std::size_t index) const;
+
         std::vector<Slot> slots_{};
+        ankerl::unordered_dense::map<std::string, std::size_t, NameHash, std::equal_to<>> index_{};
     };
 
     [[nodiscard]] HGRAPH_EXPORT std::string encode_request(const BoundarySlots &slots,

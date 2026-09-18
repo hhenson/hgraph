@@ -214,6 +214,7 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
 hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
+    test_checkpoint_codec.cpp
     test_component_checkpoint.cpp
     test_component_checkpoint_identity.cpp
     test_reference_checkpoint.cpp
@@ -244,7 +245,10 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     lift/test_lift.cpp
     test_audit_behavior.cpp
     test_collection_nodes.cpp
+    test_binary_atoms.cpp
     test_binary_codec.cpp
+    test_binary_session.cpp
+    test_binary_profiles.cpp
     distributed_worker_recipes.cpp
     test_distributed_boundary.cpp
     test_distributed_child.cpp

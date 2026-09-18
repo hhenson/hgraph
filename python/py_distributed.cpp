@@ -9,9 +9,78 @@
 #include <nanobind/stl/vector.h>
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 
 namespace hgraph::python_bridge
 {
+    // --- Python objects in the binary codec (RFC 0040) --------------------------
+    // A value that exists only as a Python object -- an ``object``-typed value,
+    // an instance of a class used as a type -- has no schema the codec can write
+    // by, so its wire form is its pickle. The type layer stays Python-free: this
+    // is a registered atom form like any extension's, marked opaque so that
+    // binding a schema which reaches it warns. Unpickling runs code; it is
+    // applied to bytes this deployment wrote, which is already the trust
+    // boundary of a dmap_ or spawn_ worker and of a store it owns.
+    namespace
+    {
+        // A Python error is described while the GIL is still held: its message
+        // is built from Python objects, and whoever reports it will not hold it.
+        [[noreturn]] void rethrow_described(const char *what, nb::handle object, nb::python_error &error)
+        {
+            std::string type = "object";
+            if (object.is_valid())
+            {
+                // Through an object first: MSVC will not cast an attribute
+                // accessor to a str in one step.
+                const nb::object qualname = nb::getattr(object.type(), "__qualname__");
+                type = nb::cast<std::string>(nb::str(qualname));
+            }
+            throw std::runtime_error(std::string{"binary codec: cannot "} + what + " a Python '" + type +
+                                     "': " + error.what());
+        }
+
+        void pickle_write(const void *value, const void *, std::string &out)
+        {
+            nb::gil_scoped_acquire gil;
+            const auto &held = *static_cast<const PyObj *>(value);
+            const nb::object object = held.object != nullptr ? held.get() : nb::none();
+            try
+            {
+                const nb::object dumped =
+                    nb::module_::import_("pickle").attr("dumps")(object, nb::arg("protocol") = 5);
+                const auto bytes = nb::cast<nb::bytes>(dumped);
+                out.append(bytes.c_str(), bytes.size());
+            }
+            catch (nb::python_error &error)
+            {
+                rethrow_described("pickle", object, error);
+            }
+        }
+
+        void pickle_read(void *value, const void *, BinaryReader &reader)
+        {
+            nb::gil_scoped_acquire gil;
+            const std::size_t size = reader.remaining();
+            const auto       *data = reader.take(size);
+            try
+            {
+                nb::object loaded = nb::module_::import_("pickle").attr("loads")(
+                    nb::bytes(reinterpret_cast<const char *>(data), size));
+                *static_cast<PyObj *>(value) = PyObj{std::move(loaded)};
+            }
+            catch (nb::python_error &error)
+            {
+                rethrow_described("unpickle", nb::handle(), error);
+            }
+        }
+    }  // namespace
+
+    void register_python_object_wire_form()
+    {
+        register_binary_atom(scalar_descriptor<PyObj>::value_meta(),
+                             BinaryAtomOps{.write = &pickle_write, .read = &pickle_read, .opaque = true});
+    }
+
     namespace
     {
         struct PyDistributedWorkerChannel

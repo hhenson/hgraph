@@ -32,6 +32,12 @@ namespace hgraph
         [[nodiscard]] Range<ValueView> values() const;
         [[nodiscard]] Range<ValueView> added() const;
         [[nodiscard]] Range<ValueView> removed() const;
+        /** Whether ``key`` is in ``added()``, in constant time. It follows the
+         * same rules: nothing is added when the input is unmodified, and every
+         * live key is when the input was sampled this cycle. Ask this rather
+         * than searching ``added()``, which walks the whole slot bank.
+         */
+        [[nodiscard]] bool was_added(const ValueView &key) const;
         [[nodiscard]] Range<ValueView> added_values() const;
         [[nodiscard]] Range<ValueView> removed_values() const;
         [[nodiscard]] Range<ValueView>::iterator begin() const;

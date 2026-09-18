@@ -19,11 +19,14 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/value/binary_codec.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <chrono>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -485,4 +488,79 @@ TEST_CASE("distributed protocol: duplicate slot updates are rejected on encode a
     reply.collected.push_back({1, Value{Int{5}}});
     CHECK_THROWS_WITH(encode_reply(slots, reply),
                       Catch::Matchers::ContainsSubstring("duplicate slot"));
+}
+
+TEST_CASE("distributed protocol: a cycle takes no type-system lock")
+{
+    // Converters are bound when a slot is added. Binding locks the type system
+    // and allocates, and a cycle -- either direction, either side -- must not.
+    const auto *bytes_schema = scalar_descriptor<Bytes>::value_meta();
+    BoundarySlots slots;
+    slots.add("in", bytes_schema, SlotDirection::Input);
+    slots.add("out", bytes_schema, SlotDirection::Output);
+    CHECK(slots.converter_at(0).profile() == BinaryProfile::Fast);
+    CHECK(slots.index_of("out") == 1);
+    CHECK(slots.index_of("absent") == slots.size());
+
+    CycleRequest request;
+    request.evaluation_time = MIN_ST + TimeDelta{1};
+    request.staged.push_back(SlotDelta{0, Value{Bytes{std::string{"staged"}}}});
+    CycleReply reply;
+    reply.collected.push_back(SlotDelta{1, Value{Bytes{std::string{"collected"}}}});
+
+    const auto locks_before = type_system_lock_count();
+    const auto decoded_request = decode_request(slots, encode_request(slots, request));
+    const auto decoded_reply = decode_reply(slots, encode_reply(slots, reply));
+    CHECK(type_system_lock_count() == locks_before);
+
+    REQUIRE(decoded_request.staged.size() == 1);
+    CHECK(decoded_request.staged[0].delta.view() == request.staged[0].delta.view());
+    REQUIRE(decoded_reply.collected.size() == 1);
+    CHECK(decoded_reply.collected[0].delta.view() == reply.collected[0].delta.view());
+}
+
+TEST_CASE("distributed protocol: a cycle's encode and decode cost", "[.][protocol-benchmark]")
+{
+    // The shape dmap_ and spawn really send: every slot is the boundary
+    // transfer's opaque byte string. Small payloads show the fixed cost per
+    // slot; large ones show the copies.
+    const auto *bytes_schema = scalar_descriptor<Bytes>::value_meta();
+    std::printf("%6s %10s %12s %12s %14s\n", "slots", "bytes", "encode_us", "decode_us", "message_bytes");
+    for (const std::size_t slot_count : {std::size_t{1}, std::size_t{8}, std::size_t{32}})
+    {
+        for (const std::size_t payload : {std::size_t{64}, std::size_t{4096}, std::size_t{262144}})
+        {
+            BoundarySlots slots;
+            for (std::size_t slot = 0; slot < slot_count; ++slot)
+            {
+                slots.add("slot" + std::to_string(slot), bytes_schema, SlotDirection::Input);
+            }
+            CycleRequest request;
+            request.evaluation_time = MIN_ST + TimeDelta{1};
+            for (std::size_t slot = 0; slot < slot_count; ++slot)
+            {
+                Bytes content{std::string(payload, static_cast<char>('a' + slot % 26))};
+                request.staged.push_back(SlotDelta{slot, Value{std::move(content)}});
+            }
+
+            const std::size_t cycles = payload >= 262144 ? 200 : 5000;
+            std::string encoded;
+            auto started = std::chrono::steady_clock::now();
+            for (std::size_t cycle = 0; cycle < cycles; ++cycle) { encoded = encode_request(slots, request); }
+            const double encode_us = std::chrono::duration<double, std::micro>(
+                std::chrono::steady_clock::now() - started).count() / static_cast<double>(cycles);
+
+            std::size_t decoded_slots = 0;
+            started = std::chrono::steady_clock::now();
+            for (std::size_t cycle = 0; cycle < cycles; ++cycle)
+            {
+                decoded_slots += decode_request(slots, encoded).staged.size();
+            }
+            const double decode_us = std::chrono::duration<double, std::micro>(
+                std::chrono::steady_clock::now() - started).count() / static_cast<double>(cycles);
+            REQUIRE(decoded_slots == cycles * slot_count);
+            std::printf("%6zu %10zu %12.2f %12.2f %14zu\n", slot_count, payload, encode_us, decode_us,
+                        encoded.size());
+        }
+    }
 }

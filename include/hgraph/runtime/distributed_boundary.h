@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace hgraph
 {
@@ -27,6 +28,10 @@ namespace hgraph::distributed
     {
       public:
         explicit BoundaryTransfer(const TSValueTypeMetaData *schema, BinaryDecodeLimits limits = {});
+        /** ``needed_by`` names what is being wired -- "dmap_ input 2" -- so that
+         * a scalar with no wire form is refused here, at wiring, by a message
+         * that says what needed one (RFC 0040). */
+        BoundaryTransfer(const TSValueTypeMetaData *schema, std::string_view needed_by, BinaryDecodeLimits limits = {});
         [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
         /** The transport envelope is an opaque byte string on every boundary. */
         [[nodiscard]] static const ValueTypeMetaData *payload_schema();
