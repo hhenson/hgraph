@@ -52,6 +52,28 @@ namespace hgraph::stdlib
             ResolvedBindings inner{};
             ResolvedBindings outer{};
         };
+
+        /**
+         * Inner map builders grouped by label, in order of first appearance.
+         * The label index is what keeps grouping n items linear: finding the
+         * group by searching the list made it n times the number of groups.
+         */
+        struct GroupedMapBuilders
+        {
+            std::vector<std::pair<Value, MapBuilder>> groups{};
+            ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> positions{};
+
+            template <typename Make> [[nodiscard]] MapBuilder &at(const ValueView &label, Make &&make)
+            {
+                if (const auto found = positions.find(label); found != positions.end())
+                {
+                    return groups[found->second].second;
+                }
+                positions.emplace(Value{label}, groups.size());
+                groups.emplace_back(Value{label}, make());
+                return groups.back().second;
+            }
+        };
     }  // namespace collection_impl_detail
 }  // namespace hgraph::stdlib
 
@@ -2492,25 +2514,14 @@ namespace hgraph::stdlib
                 const auto resolved = bindings.get();
 
                 // label -> inner builder (ordered by first appearance)
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 for (const auto [key, item] : data)
                 {
                     if (!labels.contains(key)) { continue; }
-                    auto label = labels.at(key);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(label)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{label}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(key, item);
+                    grouped.at(labels.at(key), [&] { return map_builder_for(resolved.inner); }).set_item(key, item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, inner] : groups)
+                for (auto &[label, inner] : grouped.groups)
                 {
                     Value built = finish_map(inner, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2564,28 +2575,19 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto outer_values = ts.base().value().as_map();
                 for (const auto [outer_key, inner_value] : outer_values)
                 {
                     const auto inner_values = inner_value.as_map();
                     for (const auto [inner_key, item] : inner_values)
                     {
-                        MapBuilder *group = nullptr;
-                        for (auto &[seen, builder] : groups)
-                        {
-                            if (seen.view().equals(inner_key)) { group = &builder; break; }
-                        }
-                        if (group == nullptr)
-                        {
-                            groups.emplace_back(Value{inner_key}, map_builder_for(resolved.inner));
-                            group = &groups.back().second;
-                        }
-                        group->set_item(outer_key, item);
+                        grouped.at(inner_key, [&] { return map_builder_for(resolved.inner); })
+                            .set_item(outer_key, item);
                     }
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2692,26 +2694,16 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto values = ts.base().value().as_map();
                 for (const auto [key, item] : values)
                 {
                     auto pair = key.as_indexed_view();
-                    auto outer = pair.at(0);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(outer)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{outer}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(pair.at(1), item);
+                    grouped.at(pair.at(0), [&] { return map_builder_for(resolved.inner); })
+                        .set_item(pair.at(1), item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -3129,15 +3121,12 @@ namespace hgraph::stdlib
                 auto        dict_out = erased.data_view().as_dict();
                 auto        mutation = dict_out.begin_mutation(erased.evaluation_time());
 
+                // Asked once per key already in the output, so the keys are a set.
+                const IndexedValueKeySet wanted{key_list};
                 std::vector<Value> stale;
                 for (auto &&[key, child] : dict_out.items())
                 {
-                    bool keep = false;
-                    for (std::size_t index = 0; index < key_list.size(); ++index)
-                    {
-                        if (key_list.at(index).equals(key)) { keep = true; break; }
-                    }
-                    if (!keep) { stale.emplace_back(key); }
+                    if (!wanted.contains(key)) { stale.emplace_back(key); }
                 }
                 for (const Value &key : stale) { (void)mutation.erase(key.view()); }
 
