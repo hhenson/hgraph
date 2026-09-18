@@ -65,6 +65,24 @@ Concretely, for any non-trivial change:
   branches, extra ancestry walkers, Python-object handling in the type layer,
   runtime thread-locals). A count may only fall; raising one needs a design
   record in the same change. See `testing.rst`, "Architecture ratchets".
+- **(iv) Quadratic algorithms.** Never write, and never leave, an algorithm that
+  is quadratic in the size of a collection (ruling 2026-09-18). State is keyed
+  collections of 10^4-10^6 entries; an O(n^2) walk that is invisible in a unit
+  test dominates a real run. The shapes that hide it: an accessor that *searches*
+  (the n-th occupied slot, a key in a vector) called from a loop over the same
+  collection; `std::find` / a linear `equals` scan per element; `erase` inside a
+  loop. Ask the question of an index, a slot bitmap or one merged pass instead.
+  Prove scaling with a doubling benchmark (n, 2n, 4n, 8n) that prints the
+  per-element cost, which must stay flat. Found one? Fix it in the same piece
+  of work; reporting it is not enough.
+- **(v) JSON is a representation, not a serialization format.** Checkpoints,
+  stores, journals, recordings and the payloads crossing a `dmap_` / `spawn`
+  boundary use the binary codecs (`types/value/binary_codec.h`,
+  `runtime/checkpoint_codec.h`). `to_json_string` / `from_json_string` /
+  `JsonConverter` on such a path is a defect, not a default, even where an
+  older design record says otherwise. JSON belongs where the value has to be
+  JSON: the `to_json` / `from_json` operators, the json adaptor, external
+  protocols that are JSON, and diagnostics meant for a person.
 
 ---
 
