@@ -125,20 +125,40 @@ Python objects
    codec never includes a Python header. A process with no bridge cannot hold a
    Python object and so never encodes one; when it *decodes* one -- a native
    store, a forwarding stage -- it keeps the bytes in a ``PickledObject`` atom
-   and writes them back unchanged. Unpickling executes code: it is permitted
-   only for bytes this deployment wrote, which is already the ``dmap_`` trust
-   boundary, and the decode limits gain ``allow_pickle`` (default true for
-   checkpoints and boundaries, false for the descriptive stream reader).
+   and writes them back unchanged.
+
+   A value that exists only as a Python object leaves no other choice, so
+   pickling is always permitted and is never an error. It is, however, slow,
+   large, opaque to every native reader, and a sign that a type could be given a
+   schema. **Binding a converter that will pickle logs a warning**, once per
+   schema per process, naming the schema and where it is bound, so that the
+   author can consider a better design. Unpickling executes code; it is applied
+   only to bytes this deployment wrote, which is already the ``dmap_`` trust
+   boundary.
 
 Atomics
-   Every atomic resolves, in order, to: a built-in form; a wire form registered
-   with the scalar (``register_binary_atom``, the RFC 0003 registration's new
-   optional argument); the raw image when it is trivially copyable *and* its
-   registration declares it portable; and finally, when the scalar has a Python
-   conversion, its pickle. The last step is what makes the codec total for
-   every type a Python user can name. It is slow and it is reported: binding
-   returns the chosen form, and ``RuntimeRegistrySnapshot`` counts atoms bound
-   by fallback so a hot path that depends on one is visible.
+   Every native atomic resolves, in order, to: a built-in form; a wire form
+   registered with the scalar (``register_binary_atom``, the RFC 0003
+   registration's new optional argument); or the raw image when it is trivially
+   copyable *and* its registration declares it portable.
+
+   A native atom with none of these **fails at wiring**. There is no fallback:
+   a type that silently pickled, or silently refused at the first checkpoint
+   hours into a run, would be worse than one that cannot be wired. The error
+   names the scalar, the endpoint or boundary slot that needs it, and the fix:
+
+   .. code-block:: text
+
+      binary codec: scalar 'acme.Quote' has no wire form, required by
+      dmap_ boundary slot 'quotes' (TSD[str, TS[acme.Quote]]).
+      Register one with register_binary_atom<acme::Quote>(write, read), or
+      declare the type portable if it is trivially copyable and has no
+      pointers or padding-dependent layout.
+
+   Wiring is where this is decidable: a ``dmap_`` / ``spawn`` boundary plan, a
+   recoverable component's identity, and a store binding are all built then.
+   Python-owned scalars (RFC 0004) are Python objects and take the pickle path
+   above, with its warning.
 
 ``PythonOnly`` storage
    A typed endpoint whose value happens to be held as a Python object is
@@ -198,10 +218,13 @@ For bytes that are stored: checkpoints, ``ValueStore`` objects, recordings.
 * A sequence of bundles is columnar, as in ``Fast``, and each field column is
   encoded independently.
 * A text column with few distinct values is a dictionary plus indices.
-* The frame may be **block compressed** with zstd or LZ4 through
-  ``arrow::util::Codec`` -- Arrow is already a core dependency, so this adds
-  none -- above a size threshold and only when the codec is available. The
-  frame records the compression, and a reader without it refuses by name.
+* The frame is **block compressed** through ``arrow::util::Codec`` -- Arrow is
+  already a core dependency, so this adds none. Compression is **on by default
+  for everything stored** (recordings, checkpoints, ``ValueStore`` objects):
+  zstd when the Arrow build provides it, LZ4 otherwise, and uncompressed only
+  when neither is available or the payload is below the threshold at which a
+  frame header costs more than it saves. The frame records the codec, and a
+  reader without it refuses by name. ``Fast`` never compresses.
 
 Choosing
 ~~~~~~~~
@@ -214,10 +237,10 @@ Choosing
      - Default
      - Override
    * - checkpoint image, ``ValueStore``, recording, journal
-     - ``Compact``
+     - ``Compact``, compressed
      - store / recovery configuration
    * - ``dmap_`` / ``spawn`` boundary, in-process worker
-     - ``Fast``
+     - ``Fast``, never compressed
      - ``WorkerPoolConfig`` / ``SpawnConfig``
    * - snapshot awaiting an asynchronous durable write
      - ``Fast`` capture, ``Compact`` on the writer thread
@@ -256,11 +279,11 @@ Retiring JSON
    hgraph 0.8.25-0.8.27 published.
 4. The ratchet above lands with step 1.
 
-One existing use is a judgement call and is **not** changed here: RFC 0001
-writes structured frame-metadata fields as JSON text, because Arrow schema
-metadata is string-to-string and is read by Polars and pandas. That is a
-property represented as JSON for third parties. If it should instead be
-base64 of the binary form, that is a change to RFC 0001's contract.
+One existing use stays, by decision (2026-09-18): RFC 0001 writes structured
+frame-metadata fields as JSON text. Arrow schema metadata is string-to-string
+and is read by Polars, pandas and other tools that know nothing of hgraph, so
+this is a property deliberately *represented as JSON* for compatibility with
+non-hgraph users -- the case JSON is for -- and not a serialization path.
 
 Compatibility
 -------------
@@ -285,9 +308,9 @@ Stages
    construction on read. ``dmap_`` and ``spawn`` switch to it.
 3. ``Compact``: integer and enum varints, adaptive columns, text dictionaries,
    optional block compression. Checkpoints and stores switch to it.
-4. Python objects: the bridge hook, ``PickledObject`` pass-through,
-   ``PythonOnly`` endpoint capture, atomic resolution order and its fallback
-   counter.
+4. Python objects: the bridge hook, the bind-time warning, ``PickledObject``
+   pass-through, ``PythonOnly`` endpoint capture, ``register_binary_atom`` and
+   the wiring-time refusal of a native atom with no wire form.
 5. JSON retirement: codec registration and defaults, Fabric, the ratchet,
    RFC 0030 amendment.
 
@@ -298,8 +321,10 @@ Acceptance
   polymorphic, ``Any``, frames, Python objects -- round-trips under both
   profiles, and decoding one profile's bytes as the other is refused by the
   frame, never misread.
-* No schema the wiring layer accepts for a time series fails to bind. The test
-  enumerates the registry rather than a hand-written list.
+* Every schema built from built-in kinds binds under both profiles; the test
+  enumerates the registry rather than a hand-written list. A native atom with
+  no wire form is refused **at wiring**, by name, with the registration hint;
+  binding a Python-object schema logs exactly one warning per schema.
 * For the RFC 0039 benchmark endpoint and for a 100,000-row list of a
   six-field bundle: ``Compact`` is no larger than today's encoding on any case
   and at least 30% smaller on the integer- and timestamp-keyed ones; ``Fast``
@@ -334,12 +359,17 @@ Pickle for everything Python can see
    make every store a code-execution surface. Pickle is confined to values that
    have no native schema.
 
-Unresolved questions
---------------------
+Decisions
+---------
 
-* Whether block compression is on by default for ``Compact`` checkpoints, and
-  which codec.
-* Whether ``allow_pickle`` should default to false for ``ValueStore`` reads.
-* Whether RFC 0001's frame-metadata text should leave JSON (see above).
-* Whether the pickle fallback for unregistered extension atoms should exist, or
-  whether an atom with no wire form should fail wiring instead.
+Recorded 2026-09-18.
+
+* **Compression** is on for everything stored and off for everything that
+  crosses a process boundary.
+* **Pickle** is always permitted for a value that exists only as a Python
+  object, and binding such a converter warns.
+* **Frame metadata** stays JSON text (RFC 0001): compatibility with non-hgraph
+  readers is the point of it.
+* **A native atom with no wire form fails at wiring** with a message naming the
+  scalar, where it is needed, and how to register one. There is no pickle
+  fallback for native atoms.
