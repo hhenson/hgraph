@@ -316,7 +316,14 @@ executor verbs on the externally driven mode, beside ``start_external`` /
 
 ``capture_external`` is legal only at a completed step boundary, which is the
 RFC 0023 consistency cut: the externally driven executor has no in-flight
-cycle between calls by construction.
+cycle between calls by construction. "Nothing in flight" is not "nothing due":
+a fresh start leaves its start-scheduled nodes waiting for a first step, the
+image would hold them unevaluated, and a restored start discards bootstrap
+schedules -- so they would never run. Capture therefore refuses while
+``next_scheduled_time() <= evaluation_time()``. A completed cycle always leaves
+the next scheduled time after it, and a restored start leaves no bootstrap, so
+a worker that sat out a quiet day is still captured without a step. A graph
+whose last cycle failed has no completed cut and is refused too.
 
 The coordinator (``hgraph/runtime/graph_checkpoint_coordinator.h``) is one class
 with one selection rule and four operations:

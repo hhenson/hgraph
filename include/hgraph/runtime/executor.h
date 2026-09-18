@@ -343,7 +343,11 @@ namespace hgraph
          * ``capture_external`` returns the owned image of every node at the
          * last completed step. Between two calls a stepped executor has no
          * cycle in flight, so that boundary is the consistency cut; a node
-         * with a schedule still pending beyond it is refused.
+         * with a schedule still pending beyond it is refused. So is a graph
+         * with work still DUE at the cut -- a fresh start that has not been
+         * stepped at ``next_scheduled_time()`` -- because a restored start
+         * discards bootstrap schedules and that work would never run. A
+         * restored graph may be captured again without a step.
          *
          * ``start_external_restored`` replaces ``start_external``: it imports
          * ``image`` into the unstarted graph and then runs the start phase, so

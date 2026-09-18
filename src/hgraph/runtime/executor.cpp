@@ -910,6 +910,25 @@ namespace hgraph
                 throw std::logic_error(
                     "GraphExecutorView::capture_external requires a started graph");
             }
+            // Nothing is in flight between two calls, but work can still be
+            // DUE at the cut: a fresh start leaves its start-scheduled nodes
+            // waiting for a first step. The image would hold them unevaluated,
+            // and a restored start discards bootstrap schedules, so they would
+            // never run at all. A completed cycle always leaves
+            // ``next_scheduled_time`` after it, and a restored start leaves no
+            // bootstrap -- which is why a worker that sat out a quiet day can
+            // still be captured unstepped.
+            if (graph.next_scheduled_time() <= graph.evaluation_time())
+            {
+                throw std::logic_error(
+                    "GraphExecutorView::capture_external: work is still due at the cut; "
+                    "step the graph at next_scheduled_time() first");
+            }
+            if (graph.failed_node().valid())
+            {
+                throw std::logic_error(
+                    "GraphExecutorView::capture_external: the last cycle failed, so there is no completed cut");
+            }
             GraphCheckpointCoordinator coordinator{GraphCheckpointSelection::whole_graph()};
             return coordinator.capture(graph);
         }

@@ -294,3 +294,51 @@ TEST_CASE("worker graph checkpoint: the verbs belong to the stepped mode, and ca
     GraphExecutorValue executor = eb.make_executor();
     REQUIRE_THROWS_WITH(executor.view().capture_external(), ContainsSubstring("requires a started graph"));
 }
+
+TEST_CASE("worker graph checkpoint: work still due at the cut is refused, not captured unevaluated",
+          "[checkpoint][worker]")
+{
+    register_types();
+    // The constant schedules itself on start. Captured before its first step
+    // it would be saved invalid, and a restored start discards bootstrap
+    // schedules -- so it would stay invalid for good.
+    DistributedChildHost host{build_graph<Worker>(), test_end};
+    host.start(MIN_ST);
+    REQUIRE(host.next_scheduled_time() == MIN_ST);
+    REQUIRE_THROWS_WITH(host.capture(), ContainsSubstring("work is still due at the cut"));
+    Collected collected;
+    drive(host, 0, churn[0], collected);
+    CHECK_NOTHROW(host.capture());
+    host.stop();
+}
+
+TEST_CASE("worker graph checkpoint: a worker that sat out a quiet day is captured without a step",
+          "[checkpoint][worker]")
+{
+    register_types();
+    // A dmap_ owner steps its workers only when it evaluates. On a day with no
+    // input a restored worker is never stepped, and its day still has to end
+    // in an image as good as the one it started from.
+    const std::size_t split = 3;
+    Collected         collected;
+    auto              bytes = run_until(churn, split, collected);
+    {
+        DistributedChildHost quiet{build_graph<Worker>(), test_end};
+        quiet.start_restored(cycle_time(split), decode_graph_checkpoint(bytes));
+        bytes.clear();
+        encode_graph_checkpoint(quiet.capture(), bytes, cycle_time(split));
+        quiet.stop();
+    }
+    // The quiet day took a slot on the clock, so the remaining cycles run one later.
+    DistributedChildHost resumed{build_graph<Worker>(), test_end};
+    resumed.start_restored(cycle_time(split + 1), decode_graph_checkpoint(bytes));
+    for (std::size_t cycle = split; cycle < churn.size(); ++cycle)
+    {
+        resumed.stage("in", Value{churn[cycle]}.view());
+        REQUIRE(resumed.step(cycle_time(cycle + 1)));
+        Value out = resumed.collect("out");
+        collected.push_back(out.has_value() ? std::optional<Int>{out.view().checked_as<Int>()} : std::nullopt);
+    }
+    resumed.stop();
+    CHECK(collected == run_uninterrupted(churn));
+}
