@@ -16,6 +16,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/graph_diagnostics.cpp
     hgraph/runtime/evaluation_trace.cpp
     hgraph/runtime/executor.cpp
+    hgraph/runtime/checkpoint_codec.cpp
     hgraph/runtime/component_checkpoint.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp

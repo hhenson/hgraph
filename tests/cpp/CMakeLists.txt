@@ -214,6 +214,7 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
 hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
+    test_checkpoint_codec.cpp
     test_component_checkpoint.cpp
     test_component_checkpoint_identity.cpp
     test_reference_checkpoint.cpp
