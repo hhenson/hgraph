@@ -518,12 +518,19 @@ void validate_checkpoint_ingress_consumers(
     if (escaped_outputs != nullptr && escaped_outputs->contains(producer)) {
       throw std::invalid_argument("component checkpoint: ingress source cannot escape its component input");
     }
-    for (const auto *consumer : all) {
-      if (consumer == boundary) { continue; }
-      for (const auto &input : consumer->inputs) {
-        std::vector<const WiringInstance *> dependencies;
-        collect_producers(input.source, dependencies, owned);
-        if (std::ranges::find(dependencies, producer) != dependencies.end()) {
+  }
+  if (ingresses.empty()) { return; }
+  // One pass over the edges, asking of each producer whether it is an ingress
+  // source owned by a different input. Walking every edge again for each
+  // ingress made this cost ingresses times edges.
+  std::vector<const WiringInstance *> dependencies;
+  for (const auto *consumer : all) {
+    for (const auto &input : consumer->inputs) {
+      dependencies.clear();
+      collect_producers(input.source, dependencies, owned);
+      for (const auto *producer : dependencies) {
+        const auto ingress = ingresses.find(producer);
+        if (ingress != ingresses.end() && ingress->second != consumer) {
           throw std::invalid_argument("component checkpoint: ingress source is consumed outside its selected component input");
         }
       }
@@ -1304,6 +1311,19 @@ struct Wiring::Impl {
   std::unordered_map<std::string, const WiringInstance *>
       service_rank_anchors{};
   std::vector<ServiceClientRank> service_client_ranks{};
+  // Every rank dependency already recorded, as (node, depends_on). A service
+  // anchor collects one dependency per sending client, and the dependencies are
+  // re-applied on every snapshot, so de-duplicating by searching the node's
+  // own list made C clients of one service cost C * C each time.
+  struct RankEdgeHash {
+    [[nodiscard]] std::size_t operator()(
+        const std::pair<const WiringInstance *, const WiringInstance *> &edge) const noexcept {
+      return std::hash<const void *>{}(edge.first) * 0x9e3779b97f4a7c15ULL +
+             std::hash<const void *>{}(edge.second);
+    }
+  };
+  std::unordered_set<std::pair<const WiringInstance *, const WiringInstance *>, RankEdgeHash>
+      rank_dependency_edges{};
   std::vector<ServiceImplementationCandidate> service_candidates{};
   std::unordered_map<std::string, std::size_t> service_candidate_paths{};
   std::unordered_map<std::string, std::size_t> default_service_candidates{};
@@ -2106,10 +2126,8 @@ void Wiring::add_rank_dependency(const WiringInstance *node,
     throw std::invalid_argument("rank dependency cannot target the same node");
   }
 
-  auto &dependencies = const_cast<WiringInstance *>(node)->rank_dependencies;
-  if (std::find(dependencies.begin(), dependencies.end(), depends_on) ==
-      dependencies.end()) {
-    dependencies.push_back(depends_on);
+  if (impl_->rank_dependency_edges.emplace(node, depends_on).second) {
+    const_cast<WiringInstance *>(node)->rank_dependencies.push_back(depends_on);
   }
 }
 
