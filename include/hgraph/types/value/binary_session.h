@@ -39,11 +39,15 @@ namespace hgraph
     {
       public:
         explicit BinaryEncodeSession(BinaryProfile profile = BinaryProfile::Compact);
+        /** For a writer that was bound for a stated revision: everything the
+            session binds for it is that revision too. */
+        BinaryEncodeSession(BinaryProfile profile, std::uint8_t revision);
         ~BinaryEncodeSession();
         BinaryEncodeSession(const BinaryEncodeSession &) = delete;
         BinaryEncodeSession &operator=(const BinaryEncodeSession &) = delete;
 
         [[nodiscard]] BinaryProfile profile() const noexcept;
+        [[nodiscard]] std::uint8_t revision() const noexcept;
         /** The table itself, for a format that also names time-series schemas. */
         [[nodiscard]] SchemaTableWriter &schemas() noexcept;
         /** Table index of ``schema``, adding it and everything it is built from. */
@@ -53,7 +57,10 @@ namespace hgraph
         /** Encode ``view`` as entry ``index``; nested ``Any`` values extend the table. */
         void write(std::size_t index, const ValueView &view, std::string &out);
         /** Encode ``view`` under a converter the caller holds -- a schema the
-            reader already knows, which therefore stays out of the table. */
+            reader already knows, which therefore stays out of the table. It
+            must be bound for this session's profile and revision: the
+            converters the session binds for an ``Any`` inside the value are,
+            and bytes that mix two encodings can be read by neither. */
         void write(const BoundBinaryConverter &converter, const ValueView &view, std::string &out);
         /** Encode a run of values of entry ``index`` (``BoundBinaryConverter::write_run``). */
         void write_run(std::size_t index, std::span<const Value> values, std::string &out);
@@ -85,7 +92,8 @@ namespace hgraph
         [[nodiscard]] const BoundBinaryConverter &converter_at(std::size_t index);
         /** Decode one value of entry ``index``; nested ``Any`` values resolve here. */
         [[nodiscard]] Value read(std::size_t index, BinaryReader &reader);
-        /** Decode one value under a converter the caller holds. */
+        /** Decode one value under a converter the caller holds, which must be
+            bound for this session's profile and revision. */
         [[nodiscard]] Value read(const BoundBinaryConverter &converter, BinaryReader &reader);
 
       private:

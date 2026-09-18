@@ -11,6 +11,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -195,6 +196,30 @@ TEST_CASE("value store: binary is the default codec, and its objects are not tex
 
     // Bytes of one codec read as another are a decode failure, not a guess.
     CHECK_THROWS(store.decode(record_meta(), store.encode(written.view(), JSON_VALUE_CODEC)));
+}
+
+TEST_CASE("value store: the owner of stored bytes bounds what decoding them may allocate")
+{
+    // A compressed object's size says nothing about what it expands to, and
+    // the length it claims sizes an allocation. So a limit on the stored bytes
+    // is a limit on nothing: the reader states one on the decoded object.
+    const auto store = memory_store();
+    hgraph::ListBuilder names{hgraph::TypeRegistry::instance().scalar_type<hgraph::Str>()};
+    for (int index = 0; index < 4'000; ++index) { names.push_back(Value{hgraph::Str{"a-repeated-name"}}.view()); }
+    const Value       repetitive = names.build();
+    const auto        codec = store.bind(repetitive.view().schema());
+    const ObjectBytes encoded = codec.encode(repetitive.view());
+    REQUIRE(encoded.size() < 4'096);   // it compressed well: tens of kilobytes became this
+
+    CHECK(codec.decode(encoded).view() == repetitive.view());
+    CHECK(codec.decode(encoded, 1u << 20).view() == repetitive.view());
+    CHECK_THROWS_WITH(codec.decode(encoded, 8'192), Catch::Matchers::ContainsSubstring("more than the 8192 allowed"));
+
+    // A codec that does not compress is bounded by the stored size itself.
+    const auto        json = store.bind(repetitive.view().schema(), JSON_VALUE_CODEC);
+    const ObjectBytes text = json.encode(repetitive.view());
+    CHECK(json.decode(text, text.size()).view() == repetitive.view());
+    CHECK_THROWS_WITH(json.decode(text, text.size() - 1), Catch::Matchers::ContainsSubstring("exceeds the size its reader allows"));
 }
 
 TEST_CASE("value store: the key is the caller's, untouched")

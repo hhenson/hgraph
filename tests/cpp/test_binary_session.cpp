@@ -265,3 +265,40 @@ TEST_CASE("binary compression: a damaged or dishonest block is refused")
     damaged[damaged.size() - 3] = static_cast<char>(damaged[damaged.size() - 3] ^ 0x5a);
     CHECK_THROWS(read(damaged));
 }
+
+TEST_CASE("binary session: a value and what is boxed inside it are one encoding")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const Value value = any_of(Value{Int{300}});
+    const auto *schema = value.view().schema();
+
+    // A frame written for an older revision is that revision all the way down.
+    // The root converter says revision 0; the integer inside the box must then
+    // be eight field-wise bytes, not the one-or-two-byte varint of revision 1,
+    // or the header would promise something the payload does not keep.
+    const auto legacy = bind_binary_converter(schema, BinaryProfile::Compact, 0);
+    std::string old_frame;
+    encode_binary_frame(legacy, value.view(), old_frame);
+    CHECK(old_frame[1] == 0);
+    CHECK(decode_binary_frame(schema, old_frame).view() == value.view());
+    CHECK(decode_binary_frame(legacy, old_frame).view() == value.view());
+    const std::string current_frame = encode_binary_frame(value.view(), BinaryProfile::Compact);
+    CHECK(current_frame[1] == static_cast<char>(binary_profile_revision(BinaryProfile::Compact)));
+    CHECK(old_frame.size() > current_frame.size());
+
+    // A session refuses a converter bound for another encoding: the value
+    // would be written one way and what is boxed inside it the other.
+    BinaryEncodeSession compact{BinaryProfile::Compact};
+    std::string         out;
+    CHECK_THROWS_WITH(compact.write(bind_binary_converter(schema, BinaryProfile::Fast), value.view(), out),
+                      ContainsSubstring("Fast revision"));
+    CHECK_THROWS_WITH(compact.write(legacy, value.view(), out), ContainsSubstring("revision 0"));
+    CHECK(out.empty());
+    CHECK_NOTHROW(compact.write(bind_binary_converter(schema, BinaryProfile::Compact), value.view(), out));
+
+    BinaryDecodeSession decode{BinaryProfile::Compact};
+    BinaryReader        reader{out};
+    CHECK_THROWS_WITH(decode.read(bind_binary_converter(schema, BinaryProfile::Fast), reader),
+                      ContainsSubstring("Fast revision"));
+}
+

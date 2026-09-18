@@ -76,7 +76,25 @@ namespace hgraph::persistence::store
         /** Decode with a handle from `bind`. Same constraints as `encode`. */
         Value (*decode)(void *context, const void *bound,
                         std::span<const std::byte> encoded);
+
+        /** Optional: decode, refusing an object that would expand beyond
+            `max_decoded_bytes`.
+
+            A codec whose stored form is no smaller than what it decodes to --
+            json -- has nothing to bound and leaves this null. One that
+            compresses must supply it: the size of the stored object then says
+            nothing about what decoding it allocates, so an owner's limit on
+            the stored bytes (fabric's 16 MiB of metadata) would otherwise be a
+            limit on nothing. */
+        Value (*decode_limited)(void *context, const void *bound,
+                                std::span<const std::byte> encoded,
+                                std::size_t max_decoded_bytes){nullptr};
     };
+
+    /** What a compressing codec lets one object expand to when its owner states
+        no limit, and the most it will write. A larger value belongs in a
+        FrameStore, or in more than one object. */
+    inline constexpr std::size_t DEFAULT_MAX_DECODED_BYTES = std::size_t{1} << 30;   // 1 GiB
 
     /** A codec bound to one schema: the run-local per-tick handle.
 
@@ -110,6 +128,9 @@ namespace hgraph::persistence::store
         void encode(const ValueView &value, ObjectBytes &out) const;
         [[nodiscard]] ObjectBytes encode(const ValueView &value) const;
         [[nodiscard]] Value decode(std::span<const std::byte> encoded) const;
+        /** The owner of the bytes says how large the decoded object may be. */
+        [[nodiscard]] Value decode(std::span<const std::byte> encoded,
+                                   std::size_t max_decoded_bytes) const;
 
       private:
         [[nodiscard]] static const ValueCodecOps &empty_ops() noexcept;

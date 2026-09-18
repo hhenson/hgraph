@@ -31,22 +31,47 @@ namespace hgraph
 
     // --- encode -------------------------------------------------------------
 
+    namespace
+    {
+        // A value and the ``Any`` contents inside it are written by different
+        // converters -- the caller's, and the ones the session binds. They have
+        // to agree, or the bytes are a mixture that no reader can decode.
+        void require_same_encoding(const BoundBinaryConverter &converter, BinaryProfile profile,
+                                   std::uint8_t revision)
+        {
+            if (converter.profile() == profile && converter.revision() == revision) { return; }
+            throw std::logic_error(fmt::format(
+                "binary codec: a converter bound for {} revision {} was used in a {} revision {} session",
+                profile_name(converter.profile()), converter.revision(), profile_name(profile), revision));
+        }
+    }  // namespace
+
     struct BinaryEncodeSession::Impl
     {
         BinaryProfile profile{BinaryProfile::Compact};
+        std::uint8_t revision{0};
         SchemaTableWriter schemas{};
         // One converter per value schema in the table, bound on first use.
         std::vector<BoundBinaryConverter> converters{};
     };
 
-    BinaryEncodeSession::BinaryEncodeSession(BinaryProfile profile) : impl_(std::make_unique<Impl>())
+    BinaryEncodeSession::BinaryEncodeSession(BinaryProfile profile)
+        : BinaryEncodeSession(profile, binary_profile_revision(profile))
+    {
+    }
+
+    BinaryEncodeSession::BinaryEncodeSession(BinaryProfile profile, std::uint8_t revision)
+        : impl_(std::make_unique<Impl>())
     {
         impl_->profile = profile;
+        impl_->revision = revision;
     }
 
     BinaryEncodeSession::~BinaryEncodeSession() = default;
 
     BinaryProfile BinaryEncodeSession::profile() const noexcept { return impl_->profile; }
+
+    std::uint8_t BinaryEncodeSession::revision() const noexcept { return impl_->revision; }
 
     SchemaTableWriter &BinaryEncodeSession::schemas() noexcept { return impl_->schemas; }
 
@@ -63,7 +88,8 @@ namespace hgraph
         auto &converters = impl_->converters;
         while (converters.size() < impl_->schemas.value_count())
         {
-            converters.push_back(bind_binary_converter(impl_->schemas.value_at(converters.size()), impl_->profile));
+            converters.push_back(
+                bind_binary_converter(impl_->schemas.value_at(converters.size()), impl_->profile, impl_->revision));
         }
         return converters.at(index);
     }
@@ -75,6 +101,7 @@ namespace hgraph
 
     void BinaryEncodeSession::write(const BoundBinaryConverter &converter, const ValueView &view, std::string &out)
     {
+        require_same_encoding(converter, impl_->profile, impl_->revision);
         BinaryWriter writer{out, this};
         converter.write(view, writer);
     }
@@ -147,6 +174,7 @@ namespace hgraph
 
     Value BinaryDecodeSession::read(const BoundBinaryConverter &converter, BinaryReader &reader)
     {
+        require_same_encoding(converter, impl_->profile, impl_->revision);
         auto *const outer = reader.session;
         reader.session = this;
         auto restore = make_scope_exit([&]() noexcept { reader.session = outer; });
@@ -160,7 +188,10 @@ namespace hgraph
         if (!root) { throw std::logic_error("binary codec: unbound converter"); }
         if (!view.valid()) { throw std::invalid_argument("binary codec: a frame needs a value"); }
 
-        BinaryEncodeSession session{root.profile()};
+        // For the revision the root was bound for, not the one this build
+        // writes by default: what the session binds for an ``Any`` inside the
+        // value has to match the header the frame is about to state.
+        BinaryEncodeSession session{root.profile(), root.revision()};
         out.push_back(static_cast<char>(root.profile()));
         out.push_back(static_cast<char>(root.revision()));
         const std::size_t length_at = out.size();

@@ -553,6 +553,15 @@ Retiring JSON
    makes ``"binary"`` the ``ValueStore`` default. ``"json"`` remains registered
    for a store that is *meant* to hold JSON. RFC 0030 is amended. **Done.**
 
+   A compressed object's stored size says nothing about what decoding it
+   allocates, so a limit on the stored bytes -- fabric's 16 MiB of metadata --
+   would be a limit on nothing. ``ValueCodecOps`` gains an optional
+   ``decode_limited``, which a compressing codec must supply, and
+   ``BoundValueCodec::decode(encoded, max_decoded_bytes)`` lets the owner of the
+   bytes say how large the decoded object may be; fabric passes its limit.
+   Without one, ``binary`` holds an object to 1 GiB, and refuses to *write* a
+   larger one, so that what is written can always be read.
+
    This proposal first said that every object records its codec, so existing
    JSON objects would stay readable. That was wrong: a stored object is exactly
    its codec's bytes and says nothing about which codec that was. It does not

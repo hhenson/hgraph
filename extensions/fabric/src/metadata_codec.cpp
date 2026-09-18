@@ -80,7 +80,9 @@ namespace hgraph::fabric
                                std::span<const std::byte>                 encoded)
     {
         require_metadata_within_limit(encoded.size());
-        Value decoded = codec.decode(encoded);
+        // The limit is on the document, not on however small its stored form
+        // is: a compressing codec is told the same bound.
+        Value decoded = codec.decode(encoded, MAX_METADATA_BYTES);
         const detail::FabricMetadataValueBinding values;
         validate_data_revision(values.data_revision_input(decoded.view()));
         return decoded;
@@ -133,7 +135,7 @@ namespace hgraph::fabric
     {
         require_metadata_within_limit(encoded.size());
         const detail::FabricMetadataValueBinding values;
-        return values.revision_reference_id(codec.decode(encoded).view(),
+        return values.revision_reference_id(codec.decode(encoded, MAX_METADATA_BYTES).view(),
                                             expected_kind);
     }
 

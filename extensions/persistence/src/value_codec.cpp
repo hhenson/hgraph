@@ -35,12 +35,18 @@ namespace hgraph::persistence::store
         ValueCodecBinding binary_fast_bind(void *context, const ValueTypeMetaData *schema);
         void binary_encode(void *context, const void *bound, const ValueView &value, ObjectBytes &out);
         Value binary_decode(void *context, const void *bound, std::span<const std::byte> encoded);
+        Value binary_decode_limited(void *context, const void *bound, std::span<const std::byte> encoded,
+                                    std::size_t max_decoded_bytes);
 
         constexpr ValueCodecOps json_ops{.bind = &json_bind, .encode = &json_encode, .decode = &json_decode};
-        constexpr ValueCodecOps binary_ops{.bind = &binary_bind, .encode = &binary_encode, .decode = &binary_decode};
+        constexpr ValueCodecOps binary_ops{.bind = &binary_bind,
+                                           .encode = &binary_encode,
+                                           .decode = &binary_decode,
+                                           .decode_limited = &binary_decode_limited};
         constexpr ValueCodecOps binary_fast_ops{.bind = &binary_fast_bind,
                                                 .encode = &binary_encode,
-                                                .decode = &binary_decode};
+                                                .decode = &binary_decode,
+                                                .decode_limited = &binary_decode_limited};
 
         struct Registry
         {
@@ -71,7 +77,7 @@ namespace hgraph::persistence::store
         [[nodiscard]] bool same_ops(const ValueCodecOps &lhs, const ValueCodecOps &rhs) noexcept
         {
             return lhs.bind == rhs.bind && lhs.encode == rhs.encode &&
-                   lhs.decode == rhs.decode;
+                   lhs.decode == rhs.decode && lhs.decode_limited == rhs.decode_limited;
         }
 
         /** The baseline codec. Binding owns a complete converter plan for the
@@ -144,6 +150,14 @@ namespace hgraph::persistence::store
             const auto &binding = *static_cast<const BoundBinary *>(bound);
             std::string frame;
             encode_binary_frame(binding.converter, value, frame);
+            // What is written must be readable, and a reader refuses a frame
+            // beyond this unless its owner has said otherwise.
+            if (frame.size() > DEFAULT_MAX_DECODED_BYTES)
+            {
+                throw std::length_error("value codec 'binary': one object of " + std::to_string(frame.size()) +
+                                        " bytes exceeds the 1 GiB a ValueStore object may be; it belongs in a "
+                                        "FrameStore, or in more than one object");
+            }
             std::string object;
             if (binding.compressed) { write_compressed_block(frame, default_binary_compression(), object); }
             else { object = std::move(frame); }
@@ -151,10 +165,18 @@ namespace hgraph::persistence::store
             out.insert(out.end(), bytes.begin(), bytes.end());
         }
 
-        Value binary_decode(void * /*context*/, const void *bound, std::span<const std::byte> encoded)
+        Value binary_decode(void *context, const void *bound, std::span<const std::byte> encoded)
+        {
+            return binary_decode_limited(context, bound, encoded, DEFAULT_MAX_DECODED_BYTES);
+        }
+
+        Value binary_decode_limited(void * /*context*/, const void *bound, std::span<const std::byte> encoded,
+                                    std::size_t max_decoded_bytes)
         {
             const auto &binding = *static_cast<const BoundBinary *>(bound);
             const std::string_view bytes{reinterpret_cast<const char *>(encoded.data()), encoded.size()};
+            if (bytes.size() > max_decoded_bytes)
+                throw std::runtime_error("value codec 'binary': object exceeds the size its reader allows");
             // The budget scales with the bytes, as the checkpoint codec's does;
             // a stored value is as large as its owner made it.
             const auto limits_for = [](std::size_t size) {
@@ -166,7 +188,9 @@ namespace hgraph::persistence::store
 
             BinaryReader reader{bytes};
             std::string  storage;
-            const auto   frame = read_compressed_block(reader, storage);
+            // The block's raw length is the writer's claim and sizes an
+            // allocation, so it is held to what the owner of these bytes allows.
+            const auto   frame = read_compressed_block(reader, storage, max_decoded_bytes);
             if (reader.remaining() != 0) { throw std::runtime_error("value codec 'binary': trailing bytes after the object"); }
             return decode_binary_frame(binding.converter, frame, limits_for(frame.size()));
         }
@@ -326,6 +350,29 @@ namespace hgraph::persistence::store
     void ValueCodec::encode(const ValueView &value, ObjectBytes &out) const
     {
         bind(value.schema()).encode(value, out);
+    }
+
+    Value BoundValueCodec::decode(std::span<const std::byte> encoded, std::size_t max_decoded_bytes) const
+    {
+        if (!*this)
+        {
+            throw std::logic_error("value codec is not bound to a schema");
+        }
+        // A codec with nothing to bound -- its stored form is no smaller than
+        // what it decodes to -- is limited by the stored size alone.
+        if (ops_.decode_limited == nullptr)
+        {
+            if (encoded.size() > max_decoded_bytes)
+                throw std::runtime_error("value codec: object exceeds the size its reader allows");
+            return decode(encoded);
+        }
+        Value decoded = ops_.decode_limited(context_.get(), bound_, encoded, max_decoded_bytes);
+        if (decoded.schema() != schema_)
+        {
+            throw std::invalid_argument(
+                "value codec returned a value with a different schema");
+        }
+        return decoded;
     }
 
     Value ValueCodec::decode(const ValueTypeMetaData *schema,

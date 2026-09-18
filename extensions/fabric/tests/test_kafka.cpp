@@ -43,19 +43,6 @@ namespace hgf = hgraph::fabric;
 namespace hgk = hgraph::kafka;
 namespace hgps = hgraph::persistence::store;
 
-/** A store for encoding test payloads, independent of any fabric config.
-    The broker carries the same json the configured store writes, so a
-    default store round trips what the service produced. */
-[[nodiscard]] const hgps::ValueStore &test_values() {
-  static const hgps::ValueStore store = [] {
-    hgps::register_builtin_value_codecs();
-    return hgps::make_value_store(
-        hgps::ValueStoreConfig{.objects = hgps::make_object_store(
-                                   hgps::ObjectStoreConfig{})});
-  }();
-  return store;
-}
-
 [[nodiscard]] hgps::ValueStore metadata_store(const hgf::FabricConfig &config) {
   return hgps::make_value_store(
       {.objects = config.objects, .codec = config.metadata_codec});
@@ -364,8 +351,10 @@ struct CaptureActualBrokerRecords {
           .partition = fields.at("partition").checked_as<hg::Int>(),
           .offset = fields.at("offset").checked_as<hg::Int>(),
           .key = fields.at("key").checked_as<hg::Bytes>(),
+          // A Kafka record is a message, so it is the notification codec's
+          // bytes -- not the metadata store's, which are binary.
           .revision = hgf::data_revision_input(
-              test_values().decode(hgf::data_revision_meta(),
+              hgf::notification_codec().decode(hgf::data_revision_meta(),
                   std::as_bytes(
                       std::span{payload.data.data(), payload.data.size()}))
                   .view()),
