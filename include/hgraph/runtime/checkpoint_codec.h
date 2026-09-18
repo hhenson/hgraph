@@ -3,6 +3,8 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/binary_compression.h>
 
 #include <cstdint>
 #include <string>
@@ -24,20 +26,52 @@ namespace hgraph
      * image. Decoding is bounded by the length of the input and verifies a
      * trailing checksum before it interprets anything.
      *
+     * Version 3 (RFC 0040) records how its values are encoded -- the binary
+     * profile and that profile's revision -- and holds everything after the
+     * fixed header as one block that may be compressed. The checksum covers
+     * the compressed bytes, so damage is found before a claimed length is
+     * trusted. Version 2 images remain readable.
+     *
      * Cold path only. Nothing here is reachable from evaluation.
      */
-    inline constexpr std::uint32_t checkpoint_image_format_version = 2;
+    inline constexpr std::uint32_t checkpoint_image_format_version = 3;
 
-    /** Append the encoded image to ``out``. Throws before writing a value it cannot represent. */
+    /**
+     * What an image is for decides how it is written (RFC 0040): one that is
+     * stored is small and compressed; one handed to another process lives for
+     * a cycle, so it is quick and never compressed.
+     */
+    struct HGRAPH_CLASS_EXPORT CheckpointImageOptions
+    {
+        BinaryProfile     profile{BinaryProfile::Compact};
+        BinaryCompression compression{BinaryCompression::None};
+
+        [[nodiscard]] static CheckpointImageOptions stored() noexcept
+        {
+            return {BinaryProfile::Compact, default_binary_compression()};
+        }
+        [[nodiscard]] static CheckpointImageOptions transport() noexcept
+        {
+            return {BinaryProfile::Fast, BinaryCompression::None};
+        }
+    };
+
+    /** Append the encoded image to ``out``, as a stored image unless told
+     * otherwise. Throws before writing a value it cannot represent. */
     HGRAPH_EXPORT void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out);
+    HGRAPH_EXPORT void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out,
+                                                   const CheckpointImageOptions &options);
     [[nodiscard]] HGRAPH_EXPORT ComponentCheckpoint decode_component_checkpoint(std::string_view bytes);
 
-    /** A graph image alone, as exchanged with a worker-hosted graph. Times are
-     * stored as offsets from ``base_time``; any value round-trips, a time near
-     * the image's own keeps the encoding short.
+    /** A graph image alone, as exchanged with a worker-hosted graph, so it is
+     * a transport image unless told otherwise. Times are stored as offsets
+     * from ``base_time``; any value round-trips, a time near the image's own
+     * keeps the encoding short.
      */
     HGRAPH_EXPORT void encode_graph_checkpoint(const GraphCheckpointImage &graph, std::string &out,
                                                DateTime base_time = MIN_DT);
+    HGRAPH_EXPORT void encode_graph_checkpoint(const GraphCheckpointImage &graph, std::string &out,
+                                               DateTime base_time, const CheckpointImageOptions &options);
     [[nodiscard]] HGRAPH_EXPORT GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes);
 
     /** True when ``bytes`` begin with this codec's marker, whatever the version. */

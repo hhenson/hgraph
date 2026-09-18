@@ -408,10 +408,11 @@ TEST_CASE("component checkpoint store: malformed envelope never yields a checkpo
     frames.write("substituted", envelope(format_v2, "", test::checkpoint_v1_fixture()));
     CHECK_THROWS_WITH(checkpoints.read("substituted"), ContainsSubstring("unsupported format"));
 
-    // The image states its own version after the marker.
+    // The image states its own version after the marker: 2 and 3 are read,
+    // and the envelope's format name is about the envelope, not the image.
     const auto marker = bytes.find("hgraph.checkpoint-image");
     REQUIRE(marker != std::string::npos);
-    for (const char version : {char{0}, char{1}, char{3}})
+    for (const char version : {char{0}, char{1}, char{4}})
     {
         auto unsupported = bytes;
         unsupported[marker + std::string_view{"hgraph.checkpoint-image"}.size()] = version;

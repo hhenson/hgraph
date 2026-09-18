@@ -1,4 +1,5 @@
 #include <hgraph/runtime/checkpoint_codec.h>
+#include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -289,6 +290,118 @@ TEST_CASE("checkpoint codec: an Any payload names its schema in the image's own 
     CHECK_FALSE(actual.ingress->payload.as_any().has_value());
 }
 
+namespace
+{
+    /** A component whose one endpoint is a keyed collection of ``keys`` entries. */
+    ComponentCheckpoint keyed_component(std::int64_t keys)
+    {
+        const auto cut = MIN_ST + MIN_TD * 5;
+        TSCheckpointImage keyed;
+        keyed.schema = schema_descriptor<TSD<Int, TS<Float>>>::ts_meta();
+        keyed.last_modified_time = cut;
+        keyed.slot_capacity = static_cast<std::size_t>(keys);
+        for (std::int64_t key = 0; key < keys; ++key)
+        {
+            keyed.keys.emplace_back(Int{key});
+            keyed.slots.push_back(static_cast<std::size_t>(key));
+            keyed.published.push_back(true);
+            TSCheckpointImage child;
+            child.schema = schema_descriptor<TS<Float>>::ts_meta();
+            child.last_modified_time = cut;
+            child.payload = Value{Float{static_cast<double>(key) * 0.5}};
+            keyed.children.push_back(std::move(child));
+        }
+        NodeCheckpointImage node;
+        node.id = "codec:keyed";
+        node.signature = "keyed";
+        node.output = std::move(keyed);
+        return component(std::move(node));
+    }
+
+    // Where the fixed header of ``component(...)`` ends: marker(1+23) version(1)
+    // kind(1) base(8) id(1+5) signature(1+15) completed(1).
+    constexpr std::size_t component_header_bytes = 24 + 1 + 1 + 8 + 6 + 16 + 1;
+}  // namespace
+
+TEST_CASE("checkpoint codec: a stored image is compressed and says how its values are written", "[checkpoint][codec]")
+{
+    const auto checkpoint = keyed_component(4'000);
+
+    std::string stored;
+    encode_component_checkpoint(checkpoint, stored);   // the default: a stored image
+    std::string plain;
+    encode_component_checkpoint(checkpoint, plain, CheckpointImageOptions{BinaryProfile::Compact, BinaryCompression::None});
+    std::string transport;
+    encode_component_checkpoint(checkpoint, transport, CheckpointImageOptions::transport());
+
+    // The header is readable without decompressing anything; the two bytes
+    // after it are the profile and its revision, then the block's codec.
+    for (const auto *bytes : {&stored, &plain, &transport})
+    {
+        CHECK(bytes->substr(0, component_header_bytes) == plain.substr(0, component_header_bytes));
+    }
+    CHECK(stored[component_header_bytes] == static_cast<char>(BinaryProfile::Compact));
+    CHECK(stored[component_header_bytes + 1] == static_cast<char>(binary_profile_revision(BinaryProfile::Compact)));
+    CHECK(transport[component_header_bytes] == static_cast<char>(BinaryProfile::Fast));
+    CHECK(transport[component_header_bytes + 1] == static_cast<char>(binary_profile_revision(BinaryProfile::Fast)));
+    CHECK(plain[component_header_bytes + 2] == static_cast<char>(BinaryCompression::None));
+    CHECK(transport[component_header_bytes + 2] == static_cast<char>(BinaryCompression::None));
+    if (default_binary_compression() != BinaryCompression::None)
+    {
+        CHECK(stored[component_header_bytes + 2] == static_cast<char>(default_binary_compression()));
+        CHECK(stored.size() < plain.size() / 2);
+    }
+
+    for (const auto *bytes : {&stored, &plain, &transport})
+    {
+        const auto restored = decode_component_checkpoint(*bytes);
+        const auto &output = *restored.graph.nodes.front().output;
+        REQUIRE(output.children.size() == 4'000);
+        CHECK(output.keys[3'999].view().checked_as<Int>() == 3'999);
+        CHECK(output.children[3'999].payload.view().checked_as<Float>() == 1'999.5);
+    }
+
+    // Damage inside the compressed bytes is a checksum failure, found before
+    // the block's claimed length is trusted.
+    auto damaged = stored;
+    damaged[damaged.size() / 2] = static_cast<char>(damaged[damaged.size() / 2] ^ 0x10);
+    CHECK_THROWS_WITH(decode_component_checkpoint(damaged), ContainsSubstring("checksum mismatch"));
+
+    // A revision this build does not know is refused by number.
+    auto later = plain;
+    later[component_header_bytes + 1] = static_cast<char>(later[component_header_bytes + 1] + 9);
+    CHECK_THROWS_WITH(decode_component_checkpoint(resealed(later)), ContainsSubstring("revision"));
+}
+
+TEST_CASE("checkpoint codec: a version 2 image is still read", "[checkpoint][codec]")
+{
+    // Version 2 (RFC 0039) had no profile, no revision and no block: its tables
+    // and body followed the header, as Compact revision 0. Rebuilt here from an
+    // uncompressed version 3 image, which differs by exactly those bytes. Once
+    // version 2 has shipped in a release, pin real bytes beside this, as
+    // ``checkpoint_v1_fixture.h`` does for version 1.
+    const auto checkpoint = keyed_component(9);
+    std::string v3;
+    encode_component_checkpoint(checkpoint, v3, CheckpointImageOptions{BinaryProfile::Compact, BinaryCompression::None});
+    REQUIRE(binary_profile_revision(BinaryProfile::Compact) == 0);
+    REQUIRE(v3[component_header_bytes + 2] == 0);   // block codec: none
+    // profile, revision, codec, then the block's varint length.
+    std::size_t added = 3;
+    while (static_cast<unsigned char>(v3[component_header_bytes + added]) >= 0x80) { ++added; }
+    ++added;
+
+    std::string v2 = v3.substr(0, component_header_bytes) + v3.substr(component_header_bytes + added);
+    v2[24] = 2;   // the version follows the marker
+    v2 = resealed(std::move(v2));
+
+    const auto restored = decode_component_checkpoint(v2);
+    const auto &output = *restored.graph.nodes.front().output;
+    REQUIRE(output.children.size() == 9);
+    CHECK(output.keys[8].view().checked_as<Int>() == 8);
+    CHECK(output.children[8].payload.view().checked_as<Float>() == 4.0);
+    CHECK(restored.component_id == checkpoint.component_id);
+}
+
 TEST_CASE("checkpoint codec: a graph image travels without a component", "[checkpoint][codec]")
 {
     GraphCheckpointImage graph;
@@ -358,10 +471,15 @@ TEST_CASE("checkpoint codec: a damaged image is refused without being interprete
     // Behind a valid checksum, a count that exceeds the remaining input is
     // refused before it sizes an allocation. The node count is the first byte
     // of the body, which the body-length prefix locates exactly.
+    // This image is far below the compression threshold, so its block is
+    // stored as it is and the bytes can be addressed.
     auto oversized = bytes;
     const auto body_start = oversized.size() - 8 - [&] {
-        // marker(1+23) version(1) kind(1) base(8) id(1+5) signature(1+15) completed(1) then the body length.
-        return static_cast<std::size_t>(static_cast<unsigned char>(bytes[24 + 1 + 1 + 8 + 6 + 16 + 1]));
+        // marker(1+23) version(1) kind(1) base(8) id(1+5) signature(1+15) completed(1)
+        // profile(1) revision(1) block codec(1) block length(1) then the body length.
+        const std::size_t block_codec_at = 24 + 1 + 1 + 8 + 6 + 16 + 1 + 1 + 1;
+        REQUIRE(bytes[block_codec_at] == 0);
+        return static_cast<std::size_t>(static_cast<unsigned char>(bytes[block_codec_at + 2]));
     }();
     REQUIRE(oversized[body_start] == 1);
     oversized[body_start] = 0x7f;

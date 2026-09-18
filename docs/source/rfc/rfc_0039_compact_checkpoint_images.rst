@@ -249,6 +249,17 @@ retained version 1 reader; it writes only version 2. No migration is needed: a
 day recovered from a version 1 predecessor publishes a version 2 successor.
 An unknown version is refused, as before.
 
+**Version 3** (RFC 0040) keeps this layout and adds, after the fixed header and
+the component header, the binary profile of the image's values and that
+profile's revision, and then holds everything that follows -- body length,
+tables and body -- as one RFC 0040 compression block. A stored image is
+``Compact`` and compressed; one exchanged with a worker-hosted graph is
+``Fast`` and never compressed (``CheckpointImageOptions::stored()`` /
+``transport()``). The checksum covers the compressed bytes, so damage is found
+before a claimed length is trusted, and the component header stays readable
+without decompressing anything. Version 2 images remain readable: no profile,
+no revision, no block, values as ``Compact`` revision 0.
+
 Publication safety
 ------------------
 

@@ -15,8 +15,15 @@
 
 // RFC 0039. The layout is:
 //
-//   marker, version, kind, base time, [component header], body length,
-//   string table, schema table (types/metadata/schema_table.h), body, checksum
+//   marker, version, kind, base time, [component header],
+//   profile, revision,                       (version 3, RFC 0040)
+//   block { body length, string table, schema table, body },
+//   checksum
+//
+// The block is RFC 0040's compression block, so its first byte says whether
+// and how it is compressed. Version 2 has no profile, no revision and no
+// block: its tables and body follow the header directly, and its values are
+// Compact revision 0.
 //
 // The encoder builds the body while interning table entries and emits the
 // tables ahead of it, so a decoder resolves every entry once before it reads
@@ -168,9 +175,12 @@ namespace hgraph
             std::string body{};
             std::string strings{};
             ankerl::unordered_dense::map<std::string_view, std::size_t> string_index{};
+            explicit Encoder(const CheckpointImageOptions &how) : options(how), session(how.profile) {}
+
+            CheckpointImageOptions options;
             // The schema table and its converters (RFC 0040). An ``Any`` inside
             // a payload names its schema here too, so the image has one table.
-            BinaryEncodeSession session{};
+            BinaryEncodeSession session;
             SchemaTableWriter &schemas{session.schemas()};
 
             std::size_t string_ref(std::string_view text)
@@ -452,11 +462,16 @@ namespace hgraph
             {
                 const auto start = out.size();
                 out.append(header);
-                write_varint(body.size(), out);
-                write_varint(string_index.size(), out);
-                out.append(strings);
-                schemas.write(out);
-                out.append(body);
+                out.push_back(static_cast<char>(options.profile));
+                out.push_back(static_cast<char>(binary_profile_revision(options.profile)));
+                std::string content;
+                content.reserve(body.size() + strings.size() + 64);
+                write_varint(body.size(), content);
+                write_varint(string_index.size(), content);
+                content.append(strings);
+                schemas.write(content);
+                content.append(body);
+                write_compressed_block(content, options.compression, out);
                 write_fixed(checksum(std::string_view{out}.substr(start)), out);
             }
         };
@@ -465,9 +480,14 @@ namespace hgraph
         {
             BinaryReader &reader;
             std::vector<std::string> strings{};
+            explicit Decoder(BinaryReader &source, BinaryProfile profile = BinaryProfile::Compact)
+                : reader(source), session(profile)
+            {
+            }
+
             // Converters are bound as the image asks for them; a nested ``Any``
             // resolves its schema through the same session.
-            BinaryDecodeSession session{};
+            BinaryDecodeSession session;
             const SchemaTableReader &schemas{session.schemas()};
 
             [[nodiscard]] std::uint64_t number() { return read_varint(reader); }
@@ -840,33 +860,42 @@ namespace hgraph
         {
             BinaryReader reader;
             DateTime base_time;
+            std::uint64_t version;
         };
+
+        [[nodiscard]] BinaryDecodeLimits limits_for(std::size_t bytes)
+        {
+            // The work budget scales with the input: every decoded element is
+            // at least one byte, except zero-width values inside collections,
+            // which the constant allowance covers.
+            BinaryDecodeLimits limits;
+            limits.max_work = 1'000'000 + 16 * static_cast<std::uint64_t>(bytes);
+            limits.max_depth = 4 * max_depth;
+            return limits;
+        }
 
         [[nodiscard]] OpenedImage open_image(std::string_view bytes, ImageKind expected)
         {
             if (bytes.size() < sizeof(std::uint64_t)) { malformed("truncated image"); }
             const auto content = bytes.substr(0, bytes.size() - sizeof(std::uint64_t));
-            // The work budget scales with the input: every decoded element is
-            // at least one byte, except zero-width values inside collections,
-            // which the constant allowance covers.
-            BinaryDecodeLimits limits;
-            limits.max_work = 1'000'000 + 16 * static_cast<std::uint64_t>(bytes.size());
-            limits.max_depth = 4 * max_depth;
+            const auto limits = limits_for(bytes.size());
             BinaryReader tail{bytes, content.size(), limits};
             const auto stored = read_fixed(tail);
             BinaryReader reader{content, 0, limits};
             Decoder probe{reader};
             if (probe.text() != image_marker) { malformed("unsupported format"); }
-            if (probe.number() != checkpoint_image_format_version) { malformed("unsupported image version"); }
+            const auto version = probe.number();
+            if (version != 2 && version != checkpoint_image_format_version) { malformed("unsupported image version"); }
             if (stored != checksum(content)) { malformed("checksum mismatch"); }
             if (probe.number() != static_cast<std::uint8_t>(expected)) { malformed("unexpected image kind"); }
             const auto base_time = from_ticks(read_fixed(reader));
-            return {reader, base_time};
+            return {reader, base_time, version};
         }
 
-        [[nodiscard]] GraphCheckpointImage read_graph(BinaryReader &reader, DateTime base_time)
+        [[nodiscard]] GraphCheckpointImage read_tables_and_body(BinaryReader &reader, DateTime base_time,
+                                                                BinaryProfile profile)
         {
-            Decoder decoder{reader};
+            Decoder decoder{reader, profile};
             const auto body_length = decoder.size();
             decoder.read_strings();
             decoder.read_schemas();
@@ -874,6 +903,29 @@ namespace hgraph
             auto graph = decoder.graph(base_time, 0);
             if (reader.remaining() != 0) { malformed("trailing data"); }
             return graph;
+        }
+
+        [[nodiscard]] GraphCheckpointImage read_graph(BinaryReader &reader, DateTime base_time, std::uint64_t version)
+        {
+            // Version 2 predates profiles: Compact revision 0, no block.
+            if (version == 2) { return read_tables_and_body(reader, base_time, BinaryProfile::Compact); }
+
+            const auto profile_byte = std::to_integer<std::uint8_t>(*reader.take(1));
+            const auto revision = std::to_integer<std::uint8_t>(*reader.take(1));
+            if (profile_byte > static_cast<std::uint8_t>(BinaryProfile::Fast)) { malformed("unknown value profile"); }
+            const auto profile = static_cast<BinaryProfile>(profile_byte);
+            if (revision != binary_profile_revision(profile))
+            {
+                malformed("values are " + std::string{profile == BinaryProfile::Fast ? "Fast" : "Compact"} +
+                          " revision " + std::to_string(revision) + ", which this build does not read");
+            }
+            // The checksum has already covered these bytes, so the length the
+            // block claims is one this deployment wrote.
+            std::string storage;
+            const auto content = read_compressed_block(reader, storage);
+            if (reader.remaining() != 0) { malformed("trailing data"); }
+            BinaryReader inner{content, 0, limits_for(content.size())};
+            return read_tables_and_body(inner, base_time, profile);
         }
     }
 
@@ -887,6 +939,12 @@ namespace hgraph
 
     void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out)
     {
+        encode_component_checkpoint(checkpoint, out, CheckpointImageOptions::stored());
+    }
+
+    void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out,
+                                     const CheckpointImageOptions &options)
+    {
         if (checkpoint.version != ComponentCheckpoint::current_version || checkpoint.component_id.empty() ||
             checkpoint.completed_until <= checkpoint.cut)
             malformed("invalid completed component boundary");
@@ -895,14 +953,14 @@ namespace hgraph
         write_text(checkpoint.component_id, header);
         write_text(checkpoint.graph_signature, header);
         write_offset(checkpoint.completed_until, checkpoint.cut, header);
-        Encoder encoder;
+        Encoder encoder{options};
         encoder.graph(checkpoint.graph, checkpoint.cut, 0);
         encoder.finish(header, out);
     }
 
     ComponentCheckpoint decode_component_checkpoint(std::string_view bytes)
     {
-        auto [reader, base_time] = open_image(bytes, ImageKind::Component);
+        auto [reader, base_time, version] = open_image(bytes, ImageKind::Component);
         Decoder header{reader};
         ComponentCheckpoint checkpoint;
         checkpoint.component_id = header.text();
@@ -911,22 +969,28 @@ namespace hgraph
         checkpoint.completed_until = header.offset(base_time);
         if (checkpoint.component_id.empty() || checkpoint.completed_until <= checkpoint.cut)
             malformed("invalid completed component boundary");
-        checkpoint.graph = read_graph(reader, base_time);
+        checkpoint.graph = read_graph(reader, base_time, version);
         return checkpoint;
     }
 
     void encode_graph_checkpoint(const GraphCheckpointImage &graph, std::string &out, DateTime base_time)
     {
+        encode_graph_checkpoint(graph, out, base_time, CheckpointImageOptions::transport());
+    }
+
+    void encode_graph_checkpoint(const GraphCheckpointImage &graph, std::string &out, DateTime base_time,
+                                 const CheckpointImageOptions &options)
+    {
         std::string header;
         write_header(ImageKind::Graph, base_time, header);
-        Encoder encoder;
+        Encoder encoder{options};
         encoder.graph(graph, base_time, 0);
         encoder.finish(header, out);
     }
 
     GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes)
     {
-        auto [reader, base_time] = open_image(bytes, ImageKind::Graph);
-        return read_graph(reader, base_time);
+        auto [reader, base_time, version] = open_image(bytes, ImageKind::Graph);
+        return read_graph(reader, base_time, version);
     }
 }

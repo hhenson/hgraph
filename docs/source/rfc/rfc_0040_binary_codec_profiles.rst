@@ -337,6 +337,29 @@ For bytes that are stored: checkpoints, ``ValueStore`` objects, recordings.
   frame header costs more than it saves. The frame records the codec, and a
   reader without it refuses by name. ``Fast`` never compresses.
 
+The compression block (``hgraph/types/value/binary_compression.h``) -- **done**:
+
+.. code-block:: text
+
+   u8      codec           0 none, 1 zstd, 2 lz4 (frame format)
+   varint  stored length
+   varint  raw length      only when the codec is not none
+           bytes
+
+A block is stored as it is when it is under 256 bytes, when the codec is not in
+this build, or when compressing it would not make it smaller, so compression
+only ever shrinks. The raw length is the writer's claim, so a reader bounds it
+before allocating for it; a caller that checksums its bytes does so first. An
+uncompressed block is read in place, with no copy.
+
+RFC 0039 checkpoint images use it as **format version 3**: profile, revision,
+then one block holding the tables and the body, with the checksum over the
+compressed bytes. On the RFC 0039 benchmark endpoint (100,000-key
+``TSD[int, TS[float]]``) the stored image goes from 1,931,274 to **184,272
+bytes** with zstd, for about 1.9 ms more to encode and 2.8 ms more to decode.
+That endpoint's keys and values are synthetic and regular; real floating-point
+state will compress less.
+
 Choosing
 ~~~~~~~~
 

@@ -9,6 +9,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/binary_compression.h>
 #include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
@@ -16,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <cstdint>
 #include <string>
 
 namespace
@@ -179,4 +181,81 @@ TEST_CASE("binary session: a damaged frame is refused, not guessed")
     std::string wrong_index = bytes;
     wrong_index[6] = '\x09';
     CHECK_THROWS_WITH(decode_binary_frame(value.view().schema(), wrong_index), ContainsSubstring("names schema"));
+}
+
+TEST_CASE("binary compression: a block says how it is stored, and only shrinks")
+{
+    const auto round_trip = [](std::string_view raw, BinaryCompression compression) {
+        std::string block;
+        write_compressed_block(raw, compression, block);
+        BinaryReader reader{block};
+        std::string  storage;
+        const auto   read = read_compressed_block(reader, storage);
+        CHECK(reader.remaining() == 0);
+        CHECK(read == raw);
+        return block;
+    };
+
+    const std::string repetitive(64 * 1024, 'r');
+    std::string noise(64 * 1024, '\0');
+    std::uint64_t state = 0x9E3779B97F4A7C15ull;
+    for (auto &byte : noise)
+    {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        byte = static_cast<char>(state);
+    }
+
+    for (const auto compression : {BinaryCompression::Zstd, BinaryCompression::Lz4})
+    {
+        if (!binary_compression_available(compression)) { continue; }
+        const auto squeezed = round_trip(repetitive, compression);
+        CHECK(squeezed.front() == static_cast<char>(compression));
+        CHECK(squeezed.size() < repetitive.size() / 10);
+
+        // Bytes that do not compress are stored as they are, not made larger.
+        const auto kept = round_trip(noise, compression);
+        CHECK(kept.front() == static_cast<char>(BinaryCompression::None));
+        CHECK(kept.size() <= noise.size() + 8);
+
+        // Below the threshold nothing is attempted.
+        CHECK(round_trip("short", compression).front() == static_cast<char>(BinaryCompression::None));
+        CHECK(round_trip("", compression).front() == static_cast<char>(BinaryCompression::None));
+    }
+    CHECK(round_trip(repetitive, BinaryCompression::None).size() == repetitive.size() + 1 + 3);
+    CHECK(default_binary_compression() ==
+          (binary_compression_available(BinaryCompression::Zstd)  ? BinaryCompression::Zstd
+           : binary_compression_available(BinaryCompression::Lz4) ? BinaryCompression::Lz4
+                                                                  : BinaryCompression::None));
+}
+
+TEST_CASE("binary compression: a damaged or dishonest block is refused")
+{
+    const auto compression = default_binary_compression();
+    if (compression == BinaryCompression::None) { SKIP("this build's Arrow provides no compression codec"); }
+    const std::string raw(8 * 1024, 'z');
+    std::string block;
+    write_compressed_block(raw, compression, block);
+    REQUIRE(block.front() == static_cast<char>(compression));
+
+    const auto read = [](std::string_view bytes, std::size_t limit = binary_compression_default_max_raw_bytes) {
+        BinaryReader reader{bytes};
+        std::string  storage;
+        return std::string{read_compressed_block(reader, storage, limit)};
+    };
+    CHECK(read(block) == raw);
+
+    for (std::size_t cut = 0; cut < block.size(); ++cut) { CHECK_THROWS(read(std::string_view{block}.substr(0, cut))); }
+
+    auto unknown = block;
+    unknown[0] = '\x09';
+    CHECK_THROWS_WITH(read(unknown), ContainsSubstring("unknown compression 9"));
+
+    // The raw length is the writer's claim: bounded before anything is sized by it.
+    CHECK_THROWS_WITH(read(block, 1024), ContainsSubstring("more than the 1024 allowed"));
+
+    auto damaged = block;
+    damaged[damaged.size() - 3] = static_cast<char>(damaged[damaged.size() - 3] ^ 0x5a);
+    CHECK_THROWS(read(damaged));
 }

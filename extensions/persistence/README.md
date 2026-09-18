@@ -56,8 +56,11 @@ use the binary value codec, so `Frame`, `Series` and non-finite floats are
 ordinary state. The whole image is encoded before the native store publishes it
 through its immutable object operation: a value the codec cannot represent
 fails before publication, every read verifies the image checksum, and
-`write(..., verify=True)` adds a decode-and-re-encode comparison. Version 1
-images from hgraph 0.8.25-0.8.27 remain readable. There is
+`write(..., verify=True)` adds a decode-and-re-encode comparison. Images are
+compressed (RFC 0040: zstd where the Arrow build provides it, LZ4 otherwise);
+the envelope's format name describes the envelope, and the image carries its
+own version, currently 3. Version 1 images from hgraph 0.8.25-0.8.27 and
+version 2 images remain readable. There is
 no mutable latest pointer: applications select an exact predecessor and use a
 new key for every completed day. Filesystem and S3 durability follow the native
 object store's guarantees; this does not coordinate external sink transactions
