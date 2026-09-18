@@ -993,6 +993,10 @@ void clear_restored_schedule_impl(const void *context, const GraphView &graph, s
   auto &state = graph_header<Storage>(runtime, graph.data());
   if (graph.evaluating()) { throw std::logic_error("Cannot restore a schedule during evaluation"); }
   graph_schedule(runtime, graph.data(), index) = MIN_DT;
+  // Recovery clears one node at a time from its post-start hook. start_impl
+  // takes the minimum over every schedule once the last node has started, so
+  // recomputing it here as well made restoring V nodes cost V * V.
+  if (!state.started) { return; }
   state.next_scheduled_time = MAX_DT;
   for (std::size_t i = 0; i < runtime.layout.node_count; ++i) {
     const auto scheduled = graph_schedule(runtime, graph.data(), i);
