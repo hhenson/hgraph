@@ -169,30 +169,34 @@ namespace hgraph::ts_data_plan_factory_detail
                 header.next_modified = position;
             }
 
+            // Consumers address the modified set by ordinal -- that is the Range
+            // protocol -- and a ring can only be walked, so answering each
+            // ordinal from the head made every reader of m modified elements
+            // cost m * m. Both answers come from one snapshot of the visible
+            // ring, rebuilt only when what it depends on has changed.
             [[nodiscard]] std::size_t modified_index_count() const noexcept
             {
-                std::size_t count = 0;
-                for_each_modified_index([&](std::size_t) {
-                    ++count;
-                    return true;
-                });
-                return count;
+                try { return modified_snapshot().size(); }
+                catch (...)
+                {
+                    // Out of memory for the snapshot: count the ring directly.
+                    std::size_t count = 0;
+                    for_each_modified_index([&](std::size_t) {
+                        ++count;
+                        return true;
+                    });
+                    return count;
+                }
             }
 
             [[nodiscard]] std::size_t modified_index_at(std::size_t ordinal) const
             {
-                std::size_t result = TS_DATA_NO_CHILD_ID;
-                std::size_t seen   = 0;
-                for_each_modified_index([&](std::size_t index) {
-                    if (seen++ != ordinal) { return true; }
-                    result = index;
-                    return false;
-                });
-                if (result == TS_DATA_NO_CHILD_ID)
+                const auto &visible = modified_snapshot();
+                if (ordinal >= visible.size())
                 {
                     throw std::out_of_range("dynamic TSL modified index ordinal is out of range");
                 }
-                return result;
+                return visible[ordinal];
             }
 
             /**
@@ -291,8 +295,52 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            /** Everything the visible modified sequence is a function of. The
+                window and the tail identify the ring's contents, because a
+                window only appends and never appends an element twice; the
+                live size decides which members are reported as removed instead;
+                the tracked time decides whether the window is current at all. */
+            struct ModifiedSnapshotKey
+            {
+                std::int64_t window{0};
+                std::size_t  tail{0};
+                std::size_t  live_size{0};
+                DateTime     tracked{MIN_DT};
+                bool         operator==(const ModifiedSnapshotKey &) const = default;
+            };
+
+            struct ModifiedSnapshot
+            {
+                ModifiedSnapshotKey      key{};
+                std::vector<std::size_t> visible{};
+                bool                     valid{false};
+            };
+
+            [[nodiscard]] const std::vector<std::size_t> &modified_snapshot() const
+            {
+                const auto &header = ordinal_keys_.front();
+                const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, live_size_,
+                                              tracking_.last_modified_time};
+                // Allocated by the first ordinal read, so a list that is never
+                // read that way carries one null pointer and nothing else.
+                if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
+                auto &snapshot = *modified_snapshot_;
+                if (!snapshot.valid || !(snapshot.key == key))
+                {
+                    snapshot.valid = false;
+                    snapshot.visible.clear();
+                    for_each_modified_index([&](std::size_t index) {
+                        snapshot.visible.push_back(index);
+                        return true;
+                    });
+                    snapshot.key   = key;
+                    snapshot.valid = true;
+                }
+                return snapshot.visible;
+            }
+
             /** Visit live ring members in notification order; ``fn`` returns
-                false to stop (so ordinal lookup stays O(ordinal)). */
+                false to stop. */
             template <typename Fn> void for_each_modified_index(Fn &&fn) const
             {
                 const auto &header = ordinal_keys_.front();
@@ -368,6 +416,8 @@ namespace hgraph::ts_data_plan_factory_detail
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
             std::size_t                     live_size_{0};
             std::size_t                     previous_size_{0};
+            // Derived from the ring on demand; never part of the list's state.
+            mutable std::unique_ptr<ModifiedSnapshot> modified_snapshot_{};
         };
 
         void dynamic_list_storage_construct(void *dst, const void *)

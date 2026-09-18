@@ -275,9 +275,12 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     const auto &dynamic = factory.data_type_for(dynamic_schema).checked_plan();
     const auto &tick = factory.data_type_for(tick_schema).checked_plan();
     const auto &duration = factory.data_type_for(duration_schema).checked_plan();
-    // 112 = the pre-RFC-0031 96 plus the two structural-delta lengths
-    // (live and previous); the window time reuses the modified-ring header.
-    REQUIRE(dynamic.layout.size == 112);
+    // 120 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
+    // and previous) -- the window time reuses the modified-ring header -- plus
+    // one pointer to the ordinal snapshot of the modified ring, which exists
+    // only for a list that has been read by ordinal. Without it every such
+    // read walked the ring from its head: m modified elements cost m * m.
+    REQUIRE(dynamic.layout.size == 120);
     REQUIRE(dynamic.layout.alignment == 8);
     REQUIRE(tick.layout.size == 136);
     REQUIRE(tick.layout.alignment == 8);
