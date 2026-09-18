@@ -444,8 +444,8 @@ whose curated signatures remain authoritative.
      - ``12 overloads``
      - 12 native overloads; lazy operator
    * - :ref:`getitem_ <python-operator-getitem_>`
-     - ``17 overloads``
-     - 17 native overloads; lazy operator
+     - ``18 overloads``
+     - 18 native overloads; lazy operator
    * - :ref:`group_by <python-operator-group_by>`
      - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator

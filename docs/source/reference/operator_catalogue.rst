@@ -2770,11 +2770,14 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
+``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
    Collection, mapping, list, bundle, or other indexable input.
 
 ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
    Index, key, or slice selector supported by the chosen overload.
+
+``default_value`` : time-series; ``TS[SCALAR]``
+   Value emitted when the primary input has no usable value.
 
 Returns
 ~~~~~~~
@@ -2792,7 +2795,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   getitem_(ts: TS[SCALAR], key: TS[K]) -> TS[SCALAR_1]
+   getitem_(ts: TS[Mapping[K, SCALAR]], key: TS[K]) -> TS[SCALAR]
+   getitem_(ts: TS[Mapping[K, SCALAR]], key: TS[K], default_value: TS[SCALAR]) -> TS[SCALAR]
    getitem_(ts: TS[str], key: TS[int]) -> TS[str]
    getitem_(ts: TSL[TIME_SERIES_TYPE, SIZE], key: TS[int]) -> REF[TIME_SERIES_TYPE]
    getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]
