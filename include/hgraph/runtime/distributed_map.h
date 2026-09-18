@@ -19,6 +19,7 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/lib/std/operators/higher_order.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/runtime/distributed_child.h>
 #include <hgraph/runtime/distributed_process.h>
 #include <hgraph/runtime/distributed_protocol.h>
@@ -679,26 +680,35 @@ namespace hgraph::distributed
     };
 
     /**
-     * The checkpoint contract of a ``dmap_`` owner (RFC 0039).
+     * The checkpoint contract of an owner whose children live in workers
+     * (RFC 0039): ``dmap_`` here, ``spawn_`` in ``spawn.cpp``.
      *
-     * The owner is a dynamic-graph owner whose children live in workers, so
-     * its state is one graph image per worker, in worker order, plus the
-     * output extents. ``restore`` runs before the owner starts and the workers
+     * Such an owner is a dynamic-graph owner, so its state is one graph image
+     * per worker, in worker order, plus (for ``dmap_``) the output extents. ``restore`` runs before the owner starts and the workers
      * are raised IN its start, so the restored state is parked in the graph's
      * ``GlobalState`` and ``claim``-ed by the start that follows.
      *
-     * ``signature`` is the owner's contract: the worker count, the hosting
-     * mode and every worker node's identity. It refuses a plan that hosts a
+     * ``signature`` is the ``dmap_`` owner's contract: the worker count, the
+     * hosting mode and every worker node's identity. It refuses a plan that hosts a
      * node a worker scope recorded as unrecoverable, which is how a
      * recoverable component learns that at wiring.
      */
-    namespace dmap_checkpoint
+    namespace worker_checkpoint
     {
         struct Restored
         {
             std::vector<std::string> images{};
             std::vector<std::size_t> extents{};
         };
+        /** The owner state both worker owners save: one image per worker, in
+         * worker order, plus any output extents. */
+        [[nodiscard]] HGRAPH_EXPORT NodeCheckpointState state_of(std::vector<std::string> images,
+                                                                 std::span<const std::size_t> extents);
+        /** Append one worker graph's node identities to an owner's contract,
+         * refusing a graph that hosts a node recorded as unrecoverable.
+         * ``owner`` and ``index`` name it in that refusal. */
+        HGRAPH_EXPORT void sign_worker_graph(manifest::CanonicalWriter &writer, const GraphBuilder &graph,
+                                             std::string_view owner, std::size_t index);
         [[nodiscard]] HGRAPH_EXPORT NodeCheckpointState capture(const NodeView &node, const CaptureGraphCheckpoint &);
         HGRAPH_EXPORT void restore(const NodeView &node, const NodeCheckpointState &image, DateTime,
                                    const RestoreGraphCheckpoint &);
@@ -739,8 +749,8 @@ namespace hgraph::distributed
         {
             static const NodeCheckpointOps ops{
                 .supported = true,
-                .capture_impl = &dmap_checkpoint::capture,
-                .restore_impl = &dmap_checkpoint::restore,
+                .capture_impl = &worker_checkpoint::capture,
+                .restore_impl = &worker_checkpoint::restore,
                 .signature_impl = +[](const NodeBuilder &builder) {
                     const auto scalars = builder.scalars().view().as_bundle();
                     const Int  workers = scalars.at("workers").template checked_as<Int>();
@@ -751,7 +761,7 @@ namespace hgraph::distributed
                                                                                           : WorkerHosting::Process;
                     const GraphBuilder child = WorkerPool::worker_graph<TKey, TValue, TResult>(
                         scalars.at("func").template checked_as<WiredFn>());
-                    return dmap_checkpoint::signature({&child, 1}, config);
+                    return worker_checkpoint::signature({&child, 1}, config);
                 },
             };
             return ops;
@@ -772,7 +782,7 @@ namespace hgraph::distributed
             config.program = program.value();
 
             // Workers the coordinator restored start from their images (RFC 0039).
-            const auto restored = dmap_checkpoint::claim(node);
+            const auto restored = worker_checkpoint::claim(node);
             auto pool = WorkerPool::build<TKey, TValue, TResult>(func.value(), config,
                 restored ? std::span<const std::string>{restored->images} : std::span<const std::string>{});
             state.modify().pool = pool.release();

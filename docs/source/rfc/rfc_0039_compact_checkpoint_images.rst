@@ -452,9 +452,32 @@ before it concludes, so at capture every stage has completed the frontier and
 every channel is empty. The owner's capture therefore *asserts* quiescence
 (every stage ready, idle and at the frontier; no pending or queued frame) and
 refuses the image otherwise, then collects one image per stage in pipeline
-order. Its restored state is the per-stage blobs plus each stage's requested
-next time. An online (mid-run) spawn checkpoint needs a real fence and channel
+order. An online (mid-run) spawn checkpoint needs a real fence and channel
 cursors and stays out of scope, as RFC 0023's online snapshot does.
+
+Three details the implementation settled:
+
+* **Who asks.** A stage's transport thread owns its channel, so the owner does
+  not talk to a worker itself. It marks each stage, and the stage's thread --
+  idle, because the owner asserted quiescence first -- sends
+  ``@hgraph-checkpoint:1`` and hands the image back. A stage that cannot
+  capture reports why and carries on; the refusal fails the owner's capture.
+* **How a stage starts.** A ``spawn_`` stage answers its start before any cycle,
+  so unlike a ``dmap_`` worker it cannot wait to see whether its first frame is
+  a restore. The owner says which, straight after the boundary identity:
+  ``@hgraph-start:1`` or a restore frame.
+* **What else is restored.** Not the stages' requested next times, which an
+  earlier draft listed. An image never holds a pending schedule (RFC 0023), so
+  each is "nothing", and the stage reports its own in its start reply anyway.
+  What *is* restored beside the images is the fact of restoration: a fresh
+  pipeline sends every input in full on its first capture, and a restored one
+  already holds those baselines. Re-sending them would tick inputs that did
+  not tick. This is the "first" state the protocol section refers to; for
+  ``spawn_`` it is real, and a test with a once-ticking side input pins it.
+
+The contract signature is the pipeline: every stage's node identities, in order.
+Stage bootstraps are left out on purpose -- they carry configuration, such as
+paths, that a restart is free to change.
 
 A spawned pipeline ends in a sink that acts in a worker process. RFC 0023's
 external-effect rule applies unchanged: the effect is outside the recoverable
@@ -540,7 +563,7 @@ Stages
    does not. The acceptance tests would show it if it did -- every child
    accumulates, so a baseline re-ticked into a worker changes the totals of
    keys the cycle never touched.
-5. **``spawn`` recovery** at the completed boundary.
+5. **``spawn`` recovery** at the completed boundary. *Implemented.*
 
 Acceptance
 ----------

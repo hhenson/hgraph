@@ -197,11 +197,11 @@ namespace hgraph::distributed
         {
             static const NodeCheckpointOps ops{
                 .supported = true,
-                .capture_impl = &dmap_checkpoint::capture,
-                .restore_impl = &dmap_checkpoint::restore,
+                .capture_impl = &worker_checkpoint::capture,
+                .restore_impl = &worker_checkpoint::restore,
                 .signature_impl = +[](const NodeBuilder &builder) {
                     const auto &plan = *builder.scalars().view().as_bundle().at("plan").checked_as<DistributedMapPlanPtr>();
-                    return dmap_checkpoint::signature(plan.children, plan.config);
+                    return worker_checkpoint::signature(plan.children, plan.config);
                 },
             };
             return ops;
@@ -214,7 +214,7 @@ namespace hgraph::distributed
             config.end_time = engine.end_time();
             // Workers the coordinator restored start from their images
             // (RFC 0039); the owner's own output was restored as any other.
-            const auto restored = dmap_checkpoint::claim(node);
+            const auto restored = worker_checkpoint::claim(node);
             auto pool = WorkerPool::build_partitioned(plan.value()->children, plan.value()->slots,
                 plan.value()->recipes, config, plan.value()->phase_runner,
                 restored ? std::span<const std::string>{restored->images} : std::span<const std::string>{});

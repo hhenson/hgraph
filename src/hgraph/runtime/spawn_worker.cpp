@@ -36,7 +36,13 @@ namespace hgraph
             if (!channel.receive(identity)) throw std::runtime_error("spawn_: missing boundary identity");
             if (identity != plan.boundary_identity)
                 throw std::runtime_error("spawn_: worker boundary differs from caller");
-            host.start(start);
+            // The owner says how this stage starts (RFC 0039): fresh, or
+            // from the image it held at the last completed day.
+            std::string opening;
+            if (!channel.receive(opening)) throw std::runtime_error("spawn_: missing start frame");
+            if (const auto image = restore_frame_image(opening)) static_cast<void>(start_worker_restored(host, start, *image));
+            else if (opening == start_frame) host.start(start);
+            else throw std::runtime_error("spawn_: unknown start frame");
             if (host.graph().executor().stop_requested())
                 throw std::runtime_error("child requested stop during start");
             channel.send(encode_reply(plan.slots, CycleReply{host.next_scheduled_time(), {}, {}}));
@@ -49,6 +55,16 @@ namespace hgraph
                     host.stop();
                     channel.send(encode_reply(plan.slots, CycleReply{}));
                     return true;
+                }
+                if (payload == checkpoint_frame)
+                {
+                    // A stage that cannot capture says so and carries on: the
+                    // refusal fails its owner's capture, not this graph.
+                    std::string image;
+                    try { image = encode_checkpoint_reply(capture_worker_image(host)); }
+                    catch (const std::exception &error) { image = encode_checkpoint_error(error.what()); }
+                    channel.send(image);
+                    continue;
                 }
                 auto reply = serve_cycle(host, plan.slots, decode_request(plan.slots, payload));
                 if (!reply.error.empty()) throw std::runtime_error(reply.error);

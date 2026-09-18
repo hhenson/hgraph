@@ -171,6 +171,10 @@ namespace hgraph::distributed
      */
     inline constexpr std::string_view checkpoint_frame{"@hgraph-checkpoint:1"};
     inline constexpr std::string_view restore_frame_prefix{"@hgraph-restore:1"};
+    /** A ``spawn_`` stage answers its start before any cycle, so it cannot
+     * wait to see whether its first frame is a restore: the owner says which,
+     * with this frame or a restore frame, straight after the boundary identity. */
+    inline constexpr std::string_view start_frame{"@hgraph-start:1"};
 
     [[nodiscard]] HGRAPH_EXPORT std::string encode_restore_frame(std::string_view image);
     /** The image a restore frame carries, or nullopt when ``frame`` is not one. */

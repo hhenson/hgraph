@@ -127,6 +127,86 @@ namespace
         static void compose(Wiring &w, Port<S> value, Scalar<"trace", Trace *> trace)
         { wire<Capture<S>>(w, value, arg<"trace">(trace.value())); }
     };
+    // --- recovery (RFC 0039) -------------------------------------------------
+    // A pipeline ends in a sink that acts in a worker process. That effect is
+    // outside the recoverable contract, exactly as RFC 0023 says of any
+    // external effect, so the sink DECLARES support: it holds nothing a
+    // checkpoint needs. What recovery has to carry is the stage before it.
+    struct RecoverableCapture
+    {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{.supported = true, .captures_output = false};
+            return ops;
+        }
+        static void start(Scalar<"trace", Trace *> trace) { ++trace.value()->starts; trace.value()->save(); }
+        static void stop(Scalar<"trace", Trace *> trace) { ++trace.value()->stops; trace.value()->save(); }
+        static void eval(In<"value", TS<Int>, InputValidity::Unchecked> value, Scalar<"trace", Trace *> trace,
+                         DateTime time)
+        {
+            const auto &base = value.base();
+            trace.value()->samples.push_back({time, base.valid() ? base.value().to_string() : "<invalid>",
+                base.modified() ? base.delta_value().to_string() : "<invalid>", base.valid(), process_id()});
+        }
+    };
+    struct RecoverableSink
+    {
+        static void compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        { wire<RecoverableCapture>(w, value, arg<"trace">(trace.value())); }
+    };
+    using SpawnRunningState = TSB<"SpawnRunningState", Field<"total", TS<Int>>>;
+    /** State that a lost, repeated or re-ticked frame changes. */
+    struct SpawnAccumulate
+    {
+        static void eval(In<"value", TS<Int>> value, RecordableState<SpawnRunningState> state, Out<TS<Int>> out)
+        {
+            auto      total = state.field<"total">();
+            const Int next  = (total.valid() ? total.value().checked_as<Int>() : 0) + value.value();
+            total.set(next);
+            out.set(next);
+        }
+    };
+    struct AccumulateStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnAccumulate>(w, value).as<TS<Int>>(); }
+    };
+    /**
+     * Counts every tick of a side input. A restored pipeline already holds its
+     * input baselines; re-sending one would tick ``offset`` again and show here.
+     */
+    struct SpawnSideAccumulate
+    {
+        static void eval(In<"value", TS<Int>, InputValidity::Unchecked> value, In<"offset", TS<Int>, InputValidity::Unchecked> offset,
+                         RecordableState<SpawnRunningState> state, Out<TS<Int>> out)
+        {
+            auto total = state.field<"total">();
+            Int  next  = total.valid() ? total.value().checked_as<Int>() : 0;
+            if (offset.modified()) { next += offset.value(); }
+            total.set(next);
+            if (value.modified()) { out.set(next * 1000 + value.value()); }
+        }
+    };
+    struct SideStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value, NamedPort<"offset", TS<Int>> offset)
+        { return wire<SpawnSideAccumulate>(w, value, offset).as<TS<Int>>(); }
+    };
+    /** Holds its total in ordinary ``State``, which no checkpoint can see. */
+    struct SpawnForgetful
+    {
+        static void eval(In<"value", TS<Int>> value, State<Int> total, Out<TS<Int>> out)
+        {
+            total.modify() += value.value();
+            out.set(total.get());
+        }
+    };
+    struct ForgetfulStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnForgetful>(w, value).as<TS<Int>>(); }
+    };
+
     template <typename S>
     struct Identity
     {

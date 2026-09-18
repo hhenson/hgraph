@@ -268,6 +268,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_engine_control.cpp
     test_executor_activity.cpp
     test_spawn.cpp
+    test_spawn_checkpoint.cpp
     test_lower.cpp
     test_map.cpp
     test_dynamic_map_checkpoint.cpp

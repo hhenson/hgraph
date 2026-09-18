@@ -201,6 +201,16 @@ a nested ``map_``, ``mesh_`` or ``reduce`` included. Three things follow:
 * A worker that cannot capture fails the completed day, and one that refuses its
   image fails the start. Neither falls back to a fresh worker.
 
+``spawn_`` recovers on the same terms. Its stages are graphs in other
+processes, so its state is one image per stage, taken once the completed day has
+drained the pipeline; a restarted run raises each stage from its image and does
+not re-send the input baselines those stages already hold. Every stage has to be
+recoverable, and an unrecoverable one is refused at wiring, naming the stage.
+The pipeline ends in a sink that acts in a worker process. That effect is
+outside the recoverable contract, as any external effect is: recovery restores
+what the stages knew, and does not make what the sink did exactly-once. A sink
+node says so by declaring checkpoint support with nothing to capture.
+
 Count and duration ``TSW`` endpoints store one typed sequence of live samples
 and a parallel sequence of original timestamps. Storage and loading are linear
 in live samples; unused ring capacity and per-sample schemas are not serialized.

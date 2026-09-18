@@ -36,6 +36,10 @@ namespace hgraph_test
     {
         prepare();
         register_boundary<TS<Int>>();
+        register_plain<AccumulateStage, TS<Int>>();
+        register_plain<ForgetfulStage, TS<Int>>();
+        register_plain<SideStage, TS<Int>, TS<Int>>();
+        register_trace<RecoverableSink, TS<Int>>();
         register_boundary<SIGNAL>();
         register_boundary<TSS<Int>>();
         register_boundary<Dict>();
