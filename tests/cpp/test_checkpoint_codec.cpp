@@ -1,4 +1,6 @@
 #include <hgraph/runtime/checkpoint_codec.h>
+
+#include "checkpoint_v2_fixture.h"
 #include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -13,6 +15,7 @@
 
 #include <arrow/api.h>
 
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -373,33 +376,67 @@ TEST_CASE("checkpoint codec: a stored image is compressed and says how its value
     CHECK_THROWS_WITH(decode_component_checkpoint(resealed(later)), ContainsSubstring("revision"));
 }
 
+TEST_CASE("checkpoint codec: what an image of a keyed collection costs", "[.][image-size]")
+{
+    // Version 2 wrote 19.3 bytes per key for this endpoint (1,931,274 bytes at
+    // 100,000 keys): an eight-byte key, an eight-byte value and the rest.
+    std::printf("%10s %-22s %12s %10s\n", "keys", "image", "bytes", "B/key");
+    for (const std::int64_t keys : {10'000, 100'000})
+    {
+        const auto checkpoint = keyed_component(keys);
+        const std::pair<const char *, CheckpointImageOptions> forms[] = {
+            {"Compact, uncompressed", {BinaryProfile::Compact, BinaryCompression::None}},
+            {"Compact, zstd", {BinaryProfile::Compact, BinaryCompression::Zstd}},
+            {"Compact, lz4", {BinaryProfile::Compact, BinaryCompression::Lz4}},
+            {"Fast (transport)", CheckpointImageOptions::transport()},
+        };
+        for (const auto &[name, options] : forms)
+        {
+            std::string bytes;
+            encode_component_checkpoint(checkpoint, bytes, options);
+            REQUIRE(decode_component_checkpoint(bytes).graph.nodes.front().output->keys.size() ==
+                    static_cast<std::size_t>(keys));
+            std::printf("%10lld %-22s %12zu %10.2f\n", static_cast<long long>(keys), name, bytes.size(),
+                        static_cast<double>(bytes.size()) / static_cast<double>(keys));
+        }
+    }
+}
+
 TEST_CASE("checkpoint codec: a version 2 image is still read", "[checkpoint][codec]")
 {
-    // Version 2 (RFC 0039) had no profile, no revision and no block: its tables
-    // and body followed the header, as Compact revision 0. Rebuilt here from an
-    // uncompressed version 3 image, which differs by exactly those bytes. Once
-    // version 2 has shipped in a release, pin real bytes beside this, as
-    // ``checkpoint_v1_fixture.h`` does for version 1.
-    const auto checkpoint = keyed_component(9);
-    std::string v3;
-    encode_component_checkpoint(checkpoint, v3, CheckpointImageOptions{BinaryProfile::Compact, BinaryCompression::None});
-    REQUIRE(binary_profile_revision(BinaryProfile::Compact) == 0);
-    REQUIRE(v3[component_header_bytes + 2] == 0);   // block codec: none
-    // profile, revision, codec, then the block's varint length.
-    std::size_t added = 3;
-    while (static_cast<unsigned char>(v3[component_header_bytes + added]) >= 0x80) { ++added; }
-    ++added;
+    // Real bytes from the last build that wrote version 2: no profile, no
+    // revision, no block, values field-wise. See the fixture for what it holds.
+    const auto bytes = test::checkpoint_v2_fixture();
+    REQUIRE(bytes.size() == 407);
+    REQUIRE(bytes[24] == 2);   // the version follows the marker
 
-    std::string v2 = v3.substr(0, component_header_bytes) + v3.substr(component_header_bytes + added);
-    v2[24] = 2;   // the version follows the marker
-    v2 = resealed(std::move(v2));
+    const auto restored = decode_component_checkpoint(bytes);
+    CHECK(restored.component_id == "codec");
+    CHECK(restored.graph_signature == "codec-signature");
+    CHECK(restored.cut == MIN_ST + MIN_TD * 5);
+    CHECK(restored.completed_until == MIN_ST + MIN_TD * 6);
+    REQUIRE(restored.graph.nodes.size() == 1);
+    const auto &node = restored.graph.nodes.front();
+    CHECK(node.id == "codec:keyed");
+    REQUIRE(node.output.has_value());
+    REQUIRE(node.output->keys.size() == 9);
+    REQUIRE(node.output->children.size() == 9);
+    for (std::int64_t key = 0; key < 9; ++key)
+    {
+        const auto index = static_cast<std::size_t>(key);
+        CHECK(node.output->keys[index].view().checked_as<Int>() == key * 1000 + 7);
+        CHECK(node.output->children[index].payload.view().checked_as<Float>() == static_cast<double>(key) * 0.5);
+    }
+    REQUIRE(node.recordable_state.has_value());
+    CHECK(node.recordable_state->payload.view().checked_as<Str>() == "version two");
 
-    const auto restored = decode_component_checkpoint(v2);
-    const auto &output = *restored.graph.nodes.front().output;
-    REQUIRE(output.children.size() == 9);
-    CHECK(output.keys[8].view().checked_as<Int>() == 8);
-    CHECK(output.children[8].payload.view().checked_as<Float>() == 4.0);
-    CHECK(restored.component_id == checkpoint.component_id);
+    // What it says survives being written again, as version 3.
+    std::string rewritten;
+    encode_component_checkpoint(restored, rewritten);
+    CHECK(rewritten[24] == 3);
+    const auto again = decode_component_checkpoint(rewritten);
+    CHECK(again.graph.nodes.front().output->keys[8].view().checked_as<Int>() == 8007);
+    CHECK(again.graph.nodes.front().recordable_state->payload.view() == node.recordable_state->payload.view());
 }
 
 TEST_CASE("checkpoint codec: a graph image travels without a component", "[checkpoint][codec]")

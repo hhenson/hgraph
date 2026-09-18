@@ -56,9 +56,11 @@ TEST_CASE("binary session: a value that needs no table pays two bytes for one")
     const Value value{Int{42}};
 
     const std::string bytes = encode_binary_frame(value.view());
-    // profile, revision, four bytes of payload length, the payload, and an
-    // empty value table and endpoint table. The reader's schema is not named.
-    CHECK(bytes.size() == 6 + to_binary_string(value.view()).size() + 2);
+    // profile, revision, four bytes of payload length, the payload -- a small
+    // integer is one byte under Compact -- and an empty value table and
+    // endpoint table. The reader's schema is not named.
+    CHECK(bytes.size() == 6 + 1 + 2);
+    CHECK(encode_binary_frame(value.view(), BinaryProfile::Fast).size() == 6 + 8 + 2);
     CHECK(decode_binary_frame(value.view().schema(), bytes).view() == value.view());
 }
 
@@ -119,9 +121,13 @@ TEST_CASE("binary session: boxes of one schema share one table entry")
     check_framed(one);
     check_framed(two);
 
-    // The second box costs its tag and its eight bytes, less the one byte an
-    // empty box took: the schema it names is already in the table.
-    CHECK(encode_binary_frame(two.view()).size() == encode_binary_frame(one.view()).size() + 8);
+    // The second box costs its tag and its integer, less the one byte an empty
+    // box took: the schema it names is already in the table. The integer is
+    // eight bytes under Fast and one, as a varint, under Compact.
+    CHECK(encode_binary_frame(two.view(), BinaryProfile::Fast).size() ==
+          encode_binary_frame(one.view(), BinaryProfile::Fast).size() + 8);
+    CHECK(encode_binary_frame(two.view(), BinaryProfile::Compact).size() ==
+          encode_binary_frame(one.view(), BinaryProfile::Compact).size() + 1);
 }
 
 TEST_CASE("binary session: a full Any outside a session is refused by name")

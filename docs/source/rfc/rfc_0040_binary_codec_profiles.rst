@@ -319,16 +319,34 @@ moves its storage into the ``Value`` (``Value::AdoptStorage``).
 
 For bytes that are stored: checkpoints, ``ValueStore`` objects, recordings.
 
-* Integers and enum ordinals are zig-zag varints. Booleans in a sequence are
-  bit-packed.
-* A sequence of fixed-width atoms is a **column** with a one-byte encoding
-  chosen by the encoder from a single scan: ``raw``; ``varint``; ``delta``
-  (zig-zag varint of successive differences, which is what sorted keys and
-  timestamps want); ``constant``. Floating-point columns are ``raw`` or
-  ``constant``; they are left to block compression.
-* A sequence of bundles is columnar, as in ``Fast``, and each field column is
-  encoded independently.
-* A text column with few distinct values is a dictionary plus indices.
+Revision 1, as built:
+
+* An integer, a duration and an enum -- whose payload is its member's assigned
+  integer -- are zig-zag varints. An instant alone stays eight bytes, because
+  microseconds since the epoch are never small; it is still an integer, because
+  a column of instants is what delta encoding is for.
+* Wherever there is a **run of one fixed-width atom** -- a list, ring buffer,
+  queue or set, a map's keys or its values, one field of many rows, the keys of
+  a checkpointed collection -- it is a **column**: an encoding byte chosen from
+  one pass over the values, then the values. ``raw``; ``varint``; ``delta``
+  (the first value, then each step from the one before, which is what sorted
+  keys and timestamps want; differences wrap, so every pair has a step);
+  ``constant``; and ``bits`` for booleans, eight to the byte. Floating point is
+  ``raw`` or ``constant`` and is left to block compression.
+* A list of composite rows is columnar, as in ``Fast``, with each field's
+  column written for the rows that have it and encoded independently.
+* A text column is a dictionary and one index per row when few of its strings
+  are distinct; building it is abandoned as soon as it holds more than a
+  quarter of the rows. Lengths and indices are themselves integer columns.
+* A map with an unset value writes a presence bitmap and only the values that
+  are set.
+
+A format that writes values of one schema one after another asks for a **run**
+(``BoundBinaryConverter::write_run`` / ``read_run``): a column where the
+profile has one, each value in turn where it does not. RFC 0039 images write a
+collection's keys that way, which is where most of their uncompressed saving
+comes from.
+
 * The frame is **block compressed** through ``arrow::util::Codec`` -- Arrow is
   already a core dependency, so this adds none. Compression is **on by default
   for everything stored** (recordings, checkpoints, ``ValueStore`` objects):
@@ -354,11 +372,81 @@ uncompressed block is read in place, with no copy.
 
 RFC 0039 checkpoint images use it as **format version 3**: profile, revision,
 then one block holding the tables and the body, with the checksum over the
-compressed bytes. On the RFC 0039 benchmark endpoint (100,000-key
-``TSD[int, TS[float]]``) the stored image goes from 1,931,274 to **184,272
-bytes** with zstd, for about 1.9 ms more to encode and 2.8 ms more to decode.
-That endpoint's keys and values are synthetic and regular; real floating-point
-state will compress less.
+compressed bytes.
+
+Measured -- the RFC 0039 benchmark endpoint, a 100,000-key
+``TSD[int, TS[float]]`` (``hgraph_unit_tests '[image-size]'``,
+``hgraph_persistence_tests '[checkpoint-benchmark]'``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 20 20 20
+
+   * - image
+     - bytes
+     - bytes per key
+     - encode / decode
+   * - version 2 (field-wise, uncompressed)
+     - 1,931,274
+     - 19.3
+     - 2.9 / 7.6 ms
+   * - ``Compact`` 1, uncompressed
+     - 1,100,208
+     - 11.0
+     -
+   * - ``Compact`` 1, LZ4
+     - 401,025
+     - 4.0
+     -
+   * - ``Compact`` 1, zstd (the stored default)
+     - 81,191
+     - 0.81
+     - 3.7 / 8.1 ms
+   * - ``Fast`` 1 (transport)
+     - 1,800,207
+     - 18.0
+     -
+   * - hand-coded record
+     - 2,400,008
+     - 24.0
+     - 2.2 / 8.5 ms
+
+That endpoint's keys are consecutive and its values regular, which flatters
+both the delta column and zstd; real floating-point state will compress less.
+The uncompressed figure is the honest one for the encoding itself: 43% smaller
+than version 2, all of it from the keys.
+
+And the value codec alone, field-wise against ``Compact`` 1
+(``hgraph_unit_tests '[codec-benchmark]'``):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 24 23 23
+
+   * - shape
+     - bytes
+     - encode
+     - decode
+   * - ``list<int>`` x 1,000,000
+     - 8,000,003 -> 1,000,004
+     - 7.3 -> 7.5 ms
+     - 24.0 -> 2.1 ms
+   * - ``list<float>`` x 1,000,000
+     - 8,000,003 -> 8,000,004
+     - 7.5 -> 2.7 ms
+     - 24.4 -> 0.21 ms
+   * - ``list<row6>`` x 100,000
+     - 3,980,003 -> 2,012,807
+     - 6.0 -> 4.6 ms
+     - 33.6 -> 3.3 ms
+   * - ``map<int,float>`` x 100,000
+     - 1,700,003 -> 900,006
+     - 1.2 -> 1.4 ms
+     - 7.0 -> 0.81 ms
+
+The one case that is not smaller is a column of floating point, which costs its
+encoding byte: one byte more than today, per column. Raw output for all of the
+above is in ``benchmarks/results/rfc0040-stage3-20260918-macos.md``.
 
 Choosing
 ~~~~~~~~
@@ -463,11 +551,24 @@ Compatibility
 -------------
 
 The RFC 0017 field-wise encoding is **revision 0** of both profiles, so nothing
-already written changes meaning. It stays readable wherever bytes were stored,
-which is RFC 0039 version 2 images and nothing else -- ``dmap_`` and ``spawn``
-payloads never outlive a run. A version 2 image has no profile or revision in
-its header and is read as ``Compact`` revision 0; the header gains both as
-format version 3 at stage 3, and version 2 remains readable.
+already written changes meaning. ``Fast`` is at revision 1 (stage 2) and
+``Compact`` at revision 1 (stage 3). ``bind_binary_converter(meta, profile,
+revision)`` binds a stated revision, which is what a reader of stored bytes
+needs; a revision later than the build writes is refused by number. Every
+``Compact`` revision stays readable, because it was stored.
+
+**The functions that name no profile are pinned to revision 0.**
+``bind_binary_converter(meta)``, ``to_binary_string`` and ``from_binary_string``
+have no frame to record a revision in, so their bytes are the ones they have
+always produced and never move when a profile's do. Code that wants a profile's
+current form names the profile. (Making them mean "``Compact``, current"
+silently changed the bytes under every existing caller, and was caught by tests
+that build field-wise bytes by hand.)
+
+RFC 0039 images: version 2 has no profile or revision in its header and is read
+as ``Compact`` revision 0; version 3 records both. Real version 2 bytes, written
+by the last build that produced them, are pinned in
+``tests/cpp/checkpoint_v2_fixture.h``.
 
 ``BinaryConverter`` gains no field and keeps its size; its write function now
 takes the ``BinaryWriter`` cursor rather than a bare string, and the string
@@ -492,7 +593,9 @@ Stages
    construction on read. ``dmap_`` and ``spawn`` switch to it. **Done**, as
    ``Fast`` revision 1: ``BoundarySlots`` and ``BoundaryTransfer`` bind for it.
 3. ``Compact``: integer and enum varints, adaptive columns, text dictionaries,
-   optional block compression. Checkpoints and stores switch to it.
+   block compression. **Done** as ``Compact`` revision 1 and image format
+   version 3; checkpoint images are written with it. ``ValueStore`` switches
+   at stage 5, with the rest of the JSON retirement.
 4. Python objects: the bridge hook, the bind-time warning, ``PickledObject``
    pass-through, ``PythonOnly`` endpoint capture, ``register_binary_atom`` and
    the wiring-time refusal of a native atom with no wire form.

@@ -79,6 +79,12 @@ namespace hgraph
         converter.write(view, writer);
     }
 
+    void BinaryEncodeSession::write_run(std::size_t index, std::span<const Value> values, std::string &out)
+    {
+        BinaryWriter writer{out, this};
+        converter_at(index).write_run(values, writer);
+    }
+
     void BinaryEncodeSession::write_tables(std::string &out) const { impl_->schemas.write(out); }
 
     // --- decode -------------------------------------------------------------
@@ -86,20 +92,30 @@ namespace hgraph
     struct BinaryDecodeSession::Impl
     {
         BinaryProfile profile{BinaryProfile::Compact};
+        std::uint8_t revision{0};
         SchemaTableReader schemas{};
         // Bound on first use: an image names every schema its endpoints have,
         // and a reader that wants one of them should not pay to bind them all.
         std::vector<BoundBinaryConverter> converters{};
     };
 
-    BinaryDecodeSession::BinaryDecodeSession(BinaryProfile profile) : impl_(std::make_unique<Impl>())
+    BinaryDecodeSession::BinaryDecodeSession(BinaryProfile profile)
+        : BinaryDecodeSession(profile, binary_profile_revision(profile))
+    {
+    }
+
+    BinaryDecodeSession::BinaryDecodeSession(BinaryProfile profile, std::uint8_t revision)
+        : impl_(std::make_unique<Impl>())
     {
         impl_->profile = profile;
+        impl_->revision = revision;
     }
 
     BinaryDecodeSession::~BinaryDecodeSession() = default;
 
     BinaryProfile BinaryDecodeSession::profile() const noexcept { return impl_->profile; }
+
+    std::uint8_t BinaryDecodeSession::revision() const noexcept { return impl_->revision; }
 
     void BinaryDecodeSession::read_tables(BinaryReader &reader)
     {
@@ -117,7 +133,10 @@ namespace hgraph
                                                  impl_->converters.size()));
         }
         auto &converter = impl_->converters[index];
-        if (!converter) { converter = bind_binary_converter(impl_->schemas.value_at(index), impl_->profile); }
+        if (!converter)
+        {
+            converter = bind_binary_converter(impl_->schemas.value_at(index), impl_->profile, impl_->revision);
+        }
         return converter;
     }
 
@@ -135,14 +154,6 @@ namespace hgraph
     }
 
     // --- frame --------------------------------------------------------------
-
-    std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept
-    {
-        // Revision 0 of either profile is the RFC 0017 field-wise encoding.
-        // Fast 1 (RFC 0040 stage 2): maps of fixed-width keys and values are
-        // two blocks, and a list of composite rows is written by column.
-        return profile == BinaryProfile::Fast ? 1 : 0;
-    }
 
     void encode_binary_frame(const ValueView &view, BinaryProfile profile, std::string &out)
     {
@@ -186,7 +197,7 @@ namespace hgraph
         if (meta == nullptr) { throw std::logic_error("binary codec: null schema"); }
         const BinaryProfile profile = binary_frame_profile(bytes);
         const auto revision = static_cast<std::uint8_t>(bytes[1]);
-        if (revision != binary_profile_revision(profile))
+        if (revision > binary_profile_revision(profile))
         {
             throw std::runtime_error(fmt::format("binary codec: frame is {} revision {}, this build reads revision {}",
                                                  profile_name(profile), revision,
@@ -204,11 +215,11 @@ namespace hgraph
         BinaryReader reader{bytes, frame_header_bytes, limits};
         BinaryReader values = reader.subreader(payload);
 
-        BinaryDecodeSession session{profile};
+        BinaryDecodeSession session{profile, revision};
         session.read_tables(reader);
         if (reader.remaining() != 0) { throw std::runtime_error("binary codec: trailing bytes after a frame"); }
 
-        Value result = session.read(bind_binary_converter(meta, profile), values);
+        Value result = session.read(bind_binary_converter(meta, profile, revision), values);
         if (values.remaining() != 0) { throw std::runtime_error("binary codec: trailing bytes after one value"); }
         return result;
     }

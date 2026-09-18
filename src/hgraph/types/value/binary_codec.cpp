@@ -22,6 +22,7 @@
 #include <ankerl/unordered_dense.h>
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -757,6 +758,17 @@ namespace hgraph
             }
         };
 
+        /** True for an atom that travels as fixed-width bytes, under either profile. */
+        [[nodiscard]] bool is_fixed_atom(const BinaryConverter &converter) noexcept;
+        // ``Compact``'s column forms, defined with the rest of that profile below.
+        void write_column_block(const BinaryConverter &atom, std::string_view block, std::size_t count, std::string &out);
+        void read_column(const BinaryConverter &atom, BinaryReader &reader, std::size_t count, std::string &block);
+        void write_text_column(const std::vector<std::string_view> &texts, std::string &out);
+        [[nodiscard]] std::vector<std::string_view> read_text_column(BinaryReader &reader, std::size_t count);
+
+        // ``Compact`` writes each column for the rows that have the field, in
+        // its own encoding; ``Fast`` writes a block addressed by row.
+        template <bool Compact>
         void write_row_columns(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
             auto       &out = writer.out;
@@ -806,9 +818,19 @@ namespace hgraph
                 }
                 const auto present = [&](std::size_t index) { return !holes || fields.set(rows[index], field); };
 
-                if (child.atom_size != 0 && child.write_ == &write_atom)
+                if (is_fixed_atom(child))
                 {
                     const std::size_t width = child.atom_size;
+                    if constexpr (Compact)
+                    {
+                        std::string block;
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            if (present(index)) { block.append(static_cast<const char *>(fields.at(rows[index], field)), width); }
+                        }
+                        write_column_block(child, block, block.size() / std::max<std::size_t>(width, 1), out);
+                        continue;
+                    }
                     const std::size_t block_at = out.size();
                     out.resize_and_overwrite(block_at + block_bytes(count, width), [&](char *data, std::size_t size) {
                         char *to = data + block_at;
@@ -834,6 +856,17 @@ namespace hgraph
                     const auto text_at = [&](std::size_t index) -> const Str & {
                         return *static_cast<const Str *>(fields.at(rows[index], field));
                     };
+                    if constexpr (Compact)
+                    {
+                        std::vector<std::string_view> texts;
+                        texts.reserve(count);
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            if (present(index)) { texts.emplace_back(text_at(index)); }
+                        }
+                        write_text_column(texts, out);
+                        continue;
+                    }
                     std::size_t characters = 0;
                     const std::size_t lengths_at = out.size();
                     out.resize_and_overwrite(lengths_at + block_bytes(count, sizeof(std::uint32_t)),
@@ -873,6 +906,7 @@ namespace hgraph
             }
         }
 
+        template <bool Compact>
         Value read_row_columns(const BinaryConverter &self, BinaryReader &reader)
         {
             const auto &row_converter = *self.children[0];
@@ -905,11 +939,32 @@ namespace hgraph
                 const auto  present = [&](std::size_t index) {
                     return bitmap == nullptr || (std::to_integer<unsigned>(bitmap[index / 8]) & (1u << (index % 8))) != 0;
                 };
-
-                if (child.atom_size != 0 && child.write_ == &write_atom)
+                std::size_t present_count = count;
+                if (bitmap != nullptr)
                 {
-                    const auto        block = take_block(child, reader, count);
+                    present_count = 0;
+                    for (std::size_t index = 0; index < count; ++index) { present_count += present(index) ? 1 : 0; }
+                }
+
+                if (is_fixed_atom(child))
+                {
                     const std::size_t width = child.atom_size;
+                    if constexpr (Compact)
+                    {
+                        std::string block;
+                        read_column(child, reader, present_count, block);
+                        const char *from = block.data();
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            if (!present(index)) { continue; }
+                            void *row = builder.element_memory(index);
+                            copy_atom(static_cast<char *>(layout->field(row, field)), from, width);
+                            layout->mark_field(row, field);
+                            from += width;
+                        }
+                        continue;
+                    }
+                    const auto        block = take_block(child, reader, count);
                     const auto       *from = static_cast<const char *>(block.bytes);
                     for (std::size_t index = 0; index < count; ++index, from += width)
                     {
@@ -926,10 +981,24 @@ namespace hgraph
                 if (!destination) { throw std::logic_error("binary codec: row field binding is unresolved"); }
                 if (child.write_ == &write_string)
                 {
-                    const auto *lengths = reader.take(block_bytes(count, sizeof(std::uint32_t)));
                     // Checked once: the rows share a representation, and a
                     // default-constructed row holds a live, empty string.
                     static_cast<void>(ValueView{destination, layout->field(builder.element_memory(0), field)}.checked_as<Str>());
+                    if constexpr (Compact)
+                    {
+                        const auto  texts = read_text_column(reader, present_count);
+                        std::size_t from = 0;
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            if (!present(index)) { continue; }
+                            void *row = builder.element_memory(index);
+                            static_cast<Str *>(layout->field(row, field))->assign(texts[from]);
+                            layout->mark_field(row, field);
+                            ++from;
+                        }
+                        continue;
+                    }
+                    const auto *lengths = reader.take(block_bytes(count, sizeof(std::uint32_t)));
                     for (std::size_t index = 0; index < count; ++index)
                     {
                         std::uint32_t length = 0;
@@ -958,6 +1027,580 @@ namespace hgraph
             }
             ListStorage storage = builder.build_storage();
             return adopt_storage(result_binding, storage);
+        }
+
+        // --- Compact: atoms ------------------------------------------------------
+        // ``Compact`` (RFC 0040) is for bytes that are stored. An integer, a
+        // duration and an enum ordinal are almost always small, so each is a
+        // varint. An instant is not small -- microseconds since the epoch fill
+        // seven bytes -- so alone it stays eight bytes, but it is marked an
+        // integer because a column of instants is what delta encoding is for.
+        // Each form is its own function so that a column can tell, from the
+        // converter it was handed, what kind of atom it holds.
+
+        [[nodiscard]] inline std::uint64_t zigzag(std::int64_t value) noexcept
+        {
+            return (static_cast<std::uint64_t>(value) << 1) ^ static_cast<std::uint64_t>(value >> 63);
+        }
+
+        [[nodiscard]] inline std::int64_t unzigzag(std::uint64_t value) noexcept
+        {
+            return static_cast<std::int64_t>(value >> 1) ^ -static_cast<std::int64_t>(value & 1);
+        }
+
+        [[nodiscard]] inline std::int64_t load_int(const void *memory) noexcept
+        {
+            std::int64_t value;
+            std::memcpy(&value, memory, sizeof(value));
+            return value;
+        }
+
+        void write_int_atom(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
+        {
+            write_varint(zigzag(load_int(view.data())), writer.out);
+        }
+
+        Value read_int_atom(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const std::int64_t value = unzigzag(read_varint(reader));
+            Value              result{self.binding};
+            std::memcpy(result.begin_mutation().mutable_data(), &value, sizeof(value));
+            return result;
+        }
+
+        void write_instant_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            write_atom(self, view, writer);
+        }
+
+        void write_bool_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            write_atom(self, view, writer);
+        }
+
+        // An ordinal is read as the unsigned image of its storage, whatever the
+        // enum's own signedness, so every value round trips.
+        void write_ordinal_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            std::uint64_t ordinal = 0;
+            std::memcpy(&ordinal, view.data(), self.atom_size);
+            write_varint(ordinal, writer.out);
+        }
+
+        Value read_ordinal_atom(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const std::uint64_t ordinal = read_varint(reader);
+            if (self.atom_size < sizeof(ordinal) && (ordinal >> (8 * self.atom_size)) != 0)
+                throw std::runtime_error("binary codec: enum ordinal does not fit its storage");
+            Value result{self.binding};
+            std::memcpy(result.begin_mutation().mutable_data(), &ordinal, self.atom_size);
+            return result;
+        }
+
+        // --- Compact: a column of atoms ------------------------------------------
+        // Wherever ``Compact`` meets a run of one fixed-width atom -- a list, a
+        // set, a map's keys, one field of many rows -- it writes a column: an
+        // encoding byte chosen from one look at the values, then the values.
+        //
+        //   raw       the atoms back to back
+        //   varint    integers, each a zig-zag varint
+        //   delta     integers: the first, then each step from the one before --
+        //             what sorted keys and timestamps want
+        //   constant  one atom, when they are all the same
+        //   bits      booleans, eight to the byte
+        //
+        // Floating point is raw or constant; it is left to block compression.
+
+        enum class ColumnEncoding : std::uint8_t
+        {
+            Raw = 0,
+            Varint = 1,
+            Delta = 2,
+            Constant = 3,
+            Bits = 4,
+        };
+
+        enum class AtomClass : std::uint8_t
+        {
+            Opaque,
+            Integer,
+            Boolean,
+        };
+
+        [[nodiscard]] AtomClass atom_class(const BinaryConverter &atom) noexcept
+        {
+            if (atom.write_ == &write_int_atom || atom.write_ == &write_instant_atom) { return AtomClass::Integer; }
+            if (atom.write_ == &write_bool_atom) { return AtomClass::Boolean; }
+            return AtomClass::Opaque;
+        }
+
+        [[nodiscard]] inline std::size_t varint_bytes(std::uint64_t value) noexcept
+        {
+            std::size_t bytes = 1;
+            while (value >= 0x80)
+            {
+                value >>= 7;
+                ++bytes;
+            }
+            return bytes;
+        }
+
+        /** Write ``count`` atoms of ``width`` bytes, already gathered into ``block``, as a column. */
+        void write_column_bytes(AtomClass kind, std::size_t width, std::string_view block, std::size_t count,
+                                std::string &out)
+        {
+            if (count == 0) { return; }
+            const bool constant = [&] {
+                for (std::size_t index = 1; index < count; ++index)
+                {
+                    if (std::memcmp(block.data(), block.data() + index * width, width) != 0) { return false; }
+                }
+                return true;
+            }();
+            if (constant && count > 1)
+            {
+                out.push_back(static_cast<char>(ColumnEncoding::Constant));
+                out.append(block.data(), width);
+                return;
+            }
+
+            switch (kind)
+            {
+                case AtomClass::Boolean: {
+                    out.push_back(static_cast<char>(ColumnEncoding::Bits));
+                    const std::size_t at = out.size();
+                    out.append(bitmap_bytes(count), '\0');
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        if (block[index] == 0) { continue; }
+                        out[at + index / 8] = static_cast<char>(static_cast<unsigned char>(out[at + index / 8]) |
+                                                                (1u << (index % 8)));
+                    }
+                    return;
+                }
+                case AtomClass::Integer: {
+                    // One pass prices both forms; differences wrap, so every
+                    // pair of values has a step and decoding adds it back.
+                    std::size_t  as_varint = 0;
+                    std::size_t  as_delta = 0;
+                    std::int64_t previous = 0;
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        const std::int64_t value = load_int(block.data() + index * width);
+                        as_varint += varint_bytes(zigzag(value));
+                        const auto step = static_cast<std::int64_t>(static_cast<std::uint64_t>(value) -
+                                                                    static_cast<std::uint64_t>(previous));
+                        as_delta += varint_bytes(zigzag(step));
+                        previous = value;
+                    }
+                    const std::size_t as_raw = block.size();
+                    if (as_delta < as_varint && as_delta < as_raw)
+                    {
+                        out.push_back(static_cast<char>(ColumnEncoding::Delta));
+                        previous = 0;
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            const std::int64_t value = load_int(block.data() + index * width);
+                            write_varint(zigzag(static_cast<std::int64_t>(static_cast<std::uint64_t>(value) -
+                                                                          static_cast<std::uint64_t>(previous))),
+                                         out);
+                            previous = value;
+                        }
+                        return;
+                    }
+                    if (as_varint < as_raw)
+                    {
+                        out.push_back(static_cast<char>(ColumnEncoding::Varint));
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            write_varint(zigzag(load_int(block.data() + index * width)), out);
+                        }
+                        return;
+                    }
+                    break;
+                }
+                case AtomClass::Opaque: break;
+            }
+            out.push_back(static_cast<char>(ColumnEncoding::Raw));
+            out.append(block);
+        }
+
+        void write_column_block(const BinaryConverter &atom, std::string_view block, std::size_t count, std::string &out)
+        {
+            write_column_bytes(atom_class(atom), atom.atom_size, block, count, out);
+        }
+
+        /** Gather ``count`` atoms through ``atom_at`` and write them as a column. */
+        template <typename AtomAt>
+        void write_column(const BinaryConverter &atom, std::size_t count, AtomAt &&atom_at, std::string &out)
+        {
+            std::string block;
+            append_block(block, count, atom.atom_size, std::forward<AtomAt>(atom_at));
+            write_column_block(atom, block, count, out);
+        }
+
+        /** Read a column of ``count`` atoms into ``block``, as the atoms back to back. */
+        void read_column_bytes(AtomClass kind, std::size_t width, BinaryReader &reader, std::size_t count,
+                               std::string &block)
+        {
+            block.clear();
+            if (count == 0) { return; }
+            reader.consume_work(count);
+            const auto encoding = std::to_integer<std::uint8_t>(*reader.take(1));
+            const auto        check_boolean = [&](const std::byte *bytes, std::size_t values) {
+                if (kind != AtomClass::Boolean) { return; }
+                for (std::size_t index = 0; index < values; ++index)
+                {
+                    if (std::to_integer<unsigned>(bytes[index]) > 1)
+                        throw std::runtime_error("binary codec: invalid boolean representation");
+                }
+            };
+            switch (static_cast<ColumnEncoding>(encoding))
+            {
+                case ColumnEncoding::Raw: {
+                    const auto *bytes = reader.take(block_bytes(count, width));
+                    check_boolean(bytes, count);
+                    block.assign(reinterpret_cast<const char *>(bytes), count * width);
+                    return;
+                }
+                case ColumnEncoding::Constant: {
+                    const auto *bytes = reader.take(width);
+                    check_boolean(bytes, 1);
+                    block.resize(block_bytes(count, width));
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        std::memcpy(block.data() + index * width, bytes, width);
+                    }
+                    return;
+                }
+                case ColumnEncoding::Bits: {
+                    if (kind != AtomClass::Boolean) { break; }
+                    const auto *bits = reader.take(bitmap_bytes(count));
+                    block.resize(count);
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        block[index] = (std::to_integer<unsigned>(bits[index / 8]) & (1u << (index % 8))) != 0 ? '\1' : '\0';
+                    }
+                    return;
+                }
+                case ColumnEncoding::Varint:
+                case ColumnEncoding::Delta: {
+                    if (kind != AtomClass::Integer) { break; }
+                    const bool delta = static_cast<ColumnEncoding>(encoding) == ColumnEncoding::Delta;
+                    block.resize(block_bytes(count, width));
+                    std::int64_t previous = 0;
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        std::int64_t value = unzigzag(read_varint(reader));
+                        if (delta)
+                        {
+                            value = static_cast<std::int64_t>(static_cast<std::uint64_t>(previous) +
+                                                              static_cast<std::uint64_t>(value));
+                            previous = value;
+                        }
+                        std::memcpy(block.data() + index * width, &value, sizeof(value));
+                    }
+                    return;
+                }
+            }
+            throw std::runtime_error(fmt::format("binary codec: column encoding {} is not one for this atom", encoding));
+        }
+
+        void read_column(const BinaryConverter &atom, BinaryReader &reader, std::size_t count, std::string &block)
+        {
+            read_column_bytes(atom_class(atom), atom.atom_size, reader, count, block);
+        }
+
+        // Non-negative counts and positions, as a column of integers.
+        void write_size_column(const std::vector<std::int64_t> &values, std::string &out)
+        {
+            write_column_bytes(AtomClass::Integer, sizeof(std::int64_t),
+                               {reinterpret_cast<const char *>(values.data()), values.size() * sizeof(std::int64_t)},
+                               values.size(), out);
+        }
+
+        [[nodiscard]] std::vector<std::size_t> read_size_column(BinaryReader &reader, std::size_t count)
+        {
+            std::string block;
+            read_column_bytes(AtomClass::Integer, sizeof(std::int64_t), reader, count, block);
+            std::vector<std::size_t> values(count);
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                const std::int64_t value = load_int(block.data() + index * sizeof(std::int64_t));
+                if (value < 0) { throw std::runtime_error("binary codec: negative size in a column"); }
+                values[index] = static_cast<std::size_t>(value);
+            }
+            return values;
+        }
+
+        // --- Compact: a column of text -------------------------------------------
+        // The strings of one field across many rows repeat far more often than
+        // not -- a symbol, a venue, a status -- so when few are distinct the
+        // column is a dictionary and one index per row. The choice is made from
+        // the one pass that gathers them: the dictionary is abandoned as soon
+        // as it holds more than a quarter of the rows.
+
+        enum class TextEncoding : std::uint8_t
+        {
+            Plain = 0,
+            Dictionary = 1,
+        };
+
+        void write_text_run(const std::vector<std::string_view> &texts, std::string &out)
+        {
+            std::vector<std::int64_t> lengths;
+            lengths.reserve(texts.size());
+            std::size_t characters = 0;
+            for (const auto text : texts)
+            {
+                lengths.push_back(static_cast<std::int64_t>(text.size()));
+                characters += text.size();
+            }
+            write_size_column(lengths, out);
+            out.reserve(out.size() + characters);
+            for (const auto text : texts) { out.append(text); }
+        }
+
+        [[nodiscard]] std::vector<std::string_view> read_text_run(BinaryReader &reader, std::size_t count)
+        {
+            const auto lengths = read_size_column(reader, count);
+            std::vector<std::string_view> texts;
+            texts.reserve(count);
+            for (const auto length : lengths)
+            {
+                const auto *characters = reader.take(length);
+                texts.emplace_back(reinterpret_cast<const char *>(characters), length);
+            }
+            return texts;
+        }
+
+        void write_text_column(const std::vector<std::string_view> &texts, std::string &out)
+        {
+            if (texts.empty()) { return; }
+            const std::size_t limit = std::max<std::size_t>(16, texts.size() / 4);
+            ankerl::unordered_dense::map<std::string_view, std::int64_t> positions;
+            std::vector<std::string_view> entries;
+            std::vector<std::int64_t>     indices;
+            indices.reserve(texts.size());
+            bool dictionary = texts.size() >= 8;
+            for (std::size_t index = 0; dictionary && index < texts.size(); ++index)
+            {
+                const auto [entry, added] = positions.try_emplace(texts[index], static_cast<std::int64_t>(entries.size()));
+                if (added)
+                {
+                    entries.push_back(texts[index]);
+                    dictionary = entries.size() <= limit;
+                }
+                indices.push_back(entry->second);
+            }
+            if (!dictionary)
+            {
+                out.push_back(static_cast<char>(TextEncoding::Plain));
+                write_text_run(texts, out);
+                return;
+            }
+            out.push_back(static_cast<char>(TextEncoding::Dictionary));
+            write_varint(entries.size(), out);
+            write_text_run(entries, out);
+            write_size_column(indices, out);
+        }
+
+        /** The strings of a column, as views into the reader's bytes. */
+        [[nodiscard]] std::vector<std::string_view> read_text_column(BinaryReader &reader, std::size_t count)
+        {
+            if (count == 0) { return {}; }
+            reader.consume_work(count);
+            const auto encoding = std::to_integer<std::uint8_t>(*reader.take(1));
+            if (encoding == static_cast<std::uint8_t>(TextEncoding::Plain)) { return read_text_run(reader, count); }
+            if (encoding != static_cast<std::uint8_t>(TextEncoding::Dictionary))
+                throw std::runtime_error(fmt::format("binary codec: unknown text column encoding {}", encoding));
+            const auto entry_count = static_cast<std::size_t>(read_varint(reader));
+            reader.consume_work(entry_count);
+            const auto entries = read_text_run(reader, entry_count);
+            const auto indices = read_size_column(reader, count);
+            std::vector<std::string_view> texts;
+            texts.reserve(count);
+            for (const auto index : indices)
+            {
+                if (index >= entries.size()) { throw std::runtime_error("binary codec: text index is outside its dictionary"); }
+                texts.push_back(entries[index]);
+            }
+            return texts;
+        }
+
+        [[nodiscard]] ElementSpan block_span(const BinaryConverter &atom, const std::string &block, std::size_t count)
+        {
+            return ElementSpan{.bytes = block.data(), .size = count, .stride = atom.atom_size, .plan = atom.binding.plan()};
+        }
+
+        // --- Compact: containers of atoms ----------------------------------------
+
+        void write_column_sequence(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto *ops = specialized_view_detail::checked_indexed_ops(view.binding(), "binary codec");
+            const auto *memory = view.data();
+            const std::size_t count = ops->size(ops->context, memory);
+            write_varint(count, writer.out);
+            write_column(*self.children[0], count, [&](std::size_t index) {
+                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, memory, index))
+                    throw std::runtime_error("binary codec: non-nullable sequence contains an unset element");
+                return ops->element_at(ops->context, memory, index);
+            }, writer.out);
+        }
+
+        Value read_column_list(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            std::string block;
+            read_column(atom, reader, count, block);
+            ListStorage storage{atom.binding, block_span(atom, block, count)};
+            return adopt_storage(self.realization_bound ? self.binding : compact_list_type(atom.binding, *self.meta),
+                                 storage);
+        }
+
+        Value read_column_cyclic_buffer(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            if (count > self.meta->fixed_size)
+                throw std::runtime_error("binary codec: cyclic buffer exceeds declared capacity");
+            std::string block;
+            read_column(atom, reader, count, block);
+            CyclicBufferStorage storage{atom.binding, block_span(atom, block, count), 0};
+            return adopt_storage(self.realization_bound
+                                     ? self.binding
+                                     : compact_cyclic_buffer_type(atom.binding, self.meta->fixed_size),
+                                 storage);
+        }
+
+        Value read_column_queue(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            if (self.meta->fixed_size != 0 && count > self.meta->fixed_size)
+                throw std::runtime_error("binary codec: queue exceeds declared capacity");
+            std::string block;
+            read_column(atom, reader, count, block);
+            QueueStorage storage{atom.binding, block_span(atom, block, count)};
+            return adopt_storage(self.realization_bound ? self.binding
+                                                        : compact_queue_type(atom.binding, self.meta->fixed_size),
+                                 storage);
+        }
+
+        void write_column_set(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto        set = view.as_set();
+            const std::size_t count = set.size();
+            const auto       &atom = *self.children[0];
+            write_varint(count, writer.out);
+            std::string block;
+            block.reserve(block_bytes(count, atom.atom_size));
+            for (const auto element : set) { block.append(static_cast<const char *>(element.data()), atom.atom_size); }
+            if (block.size() != count * atom.atom_size)
+                throw std::logic_error("binary codec: set size disagrees with its elements");
+            write_column_block(atom, block, count, writer.out);
+        }
+
+        Value read_column_set(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            std::string block;
+            read_column(atom, reader, count, block);
+            SetStorage storage{atom.binding, block_span(atom, block, count)};
+            if (storage.size() != count) { throw std::runtime_error("binary codec: set repeats an element"); }
+            return adopt_storage(self.realization_bound ? self.binding : compact_set_type(atom.binding), storage);
+        }
+
+        // Keys column, presence flag and bitmap, then a values column holding
+        // only the values that are set.
+        void write_column_map(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            auto             &out = writer.out;
+            const auto        map = view.as_map();
+            const std::size_t count = map.size();
+            const auto       &key = *self.children[0];
+            const auto       &value = *self.children[1];
+            write_varint(count, out);
+
+            std::string keys;
+            std::string values;
+            std::string bitmap(bitmap_bytes(count), '\0');
+            std::size_t index = 0;
+            std::size_t present = 0;
+            for (const auto entry : map)
+            {
+                if (index == count) { throw std::logic_error("binary codec: map size disagrees with its entries"); }
+                keys.append(static_cast<const char *>(entry.first.data()), key.atom_size);
+                if (entry.second.has_value())
+                {
+                    bitmap[index / 8] = static_cast<char>(static_cast<unsigned char>(bitmap[index / 8]) | (1u << (index % 8)));
+                    values.append(static_cast<const char *>(entry.second.data()), value.atom_size);
+                    ++present;
+                }
+                ++index;
+            }
+            if (index != count) { throw std::logic_error("binary codec: map size disagrees with its entries"); }
+            write_column_block(key, keys, count, out);
+            out.push_back(present == count ? '\0' : '\1');
+            if (present != count) { out.append(bitmap); }
+            write_column_block(value, values, present, out);
+        }
+
+        Value read_column_map(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &key = *self.children[0];
+            const auto &value = *self.children[1];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            std::string keys;
+            read_column(key, reader, count, keys);
+            const auto flag = std::to_integer<unsigned>(*reader.take(1));
+            if (flag > 1) { throw std::runtime_error("binary codec: invalid map value presence flag"); }
+            std::vector<bool> validity;
+            std::size_t       present = count;
+            if (flag == 1)
+            {
+                const auto *bitmap = reader.take(bitmap_bytes(count));
+                validity.resize(count);
+                present = 0;
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    validity[index] = (std::to_integer<unsigned>(bitmap[index / 8]) & (1u << (index % 8))) != 0;
+                    present += validity[index] ? 1 : 0;
+                }
+            }
+            std::string set_values;
+            read_column(value, reader, present, set_values);
+            // The storage wants a value slot per key, so the unset ones are
+            // given a zeroed place between the ones that were written.
+            std::string values;
+            if (flag == 0) { values = std::move(set_values); }
+            else
+            {
+                values.assign(block_bytes(count, value.atom_size), '\0');
+                std::size_t from = 0;
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    if (!validity[index]) { continue; }
+                    std::memcpy(values.data() + index * value.atom_size, set_values.data() + from * value.atom_size,
+                                value.atom_size);
+                    ++from;
+                }
+            }
+            MapStorage storage{key.binding, value.binding, block_span(key, keys, count), block_span(value, values, count),
+                               std::move(validity)};
+            if (storage.size() != count) { throw std::runtime_error("binary codec: map repeats a key"); }
+            return adopt_storage(self.realization_bound ? self.binding : compact_map_type(key.binding, value.binding),
+                                 storage);
+        }
+
+        bool is_fixed_atom(const BinaryConverter &converter) noexcept
+        {
+            return converter.atom_size != 0 &&
+                   (converter.write_ == &write_atom || converter.write_ == &write_int_atom ||
+                    converter.write_ == &write_instant_atom || converter.write_ == &write_bool_atom ||
+                    converter.write_ == &write_ordinal_atom);
         }
 
         // --- Any -----------------------------------------------------------
@@ -1348,6 +1991,7 @@ namespace hgraph
         std::unordered_map<const ValueTypeMetaData *, std::unique_ptr<BinaryConverter>> exact{};
         const BinaryConverter *root{};
         BinaryProfile profile{BinaryProfile::Compact};
+        std::uint8_t revision{0};
 
         /** True for an atom the block forms can carry: fixed width, trivially
             copyable, and stored at exactly its wire width. */
@@ -1383,8 +2027,8 @@ namespace hgraph
                     }
                     else if (is_column_row(*converter.children[0]))
                     {
-                        converter.write_ = &write_row_columns;
-                        converter.read_ = &read_row_columns;
+                        converter.write_ = &write_row_columns<false>;
+                        converter.read_ = &read_row_columns<false>;
                     }
                     return;
                 case ValueTypeKind::CyclicBuffer:
@@ -1406,6 +2050,78 @@ namespace hgraph
                     if (!is_block_atom(*converter.children[0]) || !is_block_atom(*converter.children[1])) { return; }
                     converter.write_ = &write_atom_map;
                     converter.read_ = &read_atom_map;
+                    return;
+                default: return;
+            }
+        }
+
+        /** ``Compact`` revision 1: varint atoms, and a column wherever there
+            is a run of one fixed-width atom. */
+        static void select_compact_forms(BinaryConverter &converter)
+        {
+            if (converter.meta->is_indirect() || converter.write_ == &write_polymorphic) { return; }
+            const auto column_atom = [](const BinaryConverter &child) {
+                const auto *plan = child.binding.plan();
+                return is_fixed_atom(child) && plan != nullptr && plan->trivially_copyable &&
+                       plan->layout.size == child.atom_size;
+            };
+            switch (converter.meta->value_kind())
+            {
+                case ValueTypeKind::Atomic:
+                    if (converter.write_ != &write_atom) { return; }
+                    // An enum's payload is its member's assigned integer, held
+                    // as an ``Int``, so it is an integer here too.
+                    if (converter.atom_size == sizeof(std::int64_t) &&
+                        (converter.meta == scalar_descriptor<Int>::value_meta() ||
+                         converter.meta == scalar_descriptor<TimeDelta>::value_meta() || converter.meta->is_enum()))
+                    {
+                        converter.write_ = &write_int_atom;
+                        converter.read_ = &read_int_atom;
+                    }
+                    else if (converter.atom_size == sizeof(std::int64_t) &&
+                             converter.meta == scalar_descriptor<DateTime>::value_meta())
+                    {
+                        converter.write_ = &write_instant_atom;
+                    }
+                    else if (converter.binding.ops() == &ops_for<Bool>()) { converter.write_ = &write_bool_atom; }
+                    else if (converter.meta->is_enum() && converter.atom_size <= sizeof(std::uint64_t))
+                    {
+                        converter.write_ = &write_ordinal_atom;
+                        converter.read_ = &read_ordinal_atom;
+                    }
+                    return;
+                case ValueTypeKind::List:
+                    if (converter.meta->has(ValueTypeFlags::Nullable)) { return; }
+                    if (column_atom(*converter.children[0]))
+                    {
+                        converter.write_ = &write_column_sequence;
+                        converter.read_ = &read_column_list;
+                    }
+                    else if (is_column_row(*converter.children[0]))
+                    {
+                        converter.write_ = &write_row_columns<true>;
+                        converter.read_ = &read_row_columns<true>;
+                    }
+                    return;
+                case ValueTypeKind::CyclicBuffer:
+                    if (!column_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_column_sequence;
+                    converter.read_ = &read_column_cyclic_buffer;
+                    return;
+                case ValueTypeKind::Queue:
+                    if (!column_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_column_sequence;
+                    converter.read_ = &read_column_queue;
+                    return;
+                case ValueTypeKind::Set:
+                    if (!column_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_column_set;
+                    converter.read_ = &read_column_set;
+                    return;
+                case ValueTypeKind::Map:
+                    if (!column_atom(*converter.children[0]) || !column_atom(*converter.children[1])) { return; }
+                    converter.write_ = &write_column_map;
+                    converter.read_ = &read_column_map;
                     return;
                 default: return;
             }
@@ -1437,7 +2153,8 @@ namespace hgraph
             {
                 for (const auto *child : binary_converter(meta).children) raw->children.push_back(build(child->meta));
             }
-            if (profile == BinaryProfile::Fast) { select_fast_forms(*raw); }
+            if (profile == BinaryProfile::Fast && revision >= 1) { select_fast_forms(*raw); }
+            if (profile == BinaryProfile::Compact && revision >= 1) { select_compact_forms(*raw); }
             // Sequence readers construct compact owning storage; publish the
             // matching binding so nested builders never pair inline plans
             // with compact container memory.
@@ -1459,15 +2176,44 @@ namespace hgraph
 
     BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta)
     {
-        return bind_binary_converter(meta, BinaryProfile::Compact);
+        // No profile named means the bytes this function has always produced:
+        // the RFC 0017 field-wise encoding, which is revision 0. Whoever calls
+        // it -- and ``to_binary_string`` and ``from_binary_string`` with it --
+        // has no frame to record a revision in, so its bytes must not move
+        // when a profile's do.
+        return bind_binary_converter(meta, BinaryProfile::Compact, 0);
+    }
+
+    std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept
+    {
+        // Revision 0 of either profile is the RFC 0017 field-wise encoding.
+        // Fast 1 (RFC 0040 stage 2): maps of fixed-width keys and values are
+        // two blocks, and a list of composite rows is written by column.
+        // Compact 1 (stage 3): integers, durations and enum ordinals are
+        // varints, and a run of one fixed-width atom is an encoded column.
+        static_cast<void>(profile);
+        return 1;
     }
 
     BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta, BinaryProfile profile)
     {
-        // Revision 0 of either profile is the field-wise encoding, so the two
-        // synthesize alike until RFC 0040's later stages give each its own.
+        return bind_binary_converter(meta, profile, binary_profile_revision(profile));
+    }
+
+    BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta, BinaryProfile profile,
+                                               std::uint8_t revision)
+    {
+        if (revision > binary_profile_revision(profile))
+        {
+            throw std::runtime_error(fmt::format("binary codec: {} revision {} is later than this build writes ({})",
+                                                 profile == BinaryProfile::Fast ? "Fast" : "Compact", revision,
+                                                 binary_profile_revision(profile)));
+        }
+        // A converter is synthesized field-wise and then, for a revision that
+        // has them, given that profile's forms where the shape allows one.
         auto plan = std::make_shared<BoundBinaryConverter::Impl>();
         plan->profile = profile;
+        plan->revision = revision;
         const auto *active = active_type_realization();
         plan->realization = active != nullptr ? active->shared_from_this()
                                              : TypeRealizationSnapshot::capture(TypeRegistry::instance());
@@ -1483,6 +2229,11 @@ namespace hgraph
     BinaryProfile BoundBinaryConverter::profile() const noexcept
     {
         return impl_ ? impl_->profile : BinaryProfile::Compact;
+    }
+
+    std::uint8_t BoundBinaryConverter::revision() const noexcept
+    {
+        return impl_ ? impl_->revision : std::uint8_t{0};
     }
 
     std::uint64_t BoundBinaryConverter::portable_hash(const ValueView &view) const
@@ -1501,6 +2252,50 @@ namespace hgraph
     {
         if (!impl_) throw std::logic_error("binary codec: unbound converter");
         impl_->root->write(view, writer);
+    }
+
+    void BoundBinaryConverter::write_run(std::span<const Value> values, BinaryWriter &writer) const
+    {
+        if (!impl_) throw std::logic_error("binary codec: unbound converter");
+        const auto &root = *impl_->root;
+        if (impl_->revision == 0 || !is_fixed_atom(root) || values.empty())
+        {
+            for (const auto &value : values) { root.write(value.view(), writer); }
+            return;
+        }
+        const auto atom_at = [&](std::size_t index) {
+            const auto view = values[index].view();
+            if (!view.has_value() || view.schema() != root.meta)
+                throw std::logic_error("binary codec: a run holds a value that is not of its schema");
+            return view.data();
+        };
+        if (impl_->profile == BinaryProfile::Fast) { append_block(writer.out, values.size(), root.atom_size, atom_at); }
+        else { write_column(root, values.size(), atom_at, writer.out); }
+    }
+
+    void BoundBinaryConverter::read_run(std::size_t count, BinaryReader &reader, std::vector<Value> &out) const
+    {
+        if (!impl_) throw std::logic_error("binary codec: unbound converter");
+        const auto &root = *impl_->root;
+        out.reserve(out.size() + count);
+        if (impl_->revision == 0 || !is_fixed_atom(root) || count == 0)
+        {
+            for (std::size_t index = 0; index < count; ++index) { out.push_back(root.read(reader)); }
+            return;
+        }
+        std::string block;
+        if (impl_->profile == BinaryProfile::Fast)
+        {
+            const auto span = take_block(root, reader, count);
+            block.assign(static_cast<const char *>(span.bytes), count * root.atom_size);
+        }
+        else { read_column(root, reader, count, block); }
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            Value value{root.binding};
+            std::memcpy(value.begin_mutation().mutable_data(), block.data() + index * root.atom_size, root.atom_size);
+            out.push_back(std::move(value));
+        }
     }
 
     Value BoundBinaryConverter::read(BinaryReader &reader) const

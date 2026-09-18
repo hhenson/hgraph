@@ -322,8 +322,10 @@ namespace hgraph
                     if (mixed_keys) { for (const auto &key : image.keys) { tagged_value(key); } }
                     else if (!image.keys.empty())
                     {
-                        const auto index = value_ref(key_schema);
-                        for (const auto &key : image.keys) { value(key, index); }
+                        // One schema for every key, so they are a run: a
+                        // column where the profile has one, and sorted keys
+                        // then cost their steps rather than their values.
+                        session.write_run(value_ref(key_schema), image.keys, body);
                     }
                     if (!dense)
                     {
@@ -480,8 +482,9 @@ namespace hgraph
         {
             BinaryReader &reader;
             std::vector<std::string> strings{};
-            explicit Decoder(BinaryReader &source, BinaryProfile profile = BinaryProfile::Compact)
-                : reader(source), session(profile)
+            explicit Decoder(BinaryReader &source, BinaryProfile profile = BinaryProfile::Compact,
+                             std::uint8_t revision = 0)
+                : reader(source), session(profile, revision)
             {
             }
 
@@ -692,8 +695,7 @@ namespace hgraph
                     {
                         const auto *key_schema = implied_key(image.schema);
                         if (key_schema == nullptr) { malformed("endpoint implies no key schema"); }
-                        const auto &converter = session.converter_at(value_index_of(key_schema));
-                        for (std::size_t index = 0; index < keys; ++index) { image.keys.push_back(converter.read(reader)); }
+                        session.converter_at(value_index_of(key_schema)).read_run(keys, reader, image.keys);
                     }
                     if (flags & ts_dense_slots)
                     {
@@ -893,9 +895,9 @@ namespace hgraph
         }
 
         [[nodiscard]] GraphCheckpointImage read_tables_and_body(BinaryReader &reader, DateTime base_time,
-                                                                BinaryProfile profile)
+                                                                BinaryProfile profile, std::uint8_t revision)
         {
-            Decoder decoder{reader, profile};
+            Decoder decoder{reader, profile, revision};
             const auto body_length = decoder.size();
             decoder.read_strings();
             decoder.read_schemas();
@@ -908,13 +910,13 @@ namespace hgraph
         [[nodiscard]] GraphCheckpointImage read_graph(BinaryReader &reader, DateTime base_time, std::uint64_t version)
         {
             // Version 2 predates profiles: Compact revision 0, no block.
-            if (version == 2) { return read_tables_and_body(reader, base_time, BinaryProfile::Compact); }
+            if (version == 2) { return read_tables_and_body(reader, base_time, BinaryProfile::Compact, 0); }
 
             const auto profile_byte = std::to_integer<std::uint8_t>(*reader.take(1));
             const auto revision = std::to_integer<std::uint8_t>(*reader.take(1));
             if (profile_byte > static_cast<std::uint8_t>(BinaryProfile::Fast)) { malformed("unknown value profile"); }
             const auto profile = static_cast<BinaryProfile>(profile_byte);
-            if (revision != binary_profile_revision(profile))
+            if (revision > binary_profile_revision(profile))
             {
                 malformed("values are " + std::string{profile == BinaryProfile::Fast ? "Fast" : "Compact"} +
                           " revision " + std::to_string(revision) + ", which this build does not read");
@@ -925,7 +927,7 @@ namespace hgraph
             const auto content = read_compressed_block(reader, storage);
             if (reader.remaining() != 0) { malformed("trailing data"); }
             BinaryReader inner{content, 0, limits_for(content.size())};
-            return read_tables_and_body(inner, base_time, profile);
+            return read_tables_and_body(inner, base_time, profile, revision);
         }
     }
 

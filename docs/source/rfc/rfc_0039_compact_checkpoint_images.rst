@@ -257,8 +257,11 @@ tables and body -- as one RFC 0040 compression block. A stored image is
 ``Fast`` and never compressed (``CheckpointImageOptions::stored()`` /
 ``transport()``). The checksum covers the compressed bytes, so damage is found
 before a claimed length is trusted, and the component header stays readable
-without decompressing anything. Version 2 images remain readable: no profile,
-no revision, no block, values as ``Compact`` revision 0.
+without decompressing anything. A collection's keys, which share one schema,
+are written as a run, so under ``Compact`` sorted keys cost their steps rather
+than their values. Version 2 images remain readable: no profile, no revision,
+no block, values as ``Compact`` revision 0; real version 2 bytes are pinned in
+``tests/cpp/checkpoint_v2_fixture.h``.
 
 Publication safety
 ------------------

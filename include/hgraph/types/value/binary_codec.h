@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <string>
 #include <string_view>
@@ -53,6 +54,15 @@ namespace hgraph
         Compact = 0,
         Fast = 1,
     };
+
+    /**
+     * The revision of ``profile``'s encoding that this build writes. A
+     * profile's name is stable while its bytes change, so whatever frames the
+     * bytes records the revision beside the profile. Revision 0 of either
+     * profile is the RFC 0017 field-wise encoding. Older revisions of
+     * ``Compact`` stay readable, because they were stored.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept;
 
     /** Decode-wide limits, including zero-byte values and nested collections. */
     struct BinaryDecodeLimits
@@ -176,29 +186,49 @@ namespace hgraph
         [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
         [[nodiscard]] ValueTypeRef binding() const noexcept;
         [[nodiscard]] BinaryProfile profile() const noexcept;
+        [[nodiscard]] std::uint8_t revision() const noexcept;
         /** Stable process-independent hash for worker assignment. */
         [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
         void write(const ValueView &view, std::string &out) const;
         void write(const ValueView &view, BinaryWriter &writer) const;
         [[nodiscard]] Value read(BinaryReader &reader) const;
 
+        /**
+         * A run of values of this schema that a format writes one after
+         * another -- the keys of a checkpointed collection. Under a revision
+         * with column forms a run of fixed-width atoms is one column, so
+         * sorted keys and timestamps delta-encode; under any other it is each
+         * value in turn, which is what the format wrote before. The count is
+         * the format's to record.
+         */
+        void write_run(std::span<const Value> values, BinaryWriter &writer) const;
+        void read_run(std::size_t count, BinaryReader &reader, std::vector<Value> &out) const;
+
       private:
         struct Impl;
         explicit BoundBinaryConverter(std::shared_ptr<const Impl> impl) : impl_(std::move(impl)) {}
         std::shared_ptr<const Impl> impl_{};
         friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
-                                                                        BinaryProfile profile);
+                                                                        BinaryProfile profile, std::uint8_t revision);
     };
 
-    /** Bound for ``Compact``: what every caller meant before profiles existed. */
+    /** Bound for the RFC 0017 field-wise encoding (``Compact`` revision 0): the
+        bytes this function has always produced. It, ``to_binary_string`` and
+        ``from_binary_string`` have no frame to record a revision in, so their
+        bytes never move; name a profile to get that profile's current form. */
     [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+    /** Bound for ``profile`` at the revision this build writes. */
     [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
                                                                           BinaryProfile profile);
+    /** Bound for a stated revision: what a reader of stored bytes needs.
+        Throws for a revision later than this build writes. */
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                          BinaryProfile profile, std::uint8_t revision);
 
     /** Clear the interned converters (registry reset). */
     HGRAPH_EXPORT void clear_binary_converters() noexcept;
 
-    /** Encode one value; the schema is the reader's, not the stream's. */
+    /** Encode one value, field-wise (RFC 0017); the schema is the reader's, not the stream's. */
     [[nodiscard]] HGRAPH_EXPORT std::string to_binary_string(const ValueView &view);
     HGRAPH_EXPORT void to_binary_string(const ValueView &view, std::string &out);
 

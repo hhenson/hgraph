@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -54,6 +55,8 @@ namespace hgraph
         /** Encode ``view`` under a converter the caller holds -- a schema the
             reader already knows, which therefore stays out of the table. */
         void write(const BoundBinaryConverter &converter, const ValueView &view, std::string &out);
+        /** Encode a run of values of entry ``index`` (``BoundBinaryConverter::write_run``). */
+        void write_run(std::size_t index, std::span<const Value> values, std::string &out);
         /** Append the tables. Call once every value has been written. */
         void write_tables(std::string &out) const;
 
@@ -67,11 +70,14 @@ namespace hgraph
     {
       public:
         explicit BinaryDecodeSession(BinaryProfile profile = BinaryProfile::Compact);
+        /** For bytes that say which revision they are. */
+        BinaryDecodeSession(BinaryProfile profile, std::uint8_t revision);
         ~BinaryDecodeSession();
         BinaryDecodeSession(const BinaryDecodeSession &) = delete;
         BinaryDecodeSession &operator=(const BinaryDecodeSession &) = delete;
 
         [[nodiscard]] BinaryProfile profile() const noexcept;
+        [[nodiscard]] std::uint8_t revision() const noexcept;
         /** Read the tables, resolving and checking every entry. */
         void read_tables(BinaryReader &reader);
         [[nodiscard]] const SchemaTableReader &schemas() const noexcept;
@@ -105,8 +111,6 @@ namespace hgraph
     // land while its name does not. Revision 0 of either profile is the RFC
     // 0017 field-wise encoding; ``Fast`` is at revision 1. A reader refuses a
     // revision it does not know, by number, rather than misreading it.
-
-    [[nodiscard]] HGRAPH_EXPORT std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept;
 
     HGRAPH_EXPORT void encode_binary_frame(const ValueView &view, BinaryProfile profile, std::string &out);
     [[nodiscard]] HGRAPH_EXPORT std::string encode_binary_frame(const ValueView &view,
