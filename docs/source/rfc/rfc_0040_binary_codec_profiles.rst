@@ -366,9 +366,20 @@ The compression block (``hgraph/types/value/binary_compression.h``) -- **done**:
 
 A block is stored as it is when it is under 256 bytes, when the codec is not in
 this build, or when compressing it would not make it smaller, so compression
-only ever shrinks. The raw length is the writer's claim, so a reader bounds it
-before allocating for it; a caller that checksums its bytes does so first. An
-uncompressed block is read in place, with no copy.
+only ever shrinks. An uncompressed block is read in place, with no copy.
+
+The raw length is the writer's claim and it sizes an allocation, so the **owner
+of the bytes bounds it**: ``read_compressed_block`` takes the most the block may
+expand to, with a deliberately modest default of 1 GiB. A checksum anyone can
+recompute detects damage and does not make the claim honest. A checkpoint image
+is bounded by ``checkpoint_image_default_max_bytes`` (4 GiB) unless the reader
+passes its own; a deployment with larger state says so.
+
+The same reasoning applies to a list of rows read by column, which allocates
+every row before it has read a field. The count is tested first: the work of
+every field of every row is charged, and the bytes present must be at least
+what those columns could occupy. The field-wise reader never needed this,
+because it built a row only once it had read one.
 
 RFC 0039 checkpoint images use it as **format version 3**: profile, revision,
 then one block holding the tables and the body, with the checksum over the

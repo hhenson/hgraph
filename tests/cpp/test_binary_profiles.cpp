@@ -12,6 +12,7 @@
 #include <hgraph/types/value/value_view.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -319,6 +320,20 @@ TEST_CASE("binary profiles: damaged Fast bytes are refused, not guessed", "[bina
     write_varint(50'000'000, bomb);
     BinaryReader bomb_reader{bomb};
     CHECK_THROWS(bind_binary_converter(row_list(1).view().schema(), BinaryProfile::Fast).read(bomb_reader));
+
+    // A count inside the work limit is still only a claim. The rows are
+    // allocated all at once, so the claim is tested against the bytes that
+    // are there before anything is allocated on the strength of it -- under
+    // either profile, and however generous the reader's work budget.
+    for (const auto profile : {BinaryProfile::Compact, BinaryProfile::Fast})
+    {
+        std::string claim;
+        write_varint(100'000, claim);
+        claim.append(64, '\0');
+        BinaryReader reader{claim, 0, BinaryDecodeLimits{.max_work = 1'000'000'000}};
+        CHECK_THROWS_WITH(bind_binary_converter(row_list(1).view().schema(), profile).read(reader),
+                          Catch::Matchers::ContainsSubstring("claims 100000 rows"));
+    }
 }
 
 namespace

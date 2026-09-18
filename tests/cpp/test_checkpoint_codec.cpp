@@ -370,6 +370,29 @@ TEST_CASE("checkpoint codec: a stored image is compressed and says how its value
     damaged[damaged.size() / 2] = static_cast<char>(damaged[damaged.size() / 2] ^ 0x10);
     CHECK_THROWS_WITH(decode_component_checkpoint(damaged), ContainsSubstring("checksum mismatch"));
 
+    // The checksum detects damage; anyone can recompute it, so it does not
+    // make the block's claimed length honest. A reader says how large an
+    // image it is prepared to hold, and a claim beyond that is refused before
+    // anything is allocated for it.
+    CHECK_THROWS_WITH(decode_component_checkpoint(stored, 1024), ContainsSubstring("more than the 1024 allowed"));
+    CHECK_NOTHROW(decode_component_checkpoint(stored, plain.size()));
+    if (default_binary_compression() != BinaryCompression::None)
+    {
+        // The block header is codec, stored length, then the raw length:
+        // rewrite that last varint to claim far more than any reader allows.
+        auto dishonest = stored;
+        std::size_t at = component_header_bytes + 3;
+        while (static_cast<unsigned char>(dishonest[at]) >= 0x80) { ++at; }   // skip the stored length
+        ++at;
+        std::size_t raw_end = at;
+        while (static_cast<unsigned char>(dishonest[raw_end]) >= 0x80) { ++raw_end; }
+        ++raw_end;
+        std::string huge;
+        write_varint(std::uint64_t{1} << 46, huge);   // 64 TiB
+        dishonest.replace(at, raw_end - at, huge);
+        CHECK_THROWS_WITH(decode_component_checkpoint(resealed(dishonest)), ContainsSubstring("more than the"));
+    }
+
     // A revision this build does not know is refused by number.
     auto later = plain;
     later[component_header_bytes + 1] = static_cast<char>(later[component_header_bytes + 1] + 9);

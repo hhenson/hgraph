@@ -38,8 +38,10 @@ namespace hgraph
     /** Below this a block is stored as it is: the codec's own framing costs more than it saves. */
     inline constexpr std::size_t binary_compression_threshold = 256;
 
-    /** What a reader will allocate for one block unless told otherwise. */
-    inline constexpr std::size_t binary_compression_default_max_raw_bytes = std::size_t{1} << 36;   // 64 GiB
+    /** What a reader will allocate for one block unless told otherwise. It is
+        deliberately modest: whoever owns the bytes knows how large they may
+        honestly be, and should say so. */
+    inline constexpr std::size_t binary_compression_default_max_raw_bytes = std::size_t{1} << 30;   // 1 GiB
 
     /** zstd when this build's Arrow provides it, LZ4 otherwise, none when neither. */
     [[nodiscard]] HGRAPH_EXPORT BinaryCompression default_binary_compression() noexcept;
@@ -58,9 +60,10 @@ namespace hgraph
      * decompressed and the reader's own buffer when it did not, so an
      * uncompressed block costs no copy.
      *
-     * The raw length is the writer's claim, so it is bounded before anything
-     * is allocated for it; a caller that checksums its bytes should do so
-     * before calling this.
+     * The raw length is the writer's claim, and it sizes an allocation, so it
+     * is bounded by ``max_raw_bytes`` before anything is allocated for it. A
+     * checksum that anyone can recompute does not make the claim honest: the
+     * owner of the bytes passes the most they could honestly expand to.
      */
     [[nodiscard]] HGRAPH_EXPORT std::string_view read_compressed_block(
         BinaryReader &reader, std::string &storage,

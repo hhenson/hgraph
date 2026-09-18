@@ -922,6 +922,36 @@ namespace hgraph
                 return adopt_storage(result_binding, empty);
             }
 
+            // The count is the writer's claim, and the rows are about to be
+            // allocated on the strength of it -- all of them, before a single
+            // field has been read. So the claim is tested first: the work of
+            // every field of every row is charged now, and the bytes present
+            // must be at least what these columns could possibly occupy. The
+            // field-wise reader never needed this, because it built a row only
+            // once it had read one.
+            const std::size_t claimed_fields = row_converter.children.size();
+            reader.consume_work(block_bytes(count, claimed_fields));
+            std::size_t least = claimed_fields;   // a presence flag per column
+            for (const auto *child : row_converter.children)
+            {
+                const bool text = child->write_ == &write_string;
+                if (!is_fixed_atom(*child) && !text) { continue; }
+                if constexpr (Compact)
+                {
+                    // Past the length a constant column may have, every
+                    // encoding spends at least a bit a row -- as does the
+                    // bitmap of a column that some rows lack.
+                    if (count > 1024) { least += bitmap_bytes(count); }
+                }
+                else { least += block_bytes(count, text ? sizeof(std::uint32_t) : child->atom_size); }
+            }
+            if (reader.remaining() < least)
+            {
+                throw std::runtime_error(fmt::format(
+                    "binary codec: a list claims {} rows, which its {} remaining bytes cannot hold", count,
+                    reader.remaining()));
+            }
+
             // Every row once, default-constructed with no field set; the
             // columns then fill them where they stand.
             builder.append_default(count);

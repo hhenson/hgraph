@@ -56,12 +56,24 @@ namespace hgraph
         }
     };
 
+    /**
+     * The most a stored image may expand to when it is decompressed, unless a
+     * reader says otherwise. The image's checksum detects damage; it is not a
+     * MAC, so an image from a store that someone else can write to may claim
+     * any size, and that claim sizes an allocation. A deployment with larger
+     * state passes its own bound.
+     */
+    inline constexpr std::size_t checkpoint_image_default_max_bytes = std::size_t{4} << 30;   // 4 GiB
+
     /** Append the encoded image to ``out``, as a stored image unless told
      * otherwise. Throws before writing a value it cannot represent. */
     HGRAPH_EXPORT void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out);
     HGRAPH_EXPORT void encode_component_checkpoint(const ComponentCheckpoint &checkpoint, std::string &out,
                                                    const CheckpointImageOptions &options);
     [[nodiscard]] HGRAPH_EXPORT ComponentCheckpoint decode_component_checkpoint(std::string_view bytes);
+    /** ``max_image_bytes`` bounds what the image may decompress to. */
+    [[nodiscard]] HGRAPH_EXPORT ComponentCheckpoint decode_component_checkpoint(std::string_view bytes,
+                                                                              std::size_t max_image_bytes);
 
     /** A graph image alone, as exchanged with a worker-hosted graph, so it is
      * a transport image unless told otherwise. Times are stored as offsets
@@ -73,6 +85,8 @@ namespace hgraph
     HGRAPH_EXPORT void encode_graph_checkpoint(const GraphCheckpointImage &graph, std::string &out,
                                                DateTime base_time, const CheckpointImageOptions &options);
     [[nodiscard]] HGRAPH_EXPORT GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes);
+    [[nodiscard]] HGRAPH_EXPORT GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes,
+                                                                            std::size_t max_image_bytes);
 
     /** True when ``bytes`` begin with this codec's marker, whatever the version. */
     [[nodiscard]] HGRAPH_EXPORT bool is_checkpoint_image(std::string_view bytes) noexcept;

@@ -907,7 +907,8 @@ namespace hgraph
             return graph;
         }
 
-        [[nodiscard]] GraphCheckpointImage read_graph(BinaryReader &reader, DateTime base_time, std::uint64_t version)
+        [[nodiscard]] GraphCheckpointImage read_graph(BinaryReader &reader, DateTime base_time, std::uint64_t version,
+                                                      std::size_t max_image_bytes)
         {
             // Version 2 predates profiles: Compact revision 0, no block.
             if (version == 2) { return read_tables_and_body(reader, base_time, BinaryProfile::Compact, 0); }
@@ -921,10 +922,12 @@ namespace hgraph
                 malformed("values are " + std::string{profile == BinaryProfile::Fast ? "Fast" : "Compact"} +
                           " revision " + std::to_string(revision) + ", which this build does not read");
             }
-            // The checksum has already covered these bytes, so the length the
-            // block claims is one this deployment wrote.
+            // The checksum has covered these bytes, which rules out damage and
+            // nothing else: anyone can recompute it. The length the block
+            // claims sizes an allocation, so it is bounded by what the reader
+            // of this image is prepared to hold.
             std::string storage;
-            const auto content = read_compressed_block(reader, storage);
+            const auto content = read_compressed_block(reader, storage, max_image_bytes);
             if (reader.remaining() != 0) { malformed("trailing data"); }
             BinaryReader inner{content, 0, limits_for(content.size())};
             return read_tables_and_body(inner, base_time, profile, revision);
@@ -962,6 +965,11 @@ namespace hgraph
 
     ComponentCheckpoint decode_component_checkpoint(std::string_view bytes)
     {
+        return decode_component_checkpoint(bytes, checkpoint_image_default_max_bytes);
+    }
+
+    ComponentCheckpoint decode_component_checkpoint(std::string_view bytes, std::size_t max_image_bytes)
+    {
         auto [reader, base_time, version] = open_image(bytes, ImageKind::Component);
         Decoder header{reader};
         ComponentCheckpoint checkpoint;
@@ -971,7 +979,7 @@ namespace hgraph
         checkpoint.completed_until = header.offset(base_time);
         if (checkpoint.component_id.empty() || checkpoint.completed_until <= checkpoint.cut)
             malformed("invalid completed component boundary");
-        checkpoint.graph = read_graph(reader, base_time, version);
+        checkpoint.graph = read_graph(reader, base_time, version, max_image_bytes);
         return checkpoint;
     }
 
@@ -992,7 +1000,12 @@ namespace hgraph
 
     GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes)
     {
+        return decode_graph_checkpoint(bytes, checkpoint_image_default_max_bytes);
+    }
+
+    GraphCheckpointImage decode_graph_checkpoint(std::string_view bytes, std::size_t max_image_bytes)
+    {
         auto [reader, base_time, version] = open_image(bytes, ImageKind::Graph);
-        return read_graph(reader, base_time, version);
+        return read_graph(reader, base_time, version, max_image_bytes);
     }
 }
