@@ -66,3 +66,4 @@ RFC catalogue
    rfc_0036_reference_transparency_owners
    rfc_0037_distributed_map
    rfc_0038_spawn_pipelines
+   rfc_0039_compact_checkpoint_images
