@@ -261,6 +261,44 @@ namespace hgraph::distributed
         return true;
     }
 
+    std::string encode_restore_frame(std::string_view image)
+    {
+        std::string out;
+        out.reserve(restore_frame_prefix.size() + image.size());
+        out.append(restore_frame_prefix).append(image);
+        return out;
+    }
+
+    std::optional<std::string_view> restore_frame_image(std::string_view frame) noexcept
+    {
+        if (!frame.starts_with(restore_frame_prefix)) { return std::nullopt; }
+        return frame.substr(restore_frame_prefix.size());
+    }
+
+    std::string encode_checkpoint_reply(std::string_view image)
+    {
+        std::string out(1, '\0');
+        out.append(image);
+        return out;
+    }
+
+    std::string encode_checkpoint_error(std::string_view error)
+    {
+        std::string out(1, '\1');
+        out.append(error);
+        return out;
+    }
+
+    std::string decode_checkpoint_reply(std::string_view frame)
+    {
+        if (frame.empty() || (frame.front() != '\0' && frame.front() != '\1'))
+        {
+            throw std::runtime_error("distributed protocol: malformed checkpoint reply");
+        }
+        if (frame.front() == '\1') { throw std::runtime_error(std::string{frame.substr(1)}); }
+        return std::string{frame.substr(1)};
+    }
+
 }  // namespace hgraph::distributed
 
 // --- the worker's behaviour ------------------------------------------------
@@ -268,6 +306,7 @@ namespace hgraph::distributed
 // is what a worker IS, and keeping it here means it is exercised by the core
 // test suite rather than only by whatever spawns a process.
 
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/distributed_child.h>
 
 namespace hgraph::distributed
@@ -278,7 +317,11 @@ namespace hgraph::distributed
         {
             manifest::CanonicalWriter writer;
             writer.varint(1);
-            writer.string_field(builder.scalars().view().as_bundle().at("slot").checked_as<Str>());
+            // The prepared output sink is a native node with a fixed slot and
+            // no scalars; every other boundary node names its slot.
+            const auto scalars = builder.scalars().view();
+            const bool named   = scalars.valid() && scalars.as_bundle().has_field("slot");
+            writer.string_field(named ? scalars.as_bundle().at("slot").checked_as<Str>() : Str{});
             const auto &bytes = writer.bytes();
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
@@ -295,6 +338,19 @@ namespace hgraph::distributed
         static const NodeCheckpointOps ops{
             .supported = true, .captures_output = false, .signature_impl = &boundary_checkpoint_signature};
         return ops;
+    }
+
+    std::string capture_worker_image(const DistributedChildHost &host)
+    {
+        std::string bytes;
+        encode_graph_checkpoint(host.capture(), bytes, host.graph().evaluation_time());
+        return bytes;
+    }
+
+    DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time, std::string_view image)
+    {
+        host.start_restored(start_time, decode_graph_checkpoint(image));
+        return host.next_scheduled_time();
     }
 
     CycleReply serve_cycle(const DistributedChildHost &host, const BoundarySlots &slots,

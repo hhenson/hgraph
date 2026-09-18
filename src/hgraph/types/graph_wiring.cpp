@@ -1302,6 +1302,7 @@ struct Wiring::Impl {
 
   std::deque<WiringInstance> instances{};
   std::string checkpoint_component{};
+  bool checkpoint_records_refusals{false};
   std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
@@ -1457,6 +1458,7 @@ Wiring Wiring::child_wiring() const {
   child.impl_->seed = impl_->seed;
   child.impl_->owns_seed = false;
   child.impl_->checkpoint_component = impl_->checkpoint_component;
+  child.impl_->checkpoint_records_refusals = impl_->checkpoint_records_refusals;
   return child;
 }
 
@@ -1471,6 +1473,14 @@ std::string Wiring::checkpoint_component(std::string component_id) {
 
 std::string_view Wiring::checkpoint_component() const noexcept {
   return impl_->checkpoint_component;
+}
+
+void Wiring::checkpoint_worker_graph() {
+  if (!impl_->instances.empty() || !impl_->checkpoint_component.empty()) {
+    throw std::logic_error("component checkpoint: a worker graph scope covers the whole graph");
+  }
+  impl_->checkpoint_component = "worker";
+  impl_->checkpoint_records_refusals = true;
 }
 
 void Wiring::checkpoint_component_output(const WiringPortRef &output) {
@@ -1528,6 +1538,22 @@ void Wiring::checkpoint_component_output(const WiringPortRef &output) {
 
 void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   if (impl_->checkpoint_component.empty()) { return; }
+  if (!impl_->checkpoint_records_refusals) {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+    return;
+  }
+  // A worker graph: what a component scope refuses is recorded, so the graph
+  // still wires and whoever tries to capture it is told why it cannot.
+  try {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+  } catch (const std::exception &error) {
+    builder.checkpoint_identity({.component = impl_->checkpoint_component,
+        .id = std::to_string(impl_->checkpoint_node_counts[impl_->checkpoint_component]++),
+        .refusal = error.what()});
+  }
+}
+
+NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   manifest::CanonicalWriter signature;
   const auto *schema = builder.type().schema();
   const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
@@ -1665,9 +1691,9 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
   if (!impl_->checkpoint_node_ids[impl_->checkpoint_component].insert(id).second) {
     throw std::invalid_argument("component checkpoint: duplicate node id '" + id + "'");
   }
-  builder.checkpoint_identity({impl_->checkpoint_component,
-      std::move(id),
-      std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()}});
+  return {.component = impl_->checkpoint_component,
+      .id = std::move(id),
+      .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()}};
 }
 
 GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }

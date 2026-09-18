@@ -254,6 +254,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_distributed_child.cpp
     test_distributed_map.cpp
     test_distributed_map_shapes.cpp
+    test_distributed_map_checkpoint.cpp
     test_distributed_protocol.cpp
     test_distributed_transport.cpp
     test_distributed_worker.cpp

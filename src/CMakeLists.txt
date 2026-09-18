@@ -138,6 +138,7 @@ set(HGRAPH_WIRING_SOURCES
 
 set(HGRAPH_STDLIB_SOURCES
     hgraph/runtime/distributed_map_wiring.cpp
+    hgraph/runtime/distributed_map_checkpoint.cpp
     hgraph/runtime/spawn.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp

@@ -175,13 +175,54 @@ namespace hgraph::distributed
                       DateTime start_time, DateTime end_time, GraphExecutorPhaseRunner phase_runner)
     {
         DistributedChildHost host{std::move(child), end_time, std::move(phase_runner)};
-        host.start(start_time);
 
+        // The first frame decides how the graph starts (RFC 0039), so it is
+        // read before the start. Nothing else about the ordinary path moves: a
+        // first frame that is not a restore starts the graph fresh and is then
+        // served as the cycle it is, and a channel that closes without a frame
+        // still starts and stops the graph, so its hooks run when they did.
+        bool        started = false;
         std::string payload;
         while (channel.receive(payload))
         {
-            // Decode failures are reported, not thrown: the caller is in
-            // another process and can only learn of them through a reply.
+            // Failures are reported, not thrown: the caller is in another
+            // process and can only learn of them through a reply.
+            if (const auto image = restore_frame_image(payload))
+            {
+                CycleReply reply;
+                try
+                {
+                    if (started) { throw std::logic_error("a restore must be the first frame"); }
+                    reply.next_scheduled_time = start_worker_restored(host, start_time, *image);
+                    started                   = true;
+                }
+                catch (const std::exception &error)
+                {
+                    reply       = CycleReply{};
+                    reply.error = fmt::format("distributed worker: {}", error.what());
+                }
+                channel.send(encode_reply(slots, reply));
+                // A refused image leaves nothing to serve: a partially
+                // restored worker is never started fresh instead.
+                if (!started) { return; }
+                continue;
+            }
+            if (!started)
+            {
+                host.start(start_time);
+                started = true;
+            }
+            if (payload == checkpoint_frame)
+            {
+                std::string reply;
+                try { reply = encode_checkpoint_reply(capture_worker_image(host)); }
+                catch (const std::exception &error)
+                {
+                    reply = encode_checkpoint_error(fmt::format("distributed worker: {}", error.what()));
+                }
+                channel.send(reply);
+                continue;
+            }
             CycleReply reply;
             try
             {
@@ -194,6 +235,7 @@ namespace hgraph::distributed
             }
             channel.send(encode_reply(slots, reply));
         }
+        if (!started) { host.start(start_time); }
         host.stop();
     }
 

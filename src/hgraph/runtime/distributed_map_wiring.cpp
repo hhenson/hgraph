@@ -1,11 +1,31 @@
 #include <hgraph/runtime/distributed_map_wiring.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
+#include <hgraph/manifest/canonical.h>
 
 namespace hgraph::distributed
 {
     struct distributed_keys_impl
     {
+        // Stateless: its owned key set is its whole state. The transfer is
+        // derived from the schema already in the identity, so the partition
+        // is what is left of the contract.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    const auto scalars = builder.scalars().view().as_bundle();
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    writer.varint(static_cast<std::uint64_t>(scalars.at("group").checked_as<Int>()));
+                    writer.varint(static_cast<std::uint64_t>(scalars.at("groups").checked_as<Int>()));
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
         static void eval(In<"keys", TSS<ScalarVar<"K">>> keys,
                          Scalar<"group", Int> group, Scalar<"groups", Int> groups,
                          Scalar<"transfer", BoundaryTransferPtr> transfer,
@@ -31,6 +51,7 @@ namespace hgraph::distributed
         if (groups == 0 || group >= groups) throw std::invalid_argument("dmap_: invalid worker partition");
         GlobalState worker_state;
         Wiring worker{worker_state, WiringOptions{.allow_push_sources = false, .inherit_global_context = false}};
+        worker.checkpoint_worker_graph();
         DistributedMapPlan plan;
         std::vector<WiringPortRef> positional;
         std::vector<std::pair<std::string, WiringPortRef>> named;
@@ -113,7 +134,11 @@ namespace hgraph::distributed
                 const auto input = inputs[0];
                 if (input.modified()) node.global_state().set("__hgraph_distributed_output", transfer->capture(input, false, group, filtered_groups));
             };
-            auto sink = NodeBuilder::native(std::move(meta), std::move(callbacks));
+            NodeTypeDescriptor descriptor;
+            descriptor.schema = std::move(meta);
+            descriptor.callbacks = std::move(callbacks);
+            descriptor.ops.checkpoint_ops = &boundary_sink_checkpoint_ops();
+            auto sink = NodeBuilder::from_descriptor(std::move(descriptor));
             sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(sink_input, {&result, 1}));
             static_cast<void>(worker.add_node(std::type_index(typeid(boundary_transfer_sink_impl)), std::move(sink), {&result, 1}, Value{}));
             plan.slots.add("__hgraph_distributed_output", BoundaryTransfer::payload_schema(), SlotDirection::Output);
@@ -168,14 +193,32 @@ namespace hgraph::distributed
 {
     struct prepared_dmap_lifecycle
     {
-        static void start(Scalar<"plan", DistributedMapPlanPtr> plan,
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .capture_impl = &dmap_checkpoint::capture,
+                .restore_impl = &dmap_checkpoint::restore,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    const auto &plan = *builder.scalars().view().as_bundle().at("plan").checked_as<DistributedMapPlanPtr>();
+                    return dmap_checkpoint::signature(plan.children, plan.config);
+                },
+            };
+            return ops;
+        }
+        static void start(Scalar<"plan", DistributedMapPlanPtr> plan, NodeView node,
                           EngineControlView engine, State<DistributedMapState> state, NodeScheduler scheduler)
         {
             auto config = plan.value()->config;
             config.start_time = engine.start_time();
             config.end_time = engine.end_time();
+            // Workers the coordinator restored start from their images
+            // (RFC 0039); the owner's own output was restored as any other.
+            const auto restored = dmap_checkpoint::claim(node);
             auto pool = WorkerPool::build_partitioned(plan.value()->children, plan.value()->slots,
-                plan.value()->recipes, config, plan.value()->phase_runner);
+                plan.value()->recipes, config, plan.value()->phase_runner,
+                restored ? std::span<const std::string>{restored->images} : std::span<const std::string>{});
+            if (restored) { pool->restore_output_extents(restored->extents); }
             state.modify().pool = pool.release();
             scheduler.schedule(engine.start_time());
         }

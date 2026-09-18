@@ -47,6 +47,9 @@ namespace hgraph
         std::string component{};
         std::string id{};
         std::string signature{};
+        /** Why this node cannot be checkpointed, recorded by a worker-graph
+         * scope where a component scope would have refused to wire it. */
+        std::string refusal{};
     };
 
     struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint

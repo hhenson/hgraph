@@ -10,6 +10,7 @@
 // the two programs, and the recipe key is a mangled name, so the two sides
 // would fail to agree on exactly the thing they exist to agree on.
 
+#include <hgraph/lib/std/std_operators.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/static_node.h>
@@ -125,6 +126,59 @@ namespace hgraph_test
     inline constexpr const char *awkward_recipe_name = "hgraph test recipe \"with\" spaces \xCE\xBB \xE6\xB5\x8B";
 
     using PreparedRow = TSB<"DistributedPreparedRow", Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
+
+    /** Per-key state held where a checkpoint can see it (RFC 0039). */
+    using PreparedRunningState = TSB<"DistributedPreparedRunningState", Field<"total", TS<Int>>>;
+    struct PreparedAccumulate
+    {
+        static constexpr auto name = "prepared_accumulate";
+        static void eval(In<"ts", TS<Int>> ts, RecordableState<PreparedRunningState> state, Out<TS<Int>> out)
+        {
+            auto      total = state.field<"total">();
+            const Int value = (total.valid() ? total.value().checked_as<Int>() : 0) + ts.value();
+            total.set(value);
+            out.set(value);
+        }
+    };
+    inline constexpr const char *prepared_accumulate_name = "prepared accumulate: recoverable";
+
+    /**
+     * A worker child that is itself a dynamic owner: a nested ``map_`` and a
+     * ``mesh_``, each with per-key recordable state, folded by ``reduce``.
+     * Everything a worker image can hold one level down.
+     */
+    struct PreparedAddPair
+    {
+        static constexpr auto name = "prepared_add_pair";
+        static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<Int>> rhs, Out<TS<Int>> out)
+        {
+            out.set(lhs.value() + rhs.value());
+        }
+    };
+    struct PreparedNestedOwners
+    {
+        static constexpr auto name = "prepared_nested_owners";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            using Inner = TSD<Str, TS<Int>>;
+            auto mapped = wire<stdlib::map_>(w, fn<PreparedAccumulate>(), ts).as<Inner>();
+            auto meshed = wire<stdlib::mesh_>(w, fn<PreparedAccumulate>(), ts).as<Inner>();
+            auto lhs    = wire<stdlib::reduce_>(w, fn<PreparedAddPair>(), mapped, Int{0}).as<TS<Int>>();
+            auto rhs    = wire<stdlib::reduce_>(w, fn<PreparedAddPair>(), meshed, Int{0}).as<TS<Int>>();
+            return wire<PreparedAddPair>(w, lhs, rhs).as<TS<Int>>();
+        }
+    };
+    inline constexpr const char *prepared_nested_name = "prepared nested owners: recoverable";
+
+    /** The same recoverable child over integer keys, for the typed ``dmap_`` form. */
+    struct AccumulateG
+    {
+        static constexpr auto name = "dmap_accumulate_g";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            return wire<PreparedAccumulate>(w, ts).as<TS<Int>>();
+        }
+    };
 
     struct PreparedAdd
     {

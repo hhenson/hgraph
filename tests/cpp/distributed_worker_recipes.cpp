@@ -13,6 +13,7 @@ namespace hgraph_test
         hgraph::distributed::register_distributed_map_worker<RunningTotalG, Int, Int, Int>();
         hgraph::distributed::register_distributed_map_worker<DelayedDoubleG, Int, Int, Int>();
         hgraph::distributed::register_distributed_map_worker<ArmSilentlyG, Int, Int, Int>();
+        hgraph::distributed::register_distributed_map_worker<AccumulateG, Int, Int, Int>();
 
         // The same child as RunningTotalG, under a name chosen to be awkward
         // to pass to a process rather than derived from a type.
@@ -23,6 +24,16 @@ namespace hgraph_test
                 {schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()},
                 {schema_descriptor<TS<Int>>::ts_meta()}}};
             auto plan = prepare_distributed_map(fn<PreparedAdd>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        }});
+        register_prepared_worker_recipe(prepared_accumulate_name, {+[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<PreparedAccumulate>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        }});
+        register_prepared_worker_recipe(prepared_nested_name, {+[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TSD<Str, TS<Int>>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<PreparedNestedOwners>(), inputs, {}, group, groups);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
         register_prepared_worker_recipe(prepared_keys_name, {+[](std::size_t group, std::size_t groups) {

@@ -372,6 +372,22 @@ as component members. The recipe's boundary source and sink nodes declare
 checkpoint support: a source's output is an ingress baseline (a later removal
 must reach a source that already holds the key); a sink is stateless.
 
+*Every* worker graph is wired that way, whether or not anything will ever
+capture it, because the caller and the worker process each wire the graph for
+themselves and must arrive at the same identities without being told to. A
+component scope refuses a node it cannot checkpoint, and that rule cannot apply
+here: most ``dmap_`` children are not recoverable and must still wire. So the
+worker scope (``Wiring::checkpoint_worker_graph``) *records* the refusal
+instead -- ``NodeCheckpointIdentity::refusal`` holds the wiring diagnostic --
+and the two places that need it read it:
+
+* the coordinator refuses to capture or restore a node that carries one, with
+  the recorded reason, so an unrecoverable worker fails the owner's capture;
+* a ``dmap_`` owner wired inside a *component* scope walks its worker plans,
+  nested child templates included, and refuses at wiring. A recoverable
+  component therefore still learns at wiring that a child cannot be recovered,
+  which is where a component learns everything else.
+
 Protocol
 ~~~~~~~~
 
@@ -379,14 +395,26 @@ Two control frames join the existing bootstrap frame and ``"stop"`` sentinel.
 Neither is a ``CycleRequest``:
 
 ``@hgraph-checkpoint:1``
-   Caller to worker, between cycles. The worker replies with one frame holding
-   ``encode_graph_checkpoint`` of its graph, or a ``CycleReply`` error.
+   Caller to worker, between cycles. The worker replies with one frame: a
+   status byte, then ``encode_graph_checkpoint`` of its graph (``0``) or the
+   rendered error (``1``).
 
-``@hgraph-restore:1`` followed by image bytes
+``@hgraph-restore:1`` followed by image bytes, in the same frame
    Caller to worker, after bootstrap and before the first cycle. The worker
    decodes, validates against its freshly wired graph and starts through
-   ``start_external_restored``. A worker started this way reports
-   ``next_scheduled_time`` from the restored schedule.
+   ``start_external_restored``. It answers with an ordinary ``CycleReply``:
+   ``next_scheduled_time`` from the restored schedule, or the error.
+
+A worker therefore reads its first frame *before* it starts its graph, which
+is the only change to the ordinary path: a first frame that is not a restore
+starts the graph fresh and is then served as the cycle it is, and a channel
+that closes without a frame still starts and stops the graph, so start and stop
+hooks run exactly when they did.
+
+A request opens with its evaluation time as eight little-endian bytes. Read
+that way, ``@hgraph-`` is a time about a hundred thousand years after
+``MAX_ET``, so a marker cannot be a request. The protocol test pins that
+rather than leaving it to arithmetic in a comment.
 
 After a restore the caller's ``BoundaryTransfer`` must not send its first-cycle
 full image: the worker already holds the baseline, and a full image would tick
@@ -397,7 +425,12 @@ the owner's restored state.
 ~~~~~~~~~
 
 The owner's checkpoint state is the ordered list of per-worker image blobs
-plus its output extents. Its owned output ``TSD`` is captured as an ordinary
+plus its output extents. Capture asks every worker before it waits for any, as
+a cycle does. Restore happens before the owner starts, and the workers are
+raised *in* its start, so the restored state is parked in the graph's
+``GlobalState`` under the owner node's own address and consumed by the start
+that follows. ``GlobalState`` owns it: a preparation that never reaches start
+leaves nothing to free. Its owned output ``TSD`` is captured as an ordinary
 output. Key placement is ``hash % workers`` and is not stored; the worker count
 and hosting mode are part of the owner's contract signature, so a changed
 worker count is an incompatible image rather than a silent re-partition.
@@ -495,7 +528,18 @@ Stages
    independent of checkpointing. Columnar leaf images remain open.
 3. **Whole-graph coordinator** and the two externally driven executor verbs.
    *Implemented.*
-4. **``dmap_`` recovery**, in-process then process hosting.
+4. **``dmap_`` recovery**, in-process then process hosting. *Implemented*, for
+   both the prepared and the typed ``dmap_`` forms. Building it found one
+   defect in the coordinator that predates it: a restored node's bootstrap
+   schedule was discarded from the graph's slot but not from the node's own
+   ``NodeScheduler`` state, so after a quiet first cycle the alarm was re-armed
+   in the past. ``dmap_`` was simply the first recoverable node to use a
+   ``NodeScheduler``. The "first-cycle full image" concern above did not
+   materialise. A transfer has no "first" state of its own: it sends a full
+   image when its input reports a sampled rebind, and a restored owner's input
+   does not. The acceptance tests would show it if it did -- every child
+   accumulates, so a baseline re-ticked into a worker changes the totals of
+   keys the cycle never touched.
 5. **``spawn`` recovery** at the completed boundary.
 
 Acceptance

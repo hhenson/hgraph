@@ -1,6 +1,7 @@
 #include <hgraph/runtime/graph_checkpoint_coordinator.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/manifest/canonical.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -319,6 +320,13 @@ namespace hgraph
             {
                 throw std::runtime_error("component checkpoint: node '" + std::string{node.schema()->name()} +
                     "' has no checkpoint identity; wire the whole graph inside a checkpoint scope");
+            }
+            // Recorded by a worker-graph scope, where a component scope
+            // would have refused to wire the node at all.
+            if (const auto &refusal = node.checkpoint_identity().refusal; !refusal.empty())
+            {
+                throw std::runtime_error("component checkpoint: node '" + node_id(node) + "' (" +
+                    std::string{node.schema()->name()} + ") cannot be checkpointed: " + refusal);
             }
             require_node(node);
         }
@@ -823,6 +831,15 @@ namespace hgraph
         if (!active_input_changed)
         {
             node.graph().clear_restored_schedule(node.node_index());
+            // A NodeScheduler holds the same bootstrap alarm in the node's own
+            // state. Left behind, it is re-armed after the node's next
+            // evaluation -- by then in the past, which the graph refuses.
+            if (node.has_scheduler())
+            {
+                auto &scheduler = node.scheduler_state();
+                scheduler.events.clear();
+                scheduler.tags.clear();
+            }
         }
     }
 }

@@ -13,6 +13,7 @@
 #include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/distributed_child.h>
 #include <hgraph/runtime/executor.h>
+#include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
@@ -104,6 +105,37 @@ namespace
         }
     };
     using Worker = KeyedWorker<"in">;
+
+    /**
+     * Arms a ``NodeScheduler`` alarm in ``start``, as a ``dmap_`` owner does.
+     * The alarm lives twice: in the graph's schedule slot and in the node's
+     * own scheduler state.
+     */
+    struct ArmedAtStart
+    {
+        static constexpr auto name = "worker_checkpoint_armed_at_start";
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{.supported = true};
+            return ops;
+        }
+        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now()); }
+        static void eval(In<"ts", TS<Int>, InputValidity::Unchecked> ts, NodeScheduler, Out<TS<Int>> out)
+        {
+            if (ts.modified()) { out.set(ts.value()); }
+        }
+    };
+    struct ArmedWorker
+    {
+        static constexpr auto name = "worker_checkpoint_armed_graph";
+        static void           compose(Wiring &w)
+        {
+            const auto enclosing = w.checkpoint_component("worker");
+            auto       in        = wire<boundary_source_impl, TS<Int>>(w, Str{"in"});
+            wire<boundary_sink_impl>(w, wire<ArmedAtStart>(w, in), Str{"out"});
+            (void)w.checkpoint_component(enclosing);
+        }
+    };
 
     /** The same graph outside any checkpoint scope: its nodes have no identity. */
     struct UnscopedWorker
@@ -341,4 +373,33 @@ TEST_CASE("worker graph checkpoint: a worker that sat out a quiet day is capture
     }
     resumed.stop();
     CHECK(collected == run_uninterrupted(churn));
+}
+
+TEST_CASE("worker graph checkpoint: a restored node's bootstrap alarm is discarded whole", "[checkpoint][worker]")
+{
+    register_types();
+    std::string bytes;
+    {
+        DistributedChildHost host{build_graph<ArmedWorker>(), test_end};
+        host.start(MIN_ST);
+        host.stage("in", Value{Int{1}}.view());
+        REQUIRE(host.step(cycle_time(0)));
+        REQUIRE(host.collect("out").has_value());
+        encode_graph_checkpoint(host.capture(), bytes, cycle_time(1));
+        host.stop();
+    }
+    DistributedChildHost resumed{build_graph<ArmedWorker>(), test_end};
+    resumed.start_restored(cycle_time(1), decode_graph_checkpoint(bytes));
+    // A quiet first cycle leaves the start-time alarm unconsumed. Discarding
+    // only the graph's slot left it in the node's scheduler state, to be
+    // re-armed after the next evaluation -- in the past, which the graph
+    // refuses.
+    REQUIRE(resumed.step(cycle_time(1)));
+    CHECK_FALSE(resumed.collect("out").has_value());
+    resumed.stage("in", Value{Int{2}}.view());
+    REQUIRE(resumed.step(cycle_time(2)));
+    const Value out = resumed.collect("out");
+    REQUIRE(out.has_value());
+    CHECK(out.view().checked_as<Int>() == 2);
+    resumed.stop();
 }

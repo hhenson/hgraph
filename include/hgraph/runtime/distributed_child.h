@@ -270,6 +270,19 @@ namespace hgraph::distributed
     [[nodiscard]] HGRAPH_EXPORT CycleReply serve_cycle(const DistributedChildHost &host,
                                                        const BoundarySlots &slots,
                                                        const CycleRequest &request);
+
+    /**
+     * The worker's graph as the bytes a channel carries (RFC 0039).
+     *
+     * Both hosting modes hold exactly these bytes, so an owner's checkpoint
+     * state does not depend on how its workers were hosted -- which keeps
+     * RFC 0037's attribution property: if the two modes disagree after a
+     * restore, the fault is in the transport.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string capture_worker_image(const DistributedChildHost &host);
+    /** Start ``host`` from ``image`` and report what the restored graph wants next. */
+    [[nodiscard]] HGRAPH_EXPORT DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time,
+                                                               std::string_view image);
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_CHILD_H

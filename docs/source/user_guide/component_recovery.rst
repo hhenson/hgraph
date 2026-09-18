@@ -185,6 +185,22 @@ and key-set subscriptions bind to the reconstructed instances without historical
 notifications. This remains an owner-specific topology contract; ordinary
 internal references use the locator contract below.
 
+``dmap_`` recovers too, in both hosting modes. Its children live in workers, so
+its state is one graph image per worker: each worker captures its whole graph at
+the completed day, and a restarted run raises its workers from those images
+before the first cycle. Whatever the worker hosts recovers by its own rules --
+a nested ``map_``, ``mesh_`` or ``reduce`` included. Three things follow:
+
+* The child has to be recoverable like any other component member. State held
+  in ``State`` rather than ``RecordableState`` is invisible to a checkpoint, and
+  a ``dmap_`` over such a child is refused when the component is wired, naming
+  the node. Outside a recoverable component the same child wires and runs.
+* The worker count and hosting mode are part of the saved contract. Keys are
+  placed by ``hash % workers`` and the placement is not stored, so a different
+  count is an incompatible checkpoint, not a silent re-partition.
+* A worker that cannot capture fails the completed day, and one that refuses its
+  image fails the start. Neither falls back to a fresh worker.
+
 Count and duration ``TSW`` endpoints store one typed sequence of live samples
 and a parallel sequence of original timestamps. Storage and loading are linear
 in live samples; unused ring capacity and per-sample schemas are not serialized.
