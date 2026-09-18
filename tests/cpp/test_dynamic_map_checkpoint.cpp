@@ -569,6 +569,16 @@ TEST_CASE("mapped child checkpoint capture and recovery scaling", "[.][checkpoin
             const auto input = dense_integer_dict(std::vector<Int>(count, key_references ? -1 : 1));
             std::vector<Int> expected(count, 1);
             if (key_references) { std::iota(expected.begin(), expected.end(), Int{0}); }
+            // The same graph with no recovery configured: what the run costs
+            // before a checkpoint is asked for.
+            double unmanaged_ms{};
+            {
+                GlobalContext unmanaged;
+                const auto unmanaged_start = std::chrono::steady_clock::now();
+                (void)eval_node_with_options<Graph>(interval(0, 1), values<Value>(input));
+                unmanaged_ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - unmanaged_start).count();
+            }
             GlobalContext context;
             std::optional<ComponentCheckpoint> completed;
             configure_component_recovery(context.state().view(), {
@@ -591,7 +601,8 @@ TEST_CASE("mapped child checkpoint capture and recovery scaling", "[.][checkpoin
             // Both measurements include public wiring and teardown. The resumed
             // quiet run performs real endpoint/child import and a new capture.
             std::cout << "checkpoint_mapped_children mode=" << (key_references ? "key_reference" : "stateful")
-                      << " count=" << count << " fresh_run_ms=" << fresh_ms
+                      << " count=" << count << " unmanaged_run_ms=" << unmanaged_ms
+                      << " fresh_run_ms=" << fresh_ms
                       << " resumed_quiet_run_ms=" << resume_ms << '\n';
             const auto last = static_cast<Int>(count - 1);
             CHECK_OUTPUT(eval_node_with_options<Graph>(interval(2, 3),

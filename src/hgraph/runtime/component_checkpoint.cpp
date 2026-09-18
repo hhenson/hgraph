@@ -142,6 +142,8 @@ namespace hgraph
         std::unordered_map<EndpointKey, TSOutputAlternativeDescriptor, EndpointHash> adapter_endpoints{};
         std::unordered_map<const void *, std::unordered_map<std::size_t, TSOutputHandle>> custom_endpoints{};
         std::unordered_set<const TSOutput *> outputs{};
+        bool endpoint_index_ready{true};
+        DateTime endpoint_index_time{MIN_DT};
         std::unordered_set<const TSOutput *> captured_alternatives{};
         std::vector<std::pair<NodePtr, const NodeCheckpointImage *>> prepared{};
         std::vector<GraphPtr> preparing_graphs{};
@@ -218,6 +220,7 @@ namespace hgraph
 
         std::optional<TSCheckpointLocator> find_locator(const TSOutputHandle &handle, std::size_t depth = 0)
         {
+            ensure_endpoint_index();
             if (const auto it = endpoints.find(endpoint_key(handle)); it != endpoints.end()) { return it->second; }
             if (depth > 64 || !outputs.contains(handle.output())) { return std::nullopt; }
             const auto found = adapter_endpoints.find(endpoint_key(handle));
@@ -448,32 +451,58 @@ namespace hgraph
             }
         }
 
-        void rebuild_endpoint_index(DateTime time)
+        // The position index maps every live endpoint -- each dictionary
+        // child, bundle field and list element -- to its ordinal locator, so
+        // it costs as much as the state it describes. Only reference locators
+        // and adapter inventories consult it. Resetting therefore records the
+        // owning outputs alone, which is one entry per node endpoint, and the
+        // positions are indexed on the first lookup. The graph does not change
+        // between the two: both happen inside one capture or one preparation.
+        template <typename Visit>
+        void visit_root_endpoints(DateTime time, Visit &&visit)
         {
-            endpoints.clear();
-            adapter_endpoints.clear();
-            outputs.clear();
             for (const auto &[path, nodes] : graph_nodes)
             {
                 for (std::size_t ordinal = 0; ordinal < nodes.size(); ++ordinal)
                 {
                     const NodeView node{nodes[ordinal]};
                     TSCheckpointLocator locator{.graph_path = path, .node = ordinal};
-                    if (node.has_output()) { index_endpoint(node.output(time), locator); }
+                    if (node.has_output()) { visit(node.output(time), locator); }
                     locator.endpoint = 1;
-                    if (node.has_error_output()) { index_endpoint(node.error_output(time), locator); }
+                    if (node.has_error_output()) { visit(node.error_output(time), locator); }
                     locator.endpoint = 2;
-                    if (node.has_recordable_state()) { index_endpoint(node.recordable_state(time), locator); }
+                    if (node.has_recordable_state()) { visit(node.recordable_state(time), locator); }
                     locator.endpoint = 3;
                     const auto source = ingress_source(node, time);
-                    if (source.valid()) { index_endpoint(source.output(time), locator); }
+                    if (source.valid()) { visit(source.output(time), locator); }
                     locator.endpoint = 4;
                     node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t index, const TSOutputHandle &handle) {
                         locator.custom_endpoint = index;
-                        index_endpoint(handle.view(time), locator);
+                        visit(handle.view(time), locator);
                     });
                 }
             }
+        }
+
+        void rebuild_endpoint_index(DateTime time)
+        {
+            endpoints.clear();
+            adapter_endpoints.clear();
+            outputs.clear();
+            endpoint_index_time = time;
+            endpoint_index_ready = false;
+            visit_root_endpoints(time, [&](const TSOutputView &view, const TSCheckpointLocator &) {
+                if (view.bound()) { outputs.insert(view.output()); }
+            });
+        }
+
+        void ensure_endpoint_index()
+        {
+            if (endpoint_index_ready) { return; }
+            endpoint_index_ready = true;
+            visit_root_endpoints(endpoint_index_time, [&](const TSOutputView &view, const TSCheckpointLocator &locator) {
+                index_endpoint(view, locator);
+            });
             // Build the reverse adapter index once while storage is stable.
             // Do not chase source handles here: retired cache sources can be
             // stale, and find_locator deliberately handles them as identities.
@@ -812,6 +841,7 @@ namespace hgraph
         impl_->graph_nodes.clear();
         impl_->endpoints.clear();
         impl_->outputs.clear();
+        impl_->endpoint_index_ready = true;   // Nothing to index until the image shape is known.
         impl_->captured_alternatives.clear();
         saved.graph = impl_->capture_graph(graph, false, true);
         impl_->index_graph(graph, saved.graph, {});
