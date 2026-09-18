@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pytest
 from frozendict import frozendict
 
-from hgraph import CompoundScalar, Frame, Series, TS, TSD, compound_scalar, filter_, graph
+from hgraph import CompoundScalar, Frame, Series, TS, TSD, compound_scalar, const, filter_, graph
+from hgraph._frame import as_arrow_table
 from hgraph.adaptors.data_frame import (
     concat,
     filter_cs,
@@ -30,6 +33,12 @@ class AB(CompoundScalar):
 class StringViewRow(CompoundScalar):
     name: str
     rank: int
+
+
+@dataclass(frozen=True)
+class TimestampedRow(CompoundScalar):
+    timestamp: datetime
+    value: int
 
 
 def test_join():
@@ -104,10 +113,48 @@ def test_arrow_expression_operator_and_filter_overload():
 
     @graph
     def app(ts: TS[Frame[AB]], expression: TS[pc.Expression], threshold: TS[int]) -> TS[Frame[AB]]:
-        return filter_(expression > threshold, ts)
+        return filter_((expression > threshold) & (const(pc.field("b")) < 30), ts)
 
     result = eval_node(app, [table], [pc.field("a")], [1])
-    assert result[0].equals(table.slice(1))
+    assert result[0].equals(table.slice(1, 1))
+
+
+def test_polars_expression_operator_and_filter_overload():
+    pl = pytest.importorskip("polars")
+    table = pa.table({
+        "timestamp": [
+            datetime(2025, 10, 1),
+            datetime(2025, 10, 2),
+            datetime(2025, 10, 3),
+        ],
+        "value": [10, 20, 30],
+    })
+
+    @graph
+    def app(
+        ts: TS[Frame[TimestampedRow]], business_date: TS[date]
+    ) -> TS[Frame[TimestampedRow]]:
+        condition = const(pl.col("timestamp")) > business_date - timedelta(days=2)
+        return filter_(condition, ts)
+
+    result = eval_node(app, [table], [date(2025, 10, 3)])[0]
+    assert as_arrow_table(result).equals(table.slice(1))
+
+
+def test_polars_expression_operators_compose_dynamic_expressions():
+    pl = pytest.importorskip("polars")
+    table = pa.table({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    @graph
+    def app(
+        ts: TS[Frame[AB]], offset: TS[int], ceiling: TS[int]
+    ) -> TS[Frame[AB]]:
+        above_floor = const(pl.col("a")) + offset > 2
+        below_ceiling = ceiling - const(pl.col("b")) > 5
+        return filter_(above_floor & below_ceiling, ts)
+
+    result = eval_node(app, [table], [1], [35])[0]
+    assert as_arrow_table(result).equals(table.slice(1, 1))
 
 
 def test_sorted_and_concat():
