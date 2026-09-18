@@ -2,6 +2,7 @@
 
 #include <hgraph/persistence/store_location.h>
 #include <hgraph/manifest/schema_descriptor.h>
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/json_codec.h>
 
@@ -20,7 +21,12 @@ namespace hgraph::persistence
 {
     namespace
     {
-        constexpr std::string_view format_name{"hgraph.component-checkpoint.v1"};
+        // The envelope is one Arrow cell plus two metadata entries. The image
+        // inside it is core's canonical encoding (RFC 0039); this layer owns
+        // only publication, the predecessor link and format selection.
+        constexpr std::string_view format_name{"hgraph.component-checkpoint.v2"};
+        constexpr std::string_view format_key{"hgraph.checkpoint.format"};
+        constexpr std::string_view predecessor_key{"hgraph.checkpoint.predecessor"};
         constexpr std::size_t max_depth{256};
 
         [[noreturn]] void malformed(std::string_view detail)
@@ -38,32 +44,24 @@ namespace hgraph::persistence
             if (depth > max_depth) { malformed("nesting exceeds supported depth"); }
         }
 
-        // The envelope frames metadata, topology and existing JSON Value
-        // encodings. It is deliberately separate from the Value codec: the
-        // persistence layer never interprets the payload of a scalar value.
-        struct Writer
+        // Version 1, as published by hgraph 0.8.25-0.8.27: self-describing
+        // per image, eight-byte integers, JSON values. Read-only; a day
+        // recovered from one publishes a version 2 successor.
+        namespace v1
         {
-            std::string bytes{};
+        constexpr std::string_view format_name{"hgraph.component-checkpoint.v1"};
 
-            void number(std::uint64_t value)
-            {
-                for (unsigned shift = 0; shift < 64; shift += 8)
-                {
-                    bytes.push_back(static_cast<char>((value >> shift) & 0xffu));
-                }
-            }
+        [[nodiscard]] std::string value_description(const ValueTypeMetaData *schema)
+        {
+            const auto bytes = manifest::value_descriptor(schema);
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
 
-            void text(std::string_view value)
-            {
-                number(value.size());
-                bytes.append(value);
-            }
-
-            void time(DateTime value)
-            {
-                number(std::bit_cast<std::uint64_t>(value.time_since_epoch().count()));
-            }
-        };
+        [[nodiscard]] std::string ts_description(const TSValueTypeMetaData *schema)
+        {
+            const auto bytes = manifest::ts_descriptor(schema);
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
 
         struct Reader
         {
@@ -112,56 +110,6 @@ namespace hgraph::persistence
                 return DateTime{TimeDelta{std::bit_cast<std::int64_t>(number())}};
             }
         };
-
-        [[nodiscard]] std::string bytes_text(const std::vector<std::byte> &bytes)
-        {
-            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
-        }
-
-        [[nodiscard]] std::string value_description(const ValueTypeMetaData *schema)
-        {
-            return bytes_text(manifest::value_descriptor(schema));
-        }
-
-        [[nodiscard]] std::string ts_description(const TSValueTypeMetaData *schema)
-        {
-            return bytes_text(manifest::ts_descriptor(schema));
-        }
-
-        void encode_value_schema(Writer &writer, const ValueTypeMetaData *schema, std::size_t depth)
-        {
-            check_depth(depth);
-            writer.text(schema->name());
-            writer.text(value_description(schema));
-            const bool named = TypeRegistry::instance().value_type(schema->name()) == schema;
-            writer.number(named);
-            if (named) { return; }
-            writer.number(static_cast<std::uint64_t>(schema->value_kind()));
-            writer.number(static_cast<std::uint64_t>(schema->flags));
-            writer.number(schema->fixed_size);
-            switch (schema->value_kind())
-            {
-                case ValueTypeKind::List:
-                case ValueTypeKind::Set:
-                    encode_value_schema(writer, schema->element_type, depth + 1);
-                    break;
-                case ValueTypeKind::Map:
-                    encode_value_schema(writer, schema->key_type, depth + 1);
-                    encode_value_schema(writer, schema->element_type, depth + 1);
-                    break;
-                case ValueTypeKind::Tuple:
-                case ValueTypeKind::Bundle:
-                    writer.number(schema->field_count);
-                    for (std::size_t index = 0; index < schema->field_count; ++index)
-                    {
-                        writer.text(schema->fields[index].name == nullptr ? "" : schema->fields[index].name);
-                        encode_value_schema(writer, schema->fields[index].type, depth + 1);
-                    }
-                    break;
-                default:
-                    malformed("unregistered value schema cannot be reconstructed");
-            }
-        }
 
         [[nodiscard]] const ValueTypeMetaData *decode_value_schema(Reader &reader, std::size_t depth)
         {
@@ -230,61 +178,6 @@ namespace hgraph::persistence
                 malformed("value schema changed");
             }
             return schema;
-        }
-
-        void encode_ts_schema(Writer &writer, const TSValueTypeMetaData *schema, std::size_t depth)
-        {
-            check_depth(depth);
-            writer.text(schema->name());
-            writer.text(ts_description(schema));
-            const bool named = TypeRegistry::instance().time_series_type(schema->name()) == schema;
-            writer.number(named);
-            if (named) { return; }
-            writer.number(static_cast<std::uint64_t>(schema->kind));
-            switch (schema->kind)
-            {
-                case TSTypeKind::REF:
-                    encode_ts_schema(writer, schema->referenced_ts(), depth + 1);
-                    break;
-                case TSTypeKind::TS:
-                    encode_value_schema(writer, schema->value_type, depth + 1);
-                    break;
-                case TSTypeKind::TSS:
-                    encode_value_schema(writer, schema->value_type->element_type, depth + 1);
-                    break;
-                case TSTypeKind::TSW:
-                    encode_value_schema(writer, schema->value_schema->element_type, depth + 1);
-                    writer.number(schema->is_duration_based());
-                    if (schema->is_duration_based())
-                    {
-                        writer.number(std::bit_cast<std::uint64_t>(schema->time_range().count()));
-                        writer.number(std::bit_cast<std::uint64_t>(schema->min_time_range().count()));
-                    }
-                    else
-                    {
-                        writer.number(schema->period());
-                        writer.number(schema->min_period());
-                    }
-                    break;
-                case TSTypeKind::TSD:
-                    encode_value_schema(writer, schema->data.tsd.key_type, depth + 1);
-                    encode_ts_schema(writer, schema->data.tsd.value_ts, depth + 1);
-                    break;
-                case TSTypeKind::TSL:
-                    writer.number(schema->data.tsl.fixed_size);
-                    encode_ts_schema(writer, schema->data.tsl.element_ts, depth + 1);
-                    break;
-                case TSTypeKind::TSB:
-                    writer.number(schema->data.tsb.field_count);
-                    for (std::size_t index = 0; index < schema->data.tsb.field_count; ++index)
-                    {
-                        writer.text(schema->data.tsb.fields[index].name);
-                        encode_ts_schema(writer, schema->data.tsb.fields[index].type, depth + 1);
-                    }
-                    break;
-                default:
-                    malformed("unregistered endpoint schema cannot be reconstructed");
-            }
         }
 
         [[nodiscard]] const TSValueTypeMetaData *decode_ts_schema(Reader &reader, std::size_t depth)
@@ -368,25 +261,11 @@ namespace hgraph::persistence
             return schema;
         }
 
-        void encode_value(Writer &writer, const Value &value)
-        {
-            writer.number(value.has_value());
-            if (!value.has_value()) { return; }
-            encode_value_schema(writer, value.schema(), 0);
-            writer.text(to_json_string(value.view()));
-        }
-
         [[nodiscard]] Value decode_value(Reader &reader)
         {
             if (!reader.boolean()) { return {}; }
             const auto *schema = decode_value_schema(reader, 0);
             return from_json_string(schema, reader.text());
-        }
-
-        void encode_path(Writer &writer, const std::vector<std::size_t> &path)
-        {
-            writer.number(path.size());
-            for (const auto index : path) { writer.number(index); }
         }
 
         [[nodiscard]] std::size_t decode_index(Reader &reader)
@@ -403,25 +282,6 @@ namespace hgraph::persistence
             path.reserve(count);
             for (std::size_t index = 0; index < count; ++index) { path.push_back(decode_index(reader)); }
             return path;
-        }
-
-        void encode_locator(Writer &writer, const TSCheckpointLocator &locator)
-        {
-            if (locator.graph_path.size() % 2 != 0 || locator.endpoint > 4 ||
-                (locator.endpoint != 4 && locator.custom_endpoint != 0))
-                malformed("invalid endpoint locator");
-            encode_path(writer, locator.graph_path);
-            writer.number(locator.node);
-            writer.number(locator.endpoint);
-            writer.number(locator.custom_endpoint);
-            encode_path(writer, locator.endpoint_path);
-            writer.number(locator.bindings.size());
-            for (const auto &binding : locator.bindings)
-            {
-                if (binding.requested_schema == nullptr) { malformed("binding locator has no schema"); }
-                encode_ts_schema(writer, binding.requested_schema, 0);
-                encode_path(writer, binding.path);
-            }
         }
 
         [[nodiscard]] TSCheckpointLocator decode_locator(Reader &reader)
@@ -447,18 +307,6 @@ namespace hgraph::persistence
             return locator;
         }
 
-        void encode_reference(Writer &writer, const TSReferenceCheckpointImage &reference, std::size_t depth)
-        {
-            check_depth(depth);
-            writer.number(static_cast<std::uint8_t>(reference.kind));
-            writer.number(reference.target_schema != nullptr);
-            if (reference.target_schema) { encode_ts_schema(writer, reference.target_schema, 0); }
-            writer.number(reference.target.has_value());
-            if (reference.target) { encode_locator(writer, *reference.target); }
-            writer.number(reference.items.size());
-            for (const auto &item : reference.items) { encode_reference(writer, item, depth + 1); }
-        }
-
         [[nodiscard]] TSReferenceCheckpointImage decode_reference(Reader &reader, std::size_t depth)
         {
             check_depth(depth);
@@ -474,42 +322,6 @@ namespace hgraph::persistence
             for (std::size_t index = 0; index < count; ++index)
                 reference.items.push_back(decode_reference(reader, depth + 1));
             return reference;
-        }
-
-        void encode_ts(Writer &writer, const TSCheckpointImage &image, std::size_t depth)
-        {
-            check_depth(depth);
-            if (image.schema == nullptr) { malformed("missing endpoint schema"); }
-            if (image.version != TSCheckpointImage::current_version)
-            {
-                malformed("unsupported endpoint image version");
-            }
-            writer.number(image.version);
-            encode_ts_schema(writer, image.schema, 0);
-            writer.time(image.last_modified_time);
-            encode_value(writer, image.payload);
-            writer.number(image.reference.has_value());
-            if (image.reference)
-            {
-                if (image.schema->kind != TSTypeKind::REF || image.payload.has_value())
-                    malformed("reference metadata on a non-reference endpoint or beside a value payload");
-                validate_ts_reference_checkpoint(*image.reference);
-                encode_reference(writer, *image.reference, depth + 1);
-            }
-            writer.number(image.window_times.size());
-            for (const auto time : image.window_times) { writer.time(time); }
-            writer.number(image.slot_capacity);
-            writer.time(image.key_set_last_modified_time);
-            writer.number(image.keys.size());
-            for (const auto &key : image.keys) { encode_value(writer, key); }
-            writer.number(image.slots.size());
-            for (const auto slot : image.slots) { writer.number(slot); }
-            writer.number(image.free_slots.size());
-            for (const auto slot : image.free_slots) { writer.number(slot); }
-            writer.number(image.published.size());
-            for (const auto published : image.published) { writer.number(published); }
-            writer.number(image.children.size());
-            for (const auto &child : image.children) { encode_ts(writer, child, depth + 1); }
         }
 
         [[nodiscard]] TSCheckpointImage decode_ts(Reader &reader, std::size_t depth)
@@ -562,52 +374,6 @@ namespace hgraph::persistence
             image.children.reserve(count);
             for (std::size_t index = 0; index < count; ++index) { image.children.push_back(decode_ts(reader, depth + 1)); }
             return image;
-        }
-
-        void encode_graph(Writer &writer, const GraphCheckpointImage &graph, std::size_t depth)
-        {
-            check_depth(depth);
-            writer.number(graph.nodes.size());
-            for (const auto &node : graph.nodes)
-            {
-                writer.text(node.id);
-                writer.text(node.signature);
-                for (const auto *endpoint : {&node.output, &node.error, &node.recordable_state, &node.ingress})
-                {
-                    writer.number(endpoint->has_value());
-                    if (*endpoint) { encode_ts(writer, **endpoint, depth + 1); }
-                }
-                writer.number(node.alternatives.size());
-                for (const auto &alternative : node.alternatives)
-                {
-                    encode_locator(writer, alternative.binding);
-                    encode_ts(writer, alternative.clocks, depth + 1);
-                }
-                writer.number(node.input_activity.size());
-                for (const auto &activity : node.input_activity)
-                {
-                    writer.number(activity.path.size());
-                    for (const auto slot : activity.path) { writer.number(slot); }
-                    if (activity.mode != TSInputActivityMode::Value &&
-                        activity.mode != TSInputActivityMode::Structural)
-                    {
-                        malformed("unsupported input activity mode");
-                    }
-                    writer.number(static_cast<std::uint8_t>(activity.mode));
-                }
-                encode_value(writer, node.custom.payload);
-                writer.number(node.custom.endpoints.size());
-                for (const auto &endpoint : node.custom.endpoints) { encode_ts(writer, endpoint, depth + 1); }
-                writer.number(node.custom.children.size());
-                for (const auto &child : node.custom.children)
-                {
-                    writer.number(child.slot);
-                    encode_value(writer, child.key);
-                    writer.time(child.key_last_modified_time);
-                    if (!child.graph) { malformed("missing child graph image"); }
-                    encode_graph(writer, *child.graph, depth + 1);
-                }
-            }
         }
 
         [[nodiscard]] GraphCheckpointImage decode_graph(Reader &reader, std::size_t depth)
@@ -679,29 +445,48 @@ namespace hgraph::persistence
             return graph;
         }
 
-        [[nodiscard]] Frame encode_checkpoint(const ComponentCheckpoint &checkpoint,
-                                              std::string_view predecessor)
+        [[nodiscard]] ComponentCheckpoint decode_checkpoint(std::string_view bytes, std::string_view parent)
         {
-            if (checkpoint.version != ComponentCheckpoint::current_version || checkpoint.component_id.empty() ||
-                checkpoint.completed_until <= checkpoint.cut)
+            Reader reader{bytes};
+            if (reader.text() != format_name) { malformed("unsupported format"); }
+            ComponentCheckpoint checkpoint;
+            const auto version = reader.number();
+            if (version != ComponentCheckpoint::current_version) { malformed("unsupported component image version"); }
+            checkpoint.version = static_cast<std::uint32_t>(version);
+            checkpoint.component_id = reader.text();
+            checkpoint.graph_signature = reader.text();
+            checkpoint.cut = reader.time();
+            checkpoint.completed_until = reader.time();
+            if (checkpoint.component_id.empty() || checkpoint.completed_until <= checkpoint.cut)
             {
                 malformed("invalid completed component boundary");
             }
-            Writer writer;
-            writer.text(format_name);
-            writer.number(checkpoint.version);
-            writer.text(checkpoint.component_id);
-            writer.text(checkpoint.graph_signature);
-            writer.time(checkpoint.cut);
-            writer.time(checkpoint.completed_until);
-            writer.text(predecessor);
-            encode_graph(writer, checkpoint.graph, 0);
+            if (reader.text() != parent) { malformed("inconsistent format metadata"); }
+            checkpoint.graph = decode_graph(reader, 0);
+            if (reader.offset != reader.bytes.size()) { malformed("trailing data"); }
+            return checkpoint;
+        }
+        }  // namespace v1
+
+        [[nodiscard]] Frame encode_checkpoint(const ComponentCheckpoint &checkpoint,
+                                              std::string_view predecessor, bool verify)
+        {
+            std::string image;
+            encode_component_checkpoint(checkpoint, image);
+            if (verify)
+            {
+                // Byte equality of the canonical form is the one comparison
+                // that holds for handle-identity values such as Frame.
+                std::string again;
+                encode_component_checkpoint(decode_component_checkpoint(image), again);
+                if (again != image) { malformed("image does not survive its own codec"); }
+            }
             arrow::LargeBinaryBuilder builder;
-            check(builder.Append(writer.bytes));
+            check(builder.Append(image));
             std::shared_ptr<arrow::Array> array;
             check(builder.Finish(&array));
             const auto metadata = arrow::key_value_metadata(
-                {"hgraph.checkpoint.format", "hgraph.checkpoint.predecessor"},
+                {std::string{format_key}, std::string{predecessor_key}},
                 {std::string{format_name}, std::string{predecessor}});
             return Frame{arrow::Table::Make(
                 arrow::schema({arrow::field("checkpoint", arrow::large_binary(), false)}, metadata),
@@ -722,120 +507,22 @@ namespace hgraph::persistence
             const auto &array = static_cast<const arrow::LargeBinaryArray &>(
                 *(*combined)->column(0)->chunk(0));
             if (array.IsNull(0)) { malformed("null image"); }
-            Reader reader{array.GetView(0)};
-            if (reader.text() != format_name) { malformed("unsupported format"); }
-            ComponentCheckpoint checkpoint;
-            const auto version = reader.number();
-            if (version != ComponentCheckpoint::current_version) { malformed("unsupported component image version"); }
-            checkpoint.version = static_cast<std::uint32_t>(version);
-            checkpoint.component_id = reader.text();
-            checkpoint.graph_signature = reader.text();
-            checkpoint.cut = reader.time();
-            checkpoint.completed_until = reader.time();
-            if (checkpoint.component_id.empty() || checkpoint.completed_until <= checkpoint.cut)
-            {
-                malformed("invalid completed component boundary");
-            }
-            const auto predecessor = reader.text();
             const auto metadata = frame.table->schema()->metadata();
             if (!metadata) { malformed("missing format metadata"); }
-            auto format = metadata->Get("hgraph.checkpoint.format");
-            auto parent = metadata->Get("hgraph.checkpoint.predecessor");
-            if (!format.ok() || *format != format_name || !parent.ok() || *parent != predecessor)
+            const auto format = metadata->Get(std::string{format_key});
+            const auto parent = metadata->Get(std::string{predecessor_key});
+            if (!format.ok() || !parent.ok()) { malformed("missing format metadata"); }
+            const auto image = array.GetView(0);
+            // The envelope names the format and the image must agree with it:
+            // neither a relabelled envelope nor a substituted image is read
+            // under the other format's rules.
+            if (*format == v1::format_name) { return v1::decode_checkpoint(image, *parent); }
+            if (*format != format_name) { malformed("unsupported format"); }
+            if (!is_checkpoint_image(image)) { malformed("unsupported format"); }
+            try { return decode_component_checkpoint(image); }
+            catch (const std::exception &error)
             {
-                malformed("inconsistent format metadata");
-            }
-            checkpoint.graph = decode_graph(reader, 0);
-            if (reader.offset != reader.bytes.size()) { malformed("trailing data"); }
-            return checkpoint;
-        }
-
-        void require_same_value(const Value &expected, const Value &actual)
-        {
-            if (expected.schema() != actual.schema() || expected.has_value() != actual.has_value() ||
-                (expected.has_value() && expected != actual))
-            {
-                malformed("value codec does not preserve checkpoint state");
-            }
-        }
-
-        void require_same_values(const TSCheckpointImage &expected, const TSCheckpointImage &actual)
-        {
-            if (expected.version != actual.version || expected.schema != actual.schema ||
-                expected.last_modified_time != actual.last_modified_time || expected.slots != actual.slots ||
-                expected.free_slots != actual.free_slots || expected.slot_capacity != actual.slot_capacity ||
-                expected.key_set_last_modified_time != actual.key_set_last_modified_time ||
-                expected.published != actual.published)
-                malformed("endpoint codec changed metadata");
-            require_same_value(expected.payload, actual.payload);
-            if (expected.reference != actual.reference)
-                malformed("endpoint codec changed reference state");
-            if (expected.window_times != actual.window_times)
-                malformed("endpoint codec changed window timestamps");
-            if (expected.keys.size() != actual.keys.size() || expected.children.size() != actual.children.size())
-            {
-                malformed("endpoint codec changed image shape");
-            }
-            for (std::size_t index = 0; index < expected.keys.size(); ++index)
-            {
-                require_same_value(expected.keys[index], actual.keys[index]);
-            }
-            for (std::size_t index = 0; index < expected.children.size(); ++index)
-            {
-                require_same_values(expected.children[index], actual.children[index]);
-            }
-        }
-
-        void require_same_values(const GraphCheckpointImage &expected, const GraphCheckpointImage &actual)
-        {
-            if (expected.nodes.size() != actual.nodes.size()) { malformed("graph codec changed image shape"); }
-            for (std::size_t index = 0; index < expected.nodes.size(); ++index)
-            {
-                const auto &before = expected.nodes[index];
-                const auto &after = actual.nodes[index];
-                if (before.alternatives.size() != after.alternatives.size())
-                    malformed("alternative codec changed inventory");
-                for (std::size_t alternative = 0; alternative < before.alternatives.size(); ++alternative)
-                {
-                    if (before.alternatives[alternative].binding != after.alternatives[alternative].binding)
-                        malformed("alternative codec changed binding");
-                    require_same_values(before.alternatives[alternative].clocks, after.alternatives[alternative].clocks);
-                }
-                if (before.input_activity.size() != after.input_activity.size())
-                {
-                    malformed("input activity codec changed image shape");
-                }
-                for (std::size_t activity = 0; activity < before.input_activity.size(); ++activity)
-                {
-                    if (before.input_activity[activity].path != after.input_activity[activity].path ||
-                        before.input_activity[activity].mode != after.input_activity[activity].mode)
-                    {
-                        malformed("input activity codec changed state");
-                    }
-                }
-                for (const auto &[source, result] : {
-                         std::pair{&before.output, &after.output},
-                         std::pair{&before.error, &after.error},
-                         std::pair{&before.recordable_state, &after.recordable_state},
-                         std::pair{&before.ingress, &after.ingress}})
-                {
-                    if (source->has_value() != result->has_value()) { malformed("endpoint codec changed inventory"); }
-                    if (*source) { require_same_values(**source, **result); }
-                }
-                require_same_value(before.custom.payload, after.custom.payload);
-                if (before.custom.endpoints.size() != after.custom.endpoints.size())
-                    malformed("hidden endpoint codec changed image shape");
-                for (std::size_t endpoint = 0; endpoint < before.custom.endpoints.size(); ++endpoint)
-                    require_same_values(before.custom.endpoints[endpoint], after.custom.endpoints[endpoint]);
-                if (before.custom.children.size() != after.custom.children.size())
-                {
-                    malformed("child graph codec changed image shape");
-                }
-                for (std::size_t child = 0; child < before.custom.children.size(); ++child)
-                {
-                    require_same_value(before.custom.children[child].key, after.custom.children[child].key);
-                    require_same_values(*before.custom.children[child].graph, *after.custom.children[child].graph);
-                }
+                malformed(error.what());
             }
         }
     }
@@ -866,7 +553,8 @@ namespace hgraph::persistence
 
     void ComponentCheckpointStore::write(std::string_view key,
                                          const ComponentCheckpoint &checkpoint,
-                                         std::optional<std::string_view> predecessor) const
+                                         std::optional<std::string_view> predecessor,
+                                         bool verify) const
     {
         store::require_valid_key(key);
         if (predecessor)
@@ -878,13 +566,9 @@ namespace hgraph::persistence
                 throw std::runtime_error("checkpoint predecessor does not exist");
             }
         }
-        auto frame = encode_checkpoint(checkpoint, predecessor.value_or(""));
-        // A successful publication must be recoverable. Existing Value codecs
-        // can reject particular payloads (for example non-finite JSON numbers)
-        // or lose information, even when their schema is supported. Validate
-        // the complete schema envelope and scalar round trip before writing.
-        const auto decoded = decode_checkpoint(frame);
-        require_same_values(checkpoint.graph, decoded.graph);
+        // Encoding fails closed: a value the codec cannot represent throws
+        // here, before anything is published.
+        auto frame = encode_checkpoint(checkpoint, predecessor.value_or(""), verify);
         frames_.write(key, std::move(frame));
     }
 

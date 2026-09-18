@@ -25,9 +25,18 @@ namespace hgraph::persistence
         explicit ComponentCheckpointStore(store::FrameStoreConfig config = {});
 
         [[nodiscard]] bool contains(std::string_view key) const;
+        /** Reads the current image format and the version 1 format published
+         * by hgraph 0.8.25-0.8.27. Every read verifies the image checksum.
+         */
         [[nodiscard]] ComponentCheckpoint read(std::string_view key) const;
+        /** Publishes the current image format (RFC 0039). Encoding fails
+         * closed, before publication, on any value the codec cannot represent.
+         * ``verify`` additionally decodes the encoded image and requires that
+         * re-encoding it reproduces the same bytes; it roughly doubles the cost
+         * of a write and guards only against a codec defect.
+         */
         void write(std::string_view key, const ComponentCheckpoint &checkpoint,
-                   std::optional<std::string_view> predecessor = {}) const;
+                   std::optional<std::string_view> predecessor = {}, bool verify = false) const;
 
       private:
         store::FrameStore frames_;

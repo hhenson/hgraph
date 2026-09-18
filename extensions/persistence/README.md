@@ -50,11 +50,14 @@ Inputs must come directly from pull sources used exclusively by the component.
 Each run supplies future events for its interval; recovery restores the source
 endpoint baseline, while the caller remains responsible for its input cursor.
 
-Each image is one Arrow frame containing versioned topology and endpoint
-metadata plus schema-directed value payloads. The whole frame is encoded before
-the native store publishes it through its immutable object operation. Encoding
-must round-trip without changing scalar values; unsupported payloads, including
-non-finite JSON numbers, fail before publication. There is
+Each image is one Arrow cell holding core's canonical checkpoint image
+(RFC 0039) plus envelope metadata naming the format and the predecessor. Values
+use the binary value codec, so `Frame`, `Series` and non-finite floats are
+ordinary state. The whole image is encoded before the native store publishes it
+through its immutable object operation: a value the codec cannot represent
+fails before publication, every read verifies the image checksum, and
+`write(..., verify=True)` adds a decode-and-re-encode comparison. Version 1
+images from hgraph 0.8.25-0.8.27 remain readable. There is
 no mutable latest pointer: applications select an exact predecessor and use a
 new key for every completed day. Filesystem and S3 durability follow the native
 object store's guarantees; this does not coordinate external sink transactions

@@ -138,6 +138,12 @@ Ownership boundary
    checkpoint-store contract, publication, recovery selection, and
    retention move to the ``hgraph-persistence`` extension.
 
+   **Revised again by** :doc:`rfc_0039_compact_checkpoint_images`
+   (2026-09-18): the canonical *image encoding* returns to core, beside the
+   RFC 0017 value codec, because it is also the form a worker-hosted graph
+   (``dmap_``, ``spawn``) returns to its owner. The durable envelope, store,
+   publication, selection and retention stay in the extension.
+
 Core owns:
 
 * checkpoint eligibility and deterministic-run declarations;
@@ -1223,9 +1229,10 @@ existing component-name and structural-node defaults.
 Keyed interior REF adapters and references inside custom hidden-owner endpoint
 images without an explicit reference-aware owner contract remain unsupported.
 References outside the component, full graph recovery, online snapshot/suspend,
-and input-journal mechanics remain planned. The durable envelope and endpoint
-and component images use version 1 for the first release. Unreleased development
-snapshots are not a compatibility contract; unsupported versions are refused.
+and input-journal mechanics remain planned. Images are written in the compact
+version 2 encoding of :doc:`rfc_0039_compact_checkpoint_images`, which also
+admits ``Frame`` and ``Series`` state; version 1, published by hgraph
+0.8.25-0.8.27, remains readable and any other version is refused.
 The component recovery implementation plan records the implementation acceptance
 results, including complete native and Python suites, installed SDK consumers,
 and sanitizer checks. Reference scenarios exercise mapped membership churn,

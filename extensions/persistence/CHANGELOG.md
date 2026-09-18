@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Component checkpoints are written in image format version 2 (RFC 0039):
+  core's canonical checkpoint image inside the existing one-cell envelope.
+  `Frame` and `Series` values -- untyped and typed -- are now ordinary component
+  state, and floating-point values recover bit for bit, including NaN and
+  infinities, which version 1 refused. A 100,000-key `TSD[int, TS[float]]`
+  image shrinks from 26.3 MB to 1.9 MB, encodes in 2.6 ms instead of 306 ms and
+  decodes in 7.4 ms instead of 144 ms. Version 1 images published by hgraph
+  0.8.25-0.8.27 remain readable. Every image carries a checksum verified on
+  read. `ComponentCheckpointStore::write` no longer decodes and deep-compares
+  every image before publishing it -- encoding fails closed instead -- and takes
+  `verify = true` to request a decode-and-re-encode comparison. **ABI:** `write`
+  gained a parameter; rebuild consumers of the native store.
+
 - Persistence wheels now publish a shared native SDK carrying the pinned curl
   implementation. Downstream extension wheels can consume S3 persistence
   without relinking against an older or ABI-incompatible system CURL/TLS SDK.

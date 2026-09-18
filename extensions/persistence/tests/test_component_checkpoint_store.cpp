@@ -1,4 +1,5 @@
 #include <hgraph/persistence/component_checkpoint_store.h>
+#include "checkpoint_v1_fixture.h"
 #include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/value_util.h>
@@ -13,7 +14,9 @@
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/table.h>
+#include <arrow/util/key_value_metadata.h>
 
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -146,6 +149,24 @@ namespace
         REQUIRE(builder.Finish(&array).ok());
         return Frame{arrow::Table::Make(frame.table->schema(), {std::move(array)})};
     }
+
+    /** A published envelope assembled by hand: one image cell and its metadata. */
+    Frame envelope(std::string_view format, std::string_view predecessor, std::string_view bytes)
+    {
+        arrow::LargeBinaryBuilder builder;
+        REQUIRE(builder.Append(bytes).ok());
+        std::shared_ptr<arrow::Array> array;
+        REQUIRE(builder.Finish(&array).ok());
+        const auto metadata = arrow::key_value_metadata(
+            {"hgraph.checkpoint.format", "hgraph.checkpoint.predecessor"},
+            {std::string{format}, std::string{predecessor}});
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("checkpoint", arrow::large_binary(), false)}, metadata),
+            {std::move(array)})};
+    }
+
+    constexpr std::string_view format_v1 = "hgraph.component-checkpoint.v1";
+    constexpr std::string_view format_v2 = "hgraph.component-checkpoint.v2";
 }
 
 TEST_CASE("component checkpoint store: native wired days resume from a durable complete image")
@@ -373,16 +394,30 @@ TEST_CASE("component checkpoint store: malformed envelope never yields a checkpo
     checkpoints.write("valid", fixture());
     const auto frame = frames.read("valid");
     const auto bytes = image_bytes(frame);
-    constexpr std::string_view released_format = "hgraph.component-checkpoint.v1";
-    const auto format_position = bytes.find(released_format);
-    REQUIRE(format_position != std::string::npos);
-    for (const char version : {'0', '2', '3'})
+
+    // The envelope names the format; an unknown one is refused, and so is an
+    // image that does not belong to the format its envelope claims.
+    for (const std::string_view format : {"hgraph.component-checkpoint.v0", "hgraph.component-checkpoint.v3"})
+    {
+        const auto key = "unsupported-" + std::string{format.substr(format.size() - 2)};
+        frames.write(key, envelope(format, "", bytes));
+        CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("unsupported format"));
+    }
+    frames.write("relabelled", envelope(format_v1, "", bytes));
+    CHECK_THROWS_WITH(checkpoints.read("relabelled"), ContainsSubstring("invalid component checkpoint"));
+    frames.write("substituted", envelope(format_v2, "", test::checkpoint_v1_fixture()));
+    CHECK_THROWS_WITH(checkpoints.read("substituted"), ContainsSubstring("unsupported format"));
+
+    // The image states its own version after the marker.
+    const auto marker = bytes.find("hgraph.checkpoint-image");
+    REQUIRE(marker != std::string::npos);
+    for (const char version : {char{0}, char{1}, char{3}})
     {
         auto unsupported = bytes;
-        unsupported[format_position + released_format.size() - 1] = version;
-        const auto key = std::string{"unsupported-format-"} + version;
+        unsupported[marker + std::string_view{"hgraph.checkpoint-image"}.size()] = version;
+        const auto key = "unsupported-version-" + std::to_string(static_cast<int>(version));
         frames.write(key, with_image_bytes(frame, unsupported));
-        CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("unsupported format"));
+        CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("unsupported image version"));
     }
 
     for (const auto length : {std::size_t{0}, std::size_t{7}, bytes.size() - 1})
@@ -392,39 +427,105 @@ TEST_CASE("component checkpoint store: malformed envelope never yields a checkpo
         CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("invalid component checkpoint"));
     }
 
+    // Every byte is covered by the checksum, so appended, flipped and
+    // rewritten content are all detected before anything is interpreted.
     frames.write("trailing", with_image_bytes(frame, bytes + "extra"));
-    CHECK_THROWS_WITH(checkpoints.read("trailing"), ContainsSubstring("trailing data"));
-
-    // A corrupt length prefix must be rejected before a string or collection
-    // allocation; the prior completed checkpoint remains readable.
-    auto oversized = bytes;
-    oversized.replace(0, 8, 8, static_cast<char>(0xff));
-    frames.write("oversized", with_image_bytes(frame, oversized));
-    CHECK_THROWS_WITH(checkpoints.read("oversized"), ContainsSubstring("truncated text"));
+    CHECK_THROWS_WITH(checkpoints.read("trailing"), ContainsSubstring("checksum mismatch"));
+    for (const auto position : {bytes.size() / 2, bytes.size() - 9, bytes.size() - 1})
+    {
+        auto flipped = bytes;
+        flipped[position] = static_cast<char>(flipped[position] ^ 0x01);
+        const auto key = "flipped-" + std::to_string(position);
+        frames.write(key, with_image_bytes(frame, flipped));
+        CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("checksum mismatch"));
+    }
     CHECK(checkpoints.read("valid").graph.nodes.front().recordable_state->payload == Value{Int{17}});
 }
 
-TEST_CASE("component checkpoint store: nonfinite nested values fail before publication")
+TEST_CASE("component checkpoint store: images published by hgraph 0.8.25-0.8.27 still load")
+{
+    using Catch::Matchers::ContainsSubstring;
+    TemporaryDirectory directory;
+    store::FrameStoreConfig config;
+    config.location = store::LocalLocation{directory.path.string()};
+    const ComponentCheckpointStore checkpoints{config};
+    const auto frames = store::make_frame_store(config);
+    const auto released = std::string{test::checkpoint_v1_fixture()};
+    frames.write("released", envelope(format_v1, "", released));
+
+    const auto loaded = checkpoints.read("released");
+    CHECK(loaded.component_id == "strategy");
+    CHECK(loaded.graph_signature == "v1-fixture-signature");
+    CHECK(loaded.cut == MIN_ST + MIN_TD);
+    CHECK(loaded.completed_until == MIN_ST + MIN_TD * 2);
+    REQUIRE(loaded.graph.nodes.size() == 2);
+    const auto &total = loaded.graph.nodes[0];
+    CHECK(total.id == "strategy:total");
+    REQUIRE(total.recordable_state);
+    CHECK(total.recordable_state->payload == Value{Int{17}});
+    REQUIRE(total.input_activity.size() == 1);
+    CHECK(total.input_activity.front().path == std::vector<std::size_t>{0});
+
+    const auto &keyed = loaded.graph.nodes[1];
+    REQUIRE(keyed.output);
+    // Sparse live slots and a free stack whose order is semantic.
+    CHECK(keyed.output->slot_capacity == 8);
+    CHECK(keyed.output->slots == std::vector<std::size_t>{0, 2});
+    CHECK(keyed.output->free_slots == std::vector<std::size_t>{7, 6, 5, 4, 3, 1});
+    REQUIRE(keyed.output->keys.size() == 2);
+    CHECK(keyed.output->keys[1] == Value{Int{30}});
+    CHECK(keyed.output->children[1].payload == Value{Float{45.0}});
+    REQUIRE(keyed.custom.endpoints.size() == 1);
+    CHECK(keyed.custom.endpoints.front().window_times == std::vector<DateTime>{MIN_ST, MIN_ST + MIN_TD});
+    REQUIRE(keyed.custom.children.size() == 1);
+    CHECK(keyed.custom.children.front().slot == 2);
+    CHECK(keyed.custom.children.front().graph->nodes.front().id == "strategy:inner");
+
+    // A released image restores into live endpoints exactly as a current one.
+    TSOutput target{keyed.output->schema};
+    auto target_view = target.data_view();
+    restore_ts_checkpoint(target_view, *keyed.output);
+    CHECK(target_view.as_dict().size() == 2);
+
+    // Its successor is published in the current format and agrees with it.
+    checkpoints.write("successor", loaded, "released");
+    CHECK(frames.read("successor").table->schema()->metadata()->Get("hgraph.checkpoint.format").ValueOrDie() ==
+          format_v2);
+    const auto successor = checkpoints.read("successor");
+    CHECK(successor.graph.nodes[1].output->free_slots == keyed.output->free_slots);
+    CHECK(successor.graph.nodes[1].output->children[1].payload == Value{Float{45.0}});
+
+    // The retained reader keeps its own refusals.
+    frames.write("released-parent", envelope(format_v1, "someone-else", released));
+    CHECK_THROWS_WITH(checkpoints.read("released-parent"), ContainsSubstring("inconsistent format metadata"));
+    frames.write("released-truncated", envelope(format_v1, "", std::string_view{released}.substr(0, released.size() - 1)));
+    CHECK_THROWS_WITH(checkpoints.read("released-truncated"), ContainsSubstring("invalid component checkpoint"));
+    frames.write("released-trailing", envelope(format_v1, "", released + "extra"));
+    CHECK_THROWS_WITH(checkpoints.read("released-trailing"), ContainsSubstring("trailing data"));
+}
+
+TEST_CASE("component checkpoint store: nonfinite and signed-zero values recover bit for bit")
 {
     const ComponentCheckpointStore checkpoints;
-    const auto first = fixture();
-    checkpoints.write("one", first);
-    for (const auto value : {std::numeric_limits<Float>::infinity(),
-                             std::numeric_limits<Float>::quiet_NaN()})
-    {
-        auto next = first;
-        next.graph.nodes.front().custom.payload = stdlib::make_list<Float>({Float{1.25}, value});
-        CHECK_THROWS(checkpoints.write("two", next, "one"));
-        CHECK_FALSE(checkpoints.contains("two"));
-        CHECK(checkpoints.read("one").graph.nodes.front().recordable_state->payload == Value{Int{17}});
-    }
-    auto finite = first;
-    finite.graph.nodes.front().custom.payload = stdlib::make_list<Float>({Float{1.2345678901234567}, Float{-0.0}});
-    checkpoints.write("two", finite, "one");
-    const auto restored = checkpoints.read("two");
-    const auto &payload = restored.graph.nodes.front().custom.payload;
-    CHECK(payload == finite.graph.nodes.front().custom.payload);
-    CHECK(std::signbit(payload.view().as_list().at(1).checked_as<Float>()));
+    auto checkpoint = fixture();
+    const auto quiet = std::numeric_limits<Float>::quiet_NaN();
+    checkpoint.graph.nodes.front().custom.payload = stdlib::make_list<Float>(
+        {Float{1.2345678901234567}, Float{-0.0}, std::numeric_limits<Float>::infinity(),
+         -std::numeric_limits<Float>::infinity(), quiet});
+    checkpoint.graph.nodes.front().output->schema = schema_descriptor<TS<Float>>::ts_meta();
+    checkpoint.graph.nodes.front().output->payload = Value{quiet};
+    const bool verify = GENERATE(false, true);
+    const auto key = verify ? "verified" : "plain";
+    checkpoints.write(key, checkpoint, std::nullopt, verify);
+
+    const auto restored = checkpoints.read(key);
+    const auto bits = [](Float value) { return std::bit_cast<std::uint64_t>(value); };
+    const auto payload = restored.graph.nodes.front().custom.payload.view().as_list();
+    const auto source = checkpoint.graph.nodes.front().custom.payload.view().as_list();
+    REQUIRE(payload.size() == 5);
+    for (std::size_t index = 0; index < payload.size(); ++index)
+        CHECK(bits(payload.at(index).checked_as<Float>()) == bits(source.at(index).checked_as<Float>()));
+    CHECK(bits(restored.graph.nodes.front().output->payload.view().checked_as<Float>()) == bits(quiet));
 }
 
 TEST_CASE("component checkpoint store: reference locators and adapter clocks survive durable roundtrip")
