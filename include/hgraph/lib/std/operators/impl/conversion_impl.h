@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_CONVERSION_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_CONVERSION_IMPL_H
 
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/lib/std/value_util.h>              // ResolvedBindings (start-cached)
 #include <hgraph/lib/std/operators/arithmetic.h>    // add_ / mul_ (zero_ op mapping)
@@ -1445,18 +1446,16 @@ namespace hgraph::stdlib
                 else { desired.emplace_back(value); }
             }
 
-            const auto is_desired = [&](const ValueView &candidate) {
-                for (const Value &want : desired)
-                {
-                    if (want.view().equals(candidate)) { return true; }
-                }
-                return false;
-            };
+            // Asked once per existing key; ``desired`` is complete, so its
+            // keys can be borrowed. Searching it per key was quadratic.
+            BorrowedValueSet wanted;
+            wanted.reserve(desired.size());
+            for (const Value &want : desired) { wanted.insert(&want); }
             std::vector<Value> stale;
             const auto mutation_view = mutation.view();
             for (const ValueView &existing : mutation_view.keys())
             {
-                if (!is_desired(existing)) { stale.emplace_back(existing); }
+                if (!wanted.contains(existing)) { stale.emplace_back(existing); }
             }
             for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
 

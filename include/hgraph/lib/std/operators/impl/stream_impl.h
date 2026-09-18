@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_STREAM_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_STREAM_IMPL_H
 
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/lib/std/operators/arithmetic.h>    // sub_ / div_ (rolling_average)
@@ -660,21 +661,18 @@ namespace hgraph::stdlib
             bindings are the throttle's start-resolved TSS delta bindings. */
         inline std::optional<Value> net_set_deltas(std::deque<Value> &pending, const ThrottleState &state)
         {
-            std::vector<Value> added;
-            std::vector<Value> removed;
-            const auto erase_matching = [](std::vector<Value> &values, const ValueView &value) {
-                for (auto it = values.begin(); it != values.end(); ++it)
-                {
-                    if (it->view().equals(value)) { values.erase(it); return true; }
-                }
-                return false;
+            // Hashed, because every element of every queued delta asks "is this
+            // already pending the other way?" -- answering from a list, and
+            // erasing from its middle, made a burst of n elements cost n * n.
+            // The results only fill set builders, so their order is immaterial.
+            using PendingValues = ankerl::unordered_dense::set<Value, ValueHash, ValueEqual>;
+            PendingValues added;
+            PendingValues removed;
+            const auto erase_matching = [](PendingValues &values, const ValueView &value) {
+                return values.erase(value) != 0;
             };
-            const auto push_unique = [&](std::vector<Value> &values, const ValueView &value) {
-                for (const Value &existing : values)
-                {
-                    if (existing.view().equals(value)) { return; }
-                }
-                values.emplace_back(value);
+            const auto push_unique = [](PendingValues &values, const ValueView &value) {
+                if (!values.contains(value)) { values.emplace(value); }
             };
 
             for (Value &delta : pending)

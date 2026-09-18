@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_CONTROL_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_CONTROL_IMPL_H
 
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
@@ -183,23 +184,21 @@ namespace hgraph::stdlib
                                 InputValidity::Unchecked> tsl,
                              Out<TsVar<"__out__">> out)
             {
-                std::vector<std::pair<Value, Value>> pairs;
+                // Insertion-ordered and keyed, so the leftmost dictionary holding
+                // a key wins without searching what has been collected so far --
+                // that search made every evaluation quadratic in the live keys.
+                ankerl::unordered_dense::map<Value, Value, ValueHash, ValueEqual> pairs;
                 const std::size_t size = tsl.size();
                 for (std::size_t index = 0; index < size; ++index)
                 {
                     TSDInputView dict{tsl[index].base().borrowed_ref()};
                     for (auto &&[key, child] : dict.items())
                     {
-                        if (!child.valid()) { continue; }
-                        bool seen = false;
-                        for (const auto &pair : pairs)
-                        {
-                            if (pair.first.view().equals(key)) { seen = true; break; }
-                        }
-                        if (!seen) { pairs.emplace_back(Value{key}, Value{child.reference()}); }
+                        if (!child.valid() || pairs.contains(key)) { continue; }
+                        pairs.emplace(Value{key}, Value{child.reference()});
                     }
                 }
-                collection_impl_detail::publish_tsd_refs(static_cast<const TSOutputView &>(out), pairs);
+                collection_impl_detail::publish_tsd_refs(static_cast<const TSOutputView &>(out), pairs.values());
             }
         };
     }  // namespace control_impl_detail
