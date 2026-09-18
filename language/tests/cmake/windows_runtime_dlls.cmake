@@ -1,5 +1,11 @@
-if(NOT BUILD OR NOT HGL OR NOT OUT OR NOT BINDIR OR NOT CONFIG)
-    message(FATAL_ERROR "BUILD, HGL, OUT, BINDIR and CONFIG are required")
+if(NOT BUILD OR NOT HGL OR NOT OUT OR NOT BINDIR)
+    message(FATAL_ERROR "BUILD, HGL, OUT and BINDIR are required")
+endif()
+
+# Single-config generators may have no CMAKE_BUILD_TYPE.
+set(_config_args)
+if(DEFINED CONFIG AND NOT "${CONFIG}" STREQUAL "")
+    list(APPEND _config_args --config "${CONFIG}")
 endif()
 
 # Do not inherit developer DLL directories. Both copies of the compiler must
@@ -18,7 +24,7 @@ check_compiler("${HGL}")
 file(REMOVE_RECURSE "${OUT}")
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --install "${BUILD}" --prefix "${OUT}"
-        --config "${CONFIG}" --component Runtime
+        ${_config_args} --component Runtime
     RESULT_VARIABLE _result OUTPUT_VARIABLE _out ERROR_VARIABLE _err)
 if(NOT _result EQUAL 0)
     message(FATAL_ERROR "compiler runtime install failed:\n${_out}\n${_err}")
