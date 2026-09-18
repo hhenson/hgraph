@@ -6,6 +6,15 @@ file(REMOVE_RECURSE "${OUT}")
 file(MAKE_DIRECTORY "${OUT}/sdk/lib/cmake/hgl" "${OUT}/bin")
 file(COPY "${HELPER}" "${TEMPLATE}" DESTINATION "${OUT}/sdk/lib/cmake/hgl")
 file(COPY "${HGL}" DESTINATION "${OUT}/bin")
+if(WIN32)
+    # Moving the compiler also moves its staged runtime dependencies, just as
+    # the Runtime install component does. An executable-only copy cannot load.
+    get_filename_component(_hgl_directory "${HGL}" DIRECTORY)
+    file(GLOB _hgl_runtime_dlls LIST_DIRECTORIES false "${_hgl_directory}/*.dll")
+    if(_hgl_runtime_dlls)
+        file(COPY ${_hgl_runtime_dlls} DESTINATION "${OUT}/bin")
+    endif()
+endif()
 get_filename_component(_hgl_name "${HGL}" NAME)
 set(_installed_hgl "${OUT}/bin/${_hgl_name}")
 

@@ -2772,7 +2772,14 @@ namespace hgl::codegen
                     std::vector<std::string> entries;
                     for (const gir::Argument &source : bound.parameters[index]) {
                         Value             value = eval_planned_expr(source.value, frame);
-                        const std::string port  = as_port(value, type, value.range) + ".erased()";
+                        // A heterogeneous pack retains each endpoint's concrete
+                        // schema. Its TsVar is a contract pattern, not a schema
+                        // to which Port::as can narrow an individual element.
+                        const bool shape_pack = type.kind == HType::Kind::Generic && !type.source_generic.empty();
+                        const std::string port =
+                            (shape_pack && value.is_port() ? value.code
+                                                           : as_port(value, shape_pack ? value.type : type, value.range)) +
+                            ".erased()";
                         entries.push_back(
                             parameter.pack == gir::ParameterPack::Keyword ? "{" + quote(source.name) + ", " + port + "}" : port);
                     }
@@ -4575,10 +4582,11 @@ namespace hgl::codegen
                                 info.active_parameters.insert(*parameter);
                                 const auto &source     = planned_value(argument.value, argument.range);
                                 const auto *projection = std::get_if<gir::Call>(&source.node);
-                                const auto *callee =
+                                const auto *projection_callee =
                                     projection ? std::get_if<gir::Reference>(&planned_value(projection->callee, source.range).node)
                                                : nullptr;
-                                if (callee && callee->kind == gir::ReferenceKind::Intrinsic && callee->registry_name == "key_set") {
+                                if (projection_callee && projection_callee->kind == gir::ReferenceKind::Intrinsic &&
+                                    projection_callee->registry_name == "key_set") {
                                     info.structural_parameters.insert(*parameter);
                                 } else {
                                     info.value_active_parameters.insert(*parameter);

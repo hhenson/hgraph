@@ -10,6 +10,7 @@
 #include <conditional-results.h>
 #include <conditional-sinks.h>
 #include <parity.h>
+#include <parameter-packs.h>
 
 #include "wiring/backend.h"
 
@@ -26,6 +27,7 @@
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
+namespace parameter_packs     = checks::parameter_packs;
 namespace conditional_early   = examples::conditional_early_return;
 namespace conditional_forward = examples::conditional_forwarding;
 namespace conditional_mixed   = examples::conditional_mixed_results;
@@ -36,11 +38,30 @@ namespace conditional_sinks   = examples::conditional_sinks;
 
 namespace
 {
+    struct route_packs
+    {
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> price, Port<TS<Str>> symbol) {
+            wire<parameter_packs::operators::route>(w, price, symbol);
+            return price;
+        }
+    };
+
     void session() {
         hgl::wiring::ensure_session();
         parity::register_operators();
     }
 }  // namespace
+
+TEST_CASE("generated heterogeneous pack calls retain concrete endpoint schemas", "[codegen][generated][parameter-pack]") {
+    session();
+    parameter_packs::register_operators();
+    CHECK_OUTPUT(eval_node<route_packs>(values<Float>(1.5, none, 2.5), values<Str>(Str{"a"}, Str{"b"}, none)),
+                 values<Float>(1.5, none, 2.5));
+    CHECK_OUTPUT(eval_node<parameter_packs::operators::route_constants>(values<Float>(1.5, none, 2.5)),
+                 values<Float>(1.5, none, 2.5));
+    CHECK_OUTPUT(eval_node<parameter_packs::operators::route_all>(values<Bool>(true, true), values<Bool>(false, true)),
+                 values<Bool>(false, true));
+}
 
 TEST_CASE("generated plus records the ticks hgl test asserts", "[codegen][generated]") {
     session();
