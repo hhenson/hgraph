@@ -1,4 +1,3 @@
-#include <hgraph/util/scope.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
@@ -12,6 +11,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <hgraph/types/python_ops.h>
+#include <hgraph/util/scope.h>
 
 #include "detail/ts_data_seams.h"
 
@@ -176,17 +176,18 @@ namespace hgraph::ts_data_plan_factory_detail
             // ring, rebuilt only when what it depends on has changed.
             [[nodiscard]] std::size_t modified_index_count() const noexcept
             {
-                try { return modified_snapshot().size(); }
-                catch (...)
-                {
-                    // Out of memory for the snapshot: count the ring directly.
-                    std::size_t count = 0;
-                    for_each_modified_index([&](std::size_t) {
-                        ++count;
-                        return true;
-                    });
-                    return count;
-                }
+                constexpr auto unavailable = static_cast<std::size_t>(-1);
+                const auto snapshot_size =
+                    fallback_on_exception(unavailable, [&] { return modified_snapshot().size(); });
+                if (snapshot_size != unavailable) { return snapshot_size; }
+
+                // Out of memory for the snapshot: count the ring directly.
+                std::size_t count = 0;
+                for_each_modified_index([&](std::size_t) {
+                    ++count;
+                    return true;
+                });
+                return count;
             }
 
             [[nodiscard]] std::size_t modified_index_at(std::size_t ordinal) const
