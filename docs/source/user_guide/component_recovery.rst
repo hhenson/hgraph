@@ -211,6 +211,19 @@ outside the recoverable contract, as any external effect is: recovery restores
 what the stages knew, and does not make what the sink did exactly-once. A sink
 node says so by declaring checkpoint support with nothing to capture.
 
+From Python, ``dmap_`` recovers and ``spawn_`` does not yet. A C++ sink can
+declare that support; a Python ``@sink_node`` has no way to, and every pipeline
+ends in one. A Python pipeline inside a recoverable component is therefore
+refused when it is wired, naming the stage and the reason, rather than failing
+the completed day it would otherwise reach. Outside a recoverable component it
+wires and runs as before.
+
+Two limits are ``map_``'s rather than ``dmap_``'s, and reach through it: a
+``dmap_`` child has to end in a node that writes its own output, not in a
+``reduce`` (the forwarding-terminal form ``map_`` cannot checkpoint yet), and a
+child that holds ``STATE`` instead of ``RECORDABLE_STATE`` has nothing a
+checkpoint can see. Both are refused at wiring with the node's name.
+
 Count and duration ``TSW`` endpoints store one typed sequence of live samples
 and a parallel sequence of original timestamps. Storage and loading are linear
 in live samples; unused ring capacity and per-sample schemas are not serialized.
