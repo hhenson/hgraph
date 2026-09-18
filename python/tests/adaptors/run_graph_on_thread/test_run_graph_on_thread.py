@@ -12,6 +12,8 @@ from hgraph.adaptors.run_graph_on_thread import (
 )
 from hgraph.adaptors.run_graph_on_thread.run_graph_on_thread import (
     _OUTPUT_CALLBACK,
+    _as_port,
+    _make_request,
     _typed_output,
 )
 
@@ -66,6 +68,20 @@ def test_publish_output_can_publish_full_values_instead_of_deltas():
         assert hg.eval_node(app, [{"a": 1}, {"b": 2}]) is None
 
     assert captured == [{"a": 1}, {"a": 1, "b": 2}]
+
+
+def test_thread_request_accepts_a_conditionally_selected_graph_callable():
+    @hg.graph
+    def request(enabled: hg.TS[bool]) -> hg.TS[object]:
+        selected = hg.if_(enabled, _sum_graph).true
+        value = _make_request(
+            _as_port(selected, hg.TS[object]),
+            {},
+            {},
+        )
+        return value.fn
+
+    assert hg.eval_node(request, [True])[0] is _sum_graph
 
 
 @pytest.mark.parametrize("call_style", ["out_keyword", "positional_path"])

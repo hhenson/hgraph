@@ -28,6 +28,7 @@ from hgraph import (
     service_adaptor_impl,
     sink_node,
 )
+from hgraph._wiring._core import _unwrap
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,9 @@ def _run_graph_on_thread(request: TS[_RunGraphRequest], path: str = "thread_grap
 
 def _as_port(value, output_type):
     if isinstance(value, WiringPort):
+        raw = _unwrap(value)
+        if raw.ts_type.is_ref:
+            return WiringPort(raw.dereferenced)
         return value
     return const(value, tp=output_type)
 
