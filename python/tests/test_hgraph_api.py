@@ -30,6 +30,15 @@ def test_eval_node_elide_returns_none_when_output_never_ticks():
     assert eval_node(never, [1], __elide__=True) is None
 
 
+def test_eval_node_named_input_preserves_preceding_ts_default():
+    @hg.compute_node
+    def add_default(a: TS[int] = 1, b: TS[int] = 2) -> TS[int]:
+        return a.value + b.value
+
+    assert eval_node(add_default, b=3) == [4]
+    assert eval_node(add_default, b=[3, 4]) == [4, 5]
+
+
 def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
     class Result(TimeSeriesSchema):
         value: TS[int]

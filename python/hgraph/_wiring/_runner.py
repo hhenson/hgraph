@@ -691,6 +691,16 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     named_series = {k: v for k, v in kwargs.items() if _named_series_value(k, v)}
     for k in named_series:
         kwargs.pop(k)
+
+    def _extend_positional_inputs(last_index):
+        """Pad named-input promotion without discarding declared defaults."""
+        extended = list(inputs)
+        for index in range(len(extended), last_index + 1):
+            default = params[index].default
+            extended.append(
+                None if default is inspect.Parameter.empty else default)
+        return extended
+
     if not named_series and kwargs and params:
         # A non-list kwarg naming a TS-annotated param is a plain value:
         # promote it to its positional slot so the const-lift rule applies
@@ -704,7 +714,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             for k in named_series:
                 kwargs.pop(k)
             by_name = {p.name: i for i, p in enumerate(params)}
-            extended = list(inputs) + [None] * (max(by_name[k] for k in named_series) + 1 - len(inputs))
+            extended = _extend_positional_inputs(
+                max(by_name[k] for k in named_series))
             for k, value in named_series.items():
                 extended[by_name[k]] = value
             # A scalar between promoted TS parameters occupies one of the
@@ -722,7 +733,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         named_series = {}
     if named_series:
         by_name = {p.name: i for i, p in enumerate(params)}
-        extended = list(inputs) + [None] * (max(by_name[k] for k in named_series) + 1 - len(inputs))
+        extended = _extend_positional_inputs(
+            max(by_name[k] for k in named_series))
         for k, series in named_series.items():
             extended[by_name[k]] = series
         # Scalar-supplied kwargs whose position got padded move into the
