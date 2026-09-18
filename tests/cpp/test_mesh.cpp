@@ -21,6 +21,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <iostream>
+#include <chrono>
 #include <array>
 #include <span>
 #include <string>
@@ -584,6 +586,17 @@ struct ExprFn {
     Port<TS<Int>> zero = wire<stdlib::const_, TS<Int>>(w, Int{0});
     Port<TS<Int>> base = wire<stdlib::default_>(w, dep, zero).as<TS<Int>>();
     return (val + base).as<TS<Int>>();
+  }
+};
+
+// Only ``keys`` are requested; every other link of the chain is created on
+// demand by the instance above it.
+struct TopDownChainG {
+  static constexpr auto name = "mesh_top_down_chain_g";
+  static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> links,
+                                         Port<TSS<Int>> keys) {
+    return wire<stdlib::mesh_>(w, fn<ChainFn>(), links, arg<"__keys__">(keys))
+        .as<TSD<Int, TS<Int>>>();
   }
 };
 
@@ -1280,4 +1293,37 @@ TEST_CASE("mesh_: a user overload may select on the wired function identity") {
       (eval_node<stdlib::mesh_, TSD<Str, TS<Int>>>(fn<AddOneG>(), input)),
       values<Value>(dict_delta<Str, TS<Int>>(
           {{Str{"a"}, 2}, {Str{"b"}, 3}})));
+}
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgraph_unit_tests '[mesh-scaling]'
+// Only the TOP of a chain n deep is requested: instance n is created, asks for
+// n - 1, which is created on demand and asks for n - 2, and so on, all inside
+// one cycle. Every pass used to retry every instance already paused above the
+// one being created, so the chain cost n * n child evaluations. The
+// per-instance figure must stay flat as the chain deepens.
+TEST_CASE("mesh_: a chain created on demand from its top settles in linear time",
+          "[.][mesh-scaling]") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+  for (const Int depth : {Int{125}, Int{250}, Int{500}, Int{1000}}) {
+    MapBuilder modified{TypeRegistry::instance().scalar_type<Int>(),
+                        TypeRegistry::instance().scalar_type<Int>()};
+    for (Int key = 1; key <= depth; ++key) { modified.set_item(key, key - 1); }
+    const auto empty_delta = dict_delta<Int, TS<Int>>({});
+    BundleBuilder delta{ValuePlanFactory::instance().type_for(empty_delta.schema())};
+    delta.set("removed", Value{empty_delta.as_bundle().at("removed")});
+    delta.set("modified", modified.build());
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto result = eval_node<TopDownChainG>(
+        values<Value>(delta.build()), values<Value>(set_delta<Int>({depth}, {})));
+    const auto elapsed_ms = std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - started)
+                                .count();
+    REQUIRE(result.size() == 1);
+    std::cout << "mesh_top_down_chain depth=" << depth << " run_ms=" << elapsed_ms
+              << " us_per_instance=" << elapsed_ms * 1000.0 / static_cast<double>(depth)
+              << '\n';
+  }
 }
