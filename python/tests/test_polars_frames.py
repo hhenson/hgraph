@@ -18,7 +18,8 @@ import pyarrow as pa
 import pytest
 
 import _hgraph
-from hgraph import CompoundScalar, Frame, Series, TS, len_, pass_through
+from hgraph import (COMPOUND_SCALAR, CompoundScalar, Frame, Series, TS, graph,
+                    len_, pass_through)
 from hgraph.test import eval_node
 
 polars = pytest.importorskip("polars")
@@ -90,6 +91,22 @@ def test_polars_dataframes_accepted_inbound_and_round_trip(polars_frames):
     )[0]
     assert isinstance(result, polars.DataFrame)
     assert result.equals(frame)
+
+
+@pytest.mark.parametrize("frame", [
+    _price_table(),
+    polars.DataFrame({"instrument": ["A"], "value": [1.5]}),
+    polars.DataFrame({"instrument": [], "value": []}),
+])
+def test_generic_frame_input_resolves_from_sample_schema(polars_frames, frame):
+    @graph
+    def generic_input(ts: TS[Frame[COMPOUND_SCALAR]]) \
+            -> TS[Frame[COMPOUND_SCALAR]]:
+        return pass_through(ts)
+
+    result = eval_node(generic_input, [frame])[0]
+    assert isinstance(result, polars.DataFrame)
+    assert result.columns == ["instrument", "value"]
 
 
 def test_series_surface_as_polars_series(polars_frames):

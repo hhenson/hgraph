@@ -440,6 +440,26 @@ def _resolve_generic_annotation(annotation, samples):
     if pattern is None:
         return None
 
+    # Frame samples carry enough Arrow schema to resolve Frame[ROW]. Match a
+    # concrete candidate against the declared pattern so this path applies
+    # only to frame-shaped annotations, not arbitrary Arrow-compatible values.
+    from .._frame import _schema_type_from_frame
+    from .._types import Frame, TS
+
+    for sample in samples:
+        if sample is None:
+            continue
+        try:
+            concrete = TS[Frame[_schema_type_from_frame(sample)]]
+        except TypeError:
+            break
+        scope = _hgraph.ResolutionScope()
+        if scope.match(pattern, concrete.handle):
+            resolved = scope.resolve_ts(pattern)
+            if resolved is not None:
+                return _TsExpr(resolved, f"resolved[{annotation!r}]")
+        break
+
     if pattern.ts_kind == _hgraph.TS_KIND_TSS:
         from .._types import TSS
         from ._sentinels import Removed
