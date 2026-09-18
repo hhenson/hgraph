@@ -41,6 +41,46 @@ namespace
     using namespace hgraph;
     using namespace hgraph::testing;
 
+    struct OrderedDelayedSource
+    {
+        static void start(NodeScheduler scheduler) { scheduler.schedule(MIN_TD * 5); }
+        static void eval(NodeScheduler scheduler, State<Int> count, Out<TS<Int>> out)
+        {
+            out.set(Int{42} + count.get());
+            count.set(count.get() + 1);
+            if (count.get() < 2) { scheduler.schedule(MIN_TD * 3); }
+        }
+    };
+
+    struct OrderedDelayedCombiner
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>, Port<TS<Int>>)
+        {
+            return wire<OrderedDelayedSource>(w);
+        }
+    };
+
+    struct OrderedTimerSum
+    {
+        static inline std::vector<std::size_t> retained_bytes;
+        static void start(NodeScheduler scheduler) { scheduler.schedule(MIN_TD * 5'000); }
+        static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<Int>> rhs,
+                         NodeView node, NodeScheduler, Out<TS<Int>> out)
+        {
+            retained_bytes.push_back(NestedGraphView{node.graph()}.parent_node().storage_metrics().dynamic_live_bytes);
+            out.set(lhs.value() + rhs.value());
+        }
+    };
+
+    template <typename Combiner>
+    struct OrderedScheduleGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> input, Port<TS<Int>> zero)
+        {
+            return wire<stdlib::reduce_>(w, fn<Combiner>(), input, zero, Bool{false}).template as<TS<Int>>();
+        }
+    };
+
     struct ReduceLiftedAddNoIdentity
     {
         static constexpr const char *name = "reduce_lifted_add_no_identity";
@@ -1349,5 +1389,41 @@ TEST_CASE("reduce: growing an ordered chain costs the same per element at any le
         REQUIRE(result.back() == static_cast<Int>(count));
         std::cout << "ordered_reduce_growth count=" << count << " run_ms=" << elapsed_ms
                   << " us_per_tick=" << elapsed_ms * 1000.0 / static_cast<double>(count) << '\n';
+    }
+}
+
+TEST_CASE("reduce: an ordered child retains its initial and subsequent delayed ticks")
+{
+    stdlib::register_standard_operators();
+    std::vector<std::optional<Value>> input(10);
+    input[0] = dict_delta<Int, TS<Int>>({{0, 1}});
+    std::vector<std::optional<Int>> zero(10);
+    zero[0] = 0;
+    const auto result = eval_node<OrderedScheduleGraph<OrderedDelayedCombiner>>(input, zero);
+    std::vector<std::optional<Int>> expected(10);
+    expected[5] = 42;
+    expected[8] = 43;
+    CHECK(result == expected);
+}
+
+TEST_CASE("reduce: a distant ordered child timer uses bounded storage across input ticks")
+{
+    stdlib::register_standard_operators();
+    OrderedTimerSum::retained_bytes.clear();
+    std::vector<std::optional<Value>> input(1'000);
+    for (Int index = 0; index < 1'000; ++index)
+    {
+        input[index] = dict_delta<Int, TS<Int>>({{0, index}});
+    }
+    std::vector<std::optional<Int>> zero(input.size());
+    zero[0] = 0;
+    const auto result = eval_node<OrderedScheduleGraph<OrderedTimerSum>>(input, zero);
+    REQUIRE(result.size() == 5'001);
+    CHECK(result.back() == 999);
+    REQUIRE(OrderedTimerSum::retained_bytes.size() == 1'001);
+    const auto steady = OrderedTimerSum::retained_bytes[1];
+    for (std::size_t index = 2; index < 1'000; ++index)
+    {
+        CHECK(OrderedTimerSum::retained_bytes[index] == steady);
     }
 }

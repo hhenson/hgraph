@@ -565,3 +565,24 @@ TEST_CASE("value store: the default codec is not looked up per call")
     // additionally resolves its codec by name.
     CHECK(default_cost < named_cost);
 }
+
+TEST_CASE("value store: large compact boolean rows stay within the reader work budget")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *boolean = registry.register_scalar<Bool>("bool");
+    const auto *row = registry.un_named_bundle({{"flag", boolean}, {"constant", boolean}});
+    const auto binding = ValuePlanFactory::instance().type_for(row);
+    ListBuilder rows{binding};
+    for (std::size_t index = 0; index < 1'100'000; ++index)
+    {
+        BundleBuilder fields{binding};
+        fields.set(0, Value{Bool{index % 2 != 0}});
+        fields.set(1, Value{true});
+        rows.push_back(fields.build());
+    }
+    const auto value = rows.build();
+    const auto store = memory_store();
+    const auto bytes = store.encode(value.view());
+    const auto decoded = store.decode(value.schema(), bytes);
+    CHECK(decoded.view() == value.view());
+}

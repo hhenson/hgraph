@@ -72,6 +72,14 @@ namespace hgraph
         std::size_t max_depth{256};
     };
 
+    /** Budget for a framed value or checkpoint, before block compression.
+     * Compact columns expand to at most 16 atoms per encoded byte (including
+     * the capped Constant form). Row allocation, field preflight, text lookup
+     * and column decoding can charge a field up to six times. Zero-width
+     * values remain bounded by the fixed allowance. Arithmetic saturates.
+     */
+    [[nodiscard]] HGRAPH_EXPORT BinaryDecodeLimits binary_decode_limits_for_bytes(std::size_t bytes) noexcept;
+
     /** A read cursor. Subreaders borrow the parent's budget and cannot outlive it. */
     struct HGRAPH_CLASS_EXPORT BinaryReader
     {
@@ -224,6 +232,10 @@ namespace hgraph
         std::unordered_map<std::string_view, const BinaryConverter *> read_alternatives{};
         /** The registered wire form of a scalar the codec does not build in. */
         const BinaryAtomOps                 *atom_ops{nullptr};
+        /** Column interpretation is metadata, never a function address: linkers
+            may fold distinct writer functions with identical machine code. */
+        enum class ColumnAtom : std::uint8_t { Opaque, Integer, Boolean };
+        ColumnAtom                           column_atom{ColumnAtom::Opaque};
     };
 
     /**

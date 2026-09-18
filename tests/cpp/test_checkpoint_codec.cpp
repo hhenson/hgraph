@@ -551,3 +551,25 @@ TEST_CASE("checkpoint codec: a damaged image is refused without being interprete
     dangling[body_start + 1] = 0x55;
     CHECK_THROWS_WITH(decode_component_checkpoint(resealed(dangling)), ContainsSubstring("unknown string index"));
 }
+
+TEST_CASE("checkpoint codec: large compact boolean rows stay within the reader work budget")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *boolean = registry.register_scalar<Bool>("bool");
+    const auto *row = registry.un_named_bundle({{"flag", boolean}, {"constant", boolean}});
+    const auto binding = ValuePlanFactory::instance().type_for(row);
+    ListBuilder rows{binding};
+    for (std::size_t index = 0; index < 1'100'000; ++index)
+    {
+        BundleBuilder fields{binding};
+        fields.set(0, Value{Bool{index % 2 != 0}});
+        fields.set(1, Value{true});
+        rows.push_back(fields.build());
+    }
+    const auto value = rows.build();
+    NodeCheckpointImage node;
+    node.custom.payload = value;
+    const auto image = component(std::move(node));
+    const auto decoded = decode_component_checkpoint(encoded(image));
+    CHECK(decoded.graph.nodes.front().custom.payload.view() == value.view());
+}

@@ -301,4 +301,3 @@ TEST_CASE("binary atoms: replacing a wire form leaves the converters a run alrea
     BinaryReader      reader{bytes};
     CHECK(held.read(reader).view().checked_as<AtomTagged>() == AtomTagged{"payload"});
 }
-

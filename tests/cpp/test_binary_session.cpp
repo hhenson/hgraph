@@ -351,4 +351,3 @@ TEST_CASE("binary session: a class used as a type is a box wherever it is read")
     unknown[scalar_at] = 'j';
     CHECK_THROWS(decode_binary_frame(schema, unknown));
 }
-

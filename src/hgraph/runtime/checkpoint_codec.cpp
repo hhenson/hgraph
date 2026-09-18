@@ -867,11 +867,7 @@ namespace hgraph
 
         [[nodiscard]] BinaryDecodeLimits limits_for(std::size_t bytes)
         {
-            // The work budget scales with the input: every decoded element is
-            // at least one byte, except zero-width values inside collections,
-            // which the constant allowance covers.
-            BinaryDecodeLimits limits;
-            limits.max_work = 1'000'000 + 16 * static_cast<std::uint64_t>(bytes);
+            auto limits = binary_decode_limits_for_bytes(bytes);
             limits.max_depth = 4 * max_depth;
             return limits;
         }

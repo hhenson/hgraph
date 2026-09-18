@@ -515,4 +515,3 @@ TEST_CASE("distributed boundary refuses a scalar with no wire form while it is b
     }
     CHECK_THROWS_AS(distributed::BoundaryTransfer{schema}, BinaryWireFormError);
 }
-

@@ -177,14 +177,7 @@ namespace hgraph::persistence::store
             const std::string_view bytes{reinterpret_cast<const char *>(encoded.data()), encoded.size()};
             if (bytes.size() > max_decoded_bytes)
                 throw std::runtime_error("value codec 'binary': object exceeds the size its reader allows");
-            // The budget scales with the bytes, as the checkpoint codec's does;
-            // a stored value is as large as its owner made it.
-            const auto limits_for = [](std::size_t size) {
-                BinaryDecodeLimits limits;
-                limits.max_work = 1'000'000 + 16 * static_cast<std::uint64_t>(size);
-                return limits;
-            };
-            if (!binding.compressed) { return decode_binary_frame(binding.converter, bytes, limits_for(bytes.size())); }
+            if (!binding.compressed) { return decode_binary_frame(binding.converter, bytes, binary_decode_limits_for_bytes(bytes.size())); }
 
             BinaryReader reader{bytes};
             std::string  storage;
@@ -192,7 +185,7 @@ namespace hgraph::persistence::store
             // allocation, so it is held to what the owner of these bytes allows.
             const auto   frame = read_compressed_block(reader, storage, max_decoded_bytes);
             if (reader.remaining() != 0) { throw std::runtime_error("value codec 'binary': trailing bytes after the object"); }
-            return decode_binary_frame(binding.converter, frame, limits_for(frame.size()));
+            return decode_binary_frame(binding.converter, frame, binary_decode_limits_for_bytes(frame.size()));
         }
 
         ValueCodecBinding empty_bind(void *,

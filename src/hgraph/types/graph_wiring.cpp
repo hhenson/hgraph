@@ -3189,17 +3189,15 @@ CompiledSubGraph Wiring::finish_subgraph(
       parent_path.push_back(captures.boundary_ordinal(*output));
       parent_path.insert(parent_path.end(), output->boundary_path().begin(),
                          output->boundary_path().end());
-      compiled.output_binding = NestedGraphOutputBinding{
-          .kind = NestedGraphOutputBinding::Kind::ParentInput,
-          .parent_source_path = std::move(parent_path),
-      };
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = std::move(parent_path);
     } else if (output->is_peered_source()) {
       const auto external = external_sources.find(output->peered_node());
       if (external != external_sources.end()) {
-        compiled.output_binding = NestedGraphOutputBinding{
-            .kind = NestedGraphOutputBinding::Kind::ParentInput,
-            .parent_source_path = {external->second},
-        };
+        auto &binding = compiled.output_binding.emplace();
+        binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+        binding.parent_source_path = {external->second};
       } else {
         if (output->peered_output_kind() != GraphEdgeSourceKind::Output) {
           throw std::invalid_argument(
@@ -3208,11 +3206,9 @@ CompiledSubGraph Wiring::finish_subgraph(
         }
         const auto it = index_of.find(output->peered_node());
         if (it == index_of.end()) {
-          compiled.output_binding = NestedGraphOutputBinding{
-              .kind = NestedGraphOutputBinding::Kind::ParentInput,
-              .parent_source_path = {captures.base_index +
-                                     captures.index_for(*output)},
-          };
+          auto &binding = compiled.output_binding.emplace();
+          binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+          binding.parent_source_path = {captures.base_index + captures.index_for(*output)};
         } else {
           const NodeTypeMetaData *terminal_meta =
               compiled.graph_builder.node_at(it->second).type().schema();
@@ -3239,10 +3235,9 @@ CompiledSubGraph Wiring::finish_subgraph(
       // A fixed TSB/TSL argument is represented by a structural root whose
       // leaves are boundary projections. Returning that argument directly is
       // the structural form of an ordinary parent-input pass-through.
-      compiled.output_binding = NestedGraphOutputBinding{
-          .kind = NestedGraphOutputBinding::Kind::ParentInput,
-          .parent_source_path = {*ordinal},
-      };
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = {*ordinal};
     } else {
       throw std::invalid_argument(
           "Wiring::finish_subgraph: the sub-graph output must be a node output "

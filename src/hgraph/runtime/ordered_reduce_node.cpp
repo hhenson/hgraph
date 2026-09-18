@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -41,6 +42,7 @@ namespace hgraph
         {
             GraphValue graph{};
             OrderedReduceLinkSchedule schedule{};
+            DateTime future_when{MAX_DT};
             // What this link of the chain publishes, resolved when it is bound:
             // the combiner's terminal, or -- for a combiner that returns one of
             // its arguments -- the accumulator or element it passes through.
@@ -80,8 +82,11 @@ namespace hgraph
                 for (std::size_t index = to; index-- > from;)
                 {
                     auto *entry = entries.entry_at(index);
-                    if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started()) { continue; }
-                    errors.capture([&] { entry->graph.view().stop(); });
+                    if (entry != nullptr && entry->graph.has_value() && entry->graph.view().started())
+                    {
+                        errors.capture([&] { entry->graph.view().stop(); });
+                    }
+                    clear_future(index);
                 }
                 errors.rethrow_if_any();
             }
@@ -97,35 +102,51 @@ namespace hgraph
                 retired_time = MIN_DT;
             }
 
-            // Which links have work. A link is scheduled by its element or by
-            // the link before it, and its graph reports that to the observer
-            // below, so an evaluation visits the due links alone, in order,
-            // instead of asking every link whether it is due. Entries are lazy:
-            // one that names a truncated or idle link pops harmlessly.
+            // At most one future deadline per live link. Unlike lazy heap
+            // duplicates, this stays O(live links) across input ticks, timer
+            // replacement and slot reuse. Updating a deadline costs O(log N).
+            void clear_future(std::size_t index)
+            {
+                auto *entry = entries.entry_at(index);
+                if (entry == nullptr || entry->future_when == MAX_DT) { return; }
+                future.erase({entry->future_when, index});
+                entry->future_when = MAX_DT;
+            }
+
+            void set_future(std::size_t index, DateTime when)
+            {
+                auto &entry = *entries.entry_at(index);
+                if (entry.future_when == when) { return; }
+                clear_future(index);
+                if (when != MAX_DT)
+                {
+                    future.emplace(when, index);
+                    entry.future_when = when;
+                }
+            }
+
             void note_schedule(std::size_t index, DateTime when)
             {
+                if (when == MAX_DT) { return; }
                 if (when <= evaluating_time)
                 {
                     due.push_back(index);
                     std::push_heap(due.begin(), due.end(), std::greater<>{});
                 }
-                else
+                else if (when < entries.entry_at(index)->future_when)
                 {
-                    future.emplace_back(when, index);
-                    std::push_heap(future.begin(), future.end(), std::greater<>{});
+                    set_future(index, when);
                 }
             }
 
             /** Move every schedule that has come due onto the due heap. */
             void admit_due(DateTime evaluation_time)
             {
-                while (!future.empty() && future.front().first <= evaluation_time)
+                while (!future.empty() && future.begin()->first <= evaluation_time)
                 {
-                    std::pop_heap(future.begin(), future.end(), std::greater<>{});
-                    const std::size_t index = future.back().second;
-                    future.pop_back();
-                    due.push_back(index);
-                    std::push_heap(due.begin(), due.end(), std::greater<>{});
+                    const std::size_t index = future.begin()->second;
+                    clear_future(index);
+                    note_schedule(index, evaluation_time);
                 }
             }
 
@@ -155,7 +176,7 @@ namespace hgraph
 
             InPlaceGraphSlotStore<OrderedReduceEntry> entries{};   // slot == position in the chain
             std::vector<std::size_t> due{};                               // min-heap of link indices
-            std::vector<std::pair<DateTime, std::size_t>> future{};       // min-heap of (when, link)
+            std::set<std::pair<DateTime, std::size_t>> future{};          // one (when, link) per pending link
             DateTime evaluating_time{MIN_DT};
             std::size_t live_count{0};
             std::size_t retired_end{0};                            // [live_count, retired_end) await destruction
@@ -236,7 +257,9 @@ namespace hgraph
             result.nested_graph_capacity += storage.entries.slot_capacity();
             result.nested_graph_blocks += storage.entries.block_count();
             result.dynamic_live_bytes += storage.entries.live_bytes();
+            result.dynamic_live_bytes += storage.future.size() * sizeof(decltype(storage.future)::value_type);
             result.dynamic_reserved_bytes += storage.entries.reserved_bytes();
+            result.dynamic_reserved_bytes += storage.future.size() * sizeof(decltype(storage.future)::value_type);
             return result;
         }
 
@@ -458,7 +481,12 @@ namespace hgraph
                 schedule_sampled_input_consumers(
                     entry.graph.view(), evaluation_time, context.spec.child.input_bindings);
                 // Start hooks schedule before the graph reports to its observer.
-                storage.note_schedule(index, evaluation_time);
+                const DateTime next = entry.graph.view().next_scheduled_time();
+                storage.note_schedule(index, next);
+                if (next != MAX_DT && next > evaluation_time)
+                {
+                    view.graph().schedule_node(view.node_index(), next);
+                }
             }
             storage.live_count = next_count;
             rollback.release();
@@ -581,7 +609,11 @@ namespace hgraph
                 auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
                 auto child = entry->graph.view();
-                if (index != resumed && child.next_scheduled_time() > evaluation_time) { continue; }
+                if (index != resumed && child.next_scheduled_time() > evaluation_time)
+                {
+                    storage.set_future(index, child.next_scheduled_time());
+                    continue;
+                }
                 if (!child.evaluate(evaluation_time))
                 {
                     storage.resume_index_plus_one = index + 1;
@@ -589,12 +621,14 @@ namespace hgraph
                 }
                 // The PULL half: what a link schedules while it is itself
                 // evaluating is not reported to the observer.
-                if (const DateTime next = child.next_scheduled_time(); next != MAX_DT && next > evaluation_time)
-                {
-                    storage.note_schedule(index, next);
-                }
+                const DateTime next = child.next_scheduled_time();
+                storage.set_future(index, next > evaluation_time ? next : MAX_DT);
             }
             storage.resume_index_plus_one = 0;
+            if (!storage.future.empty())
+            {
+                view.graph().schedule_node(view.node_index(), storage.future.begin()->first);
+            }
             return true;
         }
 
@@ -776,13 +810,16 @@ namespace hgraph
             storage.future.clear();
             for (std::size_t index = 0; index < storage.live_count; ++index)
             {
-                auto child = storage.entries.entry_at(index)->graph.view();
+                auto &entry = *storage.entries.entry_at(index);
+                entry.future_when = MAX_DT;
+                auto child = entry.graph.view();
                 child.start(time);
                 // Whatever a restored link still has scheduled is not reported
                 // to the observer by start; pick it up once here.
                 if (const DateTime next = child.next_scheduled_time(); next != MAX_DT)
                 {
                     storage.note_schedule(index, next);
+                    view.graph().schedule_node(view.node_index(), next);
                 }
             }
         }

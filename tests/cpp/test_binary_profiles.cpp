@@ -424,6 +424,9 @@ TEST_CASE("binary profiles: Compact picks a column's encoding from the values", 
     const Value flag_list = flags.build();
     CHECK(encoding_of(flag_list) == 4);
     CHECK(compact_bytes(flag_list).size() == 1 + 1 + 3);
+    // Stable across linkers, including MSVC's identical-code folding: a bool
+    // writer and a fixed-width atom writer may have the same machine code.
+    CHECK(compact_bytes(flag_list) == std::string("\x14\x04\x49\x92\x04", 5));
     CHECK(compact_round_trip(flag_list).view() == flag_list.view());
 
     // Instants in a column are what delta encoding is for.
@@ -607,4 +610,20 @@ TEST_CASE("binary profiles: what each costs", "[.][codec-benchmark]")
                         measured.decode_us / 1000.0, measured.bytes);
         }
     }
+}
+
+TEST_CASE("binary profiles: framed work limits saturate and retain explicit hostile-count bounds", "[binary-profiles]")
+{
+    CHECK(binary_decode_limits_for_bytes(0).max_work == 1'000'000);
+    CHECK(binary_decode_limits_for_bytes(std::numeric_limits<std::size_t>::max()).max_work ==
+          std::numeric_limits<std::uint64_t>::max());
+    auto &registry = TypeRegistry::instance();
+    const auto *row = registry.un_named_bundle({{"flag", registry.register_scalar<Bool>("bool")}});
+    const auto *schema = registry.list(row);
+    std::string bytes;
+    write_varint(1'000'000'000, bytes);
+    bytes.append(16, '\0');
+    BinaryReader reader{bytes, 0, binary_decode_limits_for_bytes(bytes.size())};
+    CHECK_THROWS_WITH(bind_binary_converter(schema).read(reader),
+                      Catch::Matchers::ContainsSubstring("work limit exceeded"));
 }

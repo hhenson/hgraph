@@ -1099,16 +1099,6 @@ namespace hgraph
             return result;
         }
 
-        void write_instant_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
-        {
-            write_atom(self, view, writer);
-        }
-
-        void write_bool_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
-        {
-            write_atom(self, view, writer);
-        }
-
         // An ordinal is read as the unsigned image of its storage, whatever the
         // enum's own signedness, so every value round trips.
         void write_ordinal_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
@@ -1151,18 +1141,11 @@ namespace hgraph
             Bits = 4,
         };
 
-        enum class AtomClass : std::uint8_t
-        {
-            Opaque,
-            Integer,
-            Boolean,
-        };
+        using AtomClass = BinaryConverter::ColumnAtom;
 
         [[nodiscard]] AtomClass atom_class(const BinaryConverter &atom) noexcept
         {
-            if (atom.write_ == &write_int_atom || atom.write_ == &write_instant_atom) { return AtomClass::Integer; }
-            if (atom.write_ == &write_bool_atom) { return AtomClass::Boolean; }
-            return AtomClass::Opaque;
+            return atom.column_atom;
         }
 
         [[nodiscard]] inline std::size_t varint_bytes(std::uint64_t value) noexcept
@@ -1188,8 +1171,8 @@ namespace hgraph
                 }
                 return true;
             }();
-            // A reader's work budget scales with the bytes it was given (sixteen
-            // elements a byte, in the image codec and the store codecs). Every
+            // The framed-reader budget accounts for up to sixteen atoms per
+            // byte, including repeated row/field work charges. Every
             // other encoding spends at least a bit per element, so what it
             // writes is always within that; ``constant`` alone can name any
             // number of elements in a handful of bytes, and a value that was
@@ -1638,7 +1621,6 @@ namespace hgraph
         {
             return converter.atom_size != 0 &&
                    (converter.write_ == &write_atom || converter.write_ == &write_int_atom ||
-                    converter.write_ == &write_instant_atom || converter.write_ == &write_bool_atom ||
                     converter.write_ == &write_ordinal_atom);
         }
 
@@ -2175,13 +2157,14 @@ namespace hgraph
                     {
                         converter.write_ = &write_int_atom;
                         converter.read_ = &read_int_atom;
+                        converter.column_atom = AtomClass::Integer;
                     }
                     else if (converter.atom_size == sizeof(std::int64_t) &&
                              converter.meta == scalar_descriptor<DateTime>::value_meta())
                     {
-                        converter.write_ = &write_instant_atom;
+                        converter.column_atom = AtomClass::Integer;
                     }
-                    else if (converter.binding.ops() == &ops_for<Bool>()) { converter.write_ = &write_bool_atom; }
+                    else if (converter.binding.ops() == &ops_for<Bool>()) { converter.column_atom = AtomClass::Boolean; }
                     else if (converter.meta->is_enum() && converter.atom_size <= sizeof(std::uint64_t))
                     {
                         converter.write_ = &write_ordinal_atom;
@@ -2481,12 +2464,22 @@ namespace hgraph
         swap(write_alternatives, other.write_alternatives);
         swap(read_alternatives, other.read_alternatives);
         swap(atom_ops, other.atom_ops);
+        swap(column_atom, other.column_atom);
     }
 
     Value BinaryConverter::read(BinaryReader &reader) const
     {
         auto depth = reader.enter();
         return read_(*this, reader);
+    }
+
+    BinaryDecodeLimits binary_decode_limits_for_bytes(std::size_t bytes) noexcept
+    {
+        BinaryDecodeLimits limits;
+        constexpr std::uint64_t work_per_byte = 16 * 6;
+        const auto available = std::numeric_limits<std::uint64_t>::max() - limits.max_work;
+        limits.max_work += bytes > available / work_per_byte ? available : bytes * work_per_byte;
+        return limits;
     }
 
     void BinaryReader::consume_work(std::uint64_t count)
