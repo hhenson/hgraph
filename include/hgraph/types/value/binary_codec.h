@@ -85,12 +85,26 @@ namespace hgraph
     };
 
     /**
+     * A write cursor: the bytes being produced. The mirror of ``BinaryReader``.
+     *
+     * Converters write through it rather than into a bare string so that what
+     * an encoding shares across values -- RFC 0040's session tables -- has
+     * somewhere to travel.
+     */
+    struct HGRAPH_CLASS_EXPORT BinaryWriter
+    {
+        explicit BinaryWriter(std::string &bytes) noexcept : out(bytes) {}
+
+        std::string &out;
+    };
+
+    /**
      * Interned per-schema binary converter.
      */
     class HGRAPH_CLASS_EXPORT BinaryConverter
     {
       public:
-        using WriteFn = void (*)(const BinaryConverter &, const ValueView &, std::string &);
+        using WriteFn = void (*)(const BinaryConverter &, const ValueView &, BinaryWriter &);
         using ReadFn  = Value (*)(const BinaryConverter &, BinaryReader &);
         using HashFn = std::uint64_t (*)(const BinaryConverter &, const ValueView &);
 
@@ -101,7 +115,13 @@ namespace hgraph
         BinaryConverter &operator=(BinaryConverter &&other) noexcept;
         void swap(BinaryConverter &other) noexcept;
 
-        void write(const ValueView &view, std::string &out) const { write_(*this, view, out); }
+        void write(const ValueView &view, BinaryWriter &writer) const { write_(*this, view, writer); }
+        /** One value with nothing shared: a cursor over ``out`` alone. */
+        void write(const ValueView &view, std::string &out) const
+        {
+            BinaryWriter writer{out};
+            write_(*this, view, writer);
+        }
         [[nodiscard]] Value read(BinaryReader &reader) const;
 
         WriteFn                              write_;
@@ -138,6 +158,7 @@ namespace hgraph
         /** Stable process-independent hash for worker assignment. */
         [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
         void write(const ValueView &view, std::string &out) const;
+        void write(const ValueView &view, BinaryWriter &writer) const;
         [[nodiscard]] Value read(BinaryReader &reader) const;
 
       private:

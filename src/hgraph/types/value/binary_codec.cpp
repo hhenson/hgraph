@@ -36,7 +36,7 @@ namespace hgraph
             throw std::runtime_error("binary codec: truncated buffer");
         }
 
-        void refuse_write(const BinaryConverter &, const ValueView &, std::string &)
+        void refuse_write(const BinaryConverter &, const ValueView &, BinaryWriter &)
         { throw std::logic_error("binary codec: unbound converter"); }
         Value refuse_read(const BinaryConverter &, BinaryReader &)
         { throw std::logic_error("binary codec: unbound converter"); }
@@ -54,8 +54,9 @@ namespace hgraph
             return fields / 8 + static_cast<std::size_t>(fields % 8 != 0);
         }
 
-        void write_composite(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_composite(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const std::size_t fields = self.children.size();
             const std::size_t bitmap_at = out.size();
             out.append(bitmap_bytes(fields), '\0');
@@ -71,7 +72,7 @@ namespace hgraph
                 out[bitmap_at + (i / 8)] =
                     static_cast<char>(static_cast<unsigned char>(out[bitmap_at + (i / 8)]) |
                                       (1u << (i % 8)));
-                self.children[i]->write(field, out);
+                self.children[i]->write(field, writer);
             }
         }
 
@@ -93,8 +94,9 @@ namespace hgraph
 
         // --- atoms ---------------------------------------------------------
 
-        void write_atom(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             // Trivially copyable and fixed width, so the canonical wire form is
             // the storage image on a little-endian host. That covers every
             // numeric and temporal atom without enumerating the taxonomy.
@@ -112,8 +114,9 @@ namespace hgraph
             return result;
         }
 
-        void write_string(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_string(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto &text = view.checked_as<Str>();
             write_varint(text.size(), out);
             out.append(text);
@@ -129,8 +132,9 @@ namespace hgraph
 
         // ``Bytes`` is the same length-prefixed shape as ``Str`` with a
         // different accessor -- it wraps the buffer rather than being one.
-        void write_bytes(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_bytes(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto &blob = view.checked_as<Bytes>();
             write_varint(blob.data.size(), out);
             out.append(blob.data);
@@ -161,8 +165,9 @@ namespace hgraph
             return size == 0 ? ZoneId{} : ZoneId{std::string_view{reinterpret_cast<const char *>(data), size}};
         }
 
-        void write_zone_id(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_zone_id(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             write_zone(view.checked_as<ZoneId>(), out);
         }
 
@@ -172,8 +177,9 @@ namespace hgraph
             return Value{self.binding, &value};
         }
 
-        void write_zoned_time(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_zoned_time(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto value = view.checked_as<ZonedDateTime>();
             const auto instant = value.instant();
             const auto offset = value.offset_seconds();
@@ -225,8 +231,9 @@ namespace hgraph
         }
 
         template <typename Range>
-        void write_range(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_range(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             write_range_value(view.checked_as<Range>(), out);
         }
 
@@ -238,8 +245,9 @@ namespace hgraph
         }
 
         template <typename Ranges>
-        void write_ranges(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_ranges(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto &ranges = view.checked_as<Ranges>();
             write_varint(ranges.size(), out);
             for (const auto &range : ranges) write_range_value(range, out);
@@ -296,8 +304,9 @@ namespace hgraph
             return table;
         }
 
-        void write_frame(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_frame(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             write_table(view.checked_as<Frame>().table, out);
         }
 
@@ -307,8 +316,9 @@ namespace hgraph
             return Value{self.binding, &value};
         }
 
-        void write_series(const BinaryConverter &, const ValueView &view, std::string &out)
+        void write_series(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto &array = view.checked_as<Series>().array;
             write_table(array ? arrow::Table::Make(arrow::schema({arrow::field("value", array->type())}),
                                                    {std::make_shared<arrow::ChunkedArray>(array)}) : nullptr, out);
@@ -330,12 +340,13 @@ namespace hgraph
             return Value{self.binding, &value};
         }
 
-        void write_indirect(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_indirect(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto concrete = view.concrete();
             const bool present = concrete.has_value() && concrete.schema() != self.meta;
             out.push_back(present ? '\1' : '\0');
-            if (present) self.children[0]->write(concrete, out);
+            if (present) self.children[0]->write(concrete, writer);
         }
 
         Value read_indirect(const BinaryConverter &self, BinaryReader &reader)
@@ -349,8 +360,9 @@ namespace hgraph
 
         // --- sequences -----------------------------------------------------
 
-        void write_list(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_list(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto list = view.as_list();
             write_varint(list.size(), out);
             const bool nullable = self.meta->has(ValueTypeFlags::Nullable);
@@ -366,7 +378,7 @@ namespace hgraph
                 }
                 if (nullable) out[bitmap_at + i / 8] = static_cast<char>(
                     static_cast<unsigned char>(out[bitmap_at + i / 8]) | (1u << (i % 8)));
-                self.children[0]->write(item, out);
+                self.children[0]->write(item, writer);
             }
         }
 
@@ -391,20 +403,22 @@ namespace hgraph
             return Value{self.realization_bound ? self.binding : compact_list_type(element, *self.meta), &storage};
         }
 
-        void write_set(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_set(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto set = view.as_set();
-            std::string elements;
+            // The count precedes the elements and the view knows it, so the
+            // elements are written in place. They used to be built in a scratch
+            // buffer and copied, which cost every set a second pass.
+            const std::size_t expected = set.size();
+            write_varint(expected, out);
             std::size_t count = 0;
             for (const auto element : set)
             {
-                self.children[0]->write(element, elements);
+                self.children[0]->write(element, writer);
                 ++count;
             }
-            // The count precedes the elements, and a set has no size() to ask
-            // for up front, so the elements are built first.
-            write_varint(count, out);
-            out.append(elements);
+            if (count != expected) { throw std::logic_error("binary codec: set size disagrees with its elements"); }
         }
 
         Value read_set(const BinaryConverter &self, BinaryReader &reader)
@@ -422,20 +436,21 @@ namespace hgraph
             return Value{self.realization_bound ? self.binding : compact_set_type(element), &storage};
         }
 
-        void write_map(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_map(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto  map = view.as_map();
-            std::string entries;
+            const std::size_t expected = map.size();
+            write_varint(expected, out);
             std::size_t count = 0;
             for (const auto entry : map)
             {
-                self.children[0]->write(entry.first, entries);
-                entries.push_back(entry.second.has_value() ? '\1' : '\0');
-                if (entry.second.has_value()) self.children[1]->write(entry.second, entries);
+                self.children[0]->write(entry.first, writer);
+                out.push_back(entry.second.has_value() ? '\1' : '\0');
+                if (entry.second.has_value()) self.children[1]->write(entry.second, writer);
                 ++count;
             }
-            write_varint(count, out);
-            out.append(entries);
+            if (count != expected) { throw std::logic_error("binary codec: map size disagrees with its entries"); }
         }
 
         Value read_map(const BinaryConverter &self, BinaryReader &reader)
@@ -461,12 +476,13 @@ namespace hgraph
             return Value{self.realization_bound ? self.binding : compact_map_type(key, value), &storage};
         }
 
-        void write_buffer(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_buffer(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto sequence = view.as_indexed_view();
             write_varint(sequence.size(), out);
             for (std::size_t i = 0; i < sequence.size(); ++i)
-                self.children[0]->write(sequence.at(i), out);
+                self.children[0]->write(sequence.at(i), writer);
         }
 
         Value read_cyclic_buffer(const BinaryConverter &self, BinaryReader &reader)
@@ -493,8 +509,9 @@ namespace hgraph
             return Value{self.realization_bound ? self.binding : compact_queue_type(self.children[0]->binding, self.meta->fixed_size), &storage};
         }
 
-        void write_polymorphic(const BinaryConverter &self, const ValueView &view, std::string &out)
+        void write_polymorphic(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
+            auto &out = writer.out;
             const auto concrete = view.concrete();
             const auto found = self.write_alternatives.find(concrete.schema());
             if (found == self.write_alternatives.end())
@@ -502,7 +519,7 @@ namespace hgraph
             const auto name = concrete.schema()->name();
             write_varint(name.size(), out);
             out.append(name);
-            found->second->write(concrete, out);
+            found->second->write(concrete, writer);
         }
 
         Value read_polymorphic(const BinaryConverter &self, BinaryReader &reader)
@@ -894,8 +911,14 @@ namespace hgraph
 
     void BoundBinaryConverter::write(const ValueView &view, std::string &out) const
     {
+        BinaryWriter writer{out};
+        write(view, writer);
+    }
+
+    void BoundBinaryConverter::write(const ValueView &view, BinaryWriter &writer) const
+    {
         if (!impl_) throw std::logic_error("binary codec: unbound converter");
-        impl_->root->write(view, out);
+        impl_->root->write(view, writer);
     }
 
     Value BoundBinaryConverter::read(BinaryReader &reader) const
