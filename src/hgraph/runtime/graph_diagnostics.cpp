@@ -13,6 +13,7 @@
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/visitor.h>
 
+#include <ankerl/unordered_dense.h>
 #include <arrow/api.h>
 
 #include <algorithm>
@@ -627,46 +628,134 @@ namespace hgraph
             return result;
         }
 
-        void record_target(GraphDiagnosticValue *capture,
-                           TargetResolver resolver, void *resolver_context,
-                           const TSOutputView &output,
-                           const std::vector<std::string> &source_path)
+        /**
+         * Collects the navigation targets of one captured value, each once.
+         *
+         * A target is the triple (where in the value it was found, the node it
+         * leads to, where in that node's output). A keyed collection yields
+         * one per key, so a capture can hold as many targets as its largest
+         * collection has keys. The same triple can be reached twice within a
+         * capture, and the inspector wants it listed once.
+         *
+         * Whether a triple has been taken already is answered from a hash of
+         * the ones recorded so far. It used to be answered by comparing the
+         * candidate with every recorded target, and because the keys of a
+         * collection all differ that search never matched and always ran to
+         * the end: a capture of n keys made n * n / 2 path comparisons.
+         *
+         * The targets of one value are gathered by several functions that
+         * recurse through each other, so the recorder is made once per
+         * captured value by the capture entry points and handed down. A null
+         * recorder means "render only": nothing is resolved or walked.
+         */
+        class TargetRecorder
         {
-            if (capture == nullptr || resolver == nullptr) { return; }
-            const std::uint64_t id = resolver(resolver_context, output);
-            if (id == 0) { return; }
-            if (std::ranges::find(capture->target_node_ids, id) ==
-                capture->target_node_ids.end())
+          public:
+            /** ``node_ids`` may be null when the capture keeps no id summary. */
+            TargetRecorder(std::vector<std::uint64_t> *node_ids,
+                           std::vector<GraphDiagnosticTarget> &targets,
+                           TargetResolver resolver,
+                           void *resolver_context)
+                : node_ids_(node_ids), targets_(&targets), resolver_(resolver),
+                  resolver_context_(resolver_context),
+                  seen_targets_(0, TargetHash{&targets}, TargetEqual{&targets})
             {
-                capture->target_node_ids.push_back(id);
+                if (node_ids_ != nullptr)
+                {
+                    seen_node_ids_.insert(node_ids_->begin(), node_ids_->end());
+                }
+                for (std::size_t index = 0; index < targets_->size(); ++index)
+                {
+                    seen_targets_.insert(index);
+                }
             }
-            GraphDiagnosticTarget target{
-                .source_path = source_path,
-                .node_id = id,
-                .target_path = diagnostic_output_path(output),
-            };
-            const auto duplicate = std::ranges::find_if(
-                capture->targets,
-                [&](const GraphDiagnosticTarget &candidate) {
-                    return candidate.source_path == target.source_path &&
-                           candidate.node_id == target.node_id &&
-                           candidate.target_path == target.target_path;
-                });
-            if (duplicate == capture->targets.end())
-            {
-                capture->targets.push_back(std::move(target));
-            }
-        }
 
-        void record_target_tree(GraphDiagnosticValue *capture,
-                                TargetResolver resolver,
-                                void *resolver_context,
+            TargetRecorder(const TargetRecorder &) = delete;
+            TargetRecorder &operator=(const TargetRecorder &) = delete;
+
+            /** False when there is no resolver, so nothing can be recorded. */
+            [[nodiscard]] bool active() const noexcept { return resolver_ != nullptr; }
+
+            void record(const TSOutputView &output,
+                        const std::vector<std::string> &source_path)
+            {
+                if (resolver_ == nullptr) { return; }
+                const std::uint64_t id = resolver_(resolver_context_, output);
+                if (id == 0) { return; }
+                if (node_ids_ != nullptr && seen_node_ids_.insert(id).second)
+                {
+                    node_ids_->push_back(id);
+                }
+                // The set holds positions in ``targets_``, so the candidate is
+                // appended first and taken back off if it was already there.
+                targets_->push_back(GraphDiagnosticTarget{
+                    .source_path = source_path,
+                    .node_id = id,
+                    .target_path = diagnostic_output_path(output),
+                });
+                auto discard = make_scope_exit<true>([&] { targets_->pop_back(); });
+                if (seen_targets_.insert(targets_->size() - 1).second)
+                {
+                    discard.release();
+                }
+            }
+
+          private:
+            struct TargetHash
+            {
+                const std::vector<GraphDiagnosticTarget> *targets;
+
+                [[nodiscard]] std::uint64_t operator()(std::size_t index) const noexcept
+                {
+                    const auto &target = (*targets)[index];
+                    const ankerl::unordered_dense::hash<std::string_view> text_hash{};
+                    constexpr std::uint64_t multiplier = 0x9E3779B97F4A7C15ULL;
+                    // The path lengths are folded in so that moving a
+                    // component from one path to the other changes the hash.
+                    std::uint64_t hash = target.node_id;
+                    hash = hash * multiplier + target.source_path.size();
+                    for (const auto &component : target.source_path)
+                    {
+                        hash = hash * multiplier + text_hash(component);
+                    }
+                    hash = hash * multiplier + target.target_path.size();
+                    for (const auto &component : target.target_path)
+                    {
+                        hash = hash * multiplier + text_hash(component);
+                    }
+                    return hash;
+                }
+            };
+
+            struct TargetEqual
+            {
+                const std::vector<GraphDiagnosticTarget> *targets;
+
+                [[nodiscard]] bool operator()(std::size_t lhs, std::size_t rhs) const noexcept
+                {
+                    const auto &left = (*targets)[lhs];
+                    const auto &right = (*targets)[rhs];
+                    return left.node_id == right.node_id &&
+                           left.source_path == right.source_path &&
+                           left.target_path == right.target_path;
+                }
+            };
+
+            std::vector<std::uint64_t> *node_ids_;
+            std::vector<GraphDiagnosticTarget> *targets_;
+            TargetResolver resolver_;
+            void *resolver_context_;
+            ankerl::unordered_dense::set<std::uint64_t> seen_node_ids_{};
+            ankerl::unordered_dense::set<std::size_t, TargetHash, TargetEqual> seen_targets_;
+        };
+
+        void record_target_tree(TargetRecorder *recorder,
                                 const TSOutputView &output,
                                 const std::vector<std::string> &source_path,
                                 std::size_t depth = 0)
         {
-            record_target(capture, resolver, resolver_context, output,
-                          source_path);
+            if (recorder == nullptr || !recorder->active()) { return; }
+            recorder->record(output, source_path);
             if (depth >= 32) { return; }
             const auto *schema =
                 TypeRegistry::instance().dereference(output.schema());
@@ -682,8 +771,7 @@ namespace hgraph
                     const char *name = schema->fields()[index].name;
                     append_json_string(component, name == nullptr ? "" : name);
                     child_path.push_back(std::move(component));
-                    record_target_tree(capture, resolver, resolver_context,
-                                       bundle.at(index), child_path,
+                    record_target_tree(recorder, bundle.at(index), child_path,
                                        depth + 1);
                 }
             }
@@ -694,8 +782,7 @@ namespace hgraph
                 {
                     auto child_path = source_path;
                     child_path.push_back(std::to_string(index));
-                    record_target_tree(capture, resolver, resolver_context,
-                                       list.at(index), child_path,
+                    record_target_tree(recorder, list.at(index), child_path,
                                        depth + 1);
                 }
             }
@@ -719,31 +806,24 @@ namespace hgraph
                         append_json_string(component, key_text);
                         child_path.push_back(std::move(component));
                     }
-                    record_target_tree(capture, resolver, resolver_context,
-                                       dictionary.at_slot(slot), child_path,
-                                       depth + 1);
+                    record_target_tree(recorder, dictionary.at_slot(slot),
+                                       child_path, depth + 1);
                 }
             }
         }
 
         void capture_bound_targets(
-            std::vector<GraphDiagnosticTarget> &targets,
-            TargetResolver resolver,
-            void *resolver_context,
+            TargetRecorder &recorder,
             const TSInputView &input,
             const std::vector<std::string> &source_path = {},
             std::size_t depth = 0)
         {
-            if (resolver == nullptr || depth >= 32) { return; }
+            if (!recorder.active() || depth >= 32) { return; }
             if (input.is_bindable())
             {
                 const TSOutputView output = input.bound_output();
                 if (!output.bound()) { return; }
-                GraphDiagnosticValue capture;
-                capture.targets = std::move(targets);
-                record_target_tree(&capture, resolver, resolver_context,
-                                   output, source_path);
-                targets = std::move(capture.targets);
+                record_target_tree(&recorder, output, source_path);
                 return;
             }
 
@@ -760,9 +840,8 @@ namespace hgraph
                     const char *name = schema->fields()[index].name;
                     append_json_string(component, name == nullptr ? "" : name);
                     child_path.push_back(std::move(component));
-                    capture_bound_targets(
-                        targets, resolver, resolver_context, bundle.at(index),
-                        child_path, depth + 1);
+                    capture_bound_targets(recorder, bundle.at(index),
+                                          child_path, depth + 1);
                 }
             }
             else if (schema->kind == TSTypeKind::TSL)
@@ -772,9 +851,8 @@ namespace hgraph
                 {
                     auto child_path = source_path;
                     child_path.push_back(std::to_string(index));
-                    capture_bound_targets(
-                        targets, resolver, resolver_context, list.at(index),
-                        child_path, depth + 1);
+                    capture_bound_targets(recorder, list.at(index),
+                                          child_path, depth + 1);
                 }
             }
             else if (schema->kind == TSTypeKind::TSD)
@@ -797,9 +875,8 @@ namespace hgraph
                         append_json_string(component, key_text);
                         child_path.push_back(std::move(component));
                     }
-                    capture_bound_targets(
-                        targets, resolver, resolver_context,
-                        dictionary.at_slot(slot), child_path, depth + 1);
+                    capture_bound_targets(recorder, dictionary.at_slot(slot),
+                                          child_path, depth + 1);
                 }
             }
         }
@@ -837,18 +914,14 @@ namespace hgraph
                                     DateTime evaluation_time,
                                     std::size_t depth,
                                     const std::vector<std::string> &source_path,
-                                    GraphDiagnosticValue *capture,
-                                    TargetResolver resolver,
-                                    void *resolver_context);
+                                    TargetRecorder *recorder);
 
         void append_reference_json(std::string &target,
                                    const TimeSeriesReference &reference,
                                    DateTime evaluation_time,
                                    std::size_t depth,
                                    const std::vector<std::string> &source_path,
-                                   GraphDiagnosticValue *capture,
-                                   TargetResolver resolver,
-                                   void *resolver_context)
+                                   TargetRecorder *recorder)
         {
             if (depth >= 32)
             {
@@ -862,14 +935,12 @@ namespace hgraph
             if (reference.is_peered())
             {
                 TSOutputView output = reference.target_output().view(evaluation_time);
-                record_target_tree(capture, resolver, resolver_context, output,
-                                   source_path);
+                record_target_tree(recorder, output, source_path);
                 if (output.valid())
                 {
                     const ValueView value = output.value();
                     append_diagnostic_json(target, value, evaluation_time,
-                                           depth + 1, source_path, capture, resolver,
-                                           resolver_context);
+                                           depth + 1, source_path, recorder);
                 }
                 else { target += "null"; }
                 return;
@@ -900,8 +971,7 @@ namespace hgraph
                 }
                 else { child_path.push_back(std::to_string(index)); }
                 append_reference_json(target, items[index], evaluation_time,
-                                      depth + 1, child_path, capture, resolver,
-                                      resolver_context);
+                                      depth + 1, child_path, recorder);
             }
             target.push_back(named ? '}' : ']');
         }
@@ -912,9 +982,7 @@ namespace hgraph
                                   DateTime evaluation_time,
                                   std::size_t depth,
                                   const std::vector<std::string> &source_path,
-                                  GraphDiagnosticValue *capture,
-                                  TargetResolver resolver,
-                                  void *resolver_context)
+                                  TargetRecorder *recorder)
         {
             target.push_back('[');
             for (std::size_t index = 0; index < view.size(); ++index)
@@ -924,8 +992,7 @@ namespace hgraph
                 auto child_path = source_path;
                 child_path.push_back(std::to_string(index));
                 append_diagnostic_json(target, child, evaluation_time,
-                                       depth + 1, child_path, capture, resolver,
-                                       resolver_context);
+                                       depth + 1, child_path, recorder);
             }
             target.push_back(']');
         }
@@ -935,9 +1002,7 @@ namespace hgraph
                                     DateTime evaluation_time,
                                     std::size_t depth,
                                     const std::vector<std::string> &source_path,
-                                    GraphDiagnosticValue *capture,
-                                    TargetResolver resolver,
-                                    void *resolver_context)
+                                    TargetRecorder *recorder)
         {
             if (!value.valid())
             {
@@ -963,8 +1028,7 @@ namespace hgraph
                         append_reference_json(
                             target,
                             atomic.checked_as<TimeSeriesReference>(),
-                            evaluation_time, depth + 1, source_path, capture, resolver,
-                            resolver_context);
+                            evaluation_time, depth + 1, source_path, recorder);
                     }
                     else if (atomic.holds_alternative<Frame>())
                     {
@@ -982,8 +1046,7 @@ namespace hgraph
                 },
                 [&](TupleView tuple) {
                     append_sequence_json(target, tuple, evaluation_time,
-                                         depth, source_path, capture, resolver,
-                                         resolver_context);
+                                         depth, source_path, recorder);
                 },
                 [&](BundleView bundle) {
                     const bool named = bundle.schema()->is_named_bundle();
@@ -1010,15 +1073,13 @@ namespace hgraph
                         }
                         else { child_path.push_back(std::to_string(index)); }
                         append_diagnostic_json(target, child, evaluation_time,
-                                               depth + 1, child_path, capture, resolver,
-                                               resolver_context);
+                                               depth + 1, child_path, recorder);
                     }
                     target.push_back(named ? '}' : ']');
                 },
                 [&](ListView list) {
                     append_sequence_json(target, list, evaluation_time,
-                                         depth, source_path, capture, resolver,
-                                         resolver_context);
+                                         depth, source_path, recorder);
                 },
                 [&](SetView set) {
                     target.push_back('[');
@@ -1030,8 +1091,7 @@ namespace hgraph
                         child_path.push_back(to_json_string(element));
                         append_diagnostic_json(target, element,
                                                evaluation_time, depth + 1,
-                                               child_path, capture, resolver,
-                                               resolver_context);
+                                               child_path, recorder);
                     }
                     target.push_back(']');
                 },
@@ -1061,51 +1121,42 @@ namespace hgraph
                         }
                         append_diagnostic_json(target, child,
                                                evaluation_time, depth + 1,
-                                               child_path, capture, resolver,
-                                               resolver_context);
+                                               child_path, recorder);
                     }
                     target.push_back('}');
                 },
                 [&](CyclicBufferView buffer) {
                     append_sequence_json(target, buffer, evaluation_time,
-                                         depth, source_path, capture, resolver,
-                                         resolver_context);
+                                         depth, source_path, recorder);
                 },
                 [&](QueueView queue) {
                     append_sequence_json(target, queue, evaluation_time,
-                                         depth, source_path, capture, resolver,
-                                         resolver_context);
+                                         depth, source_path, recorder);
                 });
         }
 
         [[nodiscard]] std::string diagnostic_json(const ValueView &value,
                                                    DateTime evaluation_time,
-                                                   GraphDiagnosticValue *capture,
-                                                   TargetResolver resolver,
-                                                   void *resolver_context)
+                                                   TargetRecorder *recorder)
         {
             std::string target;
             const std::vector<std::string> source_path;
             append_diagnostic_json(target, value, evaluation_time, 0,
-                                   source_path, capture, resolver,
-                                   resolver_context);
+                                   source_path, recorder);
             return target;
         }
 
-        void capture_reference_targets(GraphDiagnosticValue &target,
+        void capture_reference_targets(TargetRecorder &recorder,
                                        const TimeSeriesReference &reference,
                                        DateTime evaluation_time,
-                                       TargetResolver resolver,
-                                       void *resolver_context,
                                        std::size_t depth = 0,
                                        const std::vector<std::string> &source_path = {})
         {
-            if (depth >= 32 || reference.is_empty()) { return; }
+            if (!recorder.active() || depth >= 32 || reference.is_empty()) { return; }
             if (reference.is_peered())
             {
                 TSOutputView output = reference.target_output().view(evaluation_time);
-                record_target_tree(&target, resolver, resolver_context, output,
-                                   source_path);
+                record_target_tree(&recorder, output, source_path);
                 return;
             }
             const auto &items = reference.items();
@@ -1124,8 +1175,7 @@ namespace hgraph
                     child_path.push_back(std::move(component));
                 }
                 else { child_path.push_back(std::to_string(index)); }
-                capture_reference_targets(target, items[index], evaluation_time,
-                                          resolver, resolver_context,
+                capture_reference_targets(recorder, items[index], evaluation_time,
                                           depth + 1, child_path);
             }
         }
@@ -1155,8 +1205,15 @@ namespace hgraph
                     {
                         target.frame = concrete.checked_as<Frame>();
                     }
-                    target.json = diagnostic_json(value, evaluation_time, &target,
-                                                  resolver, resolver_context);
+                    std::optional<TargetRecorder> recorder;
+                    if (resolver != nullptr)
+                    {
+                        recorder.emplace(&target.target_node_ids, target.targets,
+                                         resolver, resolver_context);
+                    }
+                    target.json = diagnostic_json(
+                        value, evaluation_time,
+                        recorder.has_value() ? &*recorder : nullptr);
                     if (!target.frame.has_value() && ts_schema != nullptr)
                     {
                         // JSON remains the universally available owned view.
@@ -1257,6 +1314,12 @@ namespace hgraph
             target.json.clear();
             target.json.push_back('{');
             std::string internal_json{"{"};
+            // One recorder per destination for the whole input: the arguments
+            // share the two lists, so "already recorded" must span them.
+            TargetRecorder bound_recorder{nullptr, target.bound_targets, resolver,
+                                          resolver_context};
+            TargetRecorder reference_recorder{&target.target_node_ids, target.targets,
+                                              resolver, resolver_context};
             for (std::size_t index = 0; index < names.size(); ++index)
             {
                 if (index != 0)
@@ -1277,16 +1340,13 @@ namespace hgraph
                 std::string path_component;
                 append_json_string(path_component, names[index]);
                 source_path.push_back(std::move(path_component));
-                capture_bound_targets(
-                    target.bound_targets, resolver, resolver_context, child,
-                    source_path);
-                capture_reference_targets(
-                    target, child.reference(), evaluation_time, resolver,
-                    resolver_context, 0, source_path);
+                capture_bound_targets(bound_recorder, child, source_path);
+                capture_reference_targets(reference_recorder, child.reference(),
+                                          evaluation_time, 0, source_path);
                 std::string child_json;
                 append_diagnostic_json(
                     child_json, child.value(), evaluation_time, 0,
-                    source_path, nullptr, nullptr, nullptr);
+                    source_path, nullptr);
                 target.json += child_json;
                 internal_json += child_json;
             }
@@ -1373,12 +1433,16 @@ namespace hgraph
                                 resolver_context);
                         if (!projected)
                         {
-                            capture_bound_targets(
-                                entry.input.bound_targets, resolver,
-                                resolver_context, input);
+                            TargetRecorder bound_recorder{
+                                nullptr, entry.input.bound_targets, resolver,
+                                resolver_context};
+                            capture_bound_targets(bound_recorder, input);
+                            TargetRecorder reference_recorder{
+                                &entry.input.target_node_ids, entry.input.targets,
+                                resolver, resolver_context};
                             capture_reference_targets(
-                                entry.input, input.reference(), evaluation_time,
-                                resolver, resolver_context);
+                                reference_recorder, input.reference(),
+                                evaluation_time);
                             capture_value(
                                 entry.input, input.value(), input.valid(),
                                 input.last_modified_time(), evaluation_time,

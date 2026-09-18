@@ -188,6 +188,19 @@ Snapshots own their strings, hierarchy, timings, and storage counters. With
 after nested slot erase and executor destruction. ``reset`` is a between-runs
 operation and throws ``std::logic_error`` while an executor is active.
 
+Value capture also records *navigation targets* -- which node and output each
+input binding or reference leads to -- one record per element, so a keyed
+collection contributes one per key. A target reached twice within one captured
+value is listed once. That rule belongs to one file-local owner,
+``TargetRecorder``, which answers "already recorded?" from a hash of the records
+taken so far. It is created once per captured value by the capture entry points
+and handed down through the functions that gather targets, because they recurse
+through each other and the rule has to span all of them. Comparing each new
+record against every earlier one instead made a capture cost the square of the
+key count, and capture runs after every evaluation of the node: 1.6 s per
+capture at 32,000 keys against 40 ms, flat at about 1 us per key
+(``hgraph_unit_tests '[diagnostics-scaling]'``).
+
 Storage inspection is a cold path through ``NodeView::storage_metrics`` and is
 never called when no diagnostics collector is registered.
 
