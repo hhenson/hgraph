@@ -613,3 +613,33 @@ TEST_CASE("mapped child checkpoint capture and recovery scaling", "[.][checkpoin
     SECTION("stateful children") { measure.template operator()<ScalingMapComponent>(false); }
     SECTION("synthetic key references") { measure.template operator()<ReferenceComponent<false>>(true); }
 }
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgraph_unit_tests '[map-scaling]'
+// No recovery is configured: this is what map_ itself costs when n keys arrive
+// in one tick and leave in the next. The per-key figure must stay flat as n
+// doubles; a rising one is a quadratic.
+TEST_CASE("map_ membership churn scales linearly with the number of keys", "[.][map-scaling]")
+{
+    stdlib::register_standard_operators();
+    for (const std::size_t count : {2000, 4000, 8000, 16000, 32000})
+    {
+        const auto added = dense_integer_dict(std::vector<Int>(count, 1));
+        const auto empty_delta = dict_delta<Int, TS<Int>>({});
+        SetBuilder removed_keys{TypeRegistry::instance().scalar_type<Int>()};
+        for (std::size_t index = 0; index < count; ++index) { removed_keys.insert(static_cast<Int>(index)); }
+        BundleBuilder removal{ValuePlanFactory::instance().type_for(empty_delta.schema())};
+        removal.set("removed", removed_keys.build());
+        removal.set("modified", Value{empty_delta.as_bundle().at("modified")});
+        const auto removed = removal.build();
+
+        GlobalContext context;
+        const auto start = std::chrono::steady_clock::now();
+        const auto result = eval_node_with_options<ScalingMapComponent>(interval(0, 2), values<Value>(added, removed));
+        const auto elapsed_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count();
+        REQUIRE(result.size() == 2);
+        std::cout << "map_membership_churn count=" << count << " run_ms=" << elapsed_ms
+                  << " us_per_key=" << elapsed_ms * 1000.0 / static_cast<double>(count) << '\n';
+    }
+}
