@@ -24,9 +24,12 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace hgraph
 {
@@ -43,6 +46,13 @@ namespace hgraph
         { throw std::logic_error("binary codec: unbound converter"); }
         std::uint64_t refuse_hash(const BinaryConverter &, const ValueView &)
         { throw std::logic_error("binary codec: unbound converter"); }
+
+        /** A reader gives up the storage it built (``Value::AdoptStorage``). */
+        template <typename Storage>
+        [[nodiscard]] Value adopt_storage(const ValueTypeRef &binding, Storage &storage)
+        {
+            return Value{binding, &storage, Value::AdoptStorage{}};
+        }
 
         // --- composites ----------------------------------------------------
         // A presence bitmap precedes the present fields. It is not an
@@ -401,7 +411,7 @@ namespace hgraph
                 builder.push_back(item.view());
             }
             ListStorage storage = builder.build_storage();
-            return Value{self.realization_bound ? self.binding : compact_list_type(element, *self.meta), &storage};
+            return adopt_storage(self.realization_bound ? self.binding : compact_list_type(element, *self.meta), storage);
         }
 
         void write_set(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
@@ -434,7 +444,7 @@ namespace hgraph
                 (void)builder.insert(item.view());
             }
             SetStorage storage = builder.build_storage();
-            return Value{self.realization_bound ? self.binding : compact_set_type(element), &storage};
+            return adopt_storage(self.realization_bound ? self.binding : compact_set_type(element), storage);
         }
 
         void write_map(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
@@ -474,7 +484,7 @@ namespace hgraph
                 else builder.set_item_unset(k.view());
             }
             MapStorage storage = builder.build_storage();
-            return Value{self.realization_bound ? self.binding : compact_map_type(key, value), &storage};
+            return adopt_storage(self.realization_bound ? self.binding : compact_map_type(key, value), storage);
         }
 
         void write_buffer(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
@@ -495,7 +505,7 @@ namespace hgraph
             CyclicBufferBuilder builder{self.children[0]->binding, self.meta->fixed_size};
             for (std::size_t i = 0; i < count; ++i) builder.push_back(self.children[0]->read(reader).view());
             auto storage = builder.build_storage();
-            return Value{self.realization_bound ? self.binding : compact_cyclic_buffer_type(self.children[0]->binding, self.meta->fixed_size), &storage};
+            return adopt_storage(self.realization_bound ? self.binding : compact_cyclic_buffer_type(self.children[0]->binding, self.meta->fixed_size), storage);
         }
 
         Value read_queue(const BinaryConverter &self, BinaryReader &reader)
@@ -507,7 +517,447 @@ namespace hgraph
             QueueBuilder builder{self.children[0]->binding, self.meta->fixed_size};
             for (std::size_t i = 0; i < count; ++i) builder.push(self.children[0]->read(reader).view());
             auto storage = builder.build_storage();
-            return Value{self.realization_bound ? self.binding : compact_queue_type(self.children[0]->binding, self.meta->fixed_size), &storage};
+            return adopt_storage(self.realization_bound ? self.binding : compact_queue_type(self.children[0]->binding, self.meta->fixed_size), storage);
+        }
+
+        // --- Fast: sequences of fixed-width atoms ------------------------------
+        // A sequence of trivially copyable atoms is one block on the wire --
+        // count, then the atoms back to back -- so it costs a copy, not a
+        // dispatch per element. The bytes are the ones the field-wise path
+        // writes; what differs is that no ``ValueView`` is built per element on
+        // the way out and no ``Value`` on the way in: the reader hands the block
+        // to the container's storage, which copies it as one.
+
+        /** Copy one atom of ``width`` bytes. The common widths are fixed-size copies. */
+        inline void copy_atom(char *to, const void *from, std::size_t width) noexcept
+        {
+            switch (width)
+            {
+                case 1: std::memcpy(to, from, 1); break;
+                case 2: std::memcpy(to, from, 2); break;
+                case 4: std::memcpy(to, from, 4); break;
+                case 8: std::memcpy(to, from, 8); break;
+                default: std::memcpy(to, from, width); break;
+            }
+        }
+
+        [[nodiscard]] std::size_t block_bytes(std::size_t count, std::size_t width)
+        {
+            if (width != 0 && count > std::numeric_limits<std::size_t>::max() / width)
+                throw std::runtime_error("binary codec: sequence length overflows");
+            return count * width;
+        }
+
+        /** Append ``count`` atoms read through ``atom_at`` as one block. */
+        template <typename AtomAt>
+        void append_block(std::string &out, std::size_t count, std::size_t width, AtomAt &&atom_at)
+        {
+            const std::size_t at = out.size();
+            out.resize_and_overwrite(at + block_bytes(count, width), [&](char *data, std::size_t size) {
+                char *to = data + at;
+                for (std::size_t index = 0; index < count; ++index, to += width) { copy_atom(to, atom_at(index), width); }
+                return size;
+            });
+        }
+
+        /** The block of ``count`` atoms, checked where the atom has invalid images. */
+        [[nodiscard]] ElementSpan take_block(const BinaryConverter &atom, BinaryReader &reader, std::size_t count)
+        {
+            reader.consume_work(count);
+            const auto *bytes = reader.take(block_bytes(count, atom.atom_size));
+            if (atom.binding.ops() == &ops_for<Bool>())
+            {
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    if (std::to_integer<unsigned>(bytes[index]) > 1)
+                        throw std::runtime_error("binary codec: invalid boolean representation");
+                }
+            }
+            return ElementSpan{.bytes = bytes, .size = count, .stride = atom.atom_size, .plan = atom.binding.plan()};
+        }
+
+        void write_atom_sequence(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto *ops = specialized_view_detail::checked_indexed_ops(view.binding(), "binary codec");
+            const auto *memory = view.data();
+            const std::size_t count = ops->size(ops->context, memory);
+            write_varint(count, writer.out);
+            append_block(writer.out, count, self.children[0]->atom_size, [&](std::size_t index) {
+                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, memory, index))
+                    throw std::runtime_error("binary codec: non-nullable sequence contains an unset element");
+                return ops->element_at(ops->context, memory, index);
+            });
+        }
+
+        Value read_atom_list(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            ListStorage storage{atom.binding, take_block(atom, reader, count)};
+            return adopt_storage(self.realization_bound ? self.binding : compact_list_type(atom.binding, *self.meta),
+                                 storage);
+        }
+
+        Value read_atom_cyclic_buffer(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            if (count > self.meta->fixed_size)
+                throw std::runtime_error("binary codec: cyclic buffer exceeds declared capacity");
+            // The wire holds logical order, so the rebuilt ring starts at its head.
+            CyclicBufferStorage storage{atom.binding, take_block(atom, reader, count), 0};
+            return adopt_storage(self.realization_bound
+                                     ? self.binding
+                                     : compact_cyclic_buffer_type(atom.binding, self.meta->fixed_size),
+                                 storage);
+        }
+
+        Value read_atom_queue(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            if (self.meta->fixed_size != 0 && count > self.meta->fixed_size)
+                throw std::runtime_error("binary codec: queue exceeds declared capacity");
+            QueueStorage storage{atom.binding, take_block(atom, reader, count)};
+            return adopt_storage(self.realization_bound ? self.binding
+                                                        : compact_queue_type(atom.binding, self.meta->fixed_size),
+                                 storage);
+        }
+
+        void write_atom_set(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto        set = view.as_set();
+            const std::size_t count = set.size();
+            const std::size_t width = self.children[0]->atom_size;
+            write_varint(count, writer.out);
+            const std::size_t at = writer.out.size();
+            writer.out.resize_and_overwrite(at + block_bytes(count, width), [&](char *data, std::size_t size) {
+                char       *to = data + at;
+                std::size_t written = 0;
+                for (const auto element : set)
+                {
+                    if (written == count) { break; }
+                    copy_atom(to, element.data(), width);
+                    to += width;
+                    ++written;
+                }
+                if (written != count) { throw std::logic_error("binary codec: set size disagrees with its elements"); }
+                return size;
+            });
+        }
+
+        Value read_atom_set(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &atom = *self.children[0];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            SetStorage storage{atom.binding, take_block(atom, reader, count)};
+            if (storage.size() != count) { throw std::runtime_error("binary codec: set repeats an element"); }
+            return adopt_storage(self.realization_bound ? self.binding : compact_set_type(atom.binding), storage);
+        }
+
+        // A map of fixed-width keys and values is two blocks, keys then values.
+        // Interleaving them, as the field-wise form does, leaves nothing to
+        // copy in bulk. A value that is unset still has its place in the block
+        // -- zeroed -- and a bitmap says which; the flag byte says whether there
+        // is a bitmap at all, because almost no map has an unset value.
+
+        void write_atom_map(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            auto             &out = writer.out;
+            const auto        map = view.as_map();
+            const std::size_t count = map.size();
+            const std::size_t key_width = self.children[0]->atom_size;
+            const std::size_t value_width = self.children[1]->atom_size;
+            write_varint(count, out);
+
+            const std::size_t keys_at = out.size();
+            const std::size_t flag_at = keys_at + block_bytes(count, key_width);
+            const std::size_t bitmap_at = flag_at + 1;
+            // Sized for the bitmap too; it is dropped again if every value is set.
+            const std::size_t values_with_bitmap_at = bitmap_at + bitmap_bytes(count);
+            out.resize(values_with_bitmap_at + block_bytes(count, value_width), '\0');
+
+            std::size_t index = 0;
+            bool        holes = false;
+            for (const auto entry : map)
+            {
+                if (index == count) { throw std::logic_error("binary codec: map size disagrees with its entries"); }
+                copy_atom(out.data() + keys_at + index * key_width, entry.first.data(), key_width);
+                if (entry.second.has_value())
+                {
+                    out[bitmap_at + index / 8] = static_cast<char>(
+                        static_cast<unsigned char>(out[bitmap_at + index / 8]) | (1u << (index % 8)));
+                    copy_atom(out.data() + values_with_bitmap_at + index * value_width, entry.second.data(), value_width);
+                }
+                else { holes = true; }
+                ++index;
+            }
+            if (index != count) { throw std::logic_error("binary codec: map size disagrees with its entries"); }
+            out[flag_at] = holes ? '\1' : '\0';
+            if (!holes)
+            {
+                // Close the gap the unused bitmap left.
+                out.erase(bitmap_at, bitmap_bytes(count));
+            }
+        }
+
+        Value read_atom_map(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &key = *self.children[0];
+            const auto &value = *self.children[1];
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            const auto  keys = take_block(key, reader, count);
+            const auto  flag = std::to_integer<unsigned>(*reader.take(1));
+            if (flag > 1) { throw std::runtime_error("binary codec: invalid map value presence flag"); }
+            std::vector<bool> validity;
+            if (flag == 1)
+            {
+                const auto *bitmap = reader.take(bitmap_bytes(count));
+                validity.resize(count);
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    validity[index] = (std::to_integer<unsigned>(bitmap[index / 8]) & (1u << (index % 8))) != 0;
+                }
+            }
+            const auto values = take_block(value, reader, count);
+            MapStorage storage{key.binding, value.binding, keys, values, std::move(validity)};
+            if (storage.size() != count) { throw std::runtime_error("binary codec: map repeats a key"); }
+            return adopt_storage(self.realization_bound ? self.binding : compact_map_type(key.binding, value.binding),
+                                 storage);
+        }
+
+        // --- Fast: a sequence of composites, by column ---------------------------
+        // Rows are stored side by side and the field-wise form writes them that
+        // way: a bitmap and the fields of row 0, then row 1. Every field of every
+        // row is then a dispatch, and on the way in a ``Value`` and a builder
+        // per row. Written by column -- for each field a presence flag, a bitmap
+        // only if some row lacks it, then that field for every row -- a
+        // fixed-width field is a strided copy in each direction, and the reader
+        // fills rows it constructed once, in place.
+        //
+        // An unset fixed-width field keeps its place in the block, zeroed, so
+        // the block is addressed by row. A variable-width field is written for
+        // the rows that have it, in row order.
+
+        /** One field of the rows being written, however the rows are stored. */
+        struct RowFields
+        {
+            std::optional<CompositeFieldLayout> layout{};
+            const IndexedValueOps              *row_ops{nullptr};
+
+            [[nodiscard]] bool set(const void *row, std::size_t field) const
+            {
+                if (layout.has_value()) { return layout->field_set(row, field); }
+                return row_ops->element_valid != nullptr ? row_ops->element_valid(row_ops->context, row, field)
+                                                         : row_ops->element_at(row_ops->context, row, field) != nullptr;
+            }
+            [[nodiscard]] const void *at(const void *row, std::size_t field) const
+            {
+                return layout.has_value() ? layout->field(row, field) : row_ops->element_at(row_ops->context, row, field);
+            }
+        };
+
+        void write_row_columns(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            auto       &out = writer.out;
+            const auto &row_converter = *self.children[0];
+            const auto *ops = specialized_view_detail::checked_indexed_ops(view.binding(), "binary codec");
+            const auto *memory = view.data();
+            const std::size_t count = ops->size(ops->context, memory);
+            write_varint(count, out);
+            if (count == 0) { return; }
+
+            // Row addresses once, not once per field. Rows of one list share a
+            // representation; one that did not could not be addressed by column.
+            std::vector<const void *> rows(count);
+            const auto row_binding = ops->element_binding(ops->context, memory, 0);
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, memory, index))
+                    throw std::runtime_error("binary codec: non-nullable list contains an unset element");
+                if (index != 0 && ops->element_binding(ops->context, memory, index) != row_binding)
+                    throw std::logic_error("binary codec: the rows of a list do not share one representation");
+                rows[index] = ops->element_at(ops->context, memory, index);
+            }
+            if (row_binding.schema() != row_converter.meta)
+                throw std::logic_error("binary codec: derived Bundle requires a bound converter");
+
+            RowFields fields{.layout = CompositeFieldLayout::of(row_binding),
+                             .row_ops = specialized_view_detail::checked_indexed_ops(row_binding, "binary codec")};
+            const std::size_t field_count = row_converter.children.size();
+            for (std::size_t field = 0; field < field_count; ++field)
+            {
+                const auto &child = *row_converter.children[field];
+                // Almost every column is complete, so look before writing a
+                // bitmap rather than writing one to throw away.
+                bool holes = false;
+                for (std::size_t index = 0; index < count && !holes; ++index) { holes = !fields.set(rows[index], field); }
+                out.push_back(holes ? '\1' : '\0');
+                if (holes)
+                {
+                    const std::size_t bitmap_at = out.size();
+                    out.append(bitmap_bytes(count), '\0');
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        if (!fields.set(rows[index], field)) { continue; }
+                        out[bitmap_at + index / 8] = static_cast<char>(
+                            static_cast<unsigned char>(out[bitmap_at + index / 8]) | (1u << (index % 8)));
+                    }
+                }
+                const auto present = [&](std::size_t index) { return !holes || fields.set(rows[index], field); };
+
+                if (child.atom_size != 0 && child.write_ == &write_atom)
+                {
+                    const std::size_t width = child.atom_size;
+                    const std::size_t block_at = out.size();
+                    out.resize_and_overwrite(block_at + block_bytes(count, width), [&](char *data, std::size_t size) {
+                        char *to = data + block_at;
+                        for (std::size_t index = 0; index < count; ++index, to += width)
+                        {
+                            if (present(index)) { copy_atom(to, fields.at(rows[index], field), width); }
+                            else { std::memset(to, 0, width); }
+                        }
+                        return size;
+                    });
+                    continue;
+                }
+
+                const auto field_binding = fields.row_ops->element_binding(fields.row_ops->context, rows[0], field);
+                if (child.write_ == &write_string)
+                {
+                    // Text is a block of lengths and then the characters, so
+                    // neither direction dispatches per row. The rows share one
+                    // representation, so checking the first checks them all.
+                    std::size_t first = 0;
+                    while (first < count && !present(first)) { ++first; }
+                    if (first < count) { static_cast<void>(ValueView{field_binding, fields.at(rows[first], field)}.checked_as<Str>()); }
+                    const auto text_at = [&](std::size_t index) -> const Str & {
+                        return *static_cast<const Str *>(fields.at(rows[index], field));
+                    };
+                    std::size_t characters = 0;
+                    const std::size_t lengths_at = out.size();
+                    out.resize_and_overwrite(lengths_at + block_bytes(count, sizeof(std::uint32_t)),
+                                             [&](char *data, std::size_t size) {
+                        char *to = data + lengths_at;
+                        for (std::size_t index = 0; index < count; ++index, to += sizeof(std::uint32_t))
+                        {
+                            const std::size_t length = present(index) ? text_at(index).size() : 0;
+                            if (length > std::numeric_limits<std::uint32_t>::max())
+                                throw std::length_error("binary codec: a string in a column exceeds 4 GiB");
+                            const auto narrow = static_cast<std::uint32_t>(length);
+                            std::memcpy(to, &narrow, sizeof(narrow));
+                            characters += length;
+                        }
+                        return size;
+                    });
+                    const std::size_t characters_at = out.size();
+                    out.resize_and_overwrite(characters_at + characters, [&](char *data, std::size_t size) {
+                        char *to = data + characters_at;
+                        for (std::size_t index = 0; index < count; ++index)
+                        {
+                            if (!present(index)) { continue; }
+                            const Str &text = text_at(index);
+                            std::memcpy(to, text.data(), text.size());
+                            to += text.size();
+                        }
+                        return size;
+                    });
+                    continue;
+                }
+
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    if (!present(index)) { continue; }
+                    child.write(ValueView{field_binding, fields.at(rows[index], field)}, writer);
+                }
+            }
+        }
+
+        Value read_row_columns(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto &row_converter = *self.children[0];
+            const auto  row_binding = row_converter.binding;
+            const auto  count = static_cast<std::size_t>(read_varint(reader));
+            reader.consume_work(count);
+
+            ListBuilder builder{row_binding, *self.meta};
+            const auto  result_binding = self.realization_bound ? self.binding : compact_list_type(row_binding, *self.meta);
+            if (count == 0)
+            {
+                ListStorage empty = builder.build_storage();
+                return adopt_storage(result_binding, empty);
+            }
+
+            // Every row once, default-constructed with no field set; the
+            // columns then fill them where they stand.
+            builder.append_default(count);
+            const auto layout = CompositeFieldLayout::of(row_binding);
+            const auto *row_ops = specialized_view_detail::checked_indexed_ops(row_binding, "binary codec");
+            if (!layout.has_value()) { throw std::logic_error("binary codec: row storage is not composite"); }
+
+            const std::size_t field_count = row_converter.children.size();
+            for (std::size_t field = 0; field < field_count; ++field)
+            {
+                const auto &child = *row_converter.children[field];
+                const auto  flag = std::to_integer<unsigned>(*reader.take(1));
+                if (flag > 1) { throw std::runtime_error("binary codec: invalid column presence flag"); }
+                const auto *bitmap = flag == 1 ? reader.take(bitmap_bytes(count)) : nullptr;
+                const auto  present = [&](std::size_t index) {
+                    return bitmap == nullptr || (std::to_integer<unsigned>(bitmap[index / 8]) & (1u << (index % 8))) != 0;
+                };
+
+                if (child.atom_size != 0 && child.write_ == &write_atom)
+                {
+                    const auto        block = take_block(child, reader, count);
+                    const std::size_t width = child.atom_size;
+                    const auto       *from = static_cast<const char *>(block.bytes);
+                    for (std::size_t index = 0; index < count; ++index, from += width)
+                    {
+                        if (!present(index)) { continue; }
+                        void *row = builder.element_memory(index);
+                        copy_atom(static_cast<char *>(layout->field(row, field)), from, width);
+                        layout->mark_field(row, field);
+                    }
+                    continue;
+                }
+
+                reader.consume_work(count);
+                const auto destination = row_ops->element_binding(row_ops->context, nullptr, field);
+                if (!destination) { throw std::logic_error("binary codec: row field binding is unresolved"); }
+                if (child.write_ == &write_string)
+                {
+                    const auto *lengths = reader.take(block_bytes(count, sizeof(std::uint32_t)));
+                    // Checked once: the rows share a representation, and a
+                    // default-constructed row holds a live, empty string.
+                    static_cast<void>(ValueView{destination, layout->field(builder.element_memory(0), field)}.checked_as<Str>());
+                    for (std::size_t index = 0; index < count; ++index)
+                    {
+                        std::uint32_t length = 0;
+                        std::memcpy(&length, lengths + index * sizeof(std::uint32_t), sizeof(length));
+                        if (!present(index))
+                        {
+                            if (length != 0) { throw std::runtime_error("binary codec: an unset string has a length"); }
+                            continue;
+                        }
+                        const auto *characters = reader.take(length);
+                        void       *row = builder.element_memory(index);
+                        static_cast<Str *>(layout->field(row, field))->assign(reinterpret_cast<const char *>(characters), length);
+                        layout->mark_field(row, field);
+                    }
+                    continue;
+                }
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    if (!present(index)) { continue; }
+                    Value item = child.read(reader);
+                    void *row = builder.element_memory(index);
+                    destination.ops_ref().move_assign_from(destination, layout->field(row, field), item.view().binding(),
+                                                           const_cast<void *>(item.view().data()));
+                    layout->mark_field(row, field);
+                }
+            }
+            ListStorage storage = builder.build_storage();
+            return adopt_storage(result_binding, storage);
         }
 
         // --- Any -----------------------------------------------------------
@@ -899,6 +1349,68 @@ namespace hgraph
         const BinaryConverter *root{};
         BinaryProfile profile{BinaryProfile::Compact};
 
+        /** True for an atom the block forms can carry: fixed width, trivially
+            copyable, and stored at exactly its wire width. */
+        [[nodiscard]] static bool is_block_atom(const BinaryConverter &converter) noexcept
+        {
+            const auto *plan = converter.binding.plan();
+            return converter.atom_size != 0 && converter.write_ == &write_atom && plan != nullptr &&
+                   plan->trivially_copyable && plan->layout.size == converter.atom_size;
+        }
+
+        /** True for a row the column form can carry: an exact composite whose
+            storage the reader can fill in place. A polymorphic, indirect or
+            wrapped row keeps the field-wise form. */
+        [[nodiscard]] static bool is_column_row(const BinaryConverter &converter)
+        {
+            return converter.write_ == &write_composite && !converter.meta->is_indirect() &&
+                   CompositeFieldLayout::of(converter.binding).has_value();
+        }
+
+        /** Swap in the ``Fast`` revision 1 forms where the shape allows one;
+            every other shape keeps the field-wise form. */
+        static void select_fast_forms(BinaryConverter &converter)
+        {
+            if (converter.meta->is_indirect() || converter.write_ == &write_polymorphic) { return; }
+            switch (converter.meta->value_kind())
+            {
+                case ValueTypeKind::List:
+                    if (converter.meta->has(ValueTypeFlags::Nullable)) { return; }
+                    if (is_block_atom(*converter.children[0]))
+                    {
+                        converter.write_ = &write_atom_sequence;
+                        converter.read_ = &read_atom_list;
+                    }
+                    else if (is_column_row(*converter.children[0]))
+                    {
+                        converter.write_ = &write_row_columns;
+                        converter.read_ = &read_row_columns;
+                    }
+                    return;
+                case ValueTypeKind::CyclicBuffer:
+                    if (!is_block_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_atom_sequence;
+                    converter.read_ = &read_atom_cyclic_buffer;
+                    return;
+                case ValueTypeKind::Queue:
+                    if (!is_block_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_atom_sequence;
+                    converter.read_ = &read_atom_queue;
+                    return;
+                case ValueTypeKind::Set:
+                    if (!is_block_atom(*converter.children[0])) { return; }
+                    converter.write_ = &write_atom_set;
+                    converter.read_ = &read_atom_set;
+                    return;
+                case ValueTypeKind::Map:
+                    if (!is_block_atom(*converter.children[0]) || !is_block_atom(*converter.children[1])) { return; }
+                    converter.write_ = &write_atom_map;
+                    converter.read_ = &read_atom_map;
+                    return;
+                default: return;
+            }
+        }
+
         const BinaryConverter *build(const ValueTypeMetaData *meta, bool exact_type = false)
         {
             auto &cache = exact_type ? exact : declared;
@@ -925,6 +1437,7 @@ namespace hgraph
             {
                 for (const auto *child : binary_converter(meta).children) raw->children.push_back(build(child->meta));
             }
+            if (profile == BinaryProfile::Fast) { select_fast_forms(*raw); }
             // Sequence readers construct compact owning storage; publish the
             // matching binding so nested builders never pair inline plans
             // with compact container memory.

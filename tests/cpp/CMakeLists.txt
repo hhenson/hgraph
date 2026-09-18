@@ -247,6 +247,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_collection_nodes.cpp
     test_binary_codec.cpp
     test_binary_session.cpp
+    test_binary_profiles.cpp
     distributed_worker_recipes.cpp
     test_distributed_boundary.cpp
     test_distributed_child.cpp

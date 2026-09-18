@@ -103,8 +103,8 @@ namespace hgraph
     //
     // The revision exists because a profile's bytes change as RFC 0040's stages
     // land while its name does not. Revision 0 of either profile is the RFC
-    // 0017 field-wise encoding. A reader refuses a revision it does not know,
-    // by number, rather than misreading it.
+    // 0017 field-wise encoding; ``Fast`` is at revision 1. A reader refuses a
+    // revision it does not know, by number, rather than misreading it.
 
     [[nodiscard]] HGRAPH_EXPORT std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept;
 

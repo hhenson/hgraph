@@ -238,15 +238,81 @@ is a memory image.
 For bytes that live for one cycle: ``dmap_`` and ``spawn`` payloads, and an
 online snapshot handed to an asynchronous writer.
 
-* Every numeric and temporal atom is fixed width. No varint touches a payload.
-* A sequence of fixed-width atoms is a count, padding to eight bytes, and one
-  contiguous little-endian block: one ``memcpy`` out and one in, with the
-  reader building the container in place rather than one ``Value`` per
-  element.
-* A sequence of bundles is written **by column**: one validity bitmap and one
-  block per fixed-width field. Source storage is by row, so encoding is a
-  gather per field; it has no per-element dispatch and decodes to bulk copies.
-* Text is length-prefixed and never deduplicated. Nothing is compressed.
+Revision 1, as built:
+
+* Every numeric and temporal atom is fixed width, as it already was. Counts
+  stay varints: there is one per sequence, and it is not what costs.
+* A **sequence of fixed-width atoms** -- list, ring buffer, queue, set -- is a
+  count and one contiguous little-endian block. These are the bytes the
+  field-wise form already wrote; what changes is that the writer builds no
+  ``ValueView`` per element and the reader no ``Value``: it hands the block to
+  the container's storage, which copies it as one. A nullable list keeps the
+  field-wise form.
+* A **map of fixed-width keys and values** is two blocks, keys then values,
+  with a flag byte saying whether a presence bitmap sits between them. An
+  unset value keeps its place in the block, zeroed. Interleaved, as the
+  field-wise form has it, there is nothing to copy in bulk.
+* A **list of composite rows** is written **by column**: for each field a flag
+  byte, a presence bitmap only if some row lacks the field, then that field for
+  every row. A fixed-width field is a block addressed by row (an unset one
+  zeroed), so it is a strided copy each way. Text is a block of four-byte
+  lengths and then the characters. Any other field -- a nested list, row or
+  map -- is written by its own converter for the rows that have it. The reader
+  constructs every row once and fills them where they stand
+  (``ListBuilder::append_default``, ``CompositeFieldLayout``). A polymorphic,
+  indirect or wrapped row keeps the field-wise form.
+* Nothing is deduplicated and nothing is compressed.
+
+Two things the proposal had that revision 1 does not:
+
+* **No padding to eight bytes.** Alignment only pays a reader that uses the
+  block where it lies. This one copies into its own storage, and a payload
+  written in place inside a message has no fixed origin to align to.
+* **No new ops-table entry.** The clean way to read contiguous elements out of
+  an arbitrary view is an ``IndexedValueOps`` entry returning its spans, which
+  is an ABI change to every compiled extension. It was not needed to meet the
+  bar: calling the existing ``element_at`` and copying the atom is 3x faster
+  than the field-wise writer. It is the next step if encode ever matters more.
+
+Measured (``hgraph_unit_tests '[codec-benchmark]'``, Release, Apple arm64),
+field-wise against ``Fast`` revision 1:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 17 17 18 18
+
+   * - shape
+     - encode
+     - decode
+     - bytes before
+     - bytes after
+   * - ``list<int>`` x 1,000,000
+     - 7.2 -> 2.4 ms
+     - 25.1 -> 0.10 ms
+     - 8,000,003
+     - 8,000,003
+   * - ``list<row6>`` x 100,000
+     - 5.2 -> 1.6 ms
+     - 33.5 -> 2.4 ms
+     - 3,980,003
+     - 4,180,009
+   * - ``map<int,float>`` x 100,000
+     - 1.0 -> 0.55 ms
+     - 6.9 -> 0.61 ms
+     - 1,700,003
+     - 1,600,004
+
+Three passes of raw output are in
+``benchmarks/results/rfc0040-stage2-20260918-macos.md``.
+
+``row6`` is the acceptance case: an int, two floats, a timestamp, a boolean and
+a string. It is 5% larger under ``Fast`` because string lengths are four bytes;
+that is the profile doing what it is for.
+
+One finding was not about the codec. Every value builder ended in
+``Value{binding, &storage}``, which *copies* the storage it has just built, so
+every built container in the system was constructed twice. ``build()`` now
+moves its storage into the ``Value`` (``Value::AdoptStorage``).
 
 ``Compact`` -- minimise bytes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -400,7 +466,8 @@ Stages
    gains the profile and revision at stage 3, when its payload bytes first
    change, so that no image ever claims an encoding it does not hold.
 2. ``Fast``: bulk atom blocks, columnar bundle sequences, in-place container
-   construction on read. ``dmap_`` and ``spawn`` switch to it.
+   construction on read. ``dmap_`` and ``spawn`` switch to it. **Done**, as
+   ``Fast`` revision 1: ``BoundarySlots`` and ``BoundaryTransfer`` bind for it.
 3. ``Compact``: integer and enum varints, adaptive columns, text dictionaries,
    optional block compression. Checkpoints and stores switch to it.
 4. Python objects: the bridge hook, the bind-time warning, ``PickledObject``

@@ -136,10 +136,12 @@ namespace hgraph
 
     // --- frame --------------------------------------------------------------
 
-    std::uint8_t binary_profile_revision(BinaryProfile) noexcept
+    std::uint8_t binary_profile_revision(BinaryProfile profile) noexcept
     {
         // Revision 0 of either profile is the RFC 0017 field-wise encoding.
-        return 0;
+        // Fast 1 (RFC 0040 stage 2): maps of fixed-width keys and values are
+        // two blocks, and a list of composite rows is written by column.
+        return profile == BinaryProfile::Fast ? 1 : 0;
     }
 
     void encode_binary_frame(const ValueView &view, BinaryProfile profile, std::string &out)

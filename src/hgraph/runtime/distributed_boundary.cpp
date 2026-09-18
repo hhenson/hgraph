@@ -66,15 +66,15 @@ namespace hgraph::distributed
             {
                 case TSTypeKind::TS:
                 case TSTypeKind::SIGNAL:
-                    value = bind_binary_converter(schema->delta_value_schema);
+                    value = bind_binary_converter(schema->delta_value_schema, BinaryProfile::Fast);
                     capture = &capture_atomic; apply = &apply_atomic; decode = &decode_atomic; break;
                 case TSTypeKind::TSS:
                     full_when_unbound = true;
-                    key = bind_binary_converter(schema->value_schema->element_type);
+                    key = bind_binary_converter(schema->value_schema->element_type, BinaryProfile::Fast);
                     capture = &capture_set; apply = &apply_set; decode = &decode_set; break;
                 case TSTypeKind::TSD:
                     full_when_unbound = true;
-                    key = bind_binary_converter(schema->data.tsd.key_type);
+                    key = bind_binary_converter(schema->data.tsd.key_type, BinaryProfile::Fast);
                     children.push_back(std::make_unique<Plan>(schema->element_ts()));
                     capture = &capture_dict; apply = &apply_dict; decode = &decode_dict; break;
                 case TSTypeKind::TSL:
@@ -91,8 +91,8 @@ namespace hgraph::distributed
                     capture = &capture_bundle; apply = &apply_bundle; decode = &decode_bundle; break;
                 case TSTypeKind::TSW:
                     full_when_unbound = true;
-                    value = bind_binary_converter(schema->value_type);
-                    time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"));
+                    value = bind_binary_converter(schema->value_type, BinaryProfile::Fast);
+                    time = bind_binary_converter(TypeRegistry::instance().register_scalar<DateTime>("datetime"), BinaryProfile::Fast);
                     element_binding = value.binding();
                     capture = &capture_window; apply = &apply_window; decode = &decode_window; break;
                 case TSTypeKind::REF:
