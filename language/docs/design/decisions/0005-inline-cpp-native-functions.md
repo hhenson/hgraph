@@ -1,6 +1,7 @@
 # ADR 0005: Module-local exact native functions may contain C++
 
-Status: accepted and implemented for evaluation-time value/view functions
+Status: accepted and implemented for value/view functions; value functions are
+available in every node hook, view functions in evaluation only (2026-09-18)
 
 ## Context
 
@@ -39,7 +40,9 @@ Each same-named HGL candidate receives a distinct readable C++ symbol
 (`len`, `len__candidate_2`, and so on). HGL overload identity therefore does
 not depend on the projected C++ parameter spellings being overloadable.
 
-The initial form is evaluation-only and stateless. Collection arguments receive
+The form is stateless. A native whose parameters are all values is available
+in `start`, `when`, and `stop`; a native that takes a live input view is
+evaluation-only, since lifecycle blocks have no inputs. Collection arguments receive
 their typed live hgraph input views; a complete non-const `signal` parameter
 receives the common `TSInputView`; other arguments receive values. The
 descriptor rejects `signal` as a value parameter, nested type, const parameter,

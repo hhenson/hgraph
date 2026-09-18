@@ -172,24 +172,31 @@ TEST_CASE("value function structural signatures fail during checking", "[hgraph-
 }
 
 TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-ir][value-function][native]") {
+    // A value native is available in every node hook (start, evaluation,
+    // stop); wiring-time use, such as a test assertion, is still outside the
+    // first native interface, and the restriction propagates through the
+    // const fn helpers that wrap it.
     const std::string prelude = R"(module example
-native fn evaluation_only(a: f64) -> f64 { cpp (double a) { return a; } }
-const fn inner(a: f64) -> f64 => evaluation_only(a)
+native fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
+const fn inner(a: f64) -> f64 => node_hooks_only(a)
 const fn outer(a: f64) -> f64 => inner(a)
 )";
-    for (const std::string invocation :
-         {"test t { assert outer(1.0) == 1.0 }", "fn f(a: f64) -> f64 { start { let x = outer(1.0) }\n when { return a } }",
-          "fn f(a: f64) -> f64 { stop { let x = outer(1.0) }\n when { return a } }"}) {
-        Lowered unit{prelude + invocation + "\n"};
+    {
+        Lowered unit{prelude + "test t { assert outer(1.0) == 1.0 }\n"};
         INFO(unit.diagnostics.render(unit.file));
         CHECK(unit.diagnostics.has_errors());
         CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
             return diagnostic.message.find("native dependencies") != std::string::npos;
         }));
     }
-    Lowered valid{prelude + "fn f(a: f64) -> f64 { outer(a) }\n"};
-    INFO(valid.diagnostics.render(valid.file));
-    CHECK_FALSE(valid.diagnostics.has_errors());
+    for (const std::string invocation :
+         {"fn f(a: f64) -> f64 { outer(a) }",
+          "fn f(a: f64) -> f64 {\n cache seed: f64 = 0.0\n start { seed = outer(1.0) }\n when { return a + seed } }",
+          "fn f(a: f64) -> f64 {\n cache last: f64 = 0.0\n stop { last = outer(1.0) }\n when { return a + last } }"}) {
+        Lowered valid{prelude + invocation + "\n"};
+        INFO(valid.diagnostics.render(valid.file));
+        CHECK_FALSE(valid.diagnostics.has_errors());
+    }
 }
 
 TEST_CASE("hgraph IR preserves parameter-pack cardinality", "[hgraph-ir][parameter-pack][cardinality]") {

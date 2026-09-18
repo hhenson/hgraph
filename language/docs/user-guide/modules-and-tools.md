@@ -147,7 +147,9 @@ so erased HGL distinctions such as fixed versus unbounded list shapes cannot
 create a C++ redefinition. Source-native `requires` clauses currently fail closed
 because descriptor constraints are not reconstructed by the version-one
 catalog. Native parameters cannot have defaults. This first form runs only
-during node evaluation and cannot be nested inside another function.
+in `start`, `when`, and `stop` when its parameters are all values, and only
+during evaluation when it takes a live collection view; it cannot be nested
+inside another function.
 Use `cpp include <header>` for a system header or `cpp include "header"` for a
 project header needed by source-native signatures or bodies. These declarations
 are local to this source module, retain their order and delimiter form, and are

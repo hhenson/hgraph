@@ -326,7 +326,8 @@ tree remains future-compatible; semantic analysis currently rejects it because
 descriptor constraints cannot yet be reconstructed on import. The lexer
 retains the balanced C++ parameter list and compound statement verbatim,
 accounting for C++ comments, quoted literals, and raw strings. HGL does not
-parse their contents. The form is top-level and evaluation-only; it cannot
+parse their contents. The form is top-level; a value native is callable in
+`start`, `when`, and `stop`, a view native only in `when`; it cannot
 appear inside another function body.
 
 A `cpp include` is module-level build metadata for source-defined C++ only.

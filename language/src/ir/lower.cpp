@@ -1389,9 +1389,18 @@ namespace hgl::ir
                                     input_view && !item.is_const ? hir::NativeParameterAccess::InputView
                                                                  : hir::NativeParameterAccess::Value});
                             }
-                            function.result         = signature.result;
-                            function.phases         = {hir::NativePhase::Evaluation};
-                            function.throws         = node.throws;
+                            // A native without `->` returns void, as an imported void native does.
+                            function.result = signature.result.valid() ? signature.result : void_type();
+                            // A value function has no live-input dependency, so it
+                            // is available in every node hook; a view function needs
+                            // the inputs and is evaluation-only.
+                            const bool views = std::ranges::any_of(function.parameters, [](const hir::NativeParameter &parameter) {
+                                return parameter.access == hir::NativeParameterAccess::InputView;
+                            });
+                            function.phases = views ? std::vector{hir::NativePhase::Evaluation}
+                                                    : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation,
+                                                                  hir::NativePhase::Stop};
+                            function.throws = node.throws;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;

@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_input/list_view.h>
 #include <hgraph/types/time_series/ts_input/set_view.h>
 #include <hgraph/types/time_series/ts_input/window_view.h>
+#include <stdexcept>
 
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/types/graph_wiring.h>
@@ -26,7 +27,6 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
-#include <stdexcept>
 #include <tuple>
 
 namespace hgraph_::native
@@ -61,6 +61,7 @@ namespace hgraph_::native
         hgraph::Int      bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
         hgraph::Int      bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
         hgraph::Int      as_int(const hgraph::Bool &value) noexcept;
+        void             require_positive_delay(const hgraph::TimeDelta &delay);
         hgraph::Int      power(const hgraph::Int &lhs, const hgraph::Int &rhs);
         hgraph::Float    power__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs);
         hgraph::Int      shift_left(const hgraph::Int &lhs, const hgraph::Int &rhs);
