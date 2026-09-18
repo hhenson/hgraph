@@ -2,6 +2,7 @@
 
 #include <hgraph/types/metadata/schema_table.h>
 #include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/binary_session.h>
 
 #include <ankerl/unordered_dense.h>
 
@@ -167,9 +168,10 @@ namespace hgraph
             std::string body{};
             std::string strings{};
             ankerl::unordered_dense::map<std::string_view, std::size_t> string_index{};
-            SchemaTableWriter schemas{};
-            // One converter per value schema in the table, bound on first use.
-            std::vector<BoundBinaryConverter> converters{};
+            // The schema table and its converters (RFC 0040). An ``Any`` inside
+            // a payload names its schema here too, so the image has one table.
+            BinaryEncodeSession session{};
+            SchemaTableWriter &schemas{session.schemas()};
 
             std::size_t string_ref(std::string_view text)
             {
@@ -192,11 +194,7 @@ namespace hgraph
 
             void value(const Value &source, std::size_t schema_index)
             {
-                // Adding a schema adds what it is built from first, so the
-                // table can have grown by more than one entry since last time.
-                while (converters.size() < schemas.value_count())
-                    converters.push_back(bind_binary_converter(schemas.value_at(converters.size())));
-                converters[schema_index].write(source.view(), body);
+                session.write(schema_index, source.view(), body);
             }
 
             // A value whose schema is not implied by its position.
@@ -467,8 +465,10 @@ namespace hgraph
         {
             BinaryReader &reader;
             std::vector<std::string> strings{};
-            SchemaTableReader schemas{};
-            std::vector<BoundBinaryConverter> converters{};
+            // Converters are bound as the image asks for them; a nested ``Any``
+            // resolves its schema through the same session.
+            BinaryDecodeSession session{};
+            const SchemaTableReader &schemas{session.schemas()};
 
             [[nodiscard]] std::uint64_t number() { return read_varint(reader); }
 
@@ -556,16 +556,14 @@ namespace hgraph
 
             void read_schemas()
             {
-                schemas.read(reader);
-                converters.reserve(schemas.value_count());
-                for (std::size_t index = 0; index < schemas.value_count(); ++index)
-                    converters.push_back(bind_binary_converter(schemas.value_at(index)));
+                session.read_tables(reader);
+                reader.session = &session;
             }
 
             [[nodiscard]] Value tagged_value()
             {
                 if (!boolean()) { return {}; }
-                return converters[value_index()].read(reader);
+                return session.converter_at(value_index()).read(reader);
             }
 
             [[nodiscard]] std::vector<std::size_t> path()
@@ -643,7 +641,7 @@ namespace hgraph
                         if (payload_schema == nullptr) { malformed("endpoint implies no payload schema"); }
                         index = value_index_of(payload_schema);
                     }
-                    image.payload = converters[index].read(reader);
+                    image.payload = session.converter_at(index).read(reader);
                 }
                 if (flags & ts_reference)
                 {
@@ -674,7 +672,7 @@ namespace hgraph
                     {
                         const auto *key_schema = implied_key(image.schema);
                         if (key_schema == nullptr) { malformed("endpoint implies no key schema"); }
-                        const auto &converter = converters[value_index_of(key_schema)];
+                        const auto &converter = session.converter_at(value_index_of(key_schema));
                         for (std::size_t index = 0; index < keys; ++index) { image.keys.push_back(converter.read(reader)); }
                     }
                     if (flags & ts_dense_slots)
@@ -781,7 +779,7 @@ namespace hgraph
                             node.input_activity.push_back(std::move(entry));
                         }
                     }
-                    if (flags & node_custom_payload) { node.custom.payload = converters[value_index()].read(reader); }
+                    if (flags & node_custom_payload) { node.custom.payload = session.converter_at(value_index()).read(reader); }
                     if (flags & node_custom_endpoints)
                     {
                         const auto endpoints = count();
@@ -803,7 +801,7 @@ namespace hgraph
                 const auto keys = number();
                 if (keys > static_cast<std::uint8_t>(ChildKeys::Mixed)) { malformed("invalid child key mode"); }
                 const BoundBinaryConverter *converter{nullptr};
-                if (keys == static_cast<std::uint8_t>(ChildKeys::Uniform)) { converter = &converters[value_index()]; }
+                if (keys == static_cast<std::uint8_t>(ChildKeys::Uniform)) { converter = &session.converter_at(value_index()); }
                 std::size_t previous{0};
                 for (std::size_t index = 0; index < entries; ++index)
                 {

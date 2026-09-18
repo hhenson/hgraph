@@ -100,14 +100,31 @@ encode or decode call is now a session that owns two tables, emitted once:
   alternative names, enum member names when a profile writes them.
 
 A value whose schema is known to the reader -- the common case -- adds nothing
-to either table and costs nothing for them.
+to either table and costs nothing for them. That includes the root: the reader
+supplies it, as with ``from_binary_string``, so it is bound directly and is
+never a table entry. A framed ``int`` is its eight bytes, a six-byte header and
+two empty table counts.
+
+The session is a schema table plus one bound converter per entry, bound the
+first time an entry is used. RFC 0039's image codec already held exactly that
+pair privately; it now uses the session
+(``hgraph/types/value/binary_session.h``), so there is one implementation and
+an ``Any`` inside a checkpoint payload names its schema in the image's own
+table. Converters write through a ``BinaryWriter`` cursor -- the mirror of
+``BinaryReader`` -- which is how the session reaches them; both cursors carry a
+session pointer and a subreader inherits it.
 
 Totality
 ~~~~~~~~
 
 ``Any``
-   A schema-table index followed by the value under that schema. An empty box
-   is index zero. Nesting is ordinary recursion.
+   A schema-table index, one past it so that zero is the empty box, followed by
+   the value under that schema. Nesting is ordinary recursion, which means the
+   table has to be able to name ``Any`` itself: the structural recipes gain the
+   unconstrained ``Any``, and the ring-buffer and queue kinds they also lacked.
+   An empty box needs no table, so it can still be written with
+   ``to_binary_string``; a full one outside a session is refused, naming
+   ``encode_binary_frame`` and the session as the way to write it.
 
 Python objects
    The type layer is Python-free (RFC 0035) and stays so. The bridge registers
@@ -170,6 +187,11 @@ What remains refused, by design, is what is not data: a
 ``TimeSeriesReference`` outside a checkpoint's locator context, and internal
 handles such as wiring callables and recovery configuration.
 
+One thing is refused that is not an encoding at all: an ``Any`` has no
+``portable_hash``. The hash assigns a ``dmap_`` key to a worker, it runs with
+no session to name a schema in, and resolving a converter per call would put a
+registry lock on the per-tick path. An ``Any`` is not a usable partition key.
+
 Profiles
 --------
 
@@ -183,6 +205,29 @@ The profile is fixed when a converter is bound and recorded in the first byte
 of whatever frames the bytes -- the RFC 0017 stream envelope, the RFC 0039
 image header, a ``ValueStore`` object -- so a reader never guesses. A bare
 ``to_binary_string`` has no frame; its caller states the profile on both sides.
+
+The byte after it is the **revision** of that profile's encoding. A profile's
+name is stable while its bytes change as the stages below land, and bytes
+written between two stages must not be misread by the later one. Revision 0 of
+*either* profile is the RFC 0017 field-wise encoding; ``Fast`` becomes
+revision 1 at stage 2 and ``Compact`` at stage 3. A reader refuses a revision
+it does not know, by number. ``Compact`` revisions stay readable, because they
+are stored; an old ``Fast`` revision need not be, because it never outlives a
+run.
+
+The self-contained frame (``encode_binary_frame`` / ``decode_binary_frame``):
+
+.. code-block:: text
+
+   u8   profile
+   u8   revision
+   u32  payload length, little-endian
+        payload
+        session tables
+
+The payload precedes its tables so that it is written in place: the tables are
+only known once the payload has been encoded, and putting them first would
+mean encoding into a scratch buffer and copying.
 
 Both profiles are portable across builds, compilers and architectures. Neither
 is a memory image.
@@ -288,22 +333,32 @@ non-hgraph users -- the case JSON is for -- and not a serialization path.
 Compatibility
 -------------
 
-The RFC 0017 field-wise encoding becomes profile ``Compact`` **version 1** only
-where they coincide; they do not, so the existing encoding is kept readable as
-``Legacy`` (profile byte absent) wherever bytes were stored: RFC 0039 version 2
-images and nothing else -- ``dmap_`` and ``spawn`` payloads never outlive a run.
-The image header gains the profile byte as format version 3; version 2 remains
-readable.
+The RFC 0017 field-wise encoding is **revision 0** of both profiles, so nothing
+already written changes meaning. It stays readable wherever bytes were stored,
+which is RFC 0039 version 2 images and nothing else -- ``dmap_`` and ``spawn``
+payloads never outlive a run. A version 2 image has no profile or revision in
+its header and is read as ``Compact`` revision 0; the header gains both as
+format version 3 at stage 3, and version 2 remains readable.
 
-``BinaryConverter``'s public struct gains no field. Profiles are separate
-interned converters, and the session is a new type, so compiled extensions are
-unaffected. ``register_binary_atom`` is additive.
+``BinaryConverter`` gains no field and keeps its size; its write function now
+takes the ``BinaryWriter`` cursor rather than a bare string, and the string
+overloads of ``write`` remain. ``BinaryReader`` gains the session pointer, so
+code compiled against the old header that constructs one must be rebuilt --
+in-tree that is the core and the Python bridge, and no extension does.
+``bind_binary_converter(meta, profile)`` is an overload beside the existing
+function, not a default argument, so the existing symbol is unchanged.
+``register_binary_atom`` is additive.
 
 Stages
 ------
 
-1. Session, shared schema table, ``Any``, profile plumbing and the frame byte,
-   with ``Compact`` initially identical to today's encoding.
+1. Session, shared schema table, ``Any``, profile plumbing and the frame bytes,
+   with both profiles at revision 0, today's encoding. **Done**: the image
+   codec is on the session (byte-identical images, no change in encode or
+   decode time), and sets and maps are written in place rather than through a
+   scratch copy. The RFC 0039 image header is *not* changed by this stage: it
+   gains the profile and revision at stage 3, when its payload bytes first
+   change, so that no image ever claims an encoding it does not hold.
 2. ``Fast``: bulk atom blocks, columnar bundle sequences, in-place container
    construction on read. ``dmap_`` and ``spawn`` switch to it.
 3. ``Compact``: integer and enum varints, adaptive columns, text dictionaries,

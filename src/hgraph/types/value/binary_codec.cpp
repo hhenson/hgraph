@@ -1,5 +1,6 @@
 #include <hgraph/types/value/binary_codec.h>
 
+#include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/primitive_types.h>
@@ -509,6 +510,54 @@ namespace hgraph
             return Value{self.realization_bound ? self.binding : compact_queue_type(self.children[0]->binding, self.meta->fixed_size), &storage};
         }
 
+        // --- Any -----------------------------------------------------------
+        // The box names its content's schema by the session's table index, one
+        // past it so that zero is the empty box, and the content follows under
+        // that schema. The schema is not known until the value is met, which
+        // is why this is the one kind that cannot be written without a session.
+
+        void write_any(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
+        {
+            const auto box = view.as_any();
+            if (!box.has_value())
+            {
+                write_varint(0, writer.out);
+                return;
+            }
+            if (writer.session == nullptr)
+            {
+                throw std::logic_error(
+                    "binary codec: an Any value names its schema in a session's table; encode it with "
+                    "encode_binary_frame or a BinaryEncodeSession, not to_binary_string");
+            }
+            const std::size_t index = writer.session->value_ref(box.value_schema());
+            write_varint(index + 1, writer.out);
+            writer.session->converter_at(index).write(box.get(), writer);
+        }
+
+        Value read_any(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto tag = read_varint(reader);
+            Value      result{self.binding};
+            if (tag == 0) { return result; }
+            if (reader.session == nullptr)
+            {
+                throw std::logic_error(
+                    "binary codec: an Any value names its schema in a session's table; decode it with "
+                    "decode_binary_frame or a BinaryDecodeSession, not from_binary_string");
+            }
+            Value content = reader.session->converter_at(static_cast<std::size_t>(tag - 1)).read(reader);
+            result.as_any().begin_mutation().set(std::move(content));
+            return result;
+        }
+
+        std::uint64_t hash_any(const BinaryConverter &, const ValueView &)
+        {
+            // A portable hash assigns a key to a worker and has no session to
+            // name a schema in. An Any is not a usable partition key.
+            throw std::logic_error("binary codec: an Any value has no portable hash and cannot be a partition key");
+        }
+
         void write_polymorphic(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
         {
             auto &out = writer.out;
@@ -827,6 +876,12 @@ namespace hgraph
                     raw->read_  = &read_map;
                     break;
                 }
+                case ValueTypeKind::Any: {
+                    raw->write_ = &write_any;
+                    raw->hash_ = &hash_any;
+                    raw->read_ = &read_any;
+                    break;
+                }
                 default:
                     throw std::logic_error(
                         fmt::format("binary codec: unsupported value kind for '{}'", meta->name()));
@@ -842,6 +897,7 @@ namespace hgraph
         std::unordered_map<const ValueTypeMetaData *, std::unique_ptr<BinaryConverter>> declared{};
         std::unordered_map<const ValueTypeMetaData *, std::unique_ptr<BinaryConverter>> exact{};
         const BinaryConverter *root{};
+        BinaryProfile profile{BinaryProfile::Compact};
 
         const BinaryConverter *build(const ValueTypeMetaData *meta, bool exact_type = false)
         {
@@ -890,7 +946,15 @@ namespace hgraph
 
     BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta)
     {
+        return bind_binary_converter(meta, BinaryProfile::Compact);
+    }
+
+    BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta, BinaryProfile profile)
+    {
+        // Revision 0 of either profile is the field-wise encoding, so the two
+        // synthesize alike until RFC 0040's later stages give each its own.
         auto plan = std::make_shared<BoundBinaryConverter::Impl>();
+        plan->profile = profile;
         const auto *active = active_type_realization();
         plan->realization = active != nullptr ? active->shared_from_this()
                                              : TypeRealizationSnapshot::capture(TypeRegistry::instance());
@@ -901,6 +965,11 @@ namespace hgraph
     ValueTypeRef BoundBinaryConverter::binding() const noexcept
     {
         return impl_ ? impl_->root->binding : ValueTypeRef{};
+    }
+
+    BinaryProfile BoundBinaryConverter::profile() const noexcept
+    {
+        return impl_ ? impl_->profile : BinaryProfile::Compact;
     }
 
     std::uint64_t BoundBinaryConverter::portable_hash(const ValueView &view) const
@@ -986,6 +1055,7 @@ namespace hgraph
         const auto *bytes = take(count);
         BinaryReader child{std::string_view{reinterpret_cast<const char *>(bytes), count}};
         child.shared_ = &budget();
+        child.session = session;
         return child;
     }
 

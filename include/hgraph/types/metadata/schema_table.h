@@ -21,8 +21,8 @@ namespace hgraph
      *
      * An entry is a schema's name, its manifest descriptor, and -- when the
      * name alone does not resolve it -- a structural recipe over earlier
-     * entries: list, set, map, tuple and bundle values, ``Frame[Row, Meta]``
-     * and ``Series[T]``; ``TS``, ``TSS``, ``TSD``, ``TSL``, ``TSB``, ``TSW``
+     * entries: list, set, map, tuple, bundle, ring-buffer and queue values,
+     * the unconstrained ``Any``, ``Frame[Row, Meta]`` and ``Series[T]``; ``TS``, ``TSS``, ``TSD``, ``TSL``, ``TSB``, ``TSW``
      * and ``REF`` endpoints. A reader rebuilds each schema through the type
      * registry and refuses one whose descriptor no longer matches, so a
      * changed type is detected once per schema rather than once per value.

@@ -107,6 +107,19 @@ namespace hgraph
                     return flag(ValueTypeFlags::Mutable) ? registry.mutable_map(key, element)
                                                          : registry.map(key, element);
                 }
+                case ValueTypeKind::CyclicBuffer: {
+                    const auto *element = value();
+                    return registry.cyclic_buffer(element, extent);
+                }
+                case ValueTypeKind::Queue: {
+                    const auto *element = value();
+                    return registry.queue(element, extent);
+                }
+                case ValueTypeKind::Any: {
+                    // Only the unconstrained box is structural; a named Any
+                    // resolves by name like any other registered schema.
+                    return registry.any();
+                }
                 case ValueTypeKind::Tuple:
                 case ValueTypeKind::Bundle: {
                     const auto fields_count = read_count(reader);
@@ -167,7 +180,17 @@ namespace hgraph
             {
                 case ValueTypeKind::List:
                 case ValueTypeKind::Set:
+                case ValueTypeKind::CyclicBuffer:
+                case ValueTypeKind::Queue:
                     write_varint(value_ref(schema->element_type, depth + 1), record);
+                    break;
+                case ValueTypeKind::Any:
+                    // A box inside a box names the box schema itself (RFC 0040).
+                    if (schema != registry.any())
+                    {
+                        malformed("unregistered Any schema '" + std::string{schema->name()} +
+                                  "' cannot be reconstructed");
+                    }
                     break;
                 case ValueTypeKind::Map:
                     write_varint(value_ref(schema->key_type, depth + 1), record);

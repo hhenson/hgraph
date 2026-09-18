@@ -38,6 +38,21 @@
 namespace hgraph
 {
     struct ValueTypeMetaData;
+    class BinaryEncodeSession;
+    class BinaryDecodeSession;
+
+    /**
+     * What an encoding is optimised for (RFC 0040). Both are portable; neither
+     * is a memory image. ``Compact`` minimises bytes and is for what is stored;
+     * ``Fast`` minimises encode and decode time and is for bytes that live for
+     * one cycle. A converter is bound for one profile, and whatever frames its
+     * bytes records which.
+     */
+    enum class BinaryProfile : std::uint8_t
+    {
+        Compact = 0,
+        Fast = 1,
+    };
 
     /** Decode-wide limits, including zero-byte values and nested collections. */
     struct BinaryDecodeLimits
@@ -55,6 +70,8 @@ namespace hgraph
 
         std::string_view buffer{};
         std::size_t offset{0};
+        /** The tables an ``Any`` resolves its schema in; inherited by subreaders. */
+        BinaryDecodeSession *session{nullptr};
 
         [[nodiscard]] std::size_t remaining() const noexcept
         { return offset <= buffer.size() ? buffer.size() - offset : 0; }
@@ -89,13 +106,16 @@ namespace hgraph
      *
      * Converters write through it rather than into a bare string so that what
      * an encoding shares across values -- RFC 0040's session tables -- has
-     * somewhere to travel.
+     * somewhere to travel. Without a session a value is self-contained, which
+     * is every value that holds no ``Any``.
      */
     struct HGRAPH_CLASS_EXPORT BinaryWriter
     {
-        explicit BinaryWriter(std::string &bytes) noexcept : out(bytes) {}
+        explicit BinaryWriter(std::string &bytes, BinaryEncodeSession *shared = nullptr) noexcept
+            : out(bytes), session(shared) {}
 
         std::string &out;
+        BinaryEncodeSession *session{nullptr};
     };
 
     /**
@@ -155,6 +175,7 @@ namespace hgraph
         BoundBinaryConverter() noexcept = default;
         [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
         [[nodiscard]] ValueTypeRef binding() const noexcept;
+        [[nodiscard]] BinaryProfile profile() const noexcept;
         /** Stable process-independent hash for worker assignment. */
         [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
         void write(const ValueView &view, std::string &out) const;
@@ -165,10 +186,14 @@ namespace hgraph
         struct Impl;
         explicit BoundBinaryConverter(std::shared_ptr<const Impl> impl) : impl_(std::move(impl)) {}
         std::shared_ptr<const Impl> impl_{};
-        friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+        friend HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                        BinaryProfile profile);
     };
 
+    /** Bound for ``Compact``: what every caller meant before profiles existed. */
     [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta);
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
+                                                                          BinaryProfile profile);
 
     /** Clear the interned converters (registry reset). */
     HGRAPH_EXPORT void clear_binary_converters() noexcept;

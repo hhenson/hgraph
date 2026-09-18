@@ -254,6 +254,41 @@ TEST_CASE("checkpoint codec: frames and series are values like any other", "[che
     CHECK(actual.custom.endpoints.front().payload.view().checked_as<Series>().array->Equals(values));
 }
 
+TEST_CASE("checkpoint codec: an Any payload names its schema in the image's own table", "[checkpoint][codec]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto cut = MIN_ST + MIN_TD * 5;
+    const auto *any = registry.any();
+
+    const auto boxed = [&](Value content) {
+        Value box{ValuePlanFactory::instance().type_for(any)};
+        box.as_any().begin_mutation().set(std::move(content));
+        return box;
+    };
+    const auto any_image = [&](Value payload) {
+        TSCheckpointImage image;
+        image.schema = registry.ts(any);
+        image.last_modified_time = cut;
+        image.payload = std::move(payload);
+        return image;
+    };
+
+    NodeCheckpointImage node;
+    node.id = "codec:any";
+    node.signature = "any";
+    node.output = any_image(boxed(Value{Int{42}}));
+    node.recordable_state = any_image(boxed(Value{Str{"boxed"}}));
+    node.ingress = any_image(Value{ValuePlanFactory::instance().type_for(any)});   // an empty box
+
+    const auto restored = decode_component_checkpoint(encoded(component(node)));
+    const auto &actual = restored.graph.nodes.front();
+    CHECK(actual.output->payload.view() == node.output->payload.view());
+    CHECK(actual.recordable_state->payload.view() == node.recordable_state->payload.view());
+    CHECK(actual.ingress->payload.view() == node.ingress->payload.view());
+    CHECK(actual.output->payload.as_any().get().checked_as<Int>() == 42);
+    CHECK_FALSE(actual.ingress->payload.as_any().has_value());
+}
+
 TEST_CASE("checkpoint codec: a graph image travels without a component", "[checkpoint][codec]")
 {
     GraphCheckpointImage graph;
