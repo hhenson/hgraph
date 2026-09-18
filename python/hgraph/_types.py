@@ -2062,7 +2062,10 @@ class _TsExpr:
         for name, ftype in field_types.items():
             if name not in field_ports:
                 field_ports[name] = _unwrap(wire("nothing", output_type=_TsExpr(ftype, repr(ftype))))
-        return WiringPort(_m.tsb_port(self.handle, field_ports))
+        structural = WiringPort(_m.tsb_port(self.handle, field_ports))
+        if strict_cs:
+            return wire("combine", structural, __strict__=True)
+        return structural
 
     """A resolved time-series type: wraps the C++ TsType handle."""
 
