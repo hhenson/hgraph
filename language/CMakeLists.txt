@@ -74,7 +74,7 @@ endif()
 # Shared warning settings for every language target.
 function(hgl_apply_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /bigobj)
         if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()
@@ -274,6 +274,8 @@ function(hgl_link_runtime_executable target)
     endif()
 endfunction()
 
+include(cmake/HglStageRuntimeDlls.cmake)
+
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
 # authoring code plus its module descriptor (developer guide, "C++ backend,
 # first pass").
@@ -393,6 +395,7 @@ if(UNIX)
         INSTALL_RPATH_USE_LINK_PATH ON)
 endif()
 hgl_link_runtime_executable(hgl)
+hgl_stage_runtime_dlls(hgl)
 hgl_apply_warnings(hgl)
 
 # `hgl_add_module()` for consumers building packages from .hgl sources
@@ -526,6 +529,16 @@ install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+if(WIN32)
+    set(_hgl_support_dlls)
+    if(HGRAPH_USE_PYARROW_ARROW)
+        file(GLOB _hgl_support_dlls LIST_DIRECTORIES false
+            "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll")
+    endif()
+    install(FILES $<TARGET_RUNTIME_DLLS:hgl> ${_hgl_support_dlls}
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Runtime)
+endif()
 install(TARGETS hgl_native_interface hgl_native_package hgl_core_native hgl_standard_library
     EXPORT HglLanguageTargets
     COMPONENT Development

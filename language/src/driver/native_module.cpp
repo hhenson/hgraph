@@ -4,6 +4,7 @@
 #include "driver/process.h"
 #include "hgl_native_compile_config.h"
 
+#include <hgraph/util/environment.h>
 #include <hgraph/util/scope.h>
 #include <hgraph/util/sha256.h>
 #include <hgraph/version.h>
@@ -12,7 +13,6 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -62,8 +62,8 @@ namespace hgl::driver
 
         bool environment_flag(std::string_view name) {
             const std::string key{name};
-            const char       *value = std::getenv(key.c_str());
-            return value != nullptr && *value != '\0' && std::string_view{value} != "0";
+            const auto value = hgraph::environment_variable(key.c_str());
+            return value && !value->empty() && *value != "0";
         }
 
         void trace_cache(std::string_view message) {
@@ -129,8 +129,8 @@ namespace hgl::driver
         std::optional<std::filesystem::path> make_artifact_directory(std::string &error) {
             std::error_code       ec;
             std::filesystem::path root;
-            if (const char *configured = std::getenv("HGL_ARTIFACT_DIR"); configured != nullptr && *configured != '\0') {
-                root = configured;
+            if (const auto configured = hgraph::environment_variable("HGL_ARTIFACT_DIR"); configured && !configured->empty()) {
+                root = *configured;
             } else {
                 root = std::filesystem::temp_directory_path(ec);
                 if (ec) {
@@ -227,9 +227,9 @@ namespace hgl::driver
                 return resolved && ::access(resolved->c_str(), X_OK) == 0 ? resolved : std::nullopt;
             }
 
-            const char *path_value = std::getenv("PATH");
-            if (path_value == nullptr) { return std::nullopt; }
-            const std::string_view path{path_value};
+            const auto path_value = hgraph::environment_variable("PATH");
+            if (!path_value) { return std::nullopt; }
+            const std::string_view path{*path_value};
             std::size_t            begin = 0;
             while (begin <= path.size()) {
                 const std::size_t      end = path.find(':', begin);
@@ -273,9 +273,9 @@ namespace hgl::driver
 
         BuildContext build_context() {
             BuildContext context;
-            const char  *compiler_override = std::getenv("HGL_CXX");
-            context.compiler  = compiler_override != nullptr && *compiler_override != '\0' ? std::string{compiler_override}
-                                                                                           : std::string{native_config::compiler};
+            const auto compiler_override = hgraph::environment_variable("HGL_CXX");
+            context.compiler  = compiler_override && !compiler_override->empty() ? *compiler_override
+                                                                               : std::string{native_config::compiler};
             context.arguments = {context.compiler};
             context.compiler_version = probe_compiler(context.arguments, "--version");
             context.compiler_target  = probe_compiler(context.arguments, "-dumpmachine");
@@ -371,8 +371,8 @@ namespace hgl::driver
                                                                                    "SOURCE_DATE_EPOCH"};
             for (const std::string_view name : compiler_environment) {
                 const std::string key{name};
-                const char       *value = std::getenv(key.c_str());
-                hash_field(hasher, "environment-" + key, value != nullptr ? std::string_view{value} : std::string_view{"<unset>"});
+                const auto value = hgraph::environment_variable(key.c_str());
+                hash_field(hasher, "environment-" + key, value ? std::string_view{*value} : std::string_view{"<unset>"});
             }
             return hex_digest(hasher.finish());
         }
@@ -381,15 +381,15 @@ namespace hgl::driver
             if (environment_flag("HGL_DISABLE_CACHE")) { return std::nullopt; }
 
             std::filesystem::path root;
-            if (const char *configured = std::getenv("HGL_CACHE_DIR"); configured != nullptr && *configured != '\0') {
-                root = configured;
-            } else if (const char *xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && *xdg != '\0') {
-                root = std::filesystem::path{xdg} / "hgl" / "native";
-            } else if (const char *home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+            if (const auto configured = hgraph::environment_variable("HGL_CACHE_DIR"); configured && !configured->empty()) {
+                root = *configured;
+            } else if (const auto xdg = hgraph::environment_variable("XDG_CACHE_HOME"); xdg && !xdg->empty()) {
+                root = std::filesystem::path{*xdg} / "hgl" / "native";
+            } else if (const auto home = hgraph::environment_variable("HOME"); home && !home->empty()) {
     #if defined(__APPLE__)
-                root = std::filesystem::path{home} / "Library" / "Caches" / "hgl" / "native";
+                root = std::filesystem::path{*home} / "Library" / "Caches" / "hgl" / "native";
     #else
-                root = std::filesystem::path{home} / ".cache" / "hgl" / "native";
+                root = std::filesystem::path{*home} / ".cache" / "hgl" / "native";
     #endif
             } else {
                 error = "no per-user cache directory is available; set HGL_CACHE_DIR, XDG_CACHE_HOME, or HOME";

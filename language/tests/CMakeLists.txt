@@ -14,6 +14,17 @@ set_tests_properties(hgraph_language_cli_version PROPERTIES
     PASS_REGULAR_EXPRESSION "hgl [0-9][^ ]* \\(hgraph api [0-9]+\\.[0-9]+\\.[0-9]+\\)"
 )
 
+if(WIN32)
+    add_test(NAME hgraph_language_windows_runtime_dlls
+        COMMAND ${CMAKE_COMMAND}
+            -DBUILD=${CMAKE_BINARY_DIR}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/windows-runtime-install
+            -DBINDIR=${CMAKE_INSTALL_BINDIR}
+            -DCONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_runtime_dlls.cmake)
+endif()
+
 # Execution backends consume HGraph IR. Keep the final AST/resolver migration
 # boundary executable so an accidental frontend dependency fails in CI.
 add_test(
@@ -392,9 +403,13 @@ hgl_add_module(hgl_imported_consumer_fixture STATIC HGL codegen/imported-operato
 foreach(_fixture IN ITEMS hgl_imported_contract_fixture hgl_imported_provider_fixture hgl_imported_consumer_fixture)
     hgl_apply_warnings(${_fixture})
 endforeach()
-add_test(NAME hgraph_language_test_imported_provider
-    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
-        --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+if(UNIX)
+    # Scripted native modules use the Unix loader. The compiled provider and
+    # consumer retain execution coverage in hgl_generated_tests everywhere.
+    add_test(NAME hgraph_language_test_imported_provider
+        COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
+            --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+endif()
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
@@ -719,3 +734,14 @@ foreach(_fixture IN LISTS _hgl_stdlib_invalid_fixtures)
     )
 endforeach()
 unset(_hgl_stdlib_invalid_fixtures)
+
+# Test tools also run during the build (descriptor fixtures and generated
+# modules), before CTest can supply a runtime search path.
+get_property(_hgl_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_target IN LISTS _hgl_test_targets)
+    get_target_property(_type ${_target} TYPE)
+    if(_type STREQUAL "EXECUTABLE")
+        hgl_stage_runtime_dlls(${_target})
+    endif()
+endforeach()
+unset(_hgl_test_targets)

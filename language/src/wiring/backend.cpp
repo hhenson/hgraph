@@ -497,7 +497,8 @@ namespace hgl::wiring
                         return make_marker(Slot::Kind::Null, range);
                     } else if constexpr (std::is_same_v<T, hir::PlaceholderValue>) {
                         return make_marker(Slot::Kind::Placeholder, range);
-                    } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                    } else {
+                        static_assert(std::is_same_v<T, syntax::TemporalValue>);
                         switch (item.kind) {
                             case syntax::TemporalKind::Date:
                                 return make_const(
@@ -513,8 +514,8 @@ namespace hgl::wiring
                             case syntax::TemporalKind::TimeZone:
                                 backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                         }
+                        backend(range, "unsupported hgraph IR constant");
                     }
-                    backend(range, "unsupported hgraph IR constant");
                 },
                 source);
         }
