@@ -80,6 +80,11 @@ namespace hgraph::distributed::dmap_checkpoint
                                             registry.list(registry.scalar_type<Int>().schema())});
         if (image.payload.view().schema() != shape)
             throw std::invalid_argument("component checkpoint: dmap_ owner image has the wrong shape");
+        // An owner always has at least one worker. Refused here, in the
+        // validation phase, because downstream "no images" means "start
+        // fresh": an empty inventory would discard the workers' state silently.
+        if (image.payload.view().as_tuple().at(0).as_list().size() == 0)
+            throw std::invalid_argument("component checkpoint: dmap_ owner image holds no worker images");
         // The workers are raised in the owner's start, which has not run.
         // GlobalState owns the parked state: a preparation that never reaches
         // start leaves nothing to free.

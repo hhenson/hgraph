@@ -14,6 +14,8 @@
 #include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/distributed_process.h>
 #include <hgraph/runtime/distributed_worker.h>
+#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include "distributed_worker_recipes.h"
 
@@ -280,6 +282,46 @@ TEST_CASE("dmap_ recovery: another worker count is another contract", "[checkpoi
     REQUIRE_THROWS_WITH((eval_node_with_options<PlainComponent<PreparedAccumulate, 3>>(
                             interval(1, 2), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})))),
                         Catch::Matchers::ContainsSubstring("incompatible"));
+}
+
+TEST_CASE("dmap_ recovery: an owner image with no worker images is refused, not started fresh",
+          "[checkpoint][dmap]")
+{
+    stdlib::register_standard_operators();
+    std::optional<ComponentCheckpoint> completed;
+    const auto configure = [&](GlobalContext &context) {
+        configure_component_recovery(context.state().view(), {
+            .component_id = "distributed-map", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; }});
+    };
+    {
+        GlobalContext context;
+        configure(context);
+        (void)eval_node_with_options<PlainComponent<PreparedAccumulate, 2>>(
+            interval(0, 1), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}})));
+        REQUIRE(completed);
+    }
+    // Schema-correct and empty. Downstream, "no images" means "start fresh",
+    // so accepting this would throw the workers' state away without a word.
+    std::size_t owners = 0;
+    for (auto &node : completed->graph.nodes)
+    {
+        if (!node.custom.payload.has_value()) { continue; }
+        auto       &registry = TypeRegistry::instance();
+        auto        images   = ListBuilder{registry.scalar_type<Bytes>()}.build();
+        auto        extents  = ListBuilder{registry.scalar_type<Int>()}.build();
+        BundleBuilder tuple{ValuePlanFactory::instance().type_for(registry.tuple({images.schema(), extents.schema()}))};
+        tuple.set(0, std::move(images));
+        tuple.set(1, std::move(extents));
+        node.custom.payload = tuple.build();
+        ++owners;
+    }
+    REQUIRE(owners == 1);
+    GlobalContext context;
+    configure(context);
+    REQUIRE_THROWS_WITH((eval_node_with_options<PlainComponent<PreparedAccumulate, 2>>(
+                            interval(1, 2), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})))),
+                        Catch::Matchers::ContainsSubstring("holds no worker images"));
 }
 
 TEST_CASE("dmap_ recovery: a control frame can never be a cycle request", "[checkpoint][dmap]")
