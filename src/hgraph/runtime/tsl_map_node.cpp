@@ -160,8 +160,16 @@ namespace hgraph
 
         struct TslMapSourceStatus
         {
+            /** An outer source re-pointed: every child's boundary may have moved. */
             bool        bindings_changed{false};
             std::size_t runtime_size{0};
+            /** Logical indices some multiplexed source gained or lost this cycle.
+                Only children at those indices see a different boundary -- an
+                element that now exists, or no longer does -- so only they are
+                rebound. Rebinding every child whenever any source changed
+                length made a list grown an element at a time quadratic. */
+            std::size_t resized_begin{static_cast<std::size_t>(-1)};
+            std::size_t resized_end{0};
         };
 
         [[nodiscard]] TslMapSourceStatus update_tsl_map_sources(const TSInputView &root_input, TslMapNodeStorage &storage,
@@ -186,7 +194,11 @@ namespace hgraph
                 auto              source      = root_input.indexed_child_at(outer_index).bound_output();
                 const std::size_t size        = source.bound() ? source.as_list().size() : 0;
                 status.runtime_size           = std::max(status.runtime_size, size);
-                if (sizes_initialized && size != storage.multiplexed_sizes[mux]) { status.bindings_changed = true; }
+                if (sizes_initialized && size != storage.multiplexed_sizes[mux])
+                {
+                    status.resized_begin = std::min(status.resized_begin, std::min(size, storage.multiplexed_sizes[mux]));
+                    status.resized_end   = std::max(status.resized_end, std::max(size, storage.multiplexed_sizes[mux]));
+                }
                 storage.multiplexed_sizes[mux] = size;
             }
             return status;
@@ -257,10 +269,11 @@ namespace hgraph
             failures.rethrow_if_any();
         }
 
+        /** Rebind the children in slots ``[first, last)``. */
         void refresh_tsl_map_bindings(const NodeView &view, const TslMapNodeContext &context, TslMapNodeStorage &storage,
-                                      DateTime evaluation_time) {
+                                      std::size_t first, std::size_t last, DateTime evaluation_time) {
             const auto &spec = context.spec;
-            for (std::size_t index = 0; index < storage.live_count; ++index) {
+            for (std::size_t index = first; index < last; ++index) {
                 auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
                 const TSOutputView index_source =
@@ -297,12 +310,30 @@ namespace hgraph
                     auto output = root_output.as_list();
                     if (output.size() > sources.runtime_size) { output.resize(sources.runtime_size); }
                 }
-                storage.entries.reserve_to(child_count);
+                // The slot store grows to exactly what it is asked for, copying its
+                // slot table and allocating a block each time, so a list that
+                // grows an element at a time has to ask geometrically.
+                if (child_count > storage.entries.slot_capacity()) {
+                    storage.entries.reserve_to(std::max(child_count, storage.entries.slot_capacity() * 2));
+                }
+                // Children that exist already; the ones created below are bound
+                // as they are made.
+                const std::size_t existing = storage.live_count;
                 for (std::size_t index = storage.live_count; index < child_count; ++index) {
                     create_tsl_map_entry(view, context, storage, index, evaluation_time);
                     ++storage.live_count;
                 }
-                if (bindings_changed) { refresh_tsl_map_bindings(view, context, storage, evaluation_time); }
+                if (bindings_changed) {
+                    refresh_tsl_map_bindings(view, context, storage, 0, storage.live_count, evaluation_time);
+                } else if (sources.resized_begin < sources.resized_end) {
+                    // Slot s holds logical index group + s * count, so the slots
+                    // inside a logical range are one contiguous run.
+                    const auto &partition = context.spec.partition;
+                    refresh_tsl_map_bindings(view, context, storage,
+                                             std::min(partition.child_count(sources.resized_begin), existing),
+                                             std::min(partition.child_count(sources.resized_end), existing),
+                                             evaluation_time);
+                }
             }
 
             const std::size_t start_index = resuming ? storage.resume_index : 0;

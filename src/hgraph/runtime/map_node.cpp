@@ -531,7 +531,13 @@ namespace hgraph
         {
             const MapNodeSpec &spec     = context.spec;
             const ValueView    key_view = keys_set.at_slot(slot);
-            storage.entries.reserve_to(std::max(storage.entries.slot_capacity(), slot + 1));
+            // Normally already sized by the key set's capacity. When it is not, grow
+            // geometrically: the store grows to exactly what it is asked for,
+            // copying its slot table each time.
+            if (slot >= storage.entries.slot_capacity())
+            {
+                storage.entries.reserve_to(std::max(slot + 1, storage.entries.slot_capacity() * 2));
+            }
             MapKeyEntry *existing = storage.entries.entry_at(slot);
             auto &entry = existing != nullptr
                               ? *existing
