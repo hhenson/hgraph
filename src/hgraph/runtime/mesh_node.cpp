@@ -949,8 +949,11 @@ void reconcile_requested_keys(const NodeView &view,
   storage.primed = true;
 }
 
+// ``on_stack`` holds the keys of the re-ranking in progress, for cycle
+// detection. It is a set: asking "is this dependent already on the stack?" by
+// scanning a list cost the depth of the recursion for every edge visited.
 void re_rank(MeshNodeStorage &storage, const ValueView &key,
-             const ValueView &depends_on, std::vector<Value> &stack) {
+             const ValueView &depends_on, ValueSet &on_stack) {
   MeshEntry *key_entry = storage.find(key);
   MeshEntry *dep_entry = storage.find(depends_on);
   if (key_entry == nullptr || dep_entry == nullptr) {
@@ -963,20 +966,18 @@ void re_rank(MeshNodeStorage &storage, const ValueView &key,
   key_entry->rank = dep_entry->rank + 1;
   storage.max_rank = std::max(storage.max_rank, key_entry->rank);
 
-  stack.push_back(value_impl::graph_local_value(key));
+  const Value local_key = value_impl::graph_local_value(key);
+  on_stack.insert(local_key);
   // Re-rank everything that depends on ``key``.
   if (auto it = storage.dependents.find(key); it != storage.dependents.end()) {
     for (const Value &dependent : it->second) {
-      const bool on_stack =
-          std::any_of(stack.begin(), stack.end(),
-                      [&](const Value &s) { return s.equals(dependent); });
-      if (on_stack) {
+      if (on_stack.contains(dependent)) {
         throw std::runtime_error("mesh_ has a dependency cycle");
       }
-      re_rank(storage, dependent.view(), key, stack);
+      re_rank(storage, dependent.view(), key, on_stack);
     }
   }
-  stack.pop_back();
+  on_stack.erase(local_key);
 }
 
 // ---- evaluation ----
@@ -1100,6 +1101,9 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       entry->paused = false;
       if (child.evaluate(evaluation_time)) {
         entry->settled_time = evaluation_time;
+        // Settled instances are skipped for the rest of the cycle, so stop
+        // offering them: every later pass re-sorted and re-visited them.
+        storage.evaluation_candidates.reset(ranked.second);
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
             context.access.output,
@@ -2002,16 +2006,16 @@ bool MeshNodeView::add_dependency(const ValueView &key,
     // Create the dependency on demand, same cycle, ranked below the requester;
     // the resolver evaluates it first (lower rank) and then resumes us.
     create_instance(view_, context, storage, depends_on, 0, t);
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
     return false;
   }
 
   if (key_entry->rank <= dep_entry->rank) {
     // The requester must outrank its dependency; re-rank and re-evaluate in
     // order.
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
     return false;
   }
 
