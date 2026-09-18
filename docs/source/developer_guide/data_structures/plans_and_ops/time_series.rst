@@ -503,7 +503,17 @@ their cached local child storage types and in-plan storage addresses; regular
 fixed contexts return their cached fixed child types and local absolute
 addresses. Dynamic lists expose their owned child handles to this traversal;
 windows and TargetLinks are leaves. Keyed shapes coordinate child destruction
-through their slot stores. No function address or schema kind is used as a
+through their slot stores.
+
+The projection's ``child_count`` is the size of an **ordinal space**, not a
+number of children: an ordinal may be vacant, ``child_at`` answers a vacant
+ordinal with an empty child, and every traversal skips it. Both operations are
+constant time. Each traversal visits the whole space, so a ``child_at`` that
+searched for the *n*-th occupied entry made start, stop and teardown of a keyed
+collection quadratic in its size (found 2026-09-18 as the dominant cost of
+tearing down a large ``map_``). Keyed shapes therefore use their slot bank as
+the ordinal space -- ordinal 0 is the key set and ordinal *n* + 1 is slot *n* --
+and report the slot as the child's identity. No function address or schema kind is used as a
 runtime implementation identifier. Consequently attach, reparent,
 invalidation, and auxiliary-memory accounting cannot follow a visible
 TargetLink projection into producer-owned storage. The ownership table reports

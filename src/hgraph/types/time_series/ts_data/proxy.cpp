@@ -552,10 +552,8 @@ namespace hgraph
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) return std::size_t{0};
                         const auto &proxy = proxy_storage(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                            count += proxy.has_child(slot) ? 1U : 0U;
-                        return count;
+                        // Ordinal 0 is the key set; ordinal n + 1 is slot n.
+                        return proxy.child_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -567,18 +565,14 @@ namespace hgraph
                                 .attach_parent = false,
                             };
                         auto &proxy = proxy_storage(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                        {
-                            if (!proxy.has_child(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = proxy.element_type(),
-                                    .data = proxy.owned_child_memory(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= proxy.child_capacity() || !proxy.has_child(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = proxy.element_type(),
+                            .data = proxy.owned_child_memory(slot),
+                            .parent_child_id = slot,
+                        };
                     },
                     .stop = [](const void *, void *memory) noexcept {
                         if (memory != nullptr) proxy_storage(memory).stop();

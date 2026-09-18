@@ -1801,13 +1801,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept
             {
                 static const detail::TSDataOwnershipOps ops{
+                    // Ordinal 0 is the key set; ordinal n + 1 is slot n, vacant
+                    // when the slot is. See TSDataOwnershipOps: O(1) each.
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) { return std::size_t{0}; }
-                        const auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                            count += store.slot_occupied(slot) ? 1U : 0U;
-                        return count;
+                        return storage<TSDSlotStorage>(memory).slot_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -1819,18 +1817,14 @@ namespace hgraph::ts_data_plan_factory_detail
                                 .attach_parent = false,
                             };
                         auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                        {
-                            if (!store.slot_occupied(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = state->dict_layout.element_type,
-                                    .data = store.child_memory_for_write(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= store.slot_capacity() || !store.slot_occupied(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = state->dict_layout.element_type,
+                            .data = store.child_memory_for_write(slot),
+                            .parent_child_id = slot,
+                        };
                     },
                 };
                 return ops;
