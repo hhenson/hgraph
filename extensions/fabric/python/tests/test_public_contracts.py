@@ -46,14 +46,14 @@ def test_python_codec_round_trips_through_the_shared_native_codec():
     """The golden hex fixtures went with the hand-written codec they pinned.
 
     A revision on the wire is produced by the shared value codec, so the byte
-    layout is the library's business. It is a message between hgraph
-    components, so it is the binary codec's Fast profile (RFC 0040) -- a frame
-    whose first byte names that profile -- and not text. What the Python
-    surface owes is a faithful round trip.
+    layout is the library's business. It is what fabric puts onto Kafka, and
+    Kafka is an external boundary, so it is an external message format -- JSON
+    here -- that the tools around a topic can read. What the Python surface owes
+    is a faithful round trip and a readable document.
     """
     encoded = hgf.encode_revision(_revision())
-    assert encoded[0] == 1
-    assert not encoded.startswith(b"{")
+    assert encoded.startswith(b"{")
+    assert b'"data_id"' in encoded
 
     decoded = hgf.decode_revision(encoded)
     assert decoded == hgf.DataRevision(

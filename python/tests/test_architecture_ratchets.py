@@ -249,10 +249,13 @@ RATCHETS: tuple[Ratchet, ...] = (
         "(CLAUDE.md conventions)",
     ),
     # --- JSON is a representation, not a serialization format (RFC 0040) ------
-    # Checkpoints, stores, journals, recordings and the payloads crossing a
-    # dmap_ / spawn boundary use the binary codecs. JSON got onto these paths
-    # twice (the ValueStore default, the version 1 checkpoint store) because the
-    # rule was only ever spoken; these two pin where it may still appear.
+    # State that is stored -- checkpoints, stores, journals, recordings -- and
+    # hgraph's internal communication -- what crosses a dmap_ / spawn boundary
+    # -- use the binary codecs. JSON got onto those paths twice (the ValueStore
+    # default, the version 1 checkpoint store) because the rule was only ever
+    # spoken; these two pin where it may still appear. An EXTERNAL boundary is
+    # the opposite case: what hgraph encodes onto Kafka is JSON, Avro or
+    # protobuf, because those are what the tools around a topic rely on.
     Ratchet(
         id="json-in-runtime",
         baseline=14,
@@ -265,8 +268,8 @@ RATCHETS: tuple[Ratchet, ...] = (
         "runtime/checkpoint_codec.h and types/value/binary_codec.h",
     ),
     Ratchet(
-        id="json-in-stores-and-transports",
-        baseline=9,
+        id="json-in-persistence-and-fabric",
+        baseline=10,
         roots=(
             "extensions/persistence/src",
             "extensions/persistence/include",
@@ -277,11 +280,13 @@ RATCHETS: tuple[Ratchet, ...] = (
         ),
         suffixes=(".h", ".cpp"),
         pattern=r"\b(?:to_json_string|from_json_string|bind_json_converter|BoundJsonConverter|JsonConverter|json_converter|JSON_VALUE_CODEC)\b",
-        owner="two things only: the named 'json' store codec (value_codec.h/.cpp), "
-        "for a store that is MEANT to hold JSON and never a default; and the "
+        owner="three things only: the named 'json' store codec (value_codec.h/.cpp), "
+        "for a store that is MEANT to hold JSON and never a default; the "
         "read-only version 1 checkpoint reader (component_checkpoint_store.cpp), "
-        "for images hgraph 0.8.25-0.8.27 published. ValueStore, Fabric metadata "
-        "and Fabric/Kafka notifications default to the binary codecs",
+        "for images hgraph 0.8.25-0.8.27 published; and fabric's notification "
+        "codec (metadata_codec.cpp), because Kafka is an external boundary and "
+        "what hgraph puts onto it is JSON, Avro or protobuf. ValueStore and "
+        "fabric's metadata store default to the binary codecs",
     ),
 )
 

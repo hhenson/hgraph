@@ -36,21 +36,29 @@ Ruling
    :header-rows: 1
    :widths: 50 50
 
-   * - Binary codec (this RFC)
-     - JSON
+   * - Binary codec (this RFC): internal communication and state storage
+     - An external format: JSON (and, where registered, Avro or protobuf)
    * - checkpoint images (RFC 0039)
      - ``to_json`` / ``from_json`` operators
-   * - ``ValueStore`` objects, Fabric metadata and revisions
-     - the json adaptor and any external protocol that *is* JSON
+   * - ``ValueStore`` objects; the metadata Fabric *stores* (revisions, as-of
+       and latest indexes)
+     - **what hgraph encodes onto Kafka** -- Fabric's revision notifications --
+       because a topic is read by tools that rely on JSON, Avro or protobuf
    * - record/replay and input journals
-     - diagnostics, manifests and logs meant to be read by a person
+     - the json adaptor and any external protocol that *is* JSON
    * - ``dmap_`` / ``spawn`` boundary payloads
+     - diagnostics, manifests and logs meant to be read by a person
+   * -
      - a store a user *explicitly* configures with the ``"json"`` codec
 
-``python/tests/test_architecture_ratchets.py`` gains a ratchet over
-``to_json_string``, ``from_json_string``, ``JsonConverter`` and
-``JSON_VALUE_CODEC`` in ``src/hgraph/runtime``, ``src/hgraph/types/value``
-(outside ``json_codec``), and ``extensions/*/src``. The count may only fall.
+The line is between what is internal to hgraph and what is not. The binary
+codecs never cross an external boundary when hgraph does the encoding; what a
+user encodes into a Kafka record's ``Bytes`` is the user's business.
+
+``python/tests/test_architecture_ratchets.py`` gains two ratchets over the JSON
+codec's names: ``json-in-runtime`` (``src/hgraph/runtime``) and
+``json-in-persistence-and-fabric`` (the persistence, Fabric and Kafka
+extensions). A count may only fall.
 
 How JSON got in is recorded because it is the reason for the ratchet: the
 ruling existed only verbally. RFC 0030 made JSON "the required baseline and the
@@ -550,14 +558,25 @@ Retiring JSON
    its codec's bytes and says nothing about which codec that was. It does not
    matter -- no store of the old default exists (Howard, 2026-09-18) -- so
    there is nothing to migrate and ``"binary"`` reads binary and nothing else.
-2. Fabric's ``metadata_codec`` defaults to the store default, and its
-   notification codec -- Kafka records and notifier blobs -- is
-   ``"binary-fast"``: they are messages between hgraph components. **Done.**
+2. Fabric's ``metadata_codec`` defaults to the store default: metadata is
+   state that is stored. **Done.**
+
+   Its notification codec -- what fabric puts onto Kafka -- is **not** binary.
+   This proposal said "Kafka revision payloads default to ``"binary"``", and
+   that was wrong (Howard, 2026-09-18): **the binary codecs are for internal
+   communication and state storage. Kafka is an external boundary, and what
+   hgraph encodes onto it is JSON, Avro or protobuf**, because those are the
+   formats the tools around a topic -- consoles, connectors, schema registries,
+   other consumers -- rely on. JSON is the one this build provides; Avro and
+   protobuf register as store codecs in the same way (RFC 0030). The Kafka
+   extension and adaptor themselves carry ``Bytes``: what a user encodes is
+   the user's business. A fabric test pins the rule.
 3. The version 1 checkpoint reader is the one remaining JSON decoder on a
    serialization path. It is read-only and exists for images that
    hgraph 0.8.25-0.8.27 published.
 4. The ratchet lands with step 1: ``json-in-runtime`` and
-   ``json-in-stores-and-transports`` in ``test_architecture_ratchets.py``.
+   ``json-in-persistence-and-fabric`` in ``test_architecture_ratchets.py``.
+   The second one's floor names fabric's Kafka codec as a place JSON belongs.
    **Done.**
 
 One existing use stays, by decision (2026-09-18): RFC 0001 writes structured

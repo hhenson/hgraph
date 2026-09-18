@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-- **Breaking:** metadata objects and notifications are binary (RFC 0040).
+- **Breaking:** stored metadata objects are binary (RFC 0040).
   `FabricConfig::metadata_codec`, when empty, now selects the store default
-  `binary` instead of `json`, and Kafka records and notifier blobs are
-  `binary-fast` instead of JSON. Metadata and topics written by an earlier
-  build are not readable by this one; name `metadata_codec = "json"` for
-  metadata that other tools must read. Notifications have no such option: they
-  are messages between hgraph components.
+  `binary` instead of `json`. Metadata written by an earlier build is not
+  readable by this one; name `metadata_codec = "json"` for metadata that other
+  tools must read. **Kafka records and notifier blobs are unchanged, and stay
+  JSON**: a topic is an external boundary, and what hgraph encodes onto it is
+  JSON, Avro or protobuf.
 - Keep complete revisions in `Shared<DataRevision>` from Kafka decode through
   Fabric notice admission and graph-transport retry; retain notification
   candidates, correlation, retry and completion on explicit graph edges; create

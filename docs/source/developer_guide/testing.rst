@@ -267,8 +267,11 @@ Each entry names the layer that owns the rule:
   ``graph_diagnostics.cpp`` rendering values for a person, and under the
   persistence, Fabric and Kafka extensions, where the floor is the named
   ``json`` store codec -- for a store that is *meant* to hold JSON, never a
-  default -- and the read-only version 1 checkpoint reader. The rule was only
-  ever spoken, and JSON reached these paths twice because of it.
+  default -- the read-only version 1 checkpoint reader, and Fabric's
+  notification codec. That last one is the rule's other half: the binary
+  codecs are for internal communication and state storage, and what hgraph
+  encodes onto Kafka, an external boundary, is JSON, Avro or protobuf. The rule
+  was only ever spoken, and JSON reached the internal paths twice because of it.
 
 The test fails when a count moves in either direction. A rise is a new copy
 of a rule that already has an owner: fix it at the owning layer, or record the

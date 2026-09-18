@@ -26,11 +26,18 @@ namespace hgraph::fabric
     /** The DataRevision schema, for reads that name their type. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT const ValueTypeMetaData *data_revision_meta();
 
-    /** The codec for transport payloads -- Kafka records and notifier blobs.
-        Those are messages between hgraph components rather than stored
-        objects, so they are the binary value codec's ``Fast`` profile, never
-        compressed (RFC 0040: what crosses a process boundary is binary, and
-        JSON is for a value that has to be represented as JSON). */
+    /** The codec for what fabric puts onto Kafka -- revision records, and the
+        notifier blobs that carry the same message.
+
+        **Kafka is an external boundary, so this is an external message
+        format: JSON, Avro or protobuf** (Howard, 2026-09-18). Those are what
+        the tools around a topic -- consoles, connectors, schema registries,
+        other consumers -- rely on. The binary value codecs are for hgraph's
+        internal communication (``dmap_``, ``spawn``) and for state it stores,
+        and never go onto a topic when hgraph does the encoding. JSON is the
+        one such format this build provides; Avro and protobuf register as
+        store codecs in the same way (RFC 0030). What a *user* encodes into a
+        Kafka record's ``Bytes`` is the user's business. */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ValueCodec
     notification_codec();
 

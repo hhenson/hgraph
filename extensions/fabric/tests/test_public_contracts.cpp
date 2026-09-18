@@ -382,6 +382,33 @@ TEST_CASE("fabric metadata is a stored binary object with the properties that ma
                                hgps::ObjectBytes(encoded.begin(), encoded.begin() + encoded.size() / 2)));
 }
 
+TEST_CASE("what fabric puts onto Kafka is an external message format")
+{
+    // Kafka is an external boundary: consoles, connectors, schema registries and
+    // other consumers read a topic, and what they rely on is JSON, Avro or
+    // protobuf. The binary value codecs are for hgraph's internal communication
+    // and for state it stores, and must not reach a topic when hgraph encodes.
+    const auto codec = hgf::notification_codec();
+    const std::string name = codec.name();
+    CHECK((name == "json" || name == "avro" || name == "protobuf"));
+    CHECK(name != std::string{hgps::BINARY_VALUE_CODEC});
+    CHECK(name != std::string{hgps::BINARY_FAST_VALUE_CODEC});
+
+    // JSON is the one this build provides, so a record is a readable document...
+    hg::Value  revision = canonical_revision();
+    hgps::ObjectBytes encoded;
+    codec.encode(revision.view(), encoded);
+    const std::string text{reinterpret_cast<const char *>(encoded.data()), encoded.size()};
+    CHECK(text.front() == '{');
+    CHECK(text.find("\"data_id\"") != std::string::npos);
+    CHECK(hgf::data_revision_input(codec.decode(hgf::data_revision_meta(), encoded).view()) ==
+          hgf::data_revision_input(revision.view()));
+
+    // ...while the metadata fabric STORES is state, and is binary by default.
+    CHECK(contract_values().default_codec() == std::string{hgps::BINARY_VALUE_CODEC});
+    CHECK(contract_values().encode(revision.view()) != encoded);
+}
+
 TEST_CASE("memory notifier fans out and conflates each data id")
 {
     auto notifier = hgf::make_memory_notifier();

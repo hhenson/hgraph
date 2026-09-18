@@ -83,6 +83,11 @@ Concretely, for any non-trivial change:
   older design record says otherwise. JSON belongs where the value has to be
   JSON: the `to_json` / `from_json` operators, the json adaptor, external
   protocols that are JSON, and diagnostics meant for a person.
+  **The binary codecs are for internal communication and state storage only.**
+  An external boundary is the opposite case: what hgraph itself encodes onto
+  **Kafka is JSON, Avro or protobuf** (ruling 2026-09-18), because those are
+  what the tools around a topic rely on -- never the binary codecs. What a
+  user encodes into a record's `Bytes` is the user's business.
 
 ---
 

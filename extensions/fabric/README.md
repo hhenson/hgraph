@@ -74,10 +74,13 @@ padded so a prefix listing returns revisions in order.
 Metadata is a declared value schema written through
 `persistence::store::ValueStore`, in that store's configured codec — `binary`
 by default (RFC 0040): the binary value codec's Compact profile in a
-compression block. Notifications — Kafka records and notifier blobs — are
-messages between hgraph components and use `binary-fast`. JSON is a
-representation, and nothing here has to be represented as JSON; a deployment
-that wants its metadata readable by other tools names `metadata_codec = "json"`.
+compression block. That is state hgraph stores; a deployment that wants its
+metadata readable by other tools names `metadata_codec = "json"`.
+
+What fabric puts onto **Kafka** is different. A topic is an external boundary,
+read by consoles, connectors, schema registries and other consumers, so a
+revision notification is an external message format — JSON, Avro or protobuf,
+never the binary codecs. JSON is the one this build provides.
 Fabric owns the schemas, the key
 layout, and the check that an as-of entry is not read as a latest entry; it
 owns no serialisation format.
