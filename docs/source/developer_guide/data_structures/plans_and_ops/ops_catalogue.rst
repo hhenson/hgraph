@@ -126,7 +126,8 @@ Ops-ABI ledger
 
 Every record stamps the ABI version of the ops table it points at;
 record validation rejects mismatches at interning time. Bump the
-constant when the ops struct layout changes.
+constant when the ops struct layout changes, and this table with it: the
+values below are the ones the headers declare.
 
 .. list-table::
    :header-rows: 1
@@ -136,19 +137,19 @@ constant when the ops struct layout changes.
      - Value
      - Declared in
    * - ``VALUE_OPS_ABI_VERSION``
-     - 7
+     - 9
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 16
+     - 21
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
-     - 5
+     - 8
      - ``include/hgraph/runtime/node_type_ref.h``
    * - ``GRAPH_OPS_ABI_VERSION``
-     - 8
+     - 9
      - ``include/hgraph/runtime/graph_type_ref.h``
    * - ``EXECUTOR_OPS_ABI_VERSION``
-     - 6
+     - 7
      - ``include/hgraph/runtime/executor_type_ref.h``
    * - ``CLOCK_OPS_ABI_VERSION``
      - 1

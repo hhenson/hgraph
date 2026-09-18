@@ -154,7 +154,12 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 16. ABI 16 adds
+    ``TS_DATA_OPS_ABI_VERSION`` is 21. ABI 21 adds ``find_stored_slot`` to
+    the set ops -- the hashed lookup that also answers for a key awaiting
+    erase (see "TSS Storage" below). ABI 20 added the membership delta
+    slots and ``replace_samples`` for the distributed-map boundaries. ABI 17
+    to 19 (RFC 0023) added the checkpoint ops table, the target link's
+    key-set time for recovery, and the checkpoint context parameter. ABI 16 adds
     ``TSDataLayout::canonical_delta_binding`` -- the portable delta type a
     captured or empty delta is built as, resolved when the layout is built
     so per-tick delta capture never consults the realization snapshot
@@ -520,7 +525,8 @@ TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 16.
+``TS_DATA_OPS_ABI_VERSION`` (the ops-ABI ledger in :doc:`ops_catalogue` has
+the current value).
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the
