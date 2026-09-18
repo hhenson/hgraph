@@ -617,7 +617,11 @@ as ``Compact`` revision 0; version 3 records both. Real version 2 bytes, written
 by the last build that produced them, are pinned in
 ``tests/cpp/checkpoint_v2_fixture.h``.
 
-``BinaryConverter`` gains no field and keeps its size; its write function now
+``BinaryConverter`` gains one trailing pointer, ``atom_ops`` (stage 4): a
+registered wire form has to be reachable from the converter without a lookup,
+and a lookup would mean a lock per value. Existing members keep their offsets.
+Nothing outside the codec constructs or copies one -- callers hold a
+``BoundBinaryConverter``, which is a handle. Otherwise it keeps its shape; its write function now
 takes the ``BinaryWriter`` cursor rather than a bare string, and the string
 overloads of ``write`` remain. ``BinaryReader`` gains the session pointer, so
 code compiled against the old header that constructs one must be rebuilt --
@@ -643,9 +647,50 @@ Stages
    block compression. **Done** as ``Compact`` revision 1 and image format
    version 3; checkpoint images are written with it. ``ValueStore`` switches
    at stage 5, with the rest of the JSON retirement.
-4. Python objects: the bridge hook, the bind-time warning, ``PickledObject``
-   pass-through, ``PythonOnly`` endpoint capture, ``register_binary_atom`` and
-   the wiring-time refusal of a native atom with no wire form.
+4. Python objects, registered wire forms and the wiring-time refusal. **Done**,
+   except the two items marked deferred:
+
+   * ``register_binary_atom(scalar, BinaryAtomOps{write, read, context, opaque})``
+     and ``declare_portable_binary_atom(scalar)``. The codec resolves an atom
+     in order: built in; registered; declared portable; plain numeric storage.
+     A registered form is framed with its length, so one that reads too much
+     or too little is caught at that value.
+   * A scalar with none of these is a ``BinaryWireFormError`` raised when the
+     converter is **bound**. ``BoundaryTransfer`` takes the name of what it is
+     wiring (``"dmap_ input 2"``, ``"the output of a spawn_ stage"``) and the error
+     carries it, with the whole time-series schema and the fix.
+   * The bridge registers **pickle** (protocol 5) as the wire form of its
+     object atom, marked ``opaque``, so the type layer stays Python-free. A
+     Python error is described while the GIL is still held. Binding a schema
+     that names a class used as a type warns, once per schema, naming the class.
+   * A boundary whose schema can reach an ``Any`` carries a session: body,
+     tables, then a four-byte trailer with the body's length, so the head of a
+     payload reads as before. A boundary with a schema writes none of it.
+     ``BoundBinaryConverter::needs_session()`` says which, when bound.
+   * What is pickled is narrower than "anything behind ``object``". The bridge
+     gives such a value a native form where it has one -- a tuple, dict, set or
+     scalar -- and the codec writes that. A frozen dataclass has a schema and
+     crosses natively with no warning. Only a value with no native form, such
+     as an instance of an ordinary class, is pickled. A callable gets the
+     native ``callable`` scalar, which has no wire form and is refused by name
+     -- at run time, because ``object`` says nothing at wiring about what it
+     will hold.
+   * **Known difference, not introduced here but newly reachable:** behind
+     ``object``, a Python *list of numbers* reaches a ``map_`` child as a
+     ``list`` and a ``dmap_`` child as a NumPy array. The bridge infers a native
+     numeric list; locally the original object is served from the endpoint's
+     Python cache, while across a boundary the value is rebuilt from native
+     bytes, and a native numeric list converts to an array. Tuples, dicts, sets
+     and scalars agree. Left for a decision: it is a property of the bridge's
+     list conversion, not of the codec.
+   * **Deferred -- ``PickledObject`` pass-through.** No process in the system
+     forwards values whose schemas it cannot resolve: a worker is the calling
+     program launched again, and a native ``ValueStore`` caller declares its
+     own schemas. The length framing above is what would make it possible.
+   * **Deferred -- ``PythonOnly`` endpoint capture.** Such an endpoint still
+     reports itself ineligible for checkpointing. It belongs with the
+     recoverable-component wiring (RFC 0039 stages 3 to 5), which is where a
+     component's endpoints are decided.
 5. JSON retirement: codec registration and defaults, Fabric, the ratchet,
    RFC 0030 amendment. **Done**, ahead of stage 4: the binary codec already
    covers every schema the JSON codec does, so nothing here waits on Python

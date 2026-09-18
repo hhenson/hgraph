@@ -125,6 +125,10 @@ namespace hgraph::python_bridge
     };
 
 
+    /** Register pickle as the binary wire form of ``PyObj`` (RFC 0040): a value
+        that exists only as a Python object leaves no other choice. */
+    void register_python_object_wire_form();
+
     [[nodiscard]] Value      py_to_value(nb::handle object);
     [[nodiscard]] nb::object value_to_py(const ValueView &view);
     /** The polars-frames compatibility switch (issue #80): when set, the

@@ -7,6 +7,7 @@
 #include <limits>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
 namespace
@@ -480,3 +481,38 @@ TEST_CASE("distributed boundary rejects duplicate window child updates before mu
     CHECK(child.as_window().at(0).checked_as<Int>() == 42);
     CHECK_FALSE(fixture.target.view(later).modified());
 }
+
+namespace
+{
+    // A scalar nobody has given a wire form.
+    struct BoundaryOrphan
+    {
+        std::string text{};
+
+        friend bool operator==(const BoundaryOrphan &, const BoundaryOrphan &) = default;
+    };
+}  // namespace
+
+TEST_CASE("distributed boundary refuses a scalar with no wire form while it is being wired")
+{
+    auto       &registry = TypeRegistry::instance();
+    const auto *orphan = registry.register_scalar<BoundaryOrphan>("tests.distributed_boundary.Orphan");
+    const auto *schema = registry.tsd(registry.register_scalar<Int>("int"), registry.ts(orphan));
+
+    // Building the transfer IS wiring: nothing has run, no value exists, and the
+    // message says what needed the wire form and the whole schema it sits in.
+    try
+    {
+        const distributed::BoundaryTransfer transfer{schema, "dmap_ input 2"};
+        FAIL("a boundary was wired around a scalar that cannot cross it");
+    }
+    catch (const BinaryWireFormError &error)
+    {
+        CHECK(error.scalar() == "tests.distributed_boundary.Orphan");
+        CHECK_THAT(error.what(), Catch::Matchers::ContainsSubstring("required by dmap_ input 2"));
+        CHECK_THAT(error.what(), Catch::Matchers::ContainsSubstring(std::string{schema->name()}));
+        CHECK_THAT(error.what(), Catch::Matchers::ContainsSubstring("register_binary_atom"));
+    }
+    CHECK_THROWS_AS(distributed::BoundaryTransfer{schema}, BinaryWireFormError);
+}
+

@@ -1,5 +1,6 @@
 #include <hgraph/types/value/binary_codec.h>
 
+#include <hgraph/runtime/logger.h>
 #include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -1641,6 +1642,31 @@ namespace hgraph
                     converter.write_ == &write_ordinal_atom);
         }
 
+        // --- a scalar's registered wire form (RFC 0040) --------------------------
+        // Framed by the codec with its length. The form is somebody else's code:
+        // one that read a byte too many would otherwise corrupt everything
+        // after it, and the length is also what would let a reader that does
+        // not know the form keep the bytes whole.
+
+        void write_registered_atom(const BinaryConverter &self, const ValueView &view, BinaryWriter &writer)
+        {
+            std::string bytes;
+            self.atom_ops->write(view.data(), self.atom_ops->context, bytes);
+            write_varint(bytes.size(), writer.out);
+            writer.out.append(bytes);
+        }
+
+        Value read_registered_atom(const BinaryConverter &self, BinaryReader &reader)
+        {
+            auto  bytes = reader.subreader(static_cast<std::size_t>(read_varint(reader)));
+            Value result{self.binding};
+            self.atom_ops->read(const_cast<void *>(result.view().data()), self.atom_ops->context, bytes);
+            if (bytes.remaining() != 0)
+                throw std::runtime_error(fmt::format("binary codec: the wire form of '{}' left {} bytes unread",
+                                                     self.meta->name(), bytes.remaining()));
+            return result;
+        }
+
         // --- Any -----------------------------------------------------------
         // The box names its content's schema by the session's table index, one
         // past it so that zero is the empty box, and the content follows under
@@ -1840,6 +1866,13 @@ namespace hgraph
         TypeSystemMutex                                                          converters_mutex;
         ankerl::unordered_dense::map<const ValueTypeMetaData *,
                                      std::unique_ptr<BinaryConverter>>           converters;
+        // Wire forms registered with a scalar, and scalars declared portable.
+        // Owned by pointer so that a converter can hold the address.
+        ankerl::unordered_dense::map<const ValueTypeMetaData *,
+                                     std::unique_ptr<BinaryAtomOps>>             atom_forms;
+        ankerl::unordered_dense::set<const ValueTypeMetaData *>                   portable_atoms;
+        // Schemas whose binding has already warned that it will pickle.
+        ankerl::unordered_dense::set<const ValueTypeMetaData *>                   opaque_warned;
 
         const BinaryConverter *converter_for_locked(const ValueTypeMetaData *meta,
                                                      std::vector<const ValueTypeMetaData *> &created)
@@ -1936,12 +1969,30 @@ namespace hgraph
                         raw->read_ = &read_ranges<CivilDateRangeSet>;
                         break;
                     }
-                    if (!meta->has(ValueTypeFlags::TriviallyCopyable))
+                    // Not built in. A form registered with the scalar comes
+                    // first; then a declaration that its storage image is its
+                    // wire form; then the rule for plain numeric storage.
+                    if (const auto form = atom_forms.find(meta); form != atom_forms.end())
                     {
-                        throw std::logic_error(
-                            fmt::format("binary codec: atomic '{}' is not trivially copyable and "
-                                        "has no wire form yet",
-                                        meta->name()));
+                        raw->atom_ops = form->second.get();
+                        raw->write_ = &write_registered_atom;
+                        raw->read_ = &read_registered_atom;
+                        break;
+                    }
+                    if (!meta->has(ValueTypeFlags::TriviallyCopyable)) { throw BinaryWireFormError{std::string{meta->name()}}; }
+                    if (portable_atoms.contains(meta))
+                    {
+                        const auto *declared = raw->binding.plan();
+                        if (declared == nullptr)
+                        {
+                            throw std::logic_error(
+                                fmt::format("binary codec: atomic '{}' has no storage plan", meta->name()));
+                        }
+                        raw->atom_size = declared->layout.size;
+                        raw->write_    = &write_atom;
+                        raw->hash_     = &hash_atom;
+                        raw->read_     = &read_atom;
+                        break;
                     }
                     // Trivial copyability alone does not establish a wire
                     // contract: native handles and pointer-bearing structs can
@@ -1951,15 +2002,16 @@ namespace hgraph
                         && meta != scalar_descriptor<Time>::value_meta()
                         && meta != scalar_descriptor<CivilDateTime>::value_meta()
                         && meta != scalar_descriptor<Period>::value_meta())
-                        throw std::logic_error(fmt::format("binary codec: atomic '{}' has no portable wire form", meta->name()));
+                        throw BinaryWireFormError{std::string{meta->name()}};
                     const auto *plan = raw->binding.plan();
                     if (plan == nullptr)
                     {
                         throw std::logic_error(
                             fmt::format("binary codec: atomic '{}' has no storage plan", meta->name()));
                     }
+                    // Wider than eight bytes is not plain numeric storage.
                     if (meta->is_buffer_compatible() && plan->layout.size > sizeof(std::uint64_t))
-                        throw std::logic_error("binary codec: extended-width atomic requires an explicit portable wire form");
+                        throw BinaryWireFormError{std::string{meta->name()}};
                     raw->atom_size = plan->layout.size;
                     raw->write_    = &write_atom;
                     raw->hash_     = &hash_atom;
@@ -2030,6 +2082,7 @@ namespace hgraph
         const BinaryConverter *root{};
         BinaryProfile profile{BinaryProfile::Compact};
         std::uint8_t revision{0};
+        bool needs_session{false};
 
         /** True for an atom the block forms can carry: fixed width, trivially
             copyable, and stored at exactly its wire width. */
@@ -2165,6 +2218,39 @@ namespace hgraph
             }
         }
 
+        /** A value that exists only as a Python object leaves no choice but to
+            pickle it, so that is never an error. It is slow, large and opaque
+            to every native reader, though, so say so -- once per schema, and
+            in the author's terms: the class they used as a type, not the atom
+            the bridge holds it in. */
+        void warn_if_opaque(const ValueTypeMetaData *root_meta) const
+        {
+            std::string pickled;
+            for (const auto *cache : {&declared, &exact})
+            {
+                for (const auto &[meta, converter] : *cache)
+                {
+                    // A class used as a type is a box that can only ever hold
+                    // an object of that class.
+                    if (converter->write_ == &write_any && meta->is_opaque_python()) { pickled = std::string{meta->name()}; }
+                    else if (pickled.empty() && converter->atom_ops != nullptr && converter->atom_ops->opaque &&
+                             meta != root_meta)
+                    {
+                        pickled = std::string{meta->name()};
+                    }
+                }
+            }
+            if (pickled.empty()) { return; }
+            {
+                const std::lock_guard guard{converters_mutex};
+                if (!opaque_warned.insert(root_meta).second) { return; }
+            }
+            log::logger().warn(
+                "binary codec: '{}' holds Python objects ('{}'), which are pickled: slow, large and unreadable by "
+                "native code. Consider giving the type a schema -- a dataclass or a CompoundScalar has one",
+                root_meta->name(), pickled);
+        }
+
         const BinaryConverter *build(const ValueTypeMetaData *meta, bool exact_type = false)
         {
             auto &cache = exact_type ? exact : declared;
@@ -2256,6 +2342,15 @@ namespace hgraph
         plan->realization = active != nullptr ? active->shared_from_this()
                                              : TypeRealizationSnapshot::capture(TypeRegistry::instance());
         plan->root = plan->build(meta);
+        for (const auto *cache : {&plan->declared, &plan->exact})
+        {
+            for (const auto &[schema, converter] : *cache)
+            {
+                static_cast<void>(schema);
+                plan->needs_session = plan->needs_session || converter->write_ == &write_any;
+            }
+        }
+        plan->warn_if_opaque(meta);
         return BoundBinaryConverter{std::move(plan)};
     }
 
@@ -2273,6 +2368,8 @@ namespace hgraph
     {
         return impl_ ? impl_->revision : std::uint8_t{0};
     }
+
+    bool BoundBinaryConverter::needs_session() const noexcept { return impl_ && impl_->needs_session; }
 
     std::uint64_t BoundBinaryConverter::portable_hash(const ValueView &view) const
     {
@@ -2376,6 +2473,7 @@ namespace hgraph
         swap(children, other.children);
         swap(write_alternatives, other.write_alternatives);
         swap(read_alternatives, other.read_alternatives);
+        swap(atom_ops, other.atom_ops);
     }
 
     Value BinaryConverter::read(BinaryReader &reader) const
@@ -2466,6 +2564,86 @@ namespace hgraph
     {
         const std::lock_guard guard{converters_mutex};
         converters.clear();
+        // Registered against schemas the reset is about to discard.
+        atom_forms.clear();
+        portable_atoms.clear();
+        opaque_warned.clear();
+    }
+
+    void register_binary_atom(const ValueTypeMetaData *scalar, BinaryAtomOps ops)
+    {
+        if (scalar == nullptr || scalar->try_value_kind() != ValueTypeKind::Atomic)
+            throw std::invalid_argument("binary codec: a wire form is registered for a scalar");
+        if (ops.write == nullptr || ops.read == nullptr)
+            throw std::invalid_argument("binary codec: a wire form needs both a writer and a reader");
+        const std::lock_guard guard{converters_mutex};
+        atom_forms[scalar] = std::make_unique<BinaryAtomOps>(ops);
+        // Anything already synthesized may have refused this scalar, or hold
+        // the form this one replaces.
+        converters.clear();
+    }
+
+    void declare_portable_binary_atom(const ValueTypeMetaData *scalar)
+    {
+        if (scalar == nullptr || scalar->try_value_kind() != ValueTypeKind::Atomic)
+            throw std::invalid_argument("binary codec: only a scalar can be declared portable");
+        if (!scalar->has(ValueTypeFlags::TriviallyCopyable))
+        {
+            throw std::invalid_argument(fmt::format(
+                "binary codec: '{}' is not trivially copyable, so its storage cannot be its wire form; "
+                "register one with register_binary_atom",
+                scalar->name()));
+        }
+        const std::lock_guard guard{converters_mutex};
+        portable_atoms.insert(scalar);
+        converters.clear();
+    }
+
+    namespace
+    {
+        [[nodiscard]] std::string wire_form_message(std::string_view scalar, std::string_view needed_by,
+                                                    std::string_view schema)
+        {
+            std::string message = fmt::format("binary codec: scalar '{}' has no wire form", scalar);
+            if (!needed_by.empty())
+            {
+                message += fmt::format(", required by {}", needed_by);
+                if (!schema.empty() && schema != scalar) { message += fmt::format(" ({})", schema); }
+            }
+            message += fmt::format(
+                ".\nRegister one with register_binary_atom<T>(write, read) beside the scalar's registration, or "
+                "declare it portable with declare_portable_binary_atom if it is trivially copyable and has no "
+                "pointers or padding-dependent layout.");
+            return message;
+        }
+    }  // namespace
+
+    BinaryWireFormError::BinaryWireFormError(std::string scalar)
+        : std::logic_error(wire_form_message(scalar, {}, {})), scalar_(std::move(scalar))
+    {
+    }
+
+    BinaryWireFormError::BinaryWireFormError(std::string scalar, const std::string &message)
+        : std::logic_error(message), scalar_(std::move(scalar))
+    {
+    }
+
+    BinaryWireFormError BinaryWireFormError::with_context(std::string_view needed_by, std::string_view schema) const
+    {
+        return BinaryWireFormError{scalar_, wire_form_message(scalar_, needed_by, schema)};
+    }
+
+    BoundBinaryConverter bind_binary_converter_for(const ValueTypeMetaData *schema, BinaryProfile profile,
+                                                   std::string_view needed_by)
+    {
+        try
+        {
+            return bind_binary_converter(schema, profile);
+        }
+        catch (const BinaryWireFormError &error)
+        {
+            throw error.with_context(needed_by, schema != nullptr ? schema->name() : std::string_view{});
+        }
     }
 
     void to_binary_string(const ValueView &view, std::string &out)

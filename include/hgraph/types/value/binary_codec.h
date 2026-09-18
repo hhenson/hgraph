@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <string>
 #include <string_view>
@@ -112,6 +113,62 @@ namespace hgraph
     };
 
     /**
+     * How one scalar travels, registered beside the scalar (RFC 0040).
+     *
+     * The codec knows the built-in atoms. Any other scalar says how it is
+     * written here, so that the codec never has to enumerate types and an
+     * extension's scalar is as much a part of the format as ``int``. ``write``
+     * and ``read`` see the scalar's own storage; the codec frames what they
+     * produce with its length, so a form that reads too much or too little is
+     * caught at that value, not somewhere after it.
+     */
+    struct BinaryAtomOps
+    {
+        /** An ops table in the runtime's convention: the memory first, then
+            the implementation's context. */
+        void (*write)(const void *value, const void *context, std::string &out){nullptr};
+        /** ``value`` is default-constructed storage of the scalar. */
+        void (*read)(void *value, const void *context, BinaryReader &reader){nullptr};
+        /** Whatever the form needs; it must outlive the registration. */
+        const void *context{nullptr};
+        /** The bytes mean nothing to a native reader -- a pickle. Binding a
+            schema that reaches such a form warns, once per schema, because it
+            is slow, large, and usually a sign that a type could have a schema. */
+        bool opaque{false};
+    };
+
+    /** Register ``scalar``'s wire form. Build-time; replaces an earlier one. */
+    HGRAPH_EXPORT void register_binary_atom(const ValueTypeMetaData *scalar, BinaryAtomOps ops);
+
+    /**
+     * Declare that ``scalar``'s storage image IS its wire form. Only true of a
+     * trivially copyable type with no pointers and no padding-dependent
+     * layout; the codec cannot check the last two, which is why this is a
+     * declaration and not something it infers.
+     */
+    HGRAPH_EXPORT void declare_portable_binary_atom(const ValueTypeMetaData *scalar);
+
+    /**
+     * A scalar met while binding that has no wire form: not built in, none
+     * registered, not declared portable. It is a wiring-time failure -- a type
+     * that silently refused at the first checkpoint hours into a run would be
+     * worse than one that cannot be wired -- and ``with_context`` adds what
+     * the user needs: what required the wire form.
+     */
+    class HGRAPH_CLASS_EXPORT BinaryWireFormError : public std::logic_error
+    {
+      public:
+        explicit BinaryWireFormError(std::string scalar);
+        [[nodiscard]] const std::string &scalar() const noexcept { return scalar_; }
+        /** The same failure, naming what needs the wire form and the schema it sits in. */
+        [[nodiscard]] BinaryWireFormError with_context(std::string_view needed_by, std::string_view schema) const;
+
+      private:
+        BinaryWireFormError(std::string scalar, const std::string &message);
+        std::string scalar_;
+    };
+
+    /**
      * A write cursor: the bytes being produced. The mirror of ``BinaryReader``.
      *
      * Converters write through it rather than into a bare string so that what
@@ -165,6 +222,8 @@ namespace hgraph
         std::vector<const BinaryConverter *> children{};   ///< element / (key, value) / fields
         std::unordered_map<const ValueTypeMetaData *, const BinaryConverter *> write_alternatives{};
         std::unordered_map<std::string_view, const BinaryConverter *> read_alternatives{};
+        /** The registered wire form of a scalar the codec does not build in. */
+        const BinaryAtomOps                 *atom_ops{nullptr};
     };
 
     /**
@@ -188,6 +247,10 @@ namespace hgraph
         [[nodiscard]] const ValueTypeMetaData *schema() const noexcept;
         [[nodiscard]] BinaryProfile profile() const noexcept;
         [[nodiscard]] std::uint8_t revision() const noexcept;
+        /** True when a value of this schema can hold an ``Any``, and so can
+            only be written inside a session. Known when bound, so a format
+            decides once whether it carries tables. */
+        [[nodiscard]] bool needs_session() const noexcept;
         /** Stable process-independent hash for worker assignment. */
         [[nodiscard]] std::uint64_t portable_hash(const ValueView &view) const;
         void write(const ValueView &view, std::string &out) const;
@@ -226,7 +289,18 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter(const ValueTypeMetaData *meta,
                                                                           BinaryProfile profile, std::uint8_t revision);
 
-    /** Clear the interned converters (registry reset). */
+    /**
+     * Bind ``schema`` for ``profile``, or fail saying what needed it.
+     *
+     * The wiring-time check: a ``dmap_`` / ``spawn`` boundary plan, a
+     * recoverable component and a store binding are all built at wiring or
+     * start, and each calls this with the name of the thing it is building.
+     */
+    [[nodiscard]] HGRAPH_EXPORT BoundBinaryConverter bind_binary_converter_for(const ValueTypeMetaData *schema,
+                                                                              BinaryProfile profile,
+                                                                              std::string_view needed_by);
+
+    /** Clear the interned converters and the registered wire forms (registry reset). */
     HGRAPH_EXPORT void clear_binary_converters() noexcept;
 
     /** Encode one value, field-wise (RFC 0017); the schema is the reader's, not the stream's. */

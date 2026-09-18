@@ -1834,6 +1834,8 @@ namespace hgraph::python_bridge {
 void register_python_overloads() {
   (void)
       scalar_descriptor<PyObj>::value_meta(); // opaque fallback held inside Any
+  // Cleared with the registries, so it is registered wherever they are rebuilt.
+  register_python_object_wire_form();
   TypeRegistry::instance().register_value_type_alias(
       "object", TypeRegistry::instance().any());
   register_overload<op_materialize, materialize_node>();
