@@ -27,7 +27,8 @@ namespace hgraph::fabric
         Str                              prefix{};
         persistence::store::ObjectStore objects{};
         persistence::store::FrameStore  frames{};
-        /** Named ValueStore codec for declared metadata. Empty selects JSON.
+        /** Named ValueStore codec for declared metadata. Empty selects the
+            store default, "binary" (RFC 0040).
             The run-local typed store is assembled from this policy and
             `objects`, so configuration cannot accidentally supply two
             different metadata backends. */

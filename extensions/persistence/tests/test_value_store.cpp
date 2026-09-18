@@ -154,10 +154,12 @@ TEST_CASE("value store: a declared struct round trips without extension codec co
 
 TEST_CASE("value store: a stored json object is a json document and nothing else")
 {
-    // The point of the format is that something outside this codebase can read
-    // it: a text editor, jq, json.load. Any framing of ours would break that,
-    // so the stored bytes must equal the codec's output exactly.
-    const auto  store = memory_store();
+    // A store that is MEANT to hold JSON names the json codec (RFC 0040: JSON
+    // is a representation, never a default). The point of the format is that
+    // something outside this codebase can read it: a text editor, jq,
+    // json.load. Any framing of ours would break that, so the stored bytes
+    // must equal the codec's output exactly.
+    const auto  store = memory_store(std::string{JSON_VALUE_CODEC});
     const Value written = record_value("alpha", 7, "BOM");
 
     const ObjectBytes encoded = store.encode(written.view());
@@ -169,10 +171,30 @@ TEST_CASE("value store: a stored json object is a json document and nothing else
     CHECK(text.find("alpha") != std::string::npos);
 }
 
-TEST_CASE("value store: json is the default codec")
+TEST_CASE("value store: binary is the default codec, and its objects are not text")
 {
+    // RFC 0040: what a store holds unless it is told otherwise is the binary
+    // value codec's Compact profile in a compression block. JSON is for a
+    // store that is meant to hold JSON, and is never what a store falls back to.
     const auto store = memory_store();
-    CHECK(store.default_codec() == std::string{JSON_VALUE_CODEC});
+    CHECK(store.default_codec() == std::string{BINARY_VALUE_CODEC});
+    CHECK(std::string{DEFAULT_VALUE_CODEC} == std::string{BINARY_VALUE_CODEC});
+
+    const Value       written = record_value("alpha", 7, "BOM");
+    const ObjectBytes encoded = store.encode(written.view());
+    REQUIRE_FALSE(encoded.empty());
+    // A compression block begins with its codec byte, 0 to 2; JSON text cannot.
+    CHECK(std::to_integer<unsigned>(encoded.front()) <= 2);
+    CHECK(as_text(encoded) != to_json_string(written.view()));
+    CHECK(store.decode(record_meta(), encoded).view() == written.view());
+
+    // binary-fast is the Fast profile as it is: a frame, never compressed.
+    const ObjectBytes fast = store.encode(written.view(), BINARY_FAST_VALUE_CODEC);
+    CHECK(std::to_integer<unsigned>(fast.front()) == 1);   // the frame's profile byte: Fast
+    CHECK(store.decode(record_meta(), fast, BINARY_FAST_VALUE_CODEC).view() == written.view());
+
+    // Bytes of one codec read as another are a decode failure, not a guess.
+    CHECK_THROWS(store.decode(record_meta(), store.encode(written.view(), JSON_VALUE_CODEC)));
 }
 
 TEST_CASE("value store: the key is the caller's, untouched")
@@ -205,7 +227,7 @@ TEST_CASE("value store: the codec is configuration, defaulted or given per call"
     CHECK(reversed_default.default_codec() == "test-reversed");
 
     const Value written = record_value("alpha", 7, "BOM");
-    const auto  json_default = memory_store();
+    const auto  json_default = memory_store(std::string{JSON_VALUE_CODEC});
 
     // The store default applies when a call names nothing...
     CHECK(as_text(json_default.encode(written.view())) == to_json_string(written.view()));
@@ -423,8 +445,10 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(root);
 
+    // A store meant to be read by other tools names the json codec.
     const auto store = make_value_store(ValueStoreConfig{
-        .objects = make_object_store(ObjectStoreConfig{LocalLocation{root.string()}})});
+        .objects = make_object_store(ObjectStoreConfig{LocalLocation{root.string()}}),
+        .codec = std::string{JSON_VALUE_CODEC}});
 
     const Value written = record_value("alpha", 7, "BOM");
     // The caller names the file, including its extension: that is the whole
@@ -455,19 +479,22 @@ TEST_CASE("value store: a local-backend object is a json file on disk")
     std::filesystem::remove_all(root, cleanup);
 }
 
-TEST_CASE("value store: the json baseline needs no registration call")
+TEST_CASE("value store: the built-in codecs need no registration call")
 {
     // A standalone consumer of the installed SDK constructs the advertised
-    // default store without running any extension's registration. json is a
-    // required part of a conforming persistence build (RFC 0030), so it must
-    // already be there -- not installed as a side effect of something else.
-    CHECK(value_codec_registered(JSON_VALUE_CODEC));
-    CHECK_NOTHROW(value_codec(JSON_VALUE_CODEC));
+    // default store without running any extension's registration. The codecs a
+    // conforming persistence build provides (RFC 0030, RFC 0040) must already
+    // be there -- not installed as a side effect of something else.
+    for (const auto name : {BINARY_VALUE_CODEC, BINARY_FAST_VALUE_CODEC, JSON_VALUE_CODEC})
+    {
+        CHECK(value_codec_registered(name));
+        CHECK_NOTHROW(value_codec(name));
+    }
 
     const auto store = make_value_store(
         ValueStoreConfig{.objects = make_object_store(ObjectStoreConfig{})});
     const Value written = record_value("alpha", 7, "BOM");
-    CHECK(as_text(store.encode(written.view())) == to_json_string(written.view()));
+    CHECK(store.decode(record_meta(), store.encode(written.view())).view() == written.view());
 }
 
 TEST_CASE("value store: the default codec is not looked up per call")
@@ -483,28 +510,33 @@ TEST_CASE("value store: the default codec is not looked up per call")
     // measurement. Neither count is zero afterwards because these unbound
     // convenience calls deliberately bind a fresh schema plan per value; that
     // is why evaluation code retains BoundValueStore instead.
+    //
+    // The same codec is used on both sides -- as one store's default, and named
+    // on a store whose default is something else -- so the conversion costs
+    // the same and only the lookup differs.
     register_reversing_codec();
-    const auto  store = memory_store();
+    const auto  as_default = memory_store("test-reversed");
+    const auto  by_name = memory_store();
     const Value written = record_value("alpha", 7, "BOM");
 
-    static_cast<void>(store.encode(written.view()));
-    static_cast<void>(store.encode(written.view(), "test-reversed"));
+    static_cast<void>(as_default.encode(written.view()));
+    static_cast<void>(by_name.encode(written.view(), "test-reversed"));
 
     const auto default_before = type_system_lock_count();
     for (int index = 0; index < 16; ++index)
     {
-        static_cast<void>(store.encode(written.view()));
+        static_cast<void>(as_default.encode(written.view()));
     }
     const auto default_cost = type_system_lock_count() - default_before;
 
     const auto named_before = type_system_lock_count();
     for (int index = 0; index < 16; ++index)
     {
-        static_cast<void>(store.encode(written.view(), "test-reversed"));
+        static_cast<void>(by_name.encode(written.view(), "test-reversed"));
     }
     const auto named_cost = type_system_lock_count() - named_before;
 
-    // Both encode one value through one json conversion; only the named path
+    // Both encode one value through one conversion; only the named path
     // additionally resolves its codec by name.
     CHECK(default_cost < named_cost);
 }

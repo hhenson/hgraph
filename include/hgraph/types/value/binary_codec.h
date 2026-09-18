@@ -185,6 +185,7 @@ namespace hgraph
         BoundBinaryConverter() noexcept = default;
         [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
         [[nodiscard]] ValueTypeRef binding() const noexcept;
+        [[nodiscard]] const ValueTypeMetaData *schema() const noexcept;
         [[nodiscard]] BinaryProfile profile() const noexcept;
         [[nodiscard]] std::uint8_t revision() const noexcept;
         /** Stable process-independent hash for worker assignment. */

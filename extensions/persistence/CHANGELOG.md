@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Breaking:** `ValueStore` defaults to the `binary` codec instead of `json`
+  (RFC 0040, amending RFC 0030). `binary` is the binary value codec's Compact
+  profile in a compression block; `binary-fast` is the Fast profile, never
+  compressed, for a store used as a channel between processes. `json` stays
+  registered for a store that is meant to hold JSON, and is never a default. An
+  object says nothing about the codec that wrote it, so a store written with
+  the old default must name `codec = "json"` to be read.
+- Component checkpoint images are format version 3 (RFC 0040): compressed
+  (zstd where the Arrow build provides it, LZ4 otherwise) and recording the
+  binary profile and revision of their values. A 100,000-key
+  `TSD[int, TS[float]]` image goes from 1.9 MB to 81 KB on regular test data;
+  real floating-point state will compress less. Versions 1 and 2 remain readable.
 - Component checkpoints are written in image format version 2 (RFC 0039):
   core's canonical checkpoint image inside the existing one-cell envelope.
   `Frame` and `Series` values -- untyped and typed -- are now ordinary component

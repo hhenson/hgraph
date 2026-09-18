@@ -261,7 +261,14 @@ Each entry names the layer that owns the rule:
 * ``thread_local`` in the runtime;
 * a bare ``catch (...)`` outside ``util/scope.h`` and the three documented
   translation boundaries -- an exception boundary without a name (see
-  ``architecture.rst``, "Named exception boundaries").
+  ``architecture.rst``, "Named exception boundaries");
+* JSON on a serialization path (RFC 0040, guardrail (v) in ``CLAUDE.md``): the
+  JSON codec's names under ``runtime/``, where the floor is
+  ``graph_diagnostics.cpp`` rendering values for a person, and under the
+  persistence, Fabric and Kafka extensions, where the floor is the named
+  ``json`` store codec -- for a store that is *meant* to hold JSON, never a
+  default -- and the read-only version 1 checkpoint reader. The rule was only
+  ever spoken, and JSON reached these paths twice because of it.
 
 The test fails when a count moves in either direction. A rise is a new copy
 of a rule that already has an owner: fix it at the owning layer, or record the

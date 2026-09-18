@@ -17,9 +17,22 @@
 
 namespace hgraph::persistence::store
 {
-    /** The codec every conforming build provides, and the default when a store
-        names none. RFC 0030. */
+    /** The binary value codec's ``Compact`` profile in a compression block
+        (RFC 0040): what a store holds unless it is told otherwise. Every
+        conforming build provides it. */
+    inline constexpr std::string_view BINARY_VALUE_CODEC{"binary"};
+
+    /** The ``Fast`` profile, never compressed: for a store used as a channel
+        between processes rather than as a place to keep things. */
+    inline constexpr std::string_view BINARY_FAST_VALUE_CODEC{"binary-fast"};
+
+    /** For a store that is *meant* to hold JSON -- objects another system
+        reads. JSON is a representation, not a serialization format, so it is
+        never a default (RFC 0040). Every conforming build provides it. */
     inline constexpr std::string_view JSON_VALUE_CODEC{"json"};
+
+    /** The codec when a store names none. */
+    inline constexpr std::string_view DEFAULT_VALUE_CODEC{BINARY_VALUE_CODEC};
 
     /** Explicit erased ownership for schema-dependent codec state. */
     struct ValueCodecBinding

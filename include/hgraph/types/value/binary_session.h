@@ -112,6 +112,14 @@ namespace hgraph
     // 0017 field-wise encoding; ``Fast`` is at revision 1. A reader refuses a
     // revision it does not know, by number, rather than misreading it.
 
+    /** With a converter bound beforehand: what a caller that frames values
+        every cycle uses, so that framing binds nothing. */
+    HGRAPH_EXPORT void encode_binary_frame(const BoundBinaryConverter &root, const ValueView &view, std::string &out);
+    /** The frame must be of ``root``'s profile. One of an older revision is
+        read by binding that revision, which is the cold path it sounds like. */
+    [[nodiscard]] HGRAPH_EXPORT Value decode_binary_frame(const BoundBinaryConverter &root, std::string_view bytes,
+                                                          BinaryDecodeLimits limits = {});
+
     HGRAPH_EXPORT void encode_binary_frame(const ValueView &view, BinaryProfile profile, std::string &out);
     [[nodiscard]] HGRAPH_EXPORT std::string encode_binary_frame(const ValueView &view,
                                                                  BinaryProfile profile = BinaryProfile::Compact);

@@ -45,13 +45,15 @@ def test_python_memory_config_validates_notification_backpressure_limit():
 def test_python_codec_round_trips_through_the_shared_native_codec():
     """The golden hex fixtures went with the hand-written codec they pinned.
 
-    Metadata is now a json document produced by the shared value codec, so the
-    byte layout is the library's business. What the Python surface owes is a
-    faithful round trip and a readable document.
+    A revision on the wire is produced by the shared value codec, so the byte
+    layout is the library's business. It is a message between hgraph
+    components, so it is the binary codec's Fast profile (RFC 0040) -- a frame
+    whose first byte names that profile -- and not text. What the Python
+    surface owes is a faithful round trip.
     """
     encoded = hgf.encode_revision(_revision())
-    assert encoded.startswith(b"{")
-    assert b'"data_id"' in encoded
+    assert encoded[0] == 1
+    assert not encoded.startswith(b"{")
 
     decoded = hgf.decode_revision(encoded)
     assert decoded == hgf.DataRevision(

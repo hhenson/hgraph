@@ -1,6 +1,9 @@
 #include <hgraph/persistence/value_codec.h>
 
 #include <hgraph/types/utils/counted_mutex.h>
+#include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/binary_compression.h>
+#include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/value/json_codec.h>
 
 #include <algorithm>
@@ -28,21 +31,31 @@ namespace hgraph::persistence::store
         Value json_decode(void *context, const void *bound,
                           std::span<const std::byte> encoded);
 
+        ValueCodecBinding binary_bind(void *context, const ValueTypeMetaData *schema);
+        ValueCodecBinding binary_fast_bind(void *context, const ValueTypeMetaData *schema);
+        void binary_encode(void *context, const void *bound, const ValueView &value, ObjectBytes &out);
+        Value binary_decode(void *context, const void *bound, std::span<const std::byte> encoded);
+
+        constexpr ValueCodecOps json_ops{.bind = &json_bind, .encode = &json_encode, .decode = &json_decode};
+        constexpr ValueCodecOps binary_ops{.bind = &binary_bind, .encode = &binary_encode, .decode = &binary_decode};
+        constexpr ValueCodecOps binary_fast_ops{.bind = &binary_fast_bind,
+                                                .encode = &binary_encode,
+                                                .decode = &binary_decode};
+
         struct Registry
         {
-            /** The baseline codec is seeded here rather than by an installer
-                call, because a build without json is not a conforming
-                persistence build (RFC 0030) and ValueStore's advertised default
-                names it. Seeding at construction means a standalone consumer
-                that never runs an extension's registration still gets a working
-                default store; going through register_value_codec() instead
-                would deadlock on the mutex this constructor is building. */
+            /** The codecs every conforming build provides are seeded here
+                rather than by an installer call, because ValueStore's default
+                names one of them (RFC 0030, RFC 0040). Seeding at construction
+                means a standalone consumer that never runs an extension's
+                registration still gets a working default store; going through
+                register_value_codec() instead would deadlock on the mutex this
+                constructor is building. */
             Registry()
             {
-                codecs.emplace(std::string{JSON_VALUE_CODEC},
-                               Registration{nullptr, ValueCodecOps{.bind = &json_bind,
-                                                                   .encode = &json_encode,
-                                                                   .decode = &json_decode}});
+                codecs.emplace(std::string{BINARY_VALUE_CODEC}, Registration{nullptr, binary_ops});
+                codecs.emplace(std::string{BINARY_FAST_VALUE_CODEC}, Registration{nullptr, binary_fast_ops});
+                codecs.emplace(std::string{JSON_VALUE_CODEC}, Registration{nullptr, json_ops});
             }
 
             TypeSystemMutex                              mutex{};
@@ -94,6 +107,68 @@ namespace hgraph::persistence::store
                                         encoded.size()};
             return from_json_string(
                 *static_cast<const BoundJsonConverter *>(bound), text);
+        }
+
+        // --- binary (RFC 0040) -----------------------------------------------
+        // An object is one frame of the binary value codec. ``binary`` is the
+        // ``Compact`` profile inside a compression block; ``binary-fast`` is
+        // the ``Fast`` profile as it is. Both bind their converter here, once.
+
+        struct BoundBinary
+        {
+            BoundBinaryConverter converter{};
+            bool                 compressed{false};
+        };
+
+        ValueCodecBinding bind_binary(const ValueTypeMetaData *schema, BinaryProfile profile)
+        {
+            if (schema == nullptr) { throw std::invalid_argument("value codec bind requires a schema"); }
+            auto binding = std::make_shared<BoundBinary>();
+            binding->converter = bind_binary_converter(schema, profile);
+            binding->compressed = profile == BinaryProfile::Compact;
+            return ValueCodecBinding{binding, binding.get()};
+        }
+
+        ValueCodecBinding binary_bind(void * /*context*/, const ValueTypeMetaData *schema)
+        {
+            return bind_binary(schema, BinaryProfile::Compact);
+        }
+
+        ValueCodecBinding binary_fast_bind(void * /*context*/, const ValueTypeMetaData *schema)
+        {
+            return bind_binary(schema, BinaryProfile::Fast);
+        }
+
+        void binary_encode(void * /*context*/, const void *bound, const ValueView &value, ObjectBytes &out)
+        {
+            const auto &binding = *static_cast<const BoundBinary *>(bound);
+            std::string frame;
+            encode_binary_frame(binding.converter, value, frame);
+            std::string object;
+            if (binding.compressed) { write_compressed_block(frame, default_binary_compression(), object); }
+            else { object = std::move(frame); }
+            const auto bytes = std::as_bytes(std::span{object.data(), object.size()});
+            out.insert(out.end(), bytes.begin(), bytes.end());
+        }
+
+        Value binary_decode(void * /*context*/, const void *bound, std::span<const std::byte> encoded)
+        {
+            const auto &binding = *static_cast<const BoundBinary *>(bound);
+            const std::string_view bytes{reinterpret_cast<const char *>(encoded.data()), encoded.size()};
+            // The budget scales with the bytes, as the checkpoint codec's does;
+            // a stored value is as large as its owner made it.
+            const auto limits_for = [](std::size_t size) {
+                BinaryDecodeLimits limits;
+                limits.max_work = 1'000'000 + 16 * static_cast<std::uint64_t>(size);
+                return limits;
+            };
+            if (!binding.compressed) { return decode_binary_frame(binding.converter, bytes, limits_for(bytes.size())); }
+
+            BinaryReader reader{bytes};
+            std::string  storage;
+            const auto   frame = read_compressed_block(reader, storage);
+            if (reader.remaining() != 0) { throw std::runtime_error("value codec 'binary': trailing bytes after the object"); }
+            return decode_binary_frame(binding.converter, frame, limits_for(frame.size()));
         }
 
         ValueCodecBinding empty_bind(void *,
@@ -326,10 +401,9 @@ namespace hgraph::persistence::store
 
     void register_builtin_value_codecs()
     {
-        register_value_codec(JSON_VALUE_CODEC, nullptr,
-                             ValueCodecOps{.bind = &json_bind,
-                                           .encode = &json_encode,
-                                           .decode = &json_decode});
+        register_value_codec(BINARY_VALUE_CODEC, nullptr, binary_ops);
+        register_value_codec(BINARY_FAST_VALUE_CODEC, nullptr, binary_fast_ops);
+        register_value_codec(JSON_VALUE_CODEC, nullptr, json_ops);
     }
 
 }  // namespace hgraph::persistence::store

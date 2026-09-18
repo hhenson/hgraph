@@ -89,7 +89,7 @@ namespace hgraph::fabric
     persistence::store::ValueCodec notification_codec()
     {
         return persistence::store::value_codec(
-            persistence::store::JSON_VALUE_CODEC);
+            persistence::store::BINARY_FAST_VALUE_CODEC);
     }
 
     const ValueTypeMetaData *data_revision_meta()

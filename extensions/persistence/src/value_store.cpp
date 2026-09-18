@@ -83,7 +83,7 @@ namespace hgraph::persistence::store
 
     ValueStore::ValueStore(ValueStoreConfig config)
         : objects_{std::move(config.objects)},
-          default_codec_{config.codec.empty() ? std::string{JSON_VALUE_CODEC}
+          default_codec_{config.codec.empty() ? std::string{DEFAULT_VALUE_CODEC}
                                               : std::move(config.codec)},
           // Resolve once, at construction, so a misspelled default fails where
           // it was configured rather than on a later write -- and so the

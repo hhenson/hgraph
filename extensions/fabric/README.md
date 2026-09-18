@@ -72,9 +72,13 @@ id must leave room for the key category and fixed-width ordinal, which is
 padded so a prefix listing returns revisions in order.
 
 Metadata is a declared value schema written through
-`persistence::store::ValueStore`, in that store's configured codec — `json` by
-default. A stored revision is therefore an ordinary json document: it opens in
-a text editor and any tool can read it. Fabric owns the schemas, the key
+`persistence::store::ValueStore`, in that store's configured codec — `binary`
+by default (RFC 0040): the binary value codec's Compact profile in a
+compression block. Notifications — Kafka records and notifier blobs — are
+messages between hgraph components and use `binary-fast`. JSON is a
+representation, and nothing here has to be represented as JSON; a deployment
+that wants its metadata readable by other tools names `metadata_codec = "json"`.
+Fabric owns the schemas, the key
 layout, and the check that an as-of entry is not read as a latest entry; it
 owns no serialisation format.
 

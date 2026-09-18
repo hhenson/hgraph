@@ -183,9 +183,11 @@ template <typename Predicate>
   return decoded;
 }
 
+// A Kafka record is a message, so it is the notification codec's bytes.
 [[nodiscard]] hg::Bytes revision_bytes(const hgf::DataRevisionInput &revision) {
-  const auto encoded =
-      test_values().encode(hgf::make_data_revision(revision).view());
+  hgps::ObjectBytes encoded;
+  hgf::notification_codec().encode(hgf::make_data_revision(revision).view(),
+                                   encoded);
   return hg::Bytes{std::string{reinterpret_cast<const char *>(encoded.data()),
                                encoded.size()}};
 }

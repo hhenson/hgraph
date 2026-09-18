@@ -540,17 +540,25 @@ into the ``Bytes`` value that ``BoundaryTransfer::apply`` reads.
 Retiring JSON
 -------------
 
-1. ``hgraph-persistence`` registers ``"binary"`` (``Compact``) and
-   ``"binary-fast"`` and makes ``"binary"`` the ``ValueStore`` default. Every
-   object already records its codec, so existing JSON objects stay readable;
-   ``"json"`` remains registered for a store that is *meant* to hold JSON.
-   RFC 0030 is amended.
-2. Fabric's ``metadata_codec`` and Kafka revision payloads default to
-   ``"binary"``.
+1. ``hgraph-persistence`` registers ``"binary"`` (``Compact``, in a
+   compression block) and ``"binary-fast"`` (``Fast``, never compressed) and
+   makes ``"binary"`` the ``ValueStore`` default. ``"json"`` remains registered
+   for a store that is *meant* to hold JSON. RFC 0030 is amended. **Done.**
+
+   This proposal first said that every object records its codec, so existing
+   JSON objects would stay readable. That was wrong: a stored object is exactly
+   its codec's bytes and says nothing about which codec that was. It does not
+   matter -- no store of the old default exists (Howard, 2026-09-18) -- so
+   there is nothing to migrate and ``"binary"`` reads binary and nothing else.
+2. Fabric's ``metadata_codec`` defaults to the store default, and its
+   notification codec -- Kafka records and notifier blobs -- is
+   ``"binary-fast"``: they are messages between hgraph components. **Done.**
 3. The version 1 checkpoint reader is the one remaining JSON decoder on a
    serialization path. It is read-only and exists for images that
    hgraph 0.8.25-0.8.27 published.
-4. The ratchet above lands with step 1.
+4. The ratchet lands with step 1: ``json-in-runtime`` and
+   ``json-in-stores-and-transports`` in ``test_architecture_ratchets.py``.
+   **Done.**
 
 One existing use stays, by decision (2026-09-18): RFC 0001 writes structured
 frame-metadata fields as JSON text. Arrow schema metadata is string-to-string
@@ -611,7 +619,9 @@ Stages
    pass-through, ``PythonOnly`` endpoint capture, ``register_binary_atom`` and
    the wiring-time refusal of a native atom with no wire form.
 5. JSON retirement: codec registration and defaults, Fabric, the ratchet,
-   RFC 0030 amendment.
+   RFC 0030 amendment. **Done**, ahead of stage 4: the binary codec already
+   covers every schema the JSON codec does, so nothing here waits on Python
+   objects.
 
 Acceptance
 ----------

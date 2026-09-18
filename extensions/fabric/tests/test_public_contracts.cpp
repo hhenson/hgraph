@@ -62,15 +62,19 @@ namespace
         return contract_values().encode(value.view());
     }
 
-    [[nodiscard]] hgps::ObjectBytes json_bytes(std::string_view text)
+    // A document written out by hand, as the object the store would hold. JSON
+    // is how a person writes one down; the store holds it in its own codec, so
+    // the text is read as a value and then encoded the way the store encodes.
+    // The json codec checks nothing about ordinals, which is what lets a test
+    // put a bad one in front of fabric's decode boundary.
+    [[nodiscard]] hgps::ObjectBytes stored_document(std::string_view text)
     {
-        hgps::ObjectBytes result;
-        result.reserve(text.size());
-        for (const char character : text)
-        {
-            result.push_back(static_cast<std::byte>(character));
-        }
-        return result;
+        hgps::ObjectBytes as_json;
+        as_json.reserve(text.size());
+        for (const char character : text) { as_json.push_back(static_cast<std::byte>(character)); }
+        const hgraph::Value value =
+            hgps::value_codec(hgps::JSON_VALUE_CODEC).decode(hgf::data_revision_meta(), as_json);
+        return contract_values().encode(value.view());
     }
 
     [[nodiscard]] hg::Value canonical_revision()
@@ -337,7 +341,7 @@ TEST_CASE("fabric public values are canonical and validate identity")
                     std::invalid_argument);
 }
 
-TEST_CASE("fabric metadata is a json document with the properties that matter")
+TEST_CASE("fabric metadata is a stored binary object with the properties that matter")
 {
     // The golden hex fixtures are gone with the hand-written codec they pinned:
     // the byte layout is now the library's business, covered by the value
@@ -346,11 +350,12 @@ TEST_CASE("fabric metadata is a json document with the properties that matter")
     hg::Value  revision = canonical_revision();
     const auto encoded  = values.encode(revision.view());
 
-    // Readable outside this codebase: the stored object is a json document.
-    const std::string text{reinterpret_cast<const char *>(encoded.data()),
-                           encoded.size()};
-    CHECK(text.front() == '{');
-    CHECK(text.find("\"data_id\"") != std::string::npos);
+    // Metadata is stored state, so it is the store's default: the binary value
+    // codec in a compression block, which begins with its codec byte (RFC 0040).
+    // JSON is a representation, and nothing here has to be represented as JSON.
+    CHECK(values.default_codec() == std::string{hgps::BINARY_VALUE_CODEC});
+    REQUIRE_FALSE(encoded.empty());
+    CHECK(std::to_integer<unsigned>(encoded.front()) <= 2);
 
     const auto decoded = values.decode(hgf::data_revision_meta(), encoded);
     CHECK(hgf::data_revision_input(decoded.view()) ==
@@ -372,8 +377,9 @@ TEST_CASE("fabric metadata is a json document with the properties that matter")
     // Malformed input still fails closed.
     auto malformed = encoded;
     malformed.push_back(std::byte{'!'});
-    CHECK_THROWS_AS(values.decode(hgf::data_revision_meta(), malformed),
-                    std::invalid_argument);
+    CHECK_THROWS(values.decode(hgf::data_revision_meta(), malformed));
+    CHECK_THROWS(values.decode(hgf::data_revision_meta(),
+                               hgps::ObjectBytes(encoded.begin(), encoded.begin() + encoded.size() / 2)));
 }
 
 TEST_CASE("memory notifier fans out and conflates each data id")
@@ -668,24 +674,24 @@ TEST_CASE("fabric rejects malformed metadata at the decode boundary")
         // input before the decode boundary is reached.
         CHECK_THROWS_AS(hgf::decode_data_revision(
                             contract_revision_codec(),
-                            json_bytes(
+                            stored_document(
                                 R"({"format_version":1,"data_id":"alpha","revision":0,"output_version":1,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
         CHECK_THROWS_AS(hgf::decode_data_revision(
                             contract_revision_codec(),
-                            json_bytes(
+                            stored_document(
                                 R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":0,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
         CHECK_THROWS_AS(hgf::decode_data_revision(
                             contract_revision_codec(),
-                            json_bytes(
+                            stored_document(
                                 R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":1,"dependencies":[{"data_id":"input","version":0}],"as_of":"2024-06-13T10:15:30+00:00"})")),
                         std::invalid_argument);
 
         // A valid one still round trips, so the checks are not simply refusing.
         CHECK_NOTHROW(hgf::decode_data_revision(
             contract_revision_codec(),
-            json_bytes(
+            stored_document(
                 R"({"format_version":1,"data_id":"alpha","revision":1,"output_version":1,"dependencies":[],"as_of":"2024-06-13T10:15:30+00:00"})")));
     }
 

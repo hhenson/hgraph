@@ -1187,7 +1187,15 @@ namespace hgraph
                 }
                 return true;
             }();
-            if (constant && count > 1)
+            // A reader's work budget scales with the bytes it was given (sixteen
+            // elements a byte, in the image codec and the store codecs). Every
+            // other encoding spends at least a bit per element, so what it
+            // writes is always within that; ``constant`` alone can name any
+            // number of elements in a handful of bytes, and a value that was
+            // written must be readable. So it is used only while it stays
+            // inside the budget. A longer run of one integer is a delta column
+            // of zero steps, and block compression flattens what is left.
+            if (constant && count > 1 && count <= 16 * (1 + width))
             {
                 out.push_back(static_cast<char>(ColumnEncoding::Constant));
                 out.append(block.data(), width);
@@ -2326,6 +2334,11 @@ namespace hgraph
             std::memcpy(value.begin_mutation().mutable_data(), block.data() + index * root.atom_size, root.atom_size);
             out.push_back(std::move(value));
         }
+    }
+
+    const ValueTypeMetaData *BoundBinaryConverter::schema() const noexcept
+    {
+        return impl_ ? impl_->root->meta : nullptr;
     }
 
     Value BoundBinaryConverter::read(BinaryReader &reader) const

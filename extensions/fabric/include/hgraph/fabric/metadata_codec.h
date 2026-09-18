@@ -27,9 +27,10 @@ namespace hgraph::fabric
     [[nodiscard]] HGRAPH_FABRIC_EXPORT const ValueTypeMetaData *data_revision_meta();
 
     /** The codec for transport payloads -- Kafka records and notifier blobs.
-        Those are messages rather than stored objects, so they carry no key to
-        name a format; they use the baseline json codec directly, which keeps a
-        topic readable by an ordinary consumer. */
+        Those are messages between hgraph components rather than stored
+        objects, so they are the binary value codec's ``Fast`` profile, never
+        compressed (RFC 0040: what crosses a process boundary is binary, and
+        JSON is for a value that has to be represented as JSON). */
     [[nodiscard]] HGRAPH_FABRIC_EXPORT persistence::store::ValueCodec
     notification_codec();
 
