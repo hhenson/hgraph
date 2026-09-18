@@ -70,6 +70,8 @@ namespace hgraph
         /** Key lookup helpers. Missing keys return an empty child view from ``at``. */
         [[nodiscard]] bool contains(const ValueView &key) const;
         [[nodiscard]] std::size_t find_slot(const ValueView &key) const;
+        /** As ``find_slot``, but also finds a key removed this cycle and awaiting erase. */
+        [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const;
         [[nodiscard]] TSDataView at(const ValueView &key) const;
         [[nodiscard]] TSDataView operator[](const ValueView &key) const;
 

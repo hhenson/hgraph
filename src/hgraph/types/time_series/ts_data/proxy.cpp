@@ -246,6 +246,7 @@ namespace hgraph
                 key_set_ts_ops.key_at_slot_impl               = &key_at_slot;
                 key_set_ts_ops.contains_impl                  = &set_contains;
                 key_set_ts_ops.find_slot_impl                 = &find_slot;
+                key_set_ts_ops.find_stored_slot_impl          = &find_stored_slot;
                 key_set_ts_ops.make_values_range_impl         = &set_range<TSDProxySetSurface::Live>;
                 key_set_ts_ops.make_added_values_range_impl   = &set_range<TSDProxySetSurface::Added>;
                 key_set_ts_ops.make_removed_values_range_impl = &set_range<TSDProxySetSurface::Removed>;
@@ -822,6 +823,13 @@ namespace hgraph
             {
                 if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
                 return source_available(memory) ? source_dict(memory).find_slot(key) : TS_DATA_NO_CHILD_ID;
+            }
+
+            [[nodiscard]] static std::size_t find_stored_slot(const void *context, const void *memory,
+                                                              const ValueView &key)
+            {
+                if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
+                return source_available(memory) ? source_dict(memory).find_stored_slot(key) : TS_DATA_NO_CHILD_ID;
             }
 
             template <TSDProxySetSurface Surface>

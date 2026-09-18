@@ -1477,10 +1477,18 @@ container.
 The C++ TSData API uses the standard set-view names:
 ``TSDataView::as_set()``
 returns ``TSSDataView`` with ``size()``, ``empty()``, ``contains()``,
-``find_slot()``, ``values()``, ``added_values()``,
+``find_slot()``, ``find_stored_slot()``, ``values()``, ``added_values()``,
 ``removed_values()``, ``added()``, ``removed()``,
 ``slot_added()``, and ``slot_removed()``. ``TSSDataMutationView`` adds
 ``add()``, ``remove()``, ``clear()``, and ``reserve()``.
+
+``find_slot()`` is the membership lookup: it answers only for a live key.
+``find_stored_slot()`` also answers for a key removed this cycle and awaiting
+erase, which is what lets a reader ask about a removed key by hash rather than
+by walking the removed slots. Both are O(1). ``TSDDataView`` exposes the same
+pair, and a key-set projection or target link forwards them to the collection
+it reads. Adding the op moved ``TS_DATA_OPS_ABI_VERSION`` (20 → 21); compiled
+extensions must be rebuilt.
 
 TSD Storage
 -----------

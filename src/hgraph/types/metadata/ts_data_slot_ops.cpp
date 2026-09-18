@@ -206,6 +206,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto slot = keys_.find_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
             [[nodiscard]] bool contains(const ValueView &key) const
             {
                 return keys_.contains(key);
@@ -484,6 +490,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
             {
                 const auto slot = keys_.find_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
             [[nodiscard]] bool contains(const ValueView &key) const
@@ -1005,6 +1017,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 set_ops.key_at_slot_impl               = &tss_key_at_slot;
                 set_ops.contains_impl                  = &tss_contains;
                 set_ops.find_slot_impl                 = &tss_find_slot;
+                set_ops.find_stored_slot_impl          = &tss_find_stored_slot;
                 set_ops.make_values_range_impl         = &tss_live_keys_range;
                 set_ops.make_added_values_range_impl   = &tss_added_keys_range;
                 set_ops.make_removed_values_range_impl = &tss_removed_keys_range;
@@ -1365,6 +1378,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static std::size_t tss_find_slot(const void *, const void *memory, const ValueView &key)
             {
                 return storage<Storage>(memory).find_slot(key);
+            }
+
+            [[nodiscard]] static std::size_t tss_find_stored_slot(const void *, const void *memory,
+                                                                  const ValueView &key)
+            {
+                return storage<Storage>(memory).find_stored_slot(key);
             }
 
             [[nodiscard]] static SlotTSDataMutationResult tss_insert_key(const void *context, void *memory,

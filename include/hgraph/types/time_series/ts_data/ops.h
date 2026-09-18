@@ -401,6 +401,14 @@ namespace hgraph
                               const ValueView &key) = &ts_data_detail::missing_contains_key;
         std::size_t (*find_slot_impl)(const void *context, const void *memory,
                                       const ValueView &key) = &ts_data_detail::missing_find_key_slot;
+        /** The slot holding ``key`` whether it is live or removed and awaiting
+            erase; ``TS_DATA_NO_CHILD_ID`` when the key is not stored at all.
+            ``find_slot_impl`` deliberately sees live keys only, so a consumer
+            that must recognise a key removed this cycle -- a target link
+            deciding what a re-point added -- had to search the removed slots
+            for it, once per key. The key store already answers this by hash. */
+        std::size_t (*find_stored_slot_impl)(const void *context, const void *memory,
+                                             const ValueView &key) = &ts_data_detail::missing_find_key_slot;
         Range<ValueView> (*make_values_range_impl)(const void *context,
                                                    const void *memory) = &ts_data_detail::missing_value_range;
         Range<ValueView> (*make_added_values_range_impl)(const void *context,

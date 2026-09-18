@@ -150,6 +150,12 @@ namespace hgraph
         return ops.find_slot_impl(ops.context, storage_.data(), key);
     }
 
+    std::size_t TSSDataView::find_stored_slot(const ValueView &key) const
+    {
+        const auto &ops = set_ops();
+        return ops.find_stored_slot_impl(ops.context, storage_.data(), key);
+    }
+
     Range<ValueView> TSSDataView::values() const
     {
         const auto &ops = set_ops();
