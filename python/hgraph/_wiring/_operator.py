@@ -76,7 +76,11 @@ class _Operator:
             pass
         registration_id = _hgraph._allocate_python_operator_id()
         self._registry_name = f"__pyop__{fn.__module__}.{self.__qualname__}_{registration_id:x}"
-        self._delegate = _OperatorFunction(self._registry_name)
+        self._delegate = _OperatorFunction(
+            self._registry_name,
+            signature=fn,
+            documentation=self.__doc__,
+        )
         self._overloads = []   # (impl, wiring signature) - dispatch_ reads these
 
     @property

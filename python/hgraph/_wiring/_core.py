@@ -615,7 +615,7 @@ class _OperatorFunction:
             self._type_variables = _signature_type_variables(
                 wiring_signature.parameters.values(), wiring_signature.return_annotation)
             self._public_return = wiring_signature.return_annotation
-            signature = inspect.signature(signature)
+            signature = inspect.signature(signature, eval_str=True)
         self.__signature__ = (
             signature if signature is not None
             else _operator_runtime_signature(signatures)
