@@ -25,6 +25,8 @@ namespace hgraph::detail
         bool (*slot_live)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_added)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_removed)(const TSDataView &target, std::size_t slot) = nullptr;
+        /** The removed slot after ``previous`` (the first when it is ``TS_DATA_NO_CHILD_ID``). */
+        std::size_t (*next_removed_slot)(const TSDataView &target, std::size_t previous) = nullptr;
         bool (*slot_published)(const TSDataView &target, std::size_t slot) = nullptr;
         ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*contains)(const TSDataView &target, const ValueView &key) = nullptr;
@@ -303,11 +305,19 @@ namespace hgraph::detail
 
             // find_slot deliberately exposes only live keys. A key removed
             // earlier in this transition can still have been published, so
-            // fall back to the small per-cycle removed set for that case.
-            for (std::size_t slot = 0; slot < capacity; ++slot)
+            // fall back to the per-cycle removed set for that case -- the
+            // removed set itself, not every slot: this runs once per new key,
+            // and walking the whole bank made a repoint cost new keys times the
+            // old source's capacity.
+            //
+            // It is still new keys times keys removed this cycle. Closing that
+            // needs a hashed lookup that includes pending-erase keys, which
+            // KeySlotStore::find_stored_slot provides but the set and
+            // dictionary ops tables do not yet expose.
+            for (std::size_t slot = state->slot_access->next_removed_slot(previous, TS_DATA_NO_CHILD_ID);
+                 slot != TS_DATA_NO_CHILD_ID; slot = state->slot_access->next_removed_slot(previous, slot))
             {
-                if (state->slot_access->slot_removed(previous, slot) &&
-                    target_link_previous_slot_was_published(context, memory, slot) &&
+                if (target_link_previous_slot_was_published(context, memory, slot) &&
                     target_link_key_view(*state, previous, slot).equals(key))
                 {
                     return true;
@@ -344,6 +354,11 @@ namespace hgraph::detail
         [[nodiscard]] bool set_access_slot_removed(const TSDataView &target, std::size_t slot)
         {
             return target.as_set().slot_removed(slot);
+        }
+
+        [[nodiscard]] std::size_t set_access_next_removed_slot(const TSDataView &target, std::size_t previous)
+        {
+            return target.as_set().next_removed_slot(previous);
         }
 
         [[nodiscard]] bool set_access_slot_published(const TSDataView &target, std::size_t slot)
@@ -397,6 +412,11 @@ namespace hgraph::detail
             return target.as_dict().slot_removed(slot);
         }
 
+        [[nodiscard]] std::size_t dict_access_next_removed_slot(const TSDataView &target, std::size_t previous)
+        {
+            return target.as_dict().next_removed_slot(previous);
+        }
+
         [[nodiscard]] bool dict_access_slot_published(const TSDataView &target, std::size_t slot)
         {
             auto dict = target.as_dict();
@@ -448,6 +468,7 @@ namespace hgraph::detail
             .slot_live = &set_access_slot_live,
             .slot_added = &set_access_slot_added,
             .slot_removed = &set_access_slot_removed,
+            .next_removed_slot = &set_access_next_removed_slot,
             .slot_published = &set_access_slot_published,
             .key_at_slot = &set_access_key_at_slot,
             .contains = &set_access_contains,
@@ -461,6 +482,7 @@ namespace hgraph::detail
             .slot_live = &dict_access_slot_live,
             .slot_added = &dict_access_slot_added,
             .slot_removed = &dict_access_slot_removed,
+            .next_removed_slot = &dict_access_next_removed_slot,
             .slot_published = &dict_access_slot_published,
             .key_at_slot = &dict_access_key_at_slot,
             .contains = &dict_access_contains,
