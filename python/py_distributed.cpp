@@ -28,7 +28,13 @@ namespace hgraph::python_bridge
         [[noreturn]] void rethrow_described(const char *what, nb::handle object, nb::python_error &error)
         {
             std::string type = "object";
-            if (object.is_valid()) { type = nb::cast<std::string>(nb::str(nb::handle(object.type()).attr("__qualname__"))); }
+            if (object.is_valid())
+            {
+                // Through an object first: MSVC will not cast an attribute
+                // accessor to a str in one step.
+                const nb::object qualname = nb::getattr(object.type(), "__qualname__");
+                type = nb::cast<std::string>(nb::str(qualname));
+            }
             throw std::runtime_error(std::string{"binary codec: cannot "} + what + " a Python '" + type +
                                      "': " + error.what());
         }

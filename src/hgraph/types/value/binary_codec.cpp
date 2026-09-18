@@ -1867,9 +1867,16 @@ namespace hgraph
         ankerl::unordered_dense::map<const ValueTypeMetaData *,
                                      std::unique_ptr<BinaryConverter>>           converters;
         // Wire forms registered with a scalar, and scalars declared portable.
-        // Owned by pointer so that a converter can hold the address.
-        ankerl::unordered_dense::map<const ValueTypeMetaData *,
-                                     std::unique_ptr<BinaryAtomOps>>             atom_forms;
+        // A converter holds the address of its form, and a run holds its
+        // converters for as long as it lives, so a form is never freed by
+        // being replaced: ``atom_forms`` names the current one and
+        // ``retired_forms`` keeps every earlier one alive beside it. The same
+        // goes for interned converters that a registration makes stale. Both
+        // are build-time events, and rare, so what is kept is small; only a
+        // registry reset, which invalidates every handle by contract, frees.
+        ankerl::unordered_dense::map<const ValueTypeMetaData *, const BinaryAtomOps *> atom_forms;
+        std::vector<std::unique_ptr<BinaryAtomOps>>                               owned_forms;
+        std::vector<std::unique_ptr<BinaryConverter>>                             retired_converters;
         ankerl::unordered_dense::set<const ValueTypeMetaData *>                   portable_atoms;
         // Schemas whose binding has already warned that it will pickle.
         ankerl::unordered_dense::set<const ValueTypeMetaData *>                   opaque_warned;
@@ -1974,7 +1981,7 @@ namespace hgraph
                     // wire form; then the rule for plain numeric storage.
                     if (const auto form = atom_forms.find(meta); form != atom_forms.end())
                     {
-                        raw->atom_ops = form->second.get();
+                        raw->atom_ops = form->second;
                         raw->write_ = &write_registered_atom;
                         raw->read_ = &read_registered_atom;
                         break;
@@ -2566,9 +2573,29 @@ namespace hgraph
         converters.clear();
         // Registered against schemas the reset is about to discard.
         atom_forms.clear();
+        owned_forms.clear();
+        retired_converters.clear();
         portable_atoms.clear();
         opaque_warned.clear();
     }
+
+    namespace
+    {
+        // A registration changes what a schema synthesizes to, so the interned
+        // converters are set aside for new lookups to rebuild. Set aside, not
+        // destroyed: ``binary_converter`` hands out references, and a caller
+        // may still be holding one.
+        void retire_interned_converters_locked()
+        {
+            retired_converters.reserve(retired_converters.size() + converters.size());
+            for (auto &[meta, converter] : converters)
+            {
+                static_cast<void>(meta);
+                retired_converters.push_back(std::move(converter));
+            }
+            converters.clear();
+        }
+    }  // namespace
 
     void register_binary_atom(const ValueTypeMetaData *scalar, BinaryAtomOps ops)
     {
@@ -2577,10 +2604,9 @@ namespace hgraph
         if (ops.write == nullptr || ops.read == nullptr)
             throw std::invalid_argument("binary codec: a wire form needs both a writer and a reader");
         const std::lock_guard guard{converters_mutex};
-        atom_forms[scalar] = std::make_unique<BinaryAtomOps>(ops);
-        // Anything already synthesized may have refused this scalar, or hold
-        // the form this one replaces.
-        converters.clear();
+        owned_forms.push_back(std::make_unique<BinaryAtomOps>(ops));
+        atom_forms[scalar] = owned_forms.back().get();
+        retire_interned_converters_locked();
     }
 
     void declare_portable_binary_atom(const ValueTypeMetaData *scalar)
@@ -2596,7 +2622,7 @@ namespace hgraph
         }
         const std::lock_guard guard{converters_mutex};
         portable_atoms.insert(scalar);
-        converters.clear();
+        retire_interned_converters_locked();
     }
 
     namespace
