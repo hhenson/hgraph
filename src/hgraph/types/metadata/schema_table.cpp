@@ -14,7 +14,7 @@ namespace hgraph
     {
         constexpr std::size_t max_depth{256};
 
-        enum class ValueRecipe : std::uint8_t { Named = 0, Structural = 1, Frame = 2, Series = 3 };
+        enum class ValueRecipe : std::uint8_t { Named = 0, Structural = 1, Frame = 2, Series = 3, OpaquePython = 4 };
 
         [[noreturn]] void malformed(std::string_view detail)
         {
@@ -69,17 +69,33 @@ namespace hgraph
             return static_cast<std::size_t>(value);
         }
 
-        template <typename T> [[nodiscard]] T earlier(BinaryReader &reader, const std::vector<T> &table, const char *what)
+        /** Which value entries stand in for the writer's, and whether the
+            entry being read has just named one of them. */
+        struct Substitutes
+        {
+            const ankerl::unordered_dense::set<std::size_t> *entries{nullptr};
+            bool                                             named{false};
+        };
+
+        template <typename T>
+        [[nodiscard]] T earlier(BinaryReader &reader, const std::vector<T> &table, const char *what,
+                                Substitutes *substitutes = nullptr)
         {
             const auto index = read_varint(reader);
             if (index >= table.size()) { malformed(std::string{"unknown "} + what + " index"); }
+            if (substitutes != nullptr && substitutes->entries != nullptr &&
+                substitutes->entries->contains(static_cast<std::size_t>(index)))
+            {
+                substitutes->named = true;
+            }
             return table[static_cast<std::size_t>(index)];
         }
 
         [[nodiscard]] const ValueTypeMetaData *read_structural_value(
-            BinaryReader &reader, TypeRegistry &registry, const std::vector<const ValueTypeMetaData *> &values)
+            BinaryReader &reader, TypeRegistry &registry, const std::vector<const ValueTypeMetaData *> &values,
+            Substitutes &substitutes)
         {
-            const auto value = [&] { return earlier(reader, values, "value schema"); };
+            const auto value = [&] { return earlier(reader, values, "value schema", &substitutes); };
             const auto kind = read_varint(reader);
             if (kind > static_cast<std::uint64_t>(ValueTypeKind::Any)) { malformed("invalid value kind"); }
             const auto raw_flags = read_varint(reader);
@@ -169,6 +185,12 @@ namespace hgraph
         {
             write_varint(static_cast<std::uint8_t>(ValueRecipe::Series), record);
             write_varint(value_ref(schema->element_type, depth + 1), record);
+        }
+        else if (schema->is_opaque_python())
+        {
+            // A class used as a type. Its name is all there is to write; see
+            // the reader for why that is enough.
+            write_varint(static_cast<std::uint8_t>(ValueRecipe::OpaquePython), record);
         }
         else
         {
@@ -303,22 +325,53 @@ namespace hgraph
             const auto name = read_text(reader);
             const auto description = read_text(reader);
             const ValueTypeMetaData *schema{nullptr};
+            // An entry that stands in for the writer's rather than being it, or
+            // that is built over one that does. Its identity is not checked
+            // below, because it is known not to be the writer's.
+            bool        substituted = false;
+            Substitutes substitutes{.entries = &substituted_};
             switch (static_cast<ValueRecipe>(read_varint(reader)))
             {
                 case ValueRecipe::Named: schema = registry.value_type(name); break;
                 case ValueRecipe::Frame: {
-                    const auto *row = earlier(reader, values_, "value schema");
-                    const auto *metadata = read_boolean(reader) ? earlier(reader, values_, "value schema") : nullptr;
+                    const auto *row = earlier(reader, values_, "value schema", &substitutes);
+                    const auto *metadata =
+                        read_boolean(reader) ? earlier(reader, values_, "value schema", &substitutes) : nullptr;
                     schema = registry.frame(row, metadata);
                     break;
                 }
-                case ValueRecipe::Series: schema = registry.series(earlier(reader, values_, "value schema")); break;
-                case ValueRecipe::Structural: schema = read_structural_value(reader, registry, values_); break;
+                case ValueRecipe::Series:
+                    schema = registry.series(earlier(reader, values_, "value schema", &substitutes));
+                    break;
+                case ValueRecipe::Structural:
+                    schema = read_structural_value(reader, registry, values_, substitutes);
+                    break;
+                case ValueRecipe::OpaquePython:
+                    // The bridge names an annotation after its identity in the
+                    // process that wrote it, so only that process -- an
+                    // in-process worker -- has the exact schema. Anywhere else
+                    // the unconstrained box stands in for it. That loses
+                    // nothing a reader needs: either is a box holding a Python
+                    // object, the bytes are the same, and the object's own
+                    // pickle says what it is.
+                    schema = registry.named_opaque_python(name);
+                    if (schema == nullptr)
+                    {
+                        schema = registry.any();
+                        substituted = true;
+                    }
+                    break;
                 default: malformed("unsupported value schema recipe");
             }
             if (schema == nullptr) { malformed("unknown value schema " + std::string{name}); }
-            if (schema->name() != name || as_text(manifest::value_descriptor(schema)) != description)
+            // A schema built over a stand-in is named after the stand-in, not
+            // after what the writer had, so it cannot be checked against the
+            // writer's name either. Its shape came from the recipe itself.
+            substituted = substituted || substitutes.named;
+            if (!substituted &&
+                (schema->name() != name || as_text(manifest::value_descriptor(schema)) != description))
                 malformed("value schema changed");
+            if (substituted) { substituted_.insert(values_.size()); }
             value_positions_.try_emplace(schema, values_.size());
             values_.push_back(schema);
         }

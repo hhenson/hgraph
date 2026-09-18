@@ -151,7 +151,7 @@ TEST_CASE("binary atoms: a registered wire form makes a scalar part of the forma
     {
         BundleBuilder fields{row_binding};
         fields.set("id", Value{Int{index}});
-        if (index % 3 != 0) { fields.set("quote", Value{AtomQuote{"S" + std::to_string(index), 1.5 * static_cast<double>(index)}}); }
+        if (index % 3 != 0) { fields.set("quote", Value{AtomQuote{std::string(1, static_cast<char>('A' + index)), 1.5 * static_cast<double>(index)}}); }
         rows.push_back(fields.build().view());
     }
     const Value row_list = rows.build();

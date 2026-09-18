@@ -1628,6 +1628,12 @@ namespace hgraph
         return &meta;
     }
 
+    const ValueTypeMetaData *TypeRegistry::named_opaque_python(std::string_view name) const
+    {
+        const std::lock_guard lock(mutex_);
+        return opaque_python_cache_.find(std::string{name});
+    }
+
     const ValueTypeMetaData *TypeRegistry::opaque_python(
         std::string_view name,
         const std::vector<const ValueTypeMetaData *> &parents)

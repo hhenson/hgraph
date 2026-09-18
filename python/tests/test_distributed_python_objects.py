@@ -80,6 +80,20 @@ def test_anything_behind_object_crosses_the_boundary(in_process):
 
 
 @pytest.mark.parametrize("in_process", [True, False])
+def test_class_instances_inside_another_value_cross_the_boundary(in_process):
+    # A tuple or a dict of Plain behind ``object`` puts the CLASS's schema inside
+    # a value, where the payload has to name it. The bridge names an annotation
+    # after its identity in one process, so a worker in another never has that
+    # schema -- and does not need it: the unconstrained box reads the same bytes,
+    # and each object's pickle says what it is.
+    events = [{"a": (Plain(1), Plain(2))}, {"b": {"k": Plain(3)}}]
+    assert run(describe, TS[object], events, in_process) == [
+        {"a": {"type": "tuple", "value": (Plain(1), Plain(2))}},
+        {"b": {"type": "dict", "value": {"k": Plain(3)}}},
+    ]
+
+
+@pytest.mark.parametrize("in_process", [True, False])
 def test_an_ordinary_class_is_pickled_and_says_so_once(in_process, capfd):
     events = [{"a": Plain(1)}, {"a": Plain(7), "b": Plain(2)}]
     assert run(increment, TS[Plain], events, in_process) == [{"a": Plain(2)}, {"a": Plain(8), "b": Plain(3)}]

@@ -675,6 +675,23 @@ Stages
      native ``callable`` scalar, which has no wire form and is refused by name
      -- at run time, because ``object`` says nothing at wiring about what it
      will hold.
+   * A class used as a type that sits *inside* another value -- a tuple or a
+     dict of instances behind ``object`` -- puts that class's schema in the
+     session's table, so the table has a recipe for it. The bridge names an
+     annotation after its identity in the process that registered it
+     (``python::module.Class@<id>``), so only that process, an in-process
+     worker, has the exact schema; anywhere else the unconstrained ``Any``
+     stands in, as does anything built over it, and the identity check that
+     other entries get is skipped for those. Nothing a reader needs is lost:
+     either is a box holding a Python object, the bytes are the same, and the
+     object's pickle says what it is. An ordinary named schema that is missing
+     is still an error.
+
+     This does not make a *time-series* schema over such a class portable: a
+     checkpoint of a ``TS[SomeClass]`` endpoint names a schema that the process
+     recovering it, which registered the class afresh, does not have. That
+     goes with the recovery work, and probably wants annotations named without
+     a process identity.
    * **Known difference, not introduced here but newly reachable:** behind
      ``object``, a Python *list of numbers* reaches a ``map_`` child as a
      ``list`` and a ``dmap_`` child as a NumPy array. The bridge infers a native

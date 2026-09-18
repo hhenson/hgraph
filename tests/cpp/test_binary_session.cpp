@@ -302,3 +302,53 @@ TEST_CASE("binary session: a value and what is boxed inside it are one encoding"
                       ContainsSubstring("Fast revision"));
 }
 
+TEST_CASE("binary session: a class used as a type is a box wherever it is read")
+{
+    // The bridge names an annotation after its identity in the process that
+    // registered it, so another process never has that schema. It does not
+    // need it: the box holds a Python object whose pickle says what it is, and
+    // the unconstrained box reads the same bytes.
+    auto       &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+    const std::string name = "python::tests.binary_session.Plain@7a118b3410";
+    const auto *annotated = registry.opaque_python(name, {});
+    const auto  box_binding = ValuePlanFactory::instance().type_for(annotated);
+
+    // A tuple of them behind ``object``: the annotated schema is met INSIDE a
+    // value, which is what puts it in the session's table.
+    ListBuilder boxes{box_binding};
+    for (const Int content : {Int{5}, Int{-9}})
+    {
+        Value box{box_binding};
+        box.as_any().begin_mutation().set(Value{content});
+        boxes.push_back(box.view());
+    }
+    const Value value = any_of(boxes.build());
+    const auto *schema = value.view().schema();
+
+    // Where the annotation is registered -- an in-process worker -- it is exact.
+    const std::string frame = encode_binary_frame(value.view(), BinaryProfile::Fast);
+    CHECK(decode_binary_frame(schema, frame).view() == value.view());
+
+    // Where it is not, the unconstrained box stands in, and so does the list
+    // built over it. Same bytes, same contents.
+    std::string elsewhere = frame;
+    const auto  at = elsewhere.find(name);
+    REQUIRE(at != std::string::npos);
+    elsewhere[at + name.size() - 1] = 'f';   // a different process: a different identity
+    REQUIRE(registry.named_opaque_python(name.substr(0, name.size() - 1) + "f") == nullptr);
+    const Value substituted = decode_binary_frame(schema, elsewhere);
+    const auto  decoded = substituted.as_any().get().as_list();
+    REQUIRE(decoded.size() == 2);
+    CHECK(decoded.at(0).schema() == registry.any());
+    CHECK(decoded.at(0).as_any().get().checked_as<Int>() == 5);
+    CHECK(decoded.at(1).as_any().get().checked_as<Int>() == -9);
+
+    // An ordinary named schema that is missing is still an error, not a guess.
+    std::string unknown = frame;
+    const auto  scalar_at = unknown.rfind("int");
+    REQUIRE(scalar_at != std::string::npos);
+    unknown[scalar_at] = 'j';
+    CHECK_THROWS(decode_binary_frame(schema, unknown));
+}
+
