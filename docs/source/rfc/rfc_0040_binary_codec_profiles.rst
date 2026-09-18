@@ -304,10 +304,50 @@ Two defects in the ``dmap_`` / ``spawn`` exchange are fixed with the switch to
   converter tree. That is build-time machinery on the per-tick path, against
   the codec header's own rule and the single-threaded evaluation ruling.
   ``BoundarySlots`` binds each slot's converter once, when the slot is added.
+  **Done.** One slot's bind was ten lock acquisitions; a cycle now takes none,
+  and a test holds it there with the counted type-system mutex.
 * Each payload is encoded into a temporary string and then copied behind a
   length prefix, and a ``BoundaryTransfer`` payload is itself an opaque byte
-  string that is encoded again -- two copies per hop. The session reserves the
-  length and writes the payload in place.
+  string that is encoded again -- two copies per hop. The length is reserved
+  as a fixed four bytes and the payload written in place behind it. **Done.**
+
+Measured per cycle, all slots carrying the boundary transfer's byte string
+(``hgraph_unit_tests '[protocol-benchmark]'``, Release, Apple arm64):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 19 19 19 19
+
+   * - slots x bytes
+     - encode before
+     - encode after
+     - decode before
+     - decode after
+   * - 1 x 64
+     - 0.23 us
+     - 0.05 us
+     - 0.26 us
+     - 0.10 us
+   * - 32 x 64
+     - 4.89 us
+     - 0.72 us
+     - 5.06 us
+     - 1.52 us
+   * - 32 x 4,096
+     - 11.2 us
+     - 5.8 us
+     - 9.3 us
+     - 6.0 us
+   * - 32 x 262,144
+     - 354 us
+     - 226 us
+     - 226 us
+     - 228 us
+
+The single-threaded figures understate the first defect: the locks are global,
+so in-process workers on several threads contended for them every cycle. What
+is left at large sizes is one copy each way -- into the message, and out of it
+into the ``Bytes`` value that ``BoundaryTransfer::apply`` reads.
 
 Retiring JSON
 -------------

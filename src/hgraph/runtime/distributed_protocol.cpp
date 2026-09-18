@@ -7,8 +7,10 @@
 #include <fmt/format.h>
 
 #include <cstring>
+#include <limits>
 #include <stdexcept>
-#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace hgraph::distributed
 {
@@ -47,15 +49,15 @@ namespace hgraph::distributed
                           std::string &out, SlotDirection direction)
         {
             write_varint(deltas.size(), out);
-            std::unordered_set<std::size_t> seen;
-            seen.reserve(deltas.size());
+            std::vector<std::uint8_t> seen(slots.size(), 0);
+            BinaryWriter writer{out};
             for (const auto &entry : deltas)
             {
                 // Validated on the way out as well as in: an out-of-range slot
                 // written here would be indistinguishable from a corrupt stream
                 // at the far end, and the sender is where the bug is.
                 const auto *schema = slots.schema_at(entry.slot);
-                if (!seen.insert(entry.slot).second)
+                if (std::exchange(seen[entry.slot], std::uint8_t{1}) != 0)
                     throw std::runtime_error("distributed protocol: duplicate slot update");
                 if (slots.direction_at(entry.slot) != direction)
                     throw std::runtime_error("distributed protocol: incorrect slot direction");
@@ -66,7 +68,6 @@ namespace hgraph::distributed
                 // to one slot instead of letting it consume the rest of the
                 // message, and it is what lets the exact-length check below
                 // reject trailing bytes per value.
-                std::string encoded;
                 if (!entry.delta.has_value() || entry.delta.view().schema() != schema)
                 {
                     throw std::logic_error(
@@ -75,8 +76,20 @@ namespace hgraph::distributed
                                     entry.slot, entry.delta.has_value() ? entry.delta.view().schema()->name() : "unset",
                                     schema->name()));
                 }
-                to_binary_string(entry.delta.view(), encoded);
-                write_text(encoded, out);
+                // The length is a fixed four bytes so that it can be reserved
+                // and the payload written in place behind it. A varint length
+                // is only known afterwards, which meant encoding into a scratch
+                // string and copying -- every payload, every cycle.
+                const std::size_t length_at = out.size();
+                out.append(sizeof(std::uint32_t), '\0');
+                slots.converter_at(entry.slot).write(entry.delta.view(), writer);
+                const std::size_t length = out.size() - length_at - sizeof(std::uint32_t);
+                if (length > std::numeric_limits<std::uint32_t>::max())
+                    throw std::length_error("distributed protocol: a slot payload exceeds 4 GiB");
+                for (std::size_t byte = 0; byte < sizeof(std::uint32_t); ++byte)
+                {
+                    out[length_at + byte] = static_cast<char>((length >> (8 * byte)) & 0xFFu);
+                }
             }
         }
 
@@ -91,18 +104,23 @@ namespace hgraph::distributed
             reader.consume_work(count);
             std::vector<SlotDelta> deltas;
             deltas.reserve(count);
-            std::unordered_set<std::size_t> seen;
-            seen.reserve(count);
+            std::vector<std::uint8_t> seen(slots.size(), 0);
             for (std::size_t i = 0; i < count; ++i)
             {
-                const auto  slot    = static_cast<std::size_t>(read_varint(reader));
-                const auto *schema  = slots.schema_at(slot);
-                if (!seen.insert(slot).second)
+                const auto  slot      = static_cast<std::size_t>(read_varint(reader));
+                const auto &converter = slots.converter_at(slot);   // throws for a slot outside the boundary
+                if (std::exchange(seen[slot], std::uint8_t{1}) != 0)
                     throw std::runtime_error("distributed protocol: duplicate slot update");
                 if (slots.direction_at(slot) != direction)
                     throw std::runtime_error("distributed protocol: incorrect slot direction");
-                auto encoded = reader.subreader(static_cast<std::size_t>(read_varint(reader)));
-                auto value = bind_binary_converter(schema).read(encoded);
+                std::uint32_t length = 0;
+                const auto   *length_bytes = reader.take(sizeof(std::uint32_t));
+                for (std::size_t byte = 0; byte < sizeof(std::uint32_t); ++byte)
+                {
+                    length |= std::to_integer<std::uint32_t>(length_bytes[byte]) << (8 * byte);
+                }
+                auto encoded = reader.subreader(length);
+                auto value = converter.read(encoded);
                 if (encoded.remaining() != 0)
                     throw std::runtime_error("distributed protocol: trailing bytes after slot value");
                 deltas.push_back(SlotDelta{slot, std::move(value)});
@@ -133,21 +151,15 @@ namespace hgraph::distributed
             throw std::logic_error(
                 fmt::format("distributed protocol: duplicate boundary slot '{}'", name));
         }
-        slots_.push_back(Slot{std::move(name), schema, direction});
+        // Bound here, once, and not per message: binding locks the type system
+        // and allocates the converter tree, and a cycle must do neither.
+        auto converter = bind_binary_converter(schema, BinaryProfile::Fast);
+        index_.emplace(name, slots_.size());
+        slots_.push_back(Slot{std::move(name), schema, direction, std::move(converter)});
         return slots_.size() - 1;
     }
 
-    std::string_view BoundarySlots::name_at(std::size_t index) const
-    {
-        if (index >= slots_.size())
-        {
-            throw std::out_of_range(
-                fmt::format("distributed protocol: slot {} is outside the boundary", index));
-        }
-        return slots_[index].name;
-    }
-
-    const ValueTypeMetaData *BoundarySlots::schema_at(std::size_t index) const
+    const BoundarySlots::Slot &BoundarySlots::slot_at(std::size_t index) const
     {
         if (index >= slots_.size())
         {
@@ -156,26 +168,24 @@ namespace hgraph::distributed
             throw std::out_of_range(
                 fmt::format("distributed protocol: slot {} is outside the boundary", index));
         }
-        return slots_[index].schema;
+        return slots_[index];
     }
 
-    SlotDirection BoundarySlots::direction_at(std::size_t index) const
+    std::string_view BoundarySlots::name_at(std::size_t index) const { return slot_at(index).name; }
+
+    const ValueTypeMetaData *BoundarySlots::schema_at(std::size_t index) const { return slot_at(index).schema; }
+
+    SlotDirection BoundarySlots::direction_at(std::size_t index) const { return slot_at(index).direction; }
+
+    const BoundBinaryConverter &BoundarySlots::converter_at(std::size_t index) const
     {
-        if (index >= slots_.size())
-        {
-            throw std::out_of_range(
-                fmt::format("distributed protocol: slot {} is outside the boundary", index));
-        }
-        return slots_[index].direction;
+        return slot_at(index).converter;
     }
 
     std::size_t BoundarySlots::index_of(std::string_view name) const noexcept
     {
-        for (std::size_t i = 0; i < slots_.size(); ++i)
-        {
-            if (slots_[i].name == name) { return i; }
-        }
-        return slots_.size();
+        const auto found = index_.find(name);
+        return found == index_.end() ? slots_.size() : found->second;
     }
 
     std::string encode_request(const BoundarySlots &slots, const CycleRequest &request)

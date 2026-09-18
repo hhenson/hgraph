@@ -861,7 +861,11 @@ at every worker count tested. The layers, each with its own tests, bottom up:
 ``runtime/distributed_protocol.h``
     ``CycleRequest`` / ``CycleReply``, the ordered ``BoundarySlots`` both sides
     index by position, and the length prefix that makes a byte stream carry
-    messages.
+    messages. ``BoundarySlots`` binds each slot's converter when the slot is
+    added, for RFC 0040's ``Fast`` profile, so encoding and decoding a cycle
+    take no type-system lock; a slot's payload follows a fixed four-byte
+    length, which lets it be written in place. Both sides are one build, so
+    the message layout carries no version.
 
 ``runtime/distributed_transport.h``
     ``PipeEndpoint`` and ``connected_pipe_pair``: blocking framed byte streams
