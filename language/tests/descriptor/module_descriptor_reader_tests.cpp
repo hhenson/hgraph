@@ -639,7 +639,7 @@ TEST_CASE("catalog preserves unsupported native declarations for precise import 
         REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
         const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
         REQUIRE(function != nullptr);
-        CHECK(function->support_error == "native value calls currently require the evaluation phase only");
+        CHECK(function->support_error == "native value calls currently require node hook phases (start, evaluation, stop)");
     }
 }
 

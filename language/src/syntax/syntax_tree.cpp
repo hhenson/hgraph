@@ -59,6 +59,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::EvalExpression, "eval_expression"},
             KindName{SyntaxKind::LocalDecl, "local_decl"},
             KindName{SyntaxKind::StateDecl, "state_decl"},
+            KindName{SyntaxKind::CacheDecl, "cache_decl"},
             KindName{SyntaxKind::InjectDecl, "inject_decl"},
             KindName{SyntaxKind::LifecycleStmt, "lifecycle_stmt"},
             KindName{SyntaxKind::WhenStmt, "when_stmt"},

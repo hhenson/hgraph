@@ -214,6 +214,9 @@ namespace hgl::codegen
         struct RuntimeInfo
         {
             std::vector<RuntimeState>       states{};
+            /// The node-local cache (ADR 0011): one scalar `cache` declaration
+            /// lowered to the native `State<T>` selector.
+            std::vector<RuntimeState>       caches{};
             std::vector<gir::BlockId>       start_blocks{};
             std::vector<gir::BlockId>       stop_blocks{};
             std::unordered_set<std::size_t> active_parameters{};
@@ -4123,7 +4126,7 @@ namespace hgl::codegen
                             fail(Category::Type, place.range, "'" + binding.name + "' is not a 'var'");
                         }
                         if (binding.kind != gir::BindingKind::LocalVar && binding.kind != gir::BindingKind::State &&
-                            binding.kind != gir::BindingKind::Capability) {
+                            binding.kind != gir::BindingKind::Cache && binding.kind != gir::BindingKind::Capability) {
                             backend(place.range, "'" + binding.name + "' is not writable in this hook");
                         }
                         if (binding.kind == gir::BindingKind::Capability && binding.name != "out") {
@@ -4151,7 +4154,8 @@ namespace hgl::codegen
                         }
                         const std::string converted =
                             as_runtime(value, current.type, value.range, "assignment to '" + binding.name + "'");
-                        if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Capability) {
+                        if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Cache ||
+                            binding.kind == gir::BindingKind::Capability) {
                             if (current.selector.empty()) { backend(place.range, "this runtime value is not writable"); }
                             if (binding.kind == gir::BindingKind::Capability) {
                                 emit_output_value(value, current.type, current.selector, out);
@@ -4880,7 +4884,7 @@ namespace hgl::codegen
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, gir::StateBinding>) {
                             const gir::Binding &binding = planned_binding(node.binding, statement.range);
-                            if (binding.kind != gir::BindingKind::State) {
+                            if (binding.kind != (node.cache ? gir::BindingKind::Cache : gir::BindingKind::State)) {
                                 backend(statement.range, "hgraph IR state statement refers to a non-state binding");
                             }
                             const HType type = planned_type(node.type, statement.range);
@@ -4891,11 +4895,12 @@ namespace hgl::codegen
                             if (!node.init.valid()) {
                                 backend(binding.range, "a generated runtime state field needs an initializer");
                             }
-                            info.states.push_back(RuntimeState{.binding = node.binding,
-                                                               .name    = binding.name,
-                                                               .type    = type,
-                                                               .init    = node.init,
-                                                               .range   = binding.range});
+                            (node.cache ? info.caches : info.states)
+                                .push_back(RuntimeState{.binding = node.binding,
+                                                        .name    = binding.name,
+                                                        .type    = type,
+                                                        .init    = node.init,
+                                                        .range   = binding.range});
                         } else if constexpr (std::is_same_v<T, gir::Inject>) {
                             for (gir::BindingId id : node.bindings) {
                                 const gir::Binding &binding = planned_binding(id, statement.range);
@@ -4975,6 +4980,19 @@ namespace hgl::codegen
             if (info.uses_scheduled && !info.scheduler_binding.valid()) {
                 backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
             }
+            // ADR 0011 first slice: one scalar cache, mapped to the native
+            // State<T> slot, which static nodes cannot combine with
+            // RecordableState. Both limits are the native contract, not a
+            // language rule, and are reported as such.
+            if (info.caches.size() > 1U) {
+                fail(Category::Type, info.caches[1].range,
+                     "this slice admits one 'cache' declaration per runtime function; a cache bundle schema is not implemented");
+            }
+            if (!info.caches.empty() && !info.states.empty()) {
+                fail(Category::Type, info.caches.front().range,
+                     "'cache' and 'state' cannot be combined in one runtime function yet: native static nodes reject "
+                     "State together with RecordableState");
+            }
             if (temporal_count == 0 && !info.scheduler_binding.valid()) {
                 // A source with nothing to activate it never evaluates (ADR 0010).
                 backend(planned.range, "typed HIR admitted a runtime source without the scheduler capability");
@@ -5040,6 +5058,10 @@ namespace hgl::codegen
             if (!info.states.empty()) {
                 params.push_back(named_if("hgraph::RecordableState<recordable_state>", "hgl_state", uses));
             }
+            if (!info.caches.empty()) {
+                const RuntimeState &cache = info.caches.front();
+                params.push_back(named_if("hgraph::State<" + value_type(cache.type, cache.range) + ">", "hgl_cache", uses));
+            }
             if (info.logger_binding.valid()) { params.push_back(named_if("hgraph::LoggerView", "logger", uses)); }
             if (info.clock_binding.valid()) { params.push_back(named_if("hgraph::EvaluationClockView", "clock", uses)); }
             if (info.scheduler_binding.valid()) { params.push_back(named_if("hgraph::NodeScheduler", "scheduler", uses)); }
@@ -5066,6 +5088,7 @@ namespace hgl::codegen
             local_counts_.clear();
             local_names_.clear();
             local_names_.insert("hgl_state");
+            local_names_.insert("hgl_cache");
             local_names_.insert("hgl_output");
             local_names_.insert("logger");
             local_names_.insert("clock");
@@ -5107,6 +5130,15 @@ namespace hgl::codegen
                     backend(state.range, "hgraph IR callable repeats a state binding");
                 }
                 frame.binding_names[state.binding.value] = local;
+            }
+            for (const RuntimeState &cache : info.caches) {
+                // Reads go straight through the selector; writes lower to
+                // hgl_cache.set(...) like a state field's local.
+                Value value = make_runtime("hgl_cache.get()", cache.type, cache.range, "hgl_cache");
+                if (!frame.planned_bindings.emplace(cache.binding.value, std::move(value)).second) {
+                    backend(cache.range, "hgraph IR callable repeats a cache binding");
+                }
+                frame.binding_names[cache.binding.value] = "hgl_cache";
             }
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
@@ -5200,7 +5232,7 @@ namespace hgl::codegen
                 out.replace_first(placeholder, runtime_signature(decl, info, &frame.used, include_inputs, include_output));
                 out.close();
             };
-            if (!info.states.empty() || !info.start_blocks.empty()) {
+            if (!info.states.empty() || !info.caches.empty() || !info.start_blocks.empty()) {
                 const std::string placeholder = next_placeholder();
                 out.line("static void start(" + placeholder + ")");
                 out.open("");
@@ -5211,6 +5243,13 @@ namespace hgl::codegen
                     const Value  init   = eval_planned_expr(state.init, frame);
                     out.line("if (!" + target.selector + ".valid()) { " + target.selector + ".set(" +
                              as_runtime(init, state.type, init.range, "initializer of '" + state.name + "'") + "); }");
+                }
+                for (const RuntimeState &cache : info.caches) {
+                    // A cache is outside record/replay: every start rebuilds it
+                    // from its initializer, restored or not (ADR 0011).
+                    const Value init = eval_planned_expr(cache.init, frame);
+                    use("hgl_cache");
+                    out.line("hgl_cache.set(" + as_runtime(init, cache.type, init.range, "initializer of '" + cache.name + "'") + ");");
                 }
                 for (gir::BlockId block : info.start_blocks) { emit_runtime_block(block, frame, out, planned.range); }
                 finish_hook(placeholder, false, false);

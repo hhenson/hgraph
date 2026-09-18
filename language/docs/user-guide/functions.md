@@ -893,26 +893,45 @@ computation depends on retained history.
 
 ### Reconstructible cache
 
-Status: the `cache<T>` concept and lifecycle are agreed; complete declaration
-and initializer syntax and compiler support remain open.
+`cache` declares node-local data that is **not** part of record/replay. It is
+declared and used like `state`, but its initializer runs on every start,
+restored or not:
 
-A cache holds node-local data that can be reconstructed from authoritative
-current inputs and restored state without replaying missing history. Starting
-with an empty/rebuilt cache must not change subsequent values, validity,
-ticks, deltas, or semantic side effects. A derived lookup index may qualify;
-a running total or unconsumed event history does not.
+```hgl
+fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
+    cache ticks: i64 = 0
+    inject scheduler
 
-HGL cache maps to native `State<T>`, not `RecordableState<TSchema>`. It follows
-state's applicable typing/lifetime rules but may use admitted non-recordable
-native types. HGL `state` retains its recordability requirement. Cache storage
-and objects are constructed during initialization before `start`, just as
-state storage is; rebuilding logical contents is a separate operation.
+    start {
+        scheduler.schedule(0s)
+    }
 
-An implementation may need both cache and recordable state. The C++ static-node
-API currently rejects combining its two state selectors, so this requires
-backend work as well as language support. Cache does not close the separate
-generic-state/default-construction, sparse-validity, queue, or window design
-gaps. See the [cache contract](../design/decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay)
+        }
+        return ticks
+    }
+}
+```
+
+Use `cache` for data that can be rebuilt from authoritative current inputs
+and restored state without replaying missing history, or for a counter the
+matching native node deliberately keeps outside record/replay, as `schedule`
+does. Starting with a rebuilt cache must not change subsequent values,
+validity, ticks, deltas, or semantic side effects. A running total or an
+unconsumed event history is history: use `state`.
+
+HGL cache maps to native `State<T>`; HGL `state` maps to
+`RecordableState<TSchema>` and keeps its recordability requirement. This slice
+admits one scalar `cache` per runtime function and does not combine it with
+`state`: hgraph's static node has one `State<T>` slot and rejects it beside
+`RecordableState`, and the compiler reports both limits as the native
+contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). Several
+cache fields, caches beside recordable state, and non-scalar caches (queues,
+windows, indexes) remain open, as does generic recordable state without a
+default. See the [cache contract](../design/decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
 for restart, REF lifetime, and native construction requirements.
 
 ## Injectables

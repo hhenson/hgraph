@@ -140,7 +140,10 @@ namespace hgl::descriptor
                         .runtime_value    = source_.types.at(parameter.type.value).kind == ir::hir::TypeKind::Schema,
                     });
                 }
-                snapshot.result = type(function.result);
+                // A void native has no result schema, as an imported void native has none.
+                if (function.result.valid() && source_.types.at(function.result.value).kind != ir::hir::TypeKind::Void) {
+                    snapshot.result = type(function.result);
+                }
                 return snapshot;
             }
 
@@ -494,7 +497,15 @@ namespace hgl::descriptor
             declaration.identity   = function.identity;
             declaration.cpp_symbol = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
             declaration.signature  = schema.native_signature(function);
-            declaration.phases     = {NativePhase::Evaluation};
+            declaration.phases.clear();
+            for (const ir::hir::NativePhase phase : function.phases) {
+                switch (phase) {
+                    case ir::hir::NativePhase::Wiring: declaration.phases.push_back(NativePhase::Wiring); break;
+                    case ir::hir::NativePhase::Start: declaration.phases.push_back(NativePhase::Start); break;
+                    case ir::hir::NativePhase::Evaluation: declaration.phases.push_back(NativePhase::Evaluation); break;
+                    case ir::hir::NativePhase::Stop: declaration.phases.push_back(NativePhase::Stop); break;
+                }
+            }
             declaration.exception_policy =
                 function.throws ? NativeExceptionPolicy::Translated : NativeExceptionPolicy::NoThrow;
             for (const hgraph_ir::NativeParameter &parameter : function.parameters) {

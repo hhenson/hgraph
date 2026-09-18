@@ -671,7 +671,7 @@ namespace hgl::semantics
                             binding.stmt = id;
                             declare(node.name, binding, "in the block");
                         } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
-                            reject_in_test(context, stmt.range, "state");
+                            reject_in_test(context, stmt.range, node.cache ? "cache" : "state");
                             if (node.type != ast::no_node) { resolve_type(node.type, context); }
                             resolve_expr(node.init, context);
                             Binding binding;

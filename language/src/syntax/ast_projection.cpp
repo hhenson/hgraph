@@ -680,8 +680,10 @@ namespace hgl::syntax
                             return module_.add(ast::Stmt{range, std::move(result)});
                         }
                     case SyntaxKind::StateDecl:
+                    case SyntaxKind::CacheDecl:
                         {
                             ast::StateDecl               result;
+                            result.cache                       = node(statement).kind == SyntaxKind::CacheDecl;
                             const std::vector<ast::Name> names = direct_names(statement, "a state variable name");
                             require(names.size() == 1, "state declaration has an invalid name");
                             result.name = names.front();

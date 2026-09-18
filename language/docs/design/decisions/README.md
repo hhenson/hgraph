@@ -15,3 +15,4 @@ syntax unresolved and named as such.
 - [0008: Temporal programming, value functions, and target mappings](0008-temporal-contracts-and-target-mappings.md)
 - [0009: Native functions may raise, under hgraph's node error model](0009-native-errors-and-the-node-error-model.md)
 - [0010: Clock and scheduler capabilities, scheduled handlers, and input activity](0010-lifecycle-capabilities.md)
+- [0011: `cache` declarations](0011-cache-declarations.md)

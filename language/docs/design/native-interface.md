@@ -73,9 +73,12 @@ two distinct HGL patterns can intentionally project to the same erased C++
 view type, such as fixed and unbounded lists.
 
 The source form is deliberately top-level. It cannot occur inside a graph or
-node body, so it cannot introduce new wiring. Its first implemented phase is
-runtime-node evaluation: a call inside `when` is a direct C++ call on current
-values or views. A native declaration is automatically public because a
+node body, so it cannot introduce new wiring. A call is a direct C++ call on
+current values or views. A native whose parameters are all values is
+available in every node hook (`start`, `when`, `stop`), which is how a node
+validates its configuration in `start` as the native library does; a native
+that takes a live input view is evaluation-only, because lifecycle blocks
+have no inputs. The descriptor records the phases accordingly. A native declaration is automatically public because a
 downstream module must be able to import it, and declarations with the same
 name form one HGL overload family. Source-native `requires` clauses are rejected
 until the version-one descriptor catalog can reconstruct them; the compiler

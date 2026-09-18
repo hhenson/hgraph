@@ -1035,6 +1035,19 @@ TEST_CASE("state declarations use value types", "[parser]") {
                                       "    NameRef total\n");
 }
 
+TEST_CASE("cache declarations use value types and print as cache", "[parser]") {
+    REQUIRE(body_dump("    cache ticks: i64 = 0\n"
+                      "    cache last = 0.0\n"
+                      "    ticks") == "Block\n"
+                                      "  CacheDecl ticks\n"
+                                      "    type: Type scalar i64 (value)\n"
+                                      "    init: IntLiteral 0\n"
+                                      "  CacheDecl last\n"
+                                      "    init: FloatLiteral 0.0\n"
+                                      "  ExprStmt tail\n"
+                                      "    NameRef ticks\n");
+}
+
 TEST_CASE("inject declarations", "[parser]") {
     REQUIRE(body_dump("    inject out, logger\n"
                       "    inject clock\n"

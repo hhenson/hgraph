@@ -76,6 +76,20 @@ TEST_CASE("catalogue lifecycle bodies passivate exactly as the native nodes do",
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, none, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
+    // schedule keeps its tick counter in a cache, outside record/replay, as
+    // the native node keeps it in State<Int>.
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{false}, Int{3}, Bool{false});
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{true}, Int{2}, Bool{false});
+    check_parity<standard::schedule, stdlib::schedule>(MIN_TD, Bool{true}, Int{0}, Bool{false});
+    // A non-positive delay is refused in start, with the native message.
+    CHECK_THROWS_WITH(eval_node<standard::schedule>(TimeDelta{0}, Bool{true}, Int{3}, Bool{false}),
+                      Catch::Matchers::ContainsSubstring("delay must be positive"));
+    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(TimeDelta{0}, Bool{true}, Int{3}, Bool{false}),
+                      Catch::Matchers::ContainsSubstring("delay must be positive"));
+    CHECK_THROWS_WITH(eval_node<standard::schedule>(-MIN_TD, Bool{false}, Int{3}, Bool{false}),
+                      Catch::Matchers::ContainsSubstring("delay must be positive"));
+    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(-MIN_TD, Bool{false}, Int{3}, Bool{false}),
+                      Catch::Matchers::ContainsSubstring("delay must be positive"));
 }
 
 TEST_CASE("catalogue checked kernels raise exactly as the native operators do", "[codegen][catalogue][throws]") {

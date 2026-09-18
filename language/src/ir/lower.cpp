@@ -511,8 +511,8 @@ namespace hgl::ir
                                     add_symbol(node.mutable_ ? hir::SymbolKind::LocalVar : hir::SymbolKind::LocalLet,
                                                node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
-                                statement_symbols_[statement].push_back(
-                                    add_symbol(hir::SymbolKind::State, node.name.text, node.name.range, owner));
+                                statement_symbols_[statement].push_back(add_symbol(
+                                    node.cache ? hir::SymbolKind::Cache : hir::SymbolKind::State, node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                                 for (const ast::Name &name : node.names) {
                                     statement_symbols_[statement].push_back(
@@ -1134,7 +1134,7 @@ namespace hgl::ir
                                                          id<hir::ExprId>(node.init)};
                         } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
                             target.node = hir::StateDecl{statement_symbols_[index].front(), id<hir::TypeId>(node.type),
-                                                         id<hir::ExprId>(node.init)};
+                                                         id<hir::ExprId>(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                             target.node = hir::InjectDecl{statement_symbols_[index]};
                         } else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) {
@@ -1389,9 +1389,18 @@ namespace hgl::ir
                                     input_view && !item.is_const ? hir::NativeParameterAccess::InputView
                                                                  : hir::NativeParameterAccess::Value});
                             }
-                            function.result         = signature.result;
-                            function.phases         = {hir::NativePhase::Evaluation};
-                            function.throws         = node.throws;
+                            // A native without `->` returns void, as an imported void native does.
+                            function.result = signature.result.valid() ? signature.result : void_type();
+                            // A value function has no live-input dependency, so it
+                            // is available in every node hook; a view function needs
+                            // the inputs and is evaluation-only.
+                            const bool views = std::ranges::any_of(function.parameters, [](const hir::NativeParameter &parameter) {
+                                return parameter.access == hir::NativeParameterAccess::InputView;
+                            });
+                            function.phases = views ? std::vector{hir::NativePhase::Evaluation}
+                                                    : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation,
+                                                                  hir::NativePhase::Stop};
+                            function.throws = node.throws;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;

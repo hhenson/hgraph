@@ -742,8 +742,8 @@ namespace hgl::hgraph_ir
         out << "bindings\n";
         for (std::size_t index = 0; index < module.bindings.size(); ++index) {
             static constexpr std::string_view names[]{
-                "type-parameter", "const-parameter", "signal-parameter", "let", "var", "state",
-                "capability",     "loop-value",      "lambda-parameter"};
+                "type-parameter", "const-parameter", "signal-parameter", "let", "var", "state", "cache",
+                "capability",     "loop-value",      "lambda-parameter", "value-parameter"};
             const Binding &binding = module.bindings[index];
             out << "  n" << index << ' ' << names[static_cast<std::size_t>(binding.kind)] << ' ' << binding.name << ':';
             print_type_id(out, binding.type);

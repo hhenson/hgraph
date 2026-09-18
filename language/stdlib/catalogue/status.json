@@ -2209,16 +2209,18 @@
       ]
     },
     "schedule": {
-      "status": "blocked",
+      "status": "implemented-slice",
       "priority": 1,
-      "reason": "Clock and scheduler capabilities are available (ADR 0010), but the native schedule counter uses non-recordable State<Int>. HGL state is recordable; cache declarations and positive-delay validation in start remain required before a parity implementation can be admitted.",
-      "completed_domains": [],
+      "reason": "Constant-delay source through `inject scheduler`, `start { scheduler.schedule(...) }`, `when scheduled()` and a `cache` tick counter that stays outside record/replay like the native State<Int> (ADR 0010/0011); initial_delay, max_ticks and use_wall_clock covered. Remaining: the time-series delay and start-time overloads (clock arithmetic in a runtime body) and the positive-delay validation in start.",
+      "completed_domains": [
+        "Constant-delay source with initial_delay, max_ticks and use_wall_clock; cache-backed tick counter."
+      ],
       "blockers": [
-        "B2"
+        "B3"
       ],
       "evidence": [
-        "include/hgraph/lib/std/operators/impl/stream_impl.h",
-        "language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md"
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
       ]
     },
     "second": {
@@ -2779,11 +2781,11 @@
     },
     "B2": {
       "priority": 1,
-      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector (explicitly empty activation set, scheduler-driven sources) and passivate/activate are admitted (ADR 0010). Still missing: buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
+      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and a single scalar cache outside record/replay (ADR 0011) are admitted. Still missing: several cache fields, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
       "evidence": [
         "language/docs/design/decisions/0010-lifecycle-capabilities.md",
-        "include/hgraph/lib/std/operators/impl/stream_impl.h",
-        "include/hgraph/lib/std/operators/impl/control_impl.h"
+        "language/docs/design/decisions/0011-cache-declarations.md",
+        "include/hgraph/lib/std/operators/impl/stream_impl.h"
       ]
     },
     "B3": {

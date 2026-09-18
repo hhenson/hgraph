@@ -273,6 +273,7 @@ namespace hgl::hgraph_ir
                     case hir::SymbolKind::LocalLet: return BindingKind::LocalLet;
                     case hir::SymbolKind::LocalVar: return BindingKind::LocalVar;
                     case hir::SymbolKind::State: return BindingKind::State;
+                    case hir::SymbolKind::Cache: return BindingKind::Cache;
                     case hir::SymbolKind::InjectedCapability: return BindingKind::Capability;
                     case hir::SymbolKind::LoopValue: return BindingKind::LoopValue;
                     case hir::SymbolKind::LambdaParameter: return BindingKind::LambdaParameter;
@@ -1002,7 +1003,7 @@ namespace hgl::hgraph_ir
                         if constexpr (std::is_same_v<T, hir::LocalDecl>) {
                             return LocalBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
                         } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
-                            return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
+                            return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
                             Inject lowered;
                             for (hir::SymbolId symbol : node.symbols) { lowered.bindings.push_back(binding(symbol)); }

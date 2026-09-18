@@ -203,6 +203,16 @@ native fn as_int(value: bool) -> i64 {
 # native temporal operators report them. The raise ends the evaluation under
 # hgraph's node error model (ADR 0009).
 cpp include <hgraph/lib/std/lifted_kernels.h>
+cpp include <stdexcept>
+
+# Configuration checks a node runs in `start`, as the native stream nodes do.
+# A value native is available in every hook; the raise ends the start under
+# hgraph's node error model with the native message (ADR 0009).
+native fn require_positive_delay(delay: duration) throws {
+    cpp(const hgraph::TimeDelta &delay) {
+        if (delay <= hgraph::TimeDelta{}) { throw std::invalid_argument("delay must be positive"); }
+    }
+}
 
 native fn power(lhs: i64, rhs: i64) -> i64 throws {
     cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {

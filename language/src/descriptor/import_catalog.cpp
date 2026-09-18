@@ -223,8 +223,12 @@ namespace hgl::descriptor
             if (!declaration.effects.empty()) {
                 function.support_error = "native value calls with declared effects are not supported yet";
             }
-            if (declaration.phases.size() != 1U || declaration.phases.front() != NativePhase::Evaluation) {
-                function.support_error = "native value calls currently require the evaluation phase only";
+            // Node hooks only: a value call may be admitted in start, evaluation
+            // and stop; wiring-time native calls are outside the first interface.
+            if (declaration.phases.empty() || std::ranges::any_of(declaration.phases, [](NativePhase phase) {
+                    return phase != NativePhase::Start && phase != NativePhase::Evaluation && phase != NativePhase::Stop;
+                })) {
+                function.support_error = "native value calls currently require node hook phases (start, evaluation, stop)";
             }
             if (declaration.thread_safety == NativeThreadSafety::Serialized) {
                 function.support_error = "serialized native value calls are not supported yet";

@@ -667,7 +667,9 @@ loopback state. Reconstructible node-local data has the separate agreed
 `RecordableState<TSchema>`. It need not be global or module-owned. Cache does
 not require recordability, but rebuilding it must preserve observable
 computation; arbitrary resources still need a native ownership/lifecycle
-contract. Full cache declaration syntax and compiler support remain open.
+contract. `cache name[: T] = init` is the declaration
+([ADR 0011](decisions/0011-cache-declarations.md)): one scalar cache per
+runtime function, re-initialized on every start, not yet beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
