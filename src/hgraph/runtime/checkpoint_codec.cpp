@@ -1,7 +1,6 @@
 #include <hgraph/runtime/checkpoint_codec.h>
 
-#include <hgraph/manifest/schema_descriptor.h>
-#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/schema_table.h>
 #include <hgraph/types/value/binary_codec.h>
 
 #include <ankerl/unordered_dense.h>
@@ -16,7 +15,7 @@
 // RFC 0039. The layout is:
 //
 //   marker, version, kind, base time, [component header], body length,
-//   string table, value-schema table, time-series-schema table, body, checksum
+//   string table, schema table (types/metadata/schema_table.h), body, checksum
 //
 // The encoder builds the body while interning table entries and emits the
 // tables ahead of it, so a decoder resolves every entry once before it reads
@@ -63,7 +62,6 @@ namespace hgraph
             node_known_flags = (1u << 9) - 1,
         };
 
-        enum class ValueRecipe : std::uint8_t { Named = 0, Structural = 1, Frame = 2, Series = 3 };
         enum class ChildKeys : std::uint8_t { None = 0, Uniform = 1, Mixed = 2 };
 
         [[noreturn]] void malformed(std::string_view detail)
@@ -74,11 +72,6 @@ namespace hgraph
         void check_depth(std::size_t depth)
         {
             if (depth > max_depth) { malformed("nesting exceeds supported depth"); }
-        }
-
-        [[nodiscard]] std::string_view as_text(const std::vector<std::byte> &bytes) noexcept
-        {
-            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
 
         [[nodiscard]] std::uint64_t ticks(DateTime time) noexcept
@@ -173,11 +166,9 @@ namespace hgraph
         {
             std::string body{};
             std::string strings{};
-            std::string value_schemas{};
-            std::string ts_schemas{};
             ankerl::unordered_dense::map<std::string_view, std::size_t> string_index{};
-            ankerl::unordered_dense::map<const ValueTypeMetaData *, std::size_t> value_index{};
-            ankerl::unordered_dense::map<const TSValueTypeMetaData *, std::size_t> ts_index{};
+            SchemaTableWriter schemas{};
+            // One converter per value schema in the table, bound on first use.
             std::vector<BoundBinaryConverter> converters{};
 
             std::size_t string_ref(std::string_view text)
@@ -187,140 +178,24 @@ namespace hgraph
                 return entry->second;
             }
 
-            // Children are interned before their owner, so a recipe only ever
-            // refers to a smaller index and a decoder needs no forward pass.
-            std::size_t value_ref(const ValueTypeMetaData *schema, std::size_t depth = 0)
+            std::size_t value_ref(const ValueTypeMetaData *schema)
             {
-                check_depth(depth);
                 if (schema == nullptr) { malformed("missing value schema"); }
-                if (const auto found = value_index.find(schema); found != value_index.end()) { return found->second; }
-                auto &registry = TypeRegistry::instance();
-                std::string record;
-                write_text(schema->name(), record);
-                write_text(as_text(manifest::value_descriptor(schema)), record);
-                if (registry.value_type(schema->name()) == schema)
-                {
-                    write_varint(static_cast<std::uint8_t>(ValueRecipe::Named), record);
-                }
-                else if (registry.is_frame(schema))
-                {
-                    write_varint(static_cast<std::uint8_t>(ValueRecipe::Frame), record);
-                    write_varint(value_ref(schema->element_type, depth + 1), record);
-                    write_varint(schema->key_type != nullptr, record);
-                    if (schema->key_type != nullptr) { write_varint(value_ref(schema->key_type, depth + 1), record); }
-                }
-                else if (registry.is_series(schema))
-                {
-                    write_varint(static_cast<std::uint8_t>(ValueRecipe::Series), record);
-                    write_varint(value_ref(schema->element_type, depth + 1), record);
-                }
-                else
-                {
-                    write_varint(static_cast<std::uint8_t>(ValueRecipe::Structural), record);
-                    write_varint(static_cast<std::uint64_t>(schema->value_kind()), record);
-                    write_varint(static_cast<std::uint64_t>(schema->flags), record);
-                    write_varint(schema->fixed_size, record);
-                    switch (schema->value_kind())
-                    {
-                        case ValueTypeKind::List:
-                        case ValueTypeKind::Set:
-                            write_varint(value_ref(schema->element_type, depth + 1), record);
-                            break;
-                        case ValueTypeKind::Map:
-                            write_varint(value_ref(schema->key_type, depth + 1), record);
-                            write_varint(value_ref(schema->element_type, depth + 1), record);
-                            break;
-                        case ValueTypeKind::Tuple:
-                        case ValueTypeKind::Bundle:
-                            write_varint(schema->field_count, record);
-                            for (std::size_t index = 0; index < schema->field_count; ++index)
-                            {
-                                const auto *name = schema->fields[index].name;
-                                write_text(name == nullptr ? std::string_view{} : std::string_view{name}, record);
-                                write_varint(value_ref(schema->fields[index].type, depth + 1), record);
-                            }
-                            break;
-                        default:
-                            malformed("unregistered value schema '" + std::string{schema->name()} +
-                                      "' cannot be reconstructed");
-                    }
-                }
-                const auto index = value_index.size();
-                value_index.emplace(schema, index);
-                converters.push_back(bind_binary_converter(schema));
-                value_schemas.append(record);
-                return index;
+                return schemas.value_ref(schema);
             }
 
-            std::size_t ts_ref(const TSValueTypeMetaData *schema, std::size_t depth = 0)
+            std::size_t ts_ref(const TSValueTypeMetaData *schema)
             {
-                check_depth(depth);
                 if (schema == nullptr) { malformed("missing endpoint schema"); }
-                if (const auto found = ts_index.find(schema); found != ts_index.end()) { return found->second; }
-                std::string record;
-                write_text(schema->name(), record);
-                write_text(as_text(manifest::ts_descriptor(schema)), record);
-                const bool named = TypeRegistry::instance().time_series_type(schema->name()) == schema;
-                write_varint(named, record);
-                if (!named)
-                {
-                    write_varint(static_cast<std::uint64_t>(schema->kind), record);
-                    switch (schema->kind)
-                    {
-                        case TSTypeKind::REF:
-                            write_varint(ts_ref(schema->referenced_ts(), depth + 1), record);
-                            break;
-                        case TSTypeKind::TS:
-                            write_varint(value_ref(schema->value_type, depth + 1), record);
-                            break;
-                        case TSTypeKind::TSS:
-                            write_varint(value_ref(schema->value_type->element_type, depth + 1), record);
-                            break;
-                        case TSTypeKind::TSW:
-                            write_varint(value_ref(schema->value_schema->element_type, depth + 1), record);
-                            write_varint(schema->is_duration_based(), record);
-                            if (schema->is_duration_based())
-                            {
-                                write_varint(std::bit_cast<std::uint64_t>(
-                                    static_cast<std::int64_t>(schema->time_range().count())), record);
-                                write_varint(std::bit_cast<std::uint64_t>(
-                                    static_cast<std::int64_t>(schema->min_time_range().count())), record);
-                            }
-                            else
-                            {
-                                write_varint(schema->period(), record);
-                                write_varint(schema->min_period(), record);
-                            }
-                            break;
-                        case TSTypeKind::TSD:
-                            write_varint(value_ref(schema->data.tsd.key_type, depth + 1), record);
-                            write_varint(ts_ref(schema->data.tsd.value_ts, depth + 1), record);
-                            break;
-                        case TSTypeKind::TSL:
-                            write_varint(schema->data.tsl.fixed_size, record);
-                            write_varint(ts_ref(schema->data.tsl.element_ts, depth + 1), record);
-                            break;
-                        case TSTypeKind::TSB:
-                            write_varint(schema->data.tsb.field_count, record);
-                            for (std::size_t index = 0; index < schema->data.tsb.field_count; ++index)
-                            {
-                                write_text(schema->data.tsb.fields[index].name, record);
-                                write_varint(ts_ref(schema->data.tsb.fields[index].type, depth + 1), record);
-                            }
-                            break;
-                        default:
-                            malformed("unregistered endpoint schema '" + std::string{schema->name()} +
-                                      "' cannot be reconstructed");
-                    }
-                }
-                const auto index = ts_index.size();
-                ts_index.emplace(schema, index);
-                ts_schemas.append(record);
-                return index;
+                return schemas.ts_ref(schema);
             }
 
             void value(const Value &source, std::size_t schema_index)
             {
+                // Adding a schema adds what it is built from first, so the
+                // table can have grown by more than one entry since last time.
+                while (converters.size() < schemas.value_count())
+                    converters.push_back(bind_binary_converter(schemas.value_at(converters.size())));
                 converters[schema_index].write(source.view(), body);
             }
 
@@ -378,8 +253,7 @@ namespace hgraph
                 if (image.schema == nullptr) { malformed("missing endpoint schema"); }
                 if (image.version != TSCheckpointImage::current_version)
                     malformed("unsupported endpoint image version");
-                if (image.reference && (image.schema->kind != TSTypeKind::REF || image.payload.has_value()))
-                    malformed("reference metadata on a non-reference endpoint or beside a value payload");
+                validate_ts_checkpoint_reference_placement(image);
 
                 const bool keyed = image.slot_capacity != 0 || !image.keys.empty() || !image.slots.empty() ||
                                    !image.free_slots.empty() || !image.published.empty() ||
@@ -422,11 +296,7 @@ namespace hgraph
                     if (explicit_payload) { write_varint(index, body); }
                     value(image.payload, index);
                 }
-                if (flags & ts_reference)
-                {
-                    validate_ts_reference_checkpoint(*image.reference);
-                    reference(*image.reference, depth + 1);
-                }
+                if (flags & ts_reference) { reference(*image.reference, depth + 1); }
                 if (flags & ts_window)
                 {
                     write_varint(image.window_times.size(), body);
@@ -587,10 +457,7 @@ namespace hgraph
                 write_varint(body.size(), out);
                 write_varint(string_index.size(), out);
                 out.append(strings);
-                write_varint(value_index.size(), out);
-                out.append(value_schemas);
-                write_varint(ts_index.size(), out);
-                out.append(ts_schemas);
+                schemas.write(out);
                 out.append(body);
                 write_fixed(checksum(std::string_view{out}.substr(start)), out);
             }
@@ -600,10 +467,8 @@ namespace hgraph
         {
             BinaryReader &reader;
             std::vector<std::string> strings{};
-            std::vector<const ValueTypeMetaData *> value_schemas{};
+            SchemaTableReader schemas{};
             std::vector<BoundBinaryConverter> converters{};
-            std::vector<const TSValueTypeMetaData *> ts_schemas{};
-            ankerl::unordered_dense::map<const ValueTypeMetaData *, std::size_t> value_positions{};
 
             [[nodiscard]] std::uint64_t number() { return read_varint(reader); }
 
@@ -664,15 +529,22 @@ namespace hgraph
             [[nodiscard]] std::size_t value_index()
             {
                 const auto index = number();
-                if (index >= value_schemas.size()) { malformed("unknown value schema index"); }
+                if (index >= schemas.value_count()) { malformed("unknown value schema index"); }
                 return static_cast<std::size_t>(index);
+            }
+
+            [[nodiscard]] const TSValueTypeMetaData *ts_schema()
+            {
+                const auto index = number();
+                if (index >= schemas.ts_count()) { malformed("unknown endpoint schema index"); }
+                return schemas.ts_at(static_cast<std::size_t>(index));
             }
 
             [[nodiscard]] std::size_t value_index_of(const ValueTypeMetaData *schema) const
             {
-                const auto found = value_positions.find(schema);
-                if (found == value_positions.end()) { malformed("implied value schema is absent from the image"); }
-                return found->second;
+                const auto index = schemas.value_index_of(schema);
+                if (index == SchemaTableReader::npos) { malformed("implied value schema is absent from the image"); }
+                return index;
             }
 
             void read_strings()
@@ -682,166 +554,12 @@ namespace hgraph
                 for (std::size_t index = 0; index < entries; ++index) { strings.emplace_back(text()); }
             }
 
-            void read_value_schemas()
+            void read_schemas()
             {
-                auto &registry = TypeRegistry::instance();
-                const auto entries = count();
-                value_schemas.reserve(entries);
-                converters.reserve(entries);
-                const auto earlier = [&] { return table_entry(value_schemas, "value schema"); };
-                for (std::size_t entry = 0; entry < entries; ++entry)
-                {
-                    const auto name = text();
-                    const auto description = text();
-                    const ValueTypeMetaData *schema{nullptr};
-                    switch (static_cast<ValueRecipe>(number()))
-                    {
-                        case ValueRecipe::Named: schema = registry.value_type(name); break;
-                        case ValueRecipe::Frame: {
-                            const auto *row = earlier();
-                            const auto *metadata = boolean() ? earlier() : nullptr;
-                            schema = registry.frame(row, metadata);
-                            break;
-                        }
-                        case ValueRecipe::Series: schema = registry.series(earlier()); break;
-                        case ValueRecipe::Structural: schema = structural_value_schema(registry, earlier); break;
-                        default: malformed("unsupported value schema recipe");
-                    }
-                    if (schema == nullptr) { malformed("unknown value schema " + std::string{name}); }
-                    if (schema->name() != name || as_text(manifest::value_descriptor(schema)) != description)
-                        malformed("value schema changed");
-                    value_positions.try_emplace(schema, value_schemas.size());
-                    value_schemas.push_back(schema);
-                    converters.push_back(bind_binary_converter(schema));
-                }
-            }
-
-            template <typename Earlier>
-            [[nodiscard]] const ValueTypeMetaData *structural_value_schema(TypeRegistry &registry, Earlier &&earlier)
-            {
-                const auto kind = number();
-                if (kind > static_cast<std::uint64_t>(ValueTypeKind::Any)) { malformed("invalid value kind"); }
-                const auto raw_flags = number();
-                if (raw_flags > std::numeric_limits<std::uint32_t>::max()) { malformed("invalid value flags"); }
-                const auto flags = static_cast<ValueTypeFlags>(raw_flags);
-                const auto extent = size();
-                const auto flag = [flags](ValueTypeFlags value) { return (flags & value) != ValueTypeFlags::None; };
-                switch (static_cast<ValueTypeKind>(kind))
-                {
-                    case ValueTypeKind::List: {
-                        const auto *element = earlier();
-                        if (flag(ValueTypeFlags::ShapedArray)) { return registry.array(element, extent); }
-                        if (flag(ValueTypeFlags::Nullable)) { return registry.nullable_tuple(element); }
-                        if (flag(ValueTypeFlags::Mutable)) { return registry.mutable_list(element); }
-                        if (flag(ValueTypeFlags::FixedEmpty)) { return registry.fixed_list(element, extent); }
-                        return registry.list(element, extent, flag(ValueTypeFlags::VariadicTuple));
-                    }
-                    case ValueTypeKind::Set: {
-                        const auto *element = earlier();
-                        return flag(ValueTypeFlags::Mutable) ? registry.mutable_set(element) : registry.set(element);
-                    }
-                    case ValueTypeKind::Map: {
-                        const auto *key = earlier();
-                        const auto *element = earlier();
-                        return flag(ValueTypeFlags::Mutable) ? registry.mutable_map(key, element)
-                                                             : registry.map(key, element);
-                    }
-                    case ValueTypeKind::Tuple:
-                    case ValueTypeKind::Bundle: {
-                        const auto fields_count = count();
-                        std::vector<const ValueTypeMetaData *> elements;
-                        std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
-                        elements.reserve(fields_count);
-                        fields.reserve(fields_count);
-                        for (std::size_t index = 0; index < fields_count; ++index)
-                        {
-                            std::string field{text()};
-                            const auto *element = earlier();
-                            elements.push_back(element);
-                            fields.emplace_back(std::move(field), element);
-                        }
-                        return kind == static_cast<std::uint64_t>(ValueTypeKind::Tuple)
-                                   ? registry.tuple(elements) : registry.un_named_bundle(fields);
-                    }
-                    default: malformed("unsupported value schema recipe");
-                }
-            }
-
-            void read_ts_schemas()
-            {
-                auto &registry = TypeRegistry::instance();
-                const auto entries = count();
-                ts_schemas.reserve(entries);
-                const auto value = [&] { return table_entry(value_schemas, "value schema"); };
-                const auto earlier = [&] { return table_entry(ts_schemas, "endpoint schema"); };
-                for (std::size_t entry = 0; entry < entries; ++entry)
-                {
-                    const auto name = text();
-                    const auto description = text();
-                    const TSValueTypeMetaData *schema{nullptr};
-                    if (boolean()) { schema = registry.time_series_type(name); }
-                    else
-                    {
-                        const auto kind = number();
-                        if (kind > static_cast<std::uint64_t>(TSTypeKind::SIGNAL)) { malformed("invalid endpoint kind"); }
-                        switch (static_cast<TSTypeKind>(kind))
-                        {
-                            case TSTypeKind::REF: schema = registry.ref(earlier()); break;
-                            case TSTypeKind::TS: schema = registry.ts(value()); break;
-                            case TSTypeKind::TSS: schema = registry.tss(value()); break;
-                            case TSTypeKind::TSW: {
-                                const auto *element = value();
-                                const bool duration = boolean();
-                                const auto period = number();
-                                const auto minimum = number();
-                                if (duration)
-                                {
-                                    const auto range = std::bit_cast<std::int64_t>(period);
-                                    const auto min_range = std::bit_cast<std::int64_t>(minimum);
-                                    if (range <= 0 || min_range < 0 || min_range > range)
-                                        malformed("invalid duration window extent");
-                                    schema = registry.tsw_duration(element, TimeDelta{range}, TimeDelta{min_range});
-                                }
-                                else
-                                {
-                                    if (period == 0 || period > std::numeric_limits<std::size_t>::max() ||
-                                        minimum > period)
-                                        malformed("invalid count window extent");
-                                    schema = registry.tsw(element, static_cast<std::size_t>(period),
-                                                          static_cast<std::size_t>(minimum));
-                                }
-                                break;
-                            }
-                            case TSTypeKind::TSD: {
-                                const auto *key = value();
-                                schema = registry.tsd(key, earlier());
-                                break;
-                            }
-                            case TSTypeKind::TSL: {
-                                const auto extent = size();
-                                schema = registry.tsl(earlier(), extent);
-                                break;
-                            }
-                            case TSTypeKind::TSB: {
-                                const auto fields_count = count();
-                                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
-                                fields.reserve(fields_count);
-                                for (std::size_t index = 0; index < fields_count; ++index)
-                                {
-                                    std::string field{text()};
-                                    fields.emplace_back(std::move(field), earlier());
-                                }
-                                schema = registry.un_named_tsb(fields);
-                                break;
-                            }
-                            default: malformed("unsupported endpoint schema recipe");
-                        }
-                    }
-                    if (schema == nullptr) { malformed("unknown endpoint schema " + std::string{name}); }
-                    if (schema->name() != name || as_text(manifest::ts_descriptor(schema)) != description)
-                        malformed("endpoint schema changed");
-                    ts_schemas.push_back(schema);
-                }
+                schemas.read(reader);
+                converters.reserve(schemas.value_count());
+                for (std::size_t index = 0; index < schemas.value_count(); ++index)
+                    converters.push_back(bind_binary_converter(schemas.value_at(index)));
             }
 
             [[nodiscard]] Value tagged_value()
@@ -875,7 +593,7 @@ namespace hgraph
                 for (std::size_t index = 0; index < bindings; ++index)
                 {
                     TSCheckpointBindingStep step;
-                    step.requested_schema = table_entry(ts_schemas, "endpoint schema");
+                    step.requested_schema = ts_schema();
                     step.path = path();
                     target.bindings.push_back(std::move(step));
                 }
@@ -890,7 +608,7 @@ namespace hgraph
                 if (kind > static_cast<std::uint8_t>(TSReferenceCheckpointKind::NonPeered))
                     malformed("unsupported reference kind");
                 image.kind = static_cast<TSReferenceCheckpointKind>(kind);
-                if (boolean()) { image.target_schema = table_entry(ts_schemas, "endpoint schema"); }
+                if (boolean()) { image.target_schema = ts_schema(); }
                 if (boolean()) { image.target = locator(); }
                 const auto items = count();
                 image.items.reserve(items);
@@ -911,7 +629,7 @@ namespace hgraph
                     malformed("keyed flags on an unkeyed endpoint");
                 if ((flags & ts_explicit_payload_schema) != 0 && (flags & ts_payload) == 0)
                     malformed("payload schema without a payload");
-                image.schema = (flags & ts_explicit_schema) ? table_entry(ts_schemas, "endpoint schema") : implied;
+                image.schema = (flags & ts_explicit_schema) ? ts_schema() : implied;
                 if (image.schema == nullptr) { malformed("endpoint has no schema"); }
                 if (flags & ts_valid) { image.last_modified_time = offset(reference_time); }
                 const auto own_time = (flags & ts_valid) ? image.last_modified_time : reference_time;
@@ -929,10 +647,8 @@ namespace hgraph
                 }
                 if (flags & ts_reference)
                 {
-                    if (image.schema->kind != TSTypeKind::REF || image.payload.has_value())
-                        malformed("reference metadata on a non-reference endpoint or beside a value payload");
                     image.reference = reference(depth + 1);
-                    validate_ts_reference_checkpoint(*image.reference);
+                    validate_ts_checkpoint_reference_placement(image);
                 }
                 if (flags & ts_window)
                 {
@@ -1155,8 +871,7 @@ namespace hgraph
             Decoder decoder{reader};
             const auto body_length = decoder.size();
             decoder.read_strings();
-            decoder.read_value_schemas();
-            decoder.read_ts_schemas();
+            decoder.read_schemas();
             if (reader.remaining() != body_length) { malformed("body length disagrees with the image"); }
             auto graph = decoder.graph(base_time, 0);
             if (reader.remaining() != 0) { malformed("trailing data"); }

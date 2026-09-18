@@ -186,6 +186,13 @@ once per image. Two recipes are added: ``Frame`` (row schema and optional
 metadata schema) and ``Series`` (element schema), reconstructed through
 ``TypeRegistry::frame`` and ``TypeRegistry::series``.
 
+The table is ``hgraph/types/metadata/schema_table.h``. It belongs to the type
+layer, not to the runtime codec that uses it: a recipe is schema-kind
+knowledge, and runtime code does not probe ``TSTypeKind`` (the
+``runtime-ref-kind-probes`` ratchet). For the same reason the rule that
+reference metadata sits only on a ``REF`` endpoint is one of the image
+validators in ``ts_data/checkpoint.h``, which the codec calls.
+
 A root endpoint image names its schema by table index. A child image does not
 name a schema at all when it is the one its parent implies -- the field type of
 a ``TSB``, the element type of a ``TSL`` or ``TSD`` -- which is every child the

@@ -65,8 +65,15 @@ namespace hgraph
         std::function<void(const TSDataView &, const TSReferenceCheckpointImage &)> restore_reference{};
     };
 
+    struct TSCheckpointImage;
+
     /** Validate data-only reference shape; ownership/resolution is context-owned. */
     HGRAPH_EXPORT void validate_ts_reference_checkpoint(const TSReferenceCheckpointImage &image);
+    /** Reference metadata belongs to a REF endpoint and never beside a value
+     * payload; when present it must itself be well formed. Data only, so a codec
+     * can refuse a misplaced reference without knowing what a REF endpoint is.
+     */
+    HGRAPH_EXPORT void validate_ts_checkpoint_reference_placement(const TSCheckpointImage &image);
     [[nodiscard]] HGRAPH_EXPORT bool ts_checkpoint_schema_contains_reference(const TSValueTypeMetaData *schema);
 
 
