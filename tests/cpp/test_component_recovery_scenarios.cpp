@@ -132,6 +132,27 @@ template<bool Duration> struct WholeWindowComponent {
     }
 };
 
+// A sink inside a component. It holds no state, scheduler, global state or
+// clock, so there is nothing to capture; what it DOES is outside what any
+// checkpoint could replay. RFC 0023 refused it to make its author acknowledge
+// that. Placing it in a component is the acknowledgement (RFC 0039).
+std::vector<Int> published;
+struct Publish {
+    static void eval(In<"ts", TS<Int>> ts) { published.push_back(ts.value()); }
+};
+struct PublishingBody {
+    static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts) {
+        auto total = wire<Accumulate>(w, ts);
+        wire<Publish>(w, total);
+        return total;
+    }
+};
+struct PublishingComponent {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts) {
+        return stdlib::component<PublishingBody>(w, "schema-scenario", ts);
+    }
+};
+
 EvalNodeRunOptions interval(std::size_t begin, std::size_t end) {
     return {.start_time = MIN_ST + MIN_TD * static_cast<Int>(begin),
             .end_time = MIN_ST + MIN_TD * static_cast<Int>(end)};
@@ -288,4 +309,18 @@ TEST_CASE("whole window references recover warmup reset and retargeting", "[chec
     const auto reset = values<Bool>(none, none, none, true, none, none, none, none);
     composite_cuts<WholeWindowComponent<false>>(pick, left, right, reset);
     composite_cuts<WholeWindowComponent<true>>(pick, left, right, reset);
+}
+
+TEST_CASE("a stateless sink inside a component is a member, and recovery does not replay what it did",
+          "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    published.clear();
+    every_cut<PublishingComponent, Int>(values<Int>(1, 2, none, 3));
+    // every_cut runs the four ticks once uninterrupted and then once per
+    // restart campaign. Each campaign published each running total exactly
+    // once: a restart restores the total and re-publishes nothing.
+    REQUIRE(published.size() % 3 == 0);
+    for (std::size_t run = 0; run < published.size(); run += 3) {
+        CHECK(std::vector<Int>{published.begin() + run, published.begin() + run + 3} == std::vector<Int>{1, 3, 6});
+    }
 }

@@ -201,22 +201,43 @@ a nested ``map_``, ``mesh_`` or ``reduce`` included. Three things follow:
 * A worker that cannot capture fails the completed day, and one that refuses its
   image fails the start. Neither falls back to a fresh worker.
 
-``spawn_`` recovers on the same terms. Its stages are graphs in other
-processes, so its state is one image per stage, taken once the completed day has
-drained the pipeline; a restarted run raises each stage from its image and does
-not re-send the input baselines those stages already hold. Every stage has to be
-recoverable, and an unrecoverable one is refused at wiring, naming the stage.
-The pipeline ends in a sink that acts in a worker process. That effect is
-outside the recoverable contract, as any external effect is: recovery restores
-what the stages knew, and does not make what the sink did exactly-once. A sink
-node says so by declaring checkpoint support with nothing to capture.
+``spawn_`` recovers a component placed *inside* a stage. A stage is a graph you
+wrote, and the recoverable unit inside it is the same one as anywhere else:
 
-From Python, ``dmap_`` recovers and ``spawn_`` does not yet. A C++ sink can
-declare that support; a Python ``@sink_node`` has no way to, and every pipeline
-ends in one. A Python pipeline inside a recoverable component is therefore
-refused when it is wired, naming the stage and the reason, rather than failing
-the completed day it would otherwise reach. Outside a recoverable component it
-wires and runs as before.
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered
+
+   @graph
+   def stage(ticks: TS[float]) -> None:
+       publish(pricing(ticks))                          # publish: processed
+
+   spawn_(stage, ticks)
+
+Configure recovery for ``pricing`` as you would if it were in the main graph.
+Each completed day saves the component's state from the worker that hosts it,
+and a restarted run raises that worker with the component restored and does not
+re-send the input baselines it already holds. The component can share a stage
+with the sink, as above, or sit in an earlier stage of a ``pipeline_``.
+
+Everything outside the component is *processed*, not recovered -- above all the
+sink the pipeline ends in. It acts in a worker process, recovery restores what
+the component knew and cannot replay what the sink did, and the sink declares
+nothing. Nodes outside the component start afresh on each run, so keep state
+that has to survive a restart inside the component. The component's usual rules
+apply inside the stage as they do anywhere: its inputs come straight from the
+stage's inputs, so preprocessing belongs inside it; and a component nested under
+a ``map_`` in the stage is not reached.
+
+If ``spawn_`` is itself wired inside a recoverable component, the whole pipeline
+is that component's and every stage is saved whole, so every stage node has to
+be recoverable.
+
+A sink with no state of its own is an ordinary member of a component. There is
+nothing of it to capture; putting it inside a component is how you say you
+expect the component around it to recover, and recovery will not replay what
+the sink did.
 
 Two limits are ``map_``'s rather than ``dmap_``'s, and reach through it: a
 ``dmap_`` child has to end in a node that writes its own output, not in a
@@ -289,9 +310,9 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State``, scheduler-driven nodes, external sources or sinks
-inside the boundary, and dynamic owners without checkpoint operations are
-refused. A stateless compute node's declarative ``schedule_on_start`` bootstrap
+Ordinary semantic ``State``, scheduler-driven nodes, external sources inside
+the boundary, sinks that hold state or use a runtime service, and dynamic owners
+without checkpoint operations are refused. A stateless compute node's declarative ``schedule_on_start`` bootstrap
 is allowed; recovery discards that historical bootstrap instead of evaluating
 the saved inputs again. This does not add recovery of pending scheduler events.
 

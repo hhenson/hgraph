@@ -37,15 +37,10 @@ namespace hgraph
                 throw std::runtime_error("component checkpoint: error capture is unsupported at '" +
                     node_id(node) + "'; failed evaluations must abort the completed day");
             }
-            if (node.checkpoint_ops().supported) { return; }
-            if (schema->node_kind != NodeKind::Compute || schema->state_schema != nullptr ||
-                schema->uses_scheduler || schema->uses_global_state ||
-                schema->uses_evaluation_clock)
-            {
-                throw std::runtime_error("component checkpoint: node '" + node_id(node) +
-                    "' (" + std::string{schema->name()} +
-                    ") requires explicit checkpoint support (local state, scheduler, source, sink or runtime service)");
-            }
+            if (node.checkpoint_ops().supported || schema->checkpoints_without_ops()) { return; }
+            throw std::runtime_error("component checkpoint: node '" + node_id(node) +
+                "' (" + std::string{schema->name()} +
+                ") requires explicit checkpoint support (local state, scheduler, source or runtime service)");
         }
 
         void validate_cut(const TSCheckpointImage &image, DateTime cut)
@@ -71,15 +66,29 @@ namespace hgraph
     {
         if (component.empty()) { throw std::invalid_argument("component checkpoint: a component selection requires an id"); }
         GraphCheckpointSelection selection;
-        selection.component_ = std::move(component);
+        selection.roots_.push_back(std::move(component));
+        return selection;
+    }
+
+    GraphCheckpointSelection GraphCheckpointSelection::hosted(std::string_view component)
+    {
+        if (component.empty()) { return whole_graph(); }
+        auto selection = owned_by(std::string{component});
+        selection.roots_.emplace_back(worker_boundary_checkpoint_scope);
         return selection;
     }
 
     bool GraphCheckpointSelection::selects(std::string_view owner) const noexcept
     {
         if (whole()) { return true; }
-        return owner == component_ || (owner.starts_with(component_) &&
-            owner.size() > component_.size() && owner[component_.size()] == '.');
+        for (const auto &root : roots_)
+        {
+            if (owner == root || (owner.starts_with(root) && owner.size() > root.size() && owner[root.size()] == '.'))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     struct GraphCheckpointCoordinator::Impl

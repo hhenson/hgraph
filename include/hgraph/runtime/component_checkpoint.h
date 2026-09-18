@@ -43,6 +43,9 @@ namespace hgraph
     HGRAPH_EXPORT void clear_component_recovery(GlobalStateView state);
     [[nodiscard]] HGRAPH_EXPORT bool component_recovery_selected(
         GlobalStateView state, std::string_view component_id);
+    /** The component recovery is configured for, if any. An owner of
+     * worker-hosted graphs asks, to find out whether it is hosting it. */
+    [[nodiscard]] HGRAPH_EXPORT std::optional<std::string> configured_recovery_component(GlobalStateView state);
 
     /** Executor-owned completed-day policy over a ``GraphCheckpointCoordinator``
      * (``graph_checkpoint_coordinator.h``), which owns the image mechanics. All

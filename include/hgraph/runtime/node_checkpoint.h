@@ -42,6 +42,15 @@ namespace hgraph
         std::vector<ChildGraphCheckpoint> children{};
     };
 
+    /** The identity scopes of a worker-hosted graph (RFC 0039). Every node
+     * of one is wired under ``worker``; the runtime's own boundary nodes -- a
+     * stage's sources and its output sink -- under ``worker.boundary``, so an
+     * image selected by component can still take the input baselines with it.
+     * A component inside the graph keeps its own id.
+     */
+    inline constexpr std::string_view worker_checkpoint_scope{"worker"};
+    inline constexpr std::string_view worker_boundary_checkpoint_scope{"worker.boundary"};
+
     struct HGRAPH_CLASS_EXPORT NodeCheckpointIdentity
     {
         std::string component{};

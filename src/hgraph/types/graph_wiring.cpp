@@ -1303,6 +1303,7 @@ struct Wiring::Impl {
   std::deque<WiringInstance> instances{};
   std::string checkpoint_component{};
   bool checkpoint_records_refusals{false};
+  bool checkpoint_hosting{false};
   std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
@@ -1468,7 +1469,34 @@ std::string Wiring::checkpoint_component(std::string component_id) {
   if (!component_id.empty()) {
     impl_->checkpoint_component_starts.try_emplace(component_id, impl_->instances.size());
   }
+  impl_->checkpoint_hosting = false;
   return std::exchange(impl_->checkpoint_component, std::move(component_id));
+}
+
+std::string Wiring::checkpoint_host(std::string component_id) {
+  if (component_id.empty()) { throw std::invalid_argument("component checkpoint: a host scope requires a component id"); }
+  auto previous = checkpoint_component(std::move(component_id));
+  impl_->checkpoint_hosting = true;
+  return previous;
+}
+
+bool Wiring::checkpoint_records_refusals() const noexcept { return impl_->checkpoint_records_refusals; }
+
+void Wiring::refuse_checkpoint_component(std::string_view reason) {
+  const auto &component = impl_->checkpoint_component;
+  if (component.empty()) { return; }
+  const auto start = impl_->checkpoint_component_starts.find(component);
+  const auto begin = impl_->instances.begin() +
+      (start != impl_->checkpoint_component_starts.end() ? start->second : 0);
+  for (auto instance = begin; instance != impl_->instances.end(); ++instance) {
+    auto identity = instance->builder.checkpoint_identity();
+    const bool member = identity.component == component ||
+        (identity.component.starts_with(component) && identity.component.size() > component.size() &&
+         identity.component[component.size()] == '.');
+    if (!member || !identity.refusal.empty()) { continue; }
+    identity.refusal = reason;
+    instance->builder.checkpoint_identity(std::move(identity));
+  }
 }
 
 std::string_view Wiring::checkpoint_component() const noexcept {
@@ -1479,7 +1507,7 @@ void Wiring::checkpoint_worker_graph() {
   if (!impl_->instances.empty() || !impl_->checkpoint_component.empty()) {
     throw std::logic_error("component checkpoint: a worker graph scope covers the whole graph");
   }
-  impl_->checkpoint_component = "worker";
+  impl_->checkpoint_component = worker_checkpoint_scope;
   impl_->checkpoint_records_refusals = true;
 }
 
@@ -1565,10 +1593,9 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
        (!inputs.front().source.is_peered_source() && !inputs.front().source.is_boundary_source()))) {
     throw std::invalid_argument("component checkpoint: component inputs require direct endpoints");
   }
-  if (!checkpoint_ops.supported && (schema->node_kind != NodeKind::Compute ||
-      schema->state_schema != nullptr || schema->uses_scheduler ||
-      schema->uses_global_state || schema->uses_evaluation_clock)) {
-    throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} + "'");
+  if (!checkpoint_ops.supported && !schema->checkpoints_without_ops()) {
+    throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} +
+        "': it holds local state, a scheduler, a source cursor or a runtime service and declares no checkpoint support");
   }
   // Validate even dormant mapped child templates. No lifecycle callback runs
   // when constructing this short-lived probe; endpoint strategy selection is
@@ -1636,8 +1663,27 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   });
   const auto append_source = [&](const auto &self, const WiringPortRef &source) -> void {
     signature.varint(static_cast<std::uint8_t>(source.source_kind()));
+    if (impl_->checkpoint_hosting) {
+      // A host stands in for a component hosted elsewhere. What feeds it is
+      // the owner graph's business and no part of the component's contract.
+      manifest::append_ts_descriptor(signature, source.schema);
+      return;
+    }
     if (const auto *producer = source.peered_node_or_null()) {
       const auto &identity = producer->builder.checkpoint_identity();
+      // In a worker graph everything has an identity, so "outside the
+      // component" is no longer "has none". A component member fed from
+      // outside its component would be restored beside an input that was
+      // not; only a component input boundary may reach out.
+      const auto &scope = impl_->checkpoint_component;
+      const bool in_component = impl_->checkpoint_records_refusals && scope != worker_checkpoint_scope &&
+          scope != worker_boundary_checkpoint_scope;
+      const bool outside = in_component && identity.component != scope &&
+          !(identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
+            identity.component[scope.size()] == '.');
+      if (outside && !checkpoint_ops.boundary_input) {
+        throw std::invalid_argument("component checkpoint: external sources must enter through component inputs");
+      }
       signature.varint(identity.component.empty());
       if (identity.component.empty()) {
         if (!checkpoint_ops.boundary_input) {

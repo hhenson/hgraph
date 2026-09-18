@@ -221,7 +221,7 @@ namespace hgraph::distributed
 
         void dispatch_checkpoint()
         {
-            if (host_ == nullptr) { send(checkpoint_frame); }
+            if (host_ == nullptr) { send(encode_checkpoint_frame()); }
         }
 
         [[nodiscard]] std::string collect_checkpoint()
@@ -704,11 +704,16 @@ namespace hgraph::distributed
          * worker order, plus any output extents. */
         [[nodiscard]] HGRAPH_EXPORT NodeCheckpointState state_of(std::vector<std::string> images,
                                                                  std::span<const std::size_t> extents);
-        /** Append one worker graph's node identities to an owner's contract,
-         * refusing a graph that hosts a node recorded as unrecoverable.
-         * ``owner`` and ``index`` name it in that refusal. */
-        HGRAPH_EXPORT void sign_worker_graph(manifest::CanonicalWriter &writer, const GraphBuilder &graph,
-                                             std::string_view owner, std::size_t index);
+        /** Append to an owner's contract the identities of the nodes
+         * ``selection`` takes from one worker graph, refusing one recorded as
+         * unrecoverable. ``owner`` and ``index`` name it in that refusal.
+         * Nodes the selection leaves out are not part of the contract, and
+         * may be as unrecoverable as they like. */
+        HGRAPH_EXPORT void sign_worker_graph(
+            manifest::CanonicalWriter &writer, const GraphBuilder &graph, std::string_view owner, std::size_t index,
+            const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph());
+        /** True when ``graph`` has a node ``component`` owns. */
+        [[nodiscard]] HGRAPH_EXPORT bool hosts_component(const GraphBuilder &graph, std::string_view component);
         [[nodiscard]] HGRAPH_EXPORT NodeCheckpointState capture(const NodeView &node, const CaptureGraphCheckpoint &);
         HGRAPH_EXPORT void restore(const NodeView &node, const NodeCheckpointState &image, DateTime,
                                    const RestoreGraphCheckpoint &);

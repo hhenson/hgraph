@@ -315,7 +315,14 @@ namespace hgraph::stdlib
 
         if (!fq.empty()) { w.claim_component_id(fq); }
 
-        const bool checkpointed = component_recovery_selected(w.operator_state(), fq);
+        // A worker-hosted graph wires every component as an identity scope,
+        // configured or not (RFC 0039): its owner and its process each wire it
+        // for themselves and have to agree without being told, and the owner
+        // may be recovering exactly this component. What a configured
+        // component refuses, a hosted one records on its nodes, so a graph
+        // nobody will ever capture still wires.
+        const bool hosted = w.checkpoint_records_refusals() && !fq.empty() && mode == Mode::None;
+        const bool checkpointed = hosted || component_recovery_selected(w.operator_state(), fq);
         if (checkpointed && mode != Mode::None)
         {
             throw std::invalid_argument("component checkpoint: legacy record/replay modes cannot be combined with recovery configuration");
@@ -324,12 +331,21 @@ namespace hgraph::stdlib
         auto restore_component_scope = make_scope_exit([&] {
             if (checkpointed) { (void)w.checkpoint_component(previous_component); }
         });
+        std::string refusal;
+        const auto refuse = [&](std::string reason) {
+            if (!hosted) { throw std::invalid_argument(reason); }
+            if (refusal.empty()) { refusal = std::move(reason); }
+        };
 
         std::vector<WiringPortRef> wrapped;
         wrapped.reserve(inputs.size());
         for (const WiringNamedPortRef &input : inputs)
         {
-            if (checkpointed)
+            if (checkpointed && ts_checkpoint_schema_contains_reference(input.source.schema))
+            {
+                refuse("component checkpoint: inputs must expose dereferenced time-series values");
+            }
+            else if (checkpointed)
             {
                 wrapped.push_back(component_detail::checkpoint_boundary(w, input.source, input.name));
                 continue;
@@ -344,8 +360,17 @@ namespace hgraph::stdlib
             compose, std::span<const WiringPortRef>{wrapped.data(), wrapped.size()});
 
         if (checkpointed && !out.is_unbound_source() && ts_checkpoint_schema_contains_reference(out.schema))
-            throw std::invalid_argument("component checkpoint: references cannot escape the component output");
-        if (checkpointed) { w.checkpoint_component_output(out); }
+            refuse("component checkpoint: references cannot escape the component output");
+        if (checkpointed && refusal.empty())
+        {
+            if (!hosted) { w.checkpoint_component_output(out); }
+            else
+            {
+                try { w.checkpoint_component_output(out); }
+                catch (const std::invalid_argument &error) { refuse(error.what()); }
+            }
+        }
+        if (!refusal.empty()) { w.refuse_checkpoint_component(refusal); }
 
         if (!out.is_unbound_source())
         {

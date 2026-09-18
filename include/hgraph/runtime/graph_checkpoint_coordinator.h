@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace hgraph
 {
@@ -18,13 +19,18 @@ namespace hgraph
         [[nodiscard]] static GraphCheckpointSelection whole_graph();
         /** The nodes ``component``, or a component nested inside it, owns. */
         [[nodiscard]] static GraphCheckpointSelection owned_by(std::string component);
+        /** A component hosted in a worker graph, together with the runtime's
+         * own boundary nodes (``worker_boundary_checkpoint_scope``): those hold
+         * the input baselines, and are not the user's. An empty ``component``
+         * is the whole graph, which is how the two travel in one frame field. */
+        [[nodiscard]] static GraphCheckpointSelection hosted(std::string_view component);
 
-        [[nodiscard]] bool whole() const noexcept { return component_.empty(); }
+        [[nodiscard]] bool whole() const noexcept { return roots_.empty(); }
         /** ``owner`` is a node's ``NodeCheckpointIdentity::component``. */
         [[nodiscard]] bool selects(std::string_view owner) const noexcept;
 
       private:
-        std::string component_{};
+        std::vector<std::string> roots_{};
     };
 
     /** The graph-image mechanics of RFC 0023: capture, static validation, the

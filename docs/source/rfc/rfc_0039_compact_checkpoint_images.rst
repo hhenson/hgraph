@@ -445,6 +445,75 @@ child graphs.
 ``spawn``
 ~~~~~~~~~
 
+**What recovers is a component inside a stage, not the stage** (ruling
+2026-09-18). A stage is a graph the user wrote; the recoverable unit inside it is
+the same one as anywhere else, a ``component``. Everything else in the stage is
+*processed*, not recovered -- above all the sink the pipeline ends in, which acts
+in a worker process and whose effect no checkpoint could replay. An earlier
+draft of this section, and the first implementation, took the whole stage graph
+as the unit. That dragged the sink into the contract, demanded that it declare
+itself recoverable, and left a Python pipeline unrecoverable because a Python
+sink had no way to say so. The unit was wrong, not the sink.
+
+So the recovery configuration names a component, and that component is wired
+*inside* a stage:
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered
+
+   @graph
+   def stage(ticks: TS[float]):
+       publish(pricing(ticks))                          # publish: processed
+
+   spawn_(stage, ticks)
+
+Three things make that work.
+
+*A worker graph wires its components as identity scopes, always.* It already
+carries identities always, for the same reason: the owner and the stage's
+process each wire the graph for themselves and have to agree without being told.
+Where a configured component would refuse to wire -- a reference in an input, a
+reference escaping the output -- a worker scope records the refusal on the
+component's nodes instead, as it does for a single node.
+
+*The* ``spawn_`` *node stands in for the component in the owner graph.* At wiring
+it looks for the configured component among its stages' nodes. If a stage hosts
+it, the ``spawn_`` node is wired in a *host scope* under that component's id, so
+the completed-day session finds a member exactly where it looks for one, and
+nothing else about the session changes. A host's inputs are external by
+definition -- they are whatever the owner graph feeds the pipeline -- so they
+are signed by schema and not held to a member's rule that inputs enter through
+a component boundary. The caller's contract is the component's usual one: a run
+supplies only future events.
+
+*A stage's image is selected, not whole.* It covers the component and the
+runtime's own boundary nodes -- the stage's sources and its output sink, wired
+under ``worker.boundary``. Those hold the input baselines and the output's
+observation state, they are not the user's, and restoring them is what lets a
+restored pipeline skip the first-capture baselines. The checkpoint and restore
+frames carry the component id; an empty id is the whole graph, which is what
+``dmap_`` sends. A node outside the component starts fresh on every run,
+bootstrap schedule and all.
+
+What this does not reach: a component nested under a ``map_`` inside the stage.
+The coordinator descends into a dynamic owner's children only when the owner is
+selected, and that ``map_`` is not.
+
+If ``spawn_`` is itself wired inside a recoverable component, the user has said
+the pipeline is part of that component, and every stage is captured whole as a
+member's children are. The same mechanism, with the empty selection.
+
+*Sinks.* A sink with no state, scheduler, global state or clock has nothing to
+capture, exactly as a compute node like it has nothing beyond its output. RFC
+0023 refused it anyway, to make the author acknowledge that recovery does not
+replay an effect. Placing it inside a component is that acknowledgement
+(ruling 2026-09-18): such a sink is a member like any other, and needs no
+declaration -- which is also why no Python API for one was added.
+
+The mechanics below are unchanged by any of this.
+
 RFC 0038 requires "a consistent frontier fence, graph checkpoints and channel
 cursor recovery". At the completed-day boundary the first is already true and
 the third is vacuous: the executor settles every stage (``next_time(true)``)
@@ -475,9 +544,11 @@ Three details the implementation settled:
   not tick. This is the "first" state the protocol section refers to; for
   ``spawn_`` it is real, and a test with a once-ticking side input pins it.
 
-The contract signature is the pipeline: every stage's node identities, in order.
-Stage bootstraps are left out on purpose -- they carry configuration, such as
-paths, that a restart is free to change.
+The contract signature is the selected nodes of every stage, in order: the
+hosted component's, or all of them when ``spawn_`` is a member. Stage bootstraps
+are left out on purpose -- they carry configuration, such as paths, that a
+restart is free to change -- and so, in the hosted form, is everything outside
+the component, which a restart is equally free to change.
 
 A spawned pipeline ends in a sink that acts in a worker process. RFC 0023's
 external-effect rule applies unchanged: the effect is outside the recoverable

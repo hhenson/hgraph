@@ -261,18 +261,39 @@ namespace hgraph::distributed
         return true;
     }
 
-    std::string encode_restore_frame(std::string_view image)
+    std::string encode_checkpoint_frame(std::string_view component)
     {
-        std::string out;
-        out.reserve(restore_frame_prefix.size() + image.size());
-        out.append(restore_frame_prefix).append(image);
+        std::string out{checkpoint_frame};
+        out.append(component);
         return out;
     }
 
-    std::optional<std::string_view> restore_frame_image(std::string_view frame) noexcept
+    std::optional<std::string_view> checkpoint_frame_component(std::string_view frame) noexcept
+    {
+        if (!frame.starts_with(checkpoint_frame)) { return std::nullopt; }
+        return frame.substr(checkpoint_frame.size());
+    }
+
+    std::string encode_restore_frame(std::string_view image, std::string_view component)
+    {
+        std::string out;
+        out.reserve(restore_frame_prefix.size() + 10 + component.size() + image.size());
+        out.append(restore_frame_prefix);
+        write_varint(component.size(), out);
+        out.append(component).append(image);
+        return out;
+    }
+
+    std::optional<RestoreFrame> decode_restore_frame(std::string_view frame)
     {
         if (!frame.starts_with(restore_frame_prefix)) { return std::nullopt; }
-        return frame.substr(restore_frame_prefix.size());
+        BinaryReader reader{frame, restore_frame_prefix.size()};
+        const auto length = read_varint(reader);
+        if (length > frame.size() - reader.offset)
+            throw std::runtime_error("distributed protocol: malformed restore frame");
+        const auto begin = reader.offset;
+        return RestoreFrame{frame.substr(begin, static_cast<std::size_t>(length)),
+                            frame.substr(begin + static_cast<std::size_t>(length))};
     }
 
     std::string encode_checkpoint_reply(std::string_view image)
@@ -340,16 +361,18 @@ namespace hgraph::distributed
         return ops;
     }
 
-    std::string capture_worker_image(const DistributedChildHost &host)
+    std::string capture_worker_image(const DistributedChildHost &host, std::string_view component)
     {
         std::string bytes;
-        encode_graph_checkpoint(host.capture(), bytes, host.graph().evaluation_time());
+        encode_graph_checkpoint(host.capture(GraphCheckpointSelection::hosted(component)), bytes,
+                                host.graph().evaluation_time());
         return bytes;
     }
 
-    DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time, std::string_view image)
+    DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time, std::string_view image,
+                                   std::string_view component)
     {
-        host.start_restored(start_time, decode_graph_checkpoint(image));
+        host.start_restored(start_time, decode_graph_checkpoint(image), GraphCheckpointSelection::hosted(component));
         return host.next_scheduled_time();
     }
 

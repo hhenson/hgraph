@@ -106,6 +106,22 @@ namespace hgraph
         bool     uses_scheduler{false};
         bool     uses_global_state{false};
         bool     uses_evaluation_clock{false};
+        /**
+         * True when the node holds nothing a checkpoint has to capture beyond
+         * its endpoints, so it needs no ``NodeCheckpointOps`` to be a component
+         * member (RFC 0023).
+         *
+         * A sink qualifies as a compute node does. It was refused once, to make
+         * its author acknowledge that recovery restores state and does not
+         * replay an effect; placing it inside a component is that
+         * acknowledgement (ruling 2026-09-18, RFC 0039). Sources still need
+         * operations: they hold cursors.
+         */
+        [[nodiscard]] bool checkpoints_without_ops() const noexcept
+        {
+            return (node_kind == NodeKind::Compute || node_kind == NodeKind::Sink) && state_schema == nullptr &&
+                   !uses_scheduler && !uses_global_state && !uses_evaluation_clock;
+        }
         // True when this node consumes and/or produces time-series values
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.

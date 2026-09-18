@@ -4,13 +4,21 @@ A ``dmap_`` owner's children live in worker processes, so its checkpoint is one
 graph image per worker (RFC 0039). The contract is the one every recoverable
 owner has: a run restarted at any completed day is indistinguishable from one
 that was never interrupted.
+
+For ``spawn_`` what recovers is a component INSIDE a stage. Everything else in
+the stage is processed, the pipeline's sink first of all: it acts in a worker
+process, no checkpoint could replay that, and it declares nothing.
 """
+
+import os
+import pickle
+from pathlib import Path
 
 import hgraph as hg
 import hgraph_persistence as persistence
 import pytest
 
-from .test_component_recovery_scenarios import CUTS, _run, compare_restarts, running_total
+from .test_component_recovery_scenarios import CUTS, _run, _source, compare_restarts, running_total
 from .test_reduce_recovery_scenarios import historical_combine
 
 
@@ -120,24 +128,113 @@ def test_dmap_over_an_unrecoverable_child_is_refused_at_wiring_and_still_runs_wi
 
 
 @hg.sink_node
-def discard(value: hg.TS[int]):
-    pass
+def record(value: hg.TS[int], path: str, clock: hg.CLOCK = None):
+    # An ordinary sink: it acts in the worker process, asks for the clock, and
+    # declares nothing about recovery. One file per process, so rows from the
+    # worker of each day stay apart until they are read back in time order.
+    with open(f"{path}.{os.getpid()}", "ab") as stream:
+        pickle.dump((clock.evaluation_time, value.value), stream)
 
 
-def test_spawn_ending_in_a_python_sink_is_refused_at_wiring_with_the_reason(tmp_path):
-    # A pipeline always ends in a sink, and a sink inside a recoverable boundary
-    # has to say that its effect is not made exactly-once by recovery (RFC 0023).
-    # A Python sink cannot say so yet, so a Python pipeline is refused at wiring
-    # -- naming the stage -- rather than failing the completed day it would
-    # otherwise reach.
-    @hg.component
-    def scenario(value: hg.TS[int]) -> hg.TS[int]:
-        hg.spawn_(discard, value)
-        return value
+@hg.component
+def running(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
 
-    store = persistence.ComponentCheckpointStore(tmp_path)
-    with pytest.raises(Exception, match=r"spawn_ worker 0 .* cannot be recovered"):
-        _run(scenario, (hg.TS[int],), hg.TS[int], ([None, 1, 2],), 0, store, None)
 
-    # Recovery not configured: the same pipeline wires and runs.
-    assert _run(scenario, (hg.TS[int],), hg.TS[int], ([None, 1, 2],), 0) == [None, 1, 2]
+@hg.graph
+def priced_and_published(ts: hg.TS[int], path: str) -> None:
+    # What recovers is the component. The sink beside it is processed.
+    record(running(ts), path=path)
+
+
+@hg.graph
+def priced(ts: hg.TS[int]) -> hg.TS[int]:
+    return running(ts)
+
+
+def _rows(path):
+    rows = []
+    for file in sorted(Path(path).parent.glob(Path(path).name + ".*")):
+        with file.open("rb") as stream:
+            while True:
+                try:
+                    rows.append(pickle.load(stream))
+                except EOFError:
+                    break
+    assert all(int(file.suffix[1:]) != os.getpid() for file in Path(path).parent.glob(Path(path).name + ".*"))
+    return sorted(rows)
+
+
+def _run_pipeline(pipeline, events, offset, store=None, previous=None):
+    source = _source(hg.TS[int], events, offset)
+
+    @hg.graph
+    def application() -> None:
+        hg.spawn_(pipeline, source())
+
+    with hg.GlobalState() as state:
+        if store is not None:
+            persistence.configure_component_recovery(
+                store, running.recordable_id, f"cut-{offset + len(events)}", previous,
+                revision="scenario-v1", global_state=state)
+        hg.eval_node(application, __start_time__=hg.MIN_ST + offset * hg.MIN_TD,
+                     __end_time__=hg.MIN_ST + (offset + len(events)) * hg.MIN_TD)
+
+
+PIPELINE_EVENTS = [None, 1, 2, None, 3, 4, None, 5]
+PIPELINES = {
+    "one-stage": lambda path: hg.bind_(priced_and_published, path=path),
+    "sink-in-the-next-stage": lambda path: hg.pipeline_([priced, hg.bind_(record, path=path)]),
+}
+
+
+@pytest.mark.parametrize("shape", list(PIPELINES))
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+def test_spawn_component_inside_a_stage_survives_restarts_and_its_sink_declares_nothing(tmp_path, cuts, shape):
+    expected_path, resumed_path = str(tmp_path / "expected"), str(tmp_path / "resumed")
+    _run_pipeline(PIPELINES[shape](expected_path), PIPELINE_EVENTS, 0)
+    expected = _rows(expected_path)
+    # Pinned so the comparison cannot pass on silence or on reset totals.
+    assert [value for _, value in expected] == [1, 3, 6, 10, 15]
+
+    previous, begin = None, 0
+    for end in (*cuts, len(PIPELINE_EVENTS)):
+        store = persistence.ComponentCheckpointStore(tmp_path / "store")
+        _run_pipeline(PIPELINES[shape](resumed_path), PIPELINE_EVENTS[begin:end], begin, store, previous)
+        previous = f"cut-{end}"
+        assert store.contains(previous)
+        begin = end
+    assert _rows(resumed_path) == expected
+
+
+def test_spawn_restarts_without_recovery_lose_the_component_and_the_sink_sees_it(tmp_path):
+    # The control for the test above: the same restarts with nothing configured.
+    path = str(tmp_path / "forgetful")
+    for begin, end in ((0, 3), (3, len(PIPELINE_EVENTS))):
+        _run_pipeline(PIPELINES["one-stage"](path), PIPELINE_EVENTS[begin:end], begin)
+    assert [value for _, value in _rows(path)] == [1, 3, 3, 7, 12]
+
+
+@hg.graph
+def forgetful_and_published(ts: hg.TS[int], path: str) -> None:
+    record(forgetful_component(ts), path=path)
+
+
+@hg.component
+def forgetful_component(ts: hg.TS[int]) -> hg.TS[int]:
+    return forgetful_total(ts)
+
+
+def test_spawn_with_an_unrecoverable_node_inside_the_hosted_component_is_refused_at_wiring(tmp_path):
+    source = _source(hg.TS[int], [None, 1], 0)
+
+    @hg.graph
+    def application() -> None:
+        hg.spawn_(hg.bind_(forgetful_and_published, path=str(tmp_path / "trace")), source())
+
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(
+            persistence.ComponentCheckpointStore(tmp_path / "store"), forgetful_component.recordable_id,
+            "cut-2", None, revision="scenario-v1", global_state=state)
+        with pytest.raises(Exception, match=r"spawn_ worker 0 .* cannot be recovered"):
+            hg.eval_node(application, __start_time__=hg.MIN_ST, __end_time__=hg.MIN_ST + 2 * hg.MIN_TD)

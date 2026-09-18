@@ -1293,6 +1293,19 @@ namespace hgraph
             the same identities without being told to. Call before adding a
             node. */
         void checkpoint_worker_graph();
+        /** True inside a worker graph: a component wired here is an identity
+            scope whether or not recovery is configured, and what it would
+            refuse is recorded (``refuse_checkpoint_component``). */
+        [[nodiscard]] bool checkpoint_records_refusals() const noexcept;
+        /** Record ``reason`` on every node of the current component scope that
+            has none. The worker-graph form of a component refusing to wire. */
+        void refuse_checkpoint_component(std::string_view reason);
+        /** Select a HOST scope for ``component_id``; returns the previous
+            scope, to be restored with ``checkpoint_component``. A host stands
+            in, in this graph, for a component hosted in a worker (RFC 0039):
+            its inputs are external by definition, so they are signed by
+            schema and not held to a member's input rule. */
+        std::string checkpoint_host(std::string component_id);
 
       private:
         friend class WiringObservationScope;

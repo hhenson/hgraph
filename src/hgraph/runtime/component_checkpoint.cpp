@@ -32,6 +32,12 @@ namespace hgraph
             .selects(component_id);
     }
 
+    std::optional<std::string> configured_recovery_component(GlobalStateView state)
+    {
+        if (!state.valid() || !state.contains(config_key)) { return std::nullopt; }
+        return state.get_as<ComponentRecoveryConfig>(config_key).component_id;
+    }
+
     // Completed-day policy only. The image mechanics are the coordinator's.
     struct ComponentRecoverySession::Impl
     {

@@ -82,7 +82,17 @@ completed-day client the executor owns: it selects one component
 `ComponentCheckpoint` envelope and publishes only after a successful stop. An
 externally driven executor is the other: `start_external_restored` and
 `capture_external` select the whole graph and carry no policy, which is what a
-worker-hosted graph needs.
+worker-hosted graph needs. Those verbs also take a selection: `dmap_` saves its
+workers whole, while `spawn_` saves the component a stage hosts
+(`GraphCheckpointSelection::hosted`) and stands in for it in the owner graph
+through a host scope (`Wiring::checkpoint_host`), so the session finds a member
+where it looks for one.
+
+A node needs no checkpoint operations when it holds nothing beyond its endpoints
+(`NodeTypeMetaData::checkpoints_without_ops`): a compute node or a sink with no
+state, scheduler, global state or clock. Sinks were refused until 2026-09-18;
+placement inside a component is the author's acknowledgement that recovery does
+not replay an effect.
 
 Recovery uses these phases:
 

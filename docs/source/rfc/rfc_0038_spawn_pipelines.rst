@@ -334,7 +334,10 @@ is a separate capability. External effects are not automatically exactly-once.
 RFC 0039 adds the one case that needs none of that machinery: recovery at a
 *completed-day* boundary. There the executor has already settled every stage,
 so the frontier fence holds and every channel is empty; the owner asserts that
-and saves one graph image per stage. A checkpoint taken *during* a run -- with
+and saves one image per stage. What those images hold is a ``component`` wired
+inside a stage -- the recoverable unit is the usual one -- and everything else
+in the stage, the terminal sink first of all, is processed rather than
+recovered. A checkpoint taken *during* a run -- with
 frames in flight -- still needs a real fence and channel cursors, and is still
 out of scope.
 

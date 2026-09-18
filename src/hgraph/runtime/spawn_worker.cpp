@@ -40,7 +40,8 @@ namespace hgraph
             // from the image it held at the last completed day.
             std::string opening;
             if (!channel.receive(opening)) throw std::runtime_error("spawn_: missing start frame");
-            if (const auto image = restore_frame_image(opening)) static_cast<void>(start_worker_restored(host, start, *image));
+            if (const auto restore = decode_restore_frame(opening))
+                static_cast<void>(start_worker_restored(host, start, restore->image, restore->component));
             else if (opening == start_frame) host.start(start);
             else throw std::runtime_error("spawn_: unknown start frame");
             if (host.graph().executor().stop_requested())
@@ -56,12 +57,12 @@ namespace hgraph
                     channel.send(encode_reply(plan.slots, CycleReply{}));
                     return true;
                 }
-                if (payload == checkpoint_frame)
+                if (const auto component = checkpoint_frame_component(payload))
                 {
                     // A stage that cannot capture says so and carries on: the
                     // refusal fails its owner's capture, not this graph.
                     std::string image;
-                    try { image = encode_checkpoint_reply(capture_worker_image(host)); }
+                    try { image = encode_checkpoint_reply(capture_worker_image(host, *component)); }
                     catch (const std::exception &error) { image = encode_checkpoint_error(error.what()); }
                     channel.send(image);
                     continue;

@@ -25,14 +25,16 @@ namespace hgraph::distributed::worker_checkpoint
         // supported, and what it maps may not be.
         struct Hosted
         {
-            std::string_view owner;
-            std::size_t      index;
+            std::string_view                owner;
+            std::size_t                     index;
+            const GraphCheckpointSelection *selection;
         };
         void require_recoverable(const GraphBuilder &graph, const Hosted &hosted)
         {
             for (const NodeBuilder &node : graph.nodes())
             {
                 const auto &identity = node.checkpoint_identity();
+                if (!hosted.selection->selects(identity.component)) { continue; }
                 if (identity.component.empty() || !identity.refusal.empty())
                 {
                     throw std::invalid_argument(fmt::format(
@@ -78,16 +80,30 @@ namespace hgraph::distributed::worker_checkpoint
     }
 
     void sign_worker_graph(manifest::CanonicalWriter &writer, const GraphBuilder &graph,
-                           std::string_view owner, std::size_t index)
+                           std::string_view owner, std::size_t index, const GraphCheckpointSelection &selection)
     {
-        require_recoverable(graph, Hosted{owner, index});
-        writer.varint(graph.node_count());
+        require_recoverable(graph, Hosted{owner, index, &selection});
+        std::size_t selected = 0;
+        for (const NodeBuilder &node : graph.nodes()) { selected += selection.selects(node.checkpoint_identity().component); }
+        writer.varint(selected);
         for (const NodeBuilder &node : graph.nodes())
         {
             const auto &identity = node.checkpoint_identity();
+            if (!selection.selects(identity.component)) { continue; }
+            writer.string_field(identity.component);
             writer.string_field(identity.id);
             writer.string_field(identity.signature);
         }
+    }
+
+    bool hosts_component(const GraphBuilder &graph, std::string_view component)
+    {
+        const auto selection = GraphCheckpointSelection::owned_by(std::string{component});
+        for (const NodeBuilder &node : graph.nodes())
+        {
+            if (selection.selects(node.checkpoint_identity().component)) { return true; }
+        }
+        return false;
     }
 
     void restore(const NodeView &node, const NodeCheckpointState &image, DateTime, const RestoreGraphCheckpoint &)

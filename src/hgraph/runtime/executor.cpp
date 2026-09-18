@@ -850,7 +850,7 @@ namespace hgraph
         // for a fresh start. One body: a restored start that drifted from the
         // fresh one would be a second start contract.
         void external_start(const GraphExecutorView &executor, DateTime start_time,
-                            const GraphCheckpointImage *restored)
+                            const GraphCheckpointImage *restored, const GraphCheckpointSelection &selection)
         {
             auto &state = simulation_storage(executor.data());
             auto  graph = state.graph.view();
@@ -879,7 +879,7 @@ namespace hgraph
                 run_executor_phase(state, GraphExecutorPhase::Start, [&] { graph.start(start_time); });
                 return;
             }
-            GraphCheckpointCoordinator coordinator{GraphCheckpointSelection::whole_graph()};
+            GraphCheckpointCoordinator coordinator{selection};
             state.lifecycle_observers.add(&coordinator);
             auto remove_coordinator = make_scope_exit([&] { state.lifecycle_observers.remove(&coordinator); });
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
@@ -892,16 +892,17 @@ namespace hgraph
 
         void external_start_impl(const void *, const GraphExecutorView &executor, DateTime start_time)
         {
-            external_start(executor, start_time, nullptr);
+            external_start(executor, start_time, nullptr, GraphCheckpointSelection::whole_graph());
         }
 
-        void external_start_restored_impl(const void *, const GraphExecutorView &executor,
-                                          DateTime start_time, const GraphCheckpointImage &image)
+        void external_start_restored_impl(const void *, const GraphExecutorView &executor, DateTime start_time,
+                                          const GraphCheckpointImage &image, const GraphCheckpointSelection &selection)
         {
-            external_start(executor, start_time, &image);
+            external_start(executor, start_time, &image, selection);
         }
 
-        GraphCheckpointImage external_capture_impl(const void *, const GraphExecutorView &executor)
+        GraphCheckpointImage external_capture_impl(const void *, const GraphExecutorView &executor,
+                                                   const GraphCheckpointSelection &selection)
         {
             auto &state = simulation_storage(executor.data());
             auto  graph = state.graph.view();
@@ -929,7 +930,7 @@ namespace hgraph
                 throw std::logic_error(
                     "GraphExecutorView::capture_external: the last cycle failed, so there is no completed cut");
             }
-            GraphCheckpointCoordinator coordinator{GraphCheckpointSelection::whole_graph()};
+            GraphCheckpointCoordinator coordinator{selection};
             return coordinator.capture(graph);
         }
 
@@ -1045,12 +1046,13 @@ namespace hgraph
         }
 
         void unsupported_external_start_restored_impl(const void *, const GraphExecutorView &, DateTime,
-                                                      const GraphCheckpointImage &)
+                                                      const GraphCheckpointImage &, const GraphCheckpointSelection &)
         {
             refuse_external("start_external_restored");
         }
 
-        GraphCheckpointImage unsupported_external_capture_impl(const void *, const GraphExecutorView &)
+        GraphCheckpointImage unsupported_external_capture_impl(const void *, const GraphExecutorView &,
+                                                               const GraphCheckpointSelection &)
         {
             refuse_external("capture_external");
         }
@@ -1860,14 +1862,25 @@ namespace hgraph
 
     void GraphExecutorView::start_external_restored(DateTime start_time, const GraphCheckpointImage &image) const
     {
-        const auto &ops = external_ops(*this, "start_external_restored");
-        ops.external_start_restored_impl(ops.context, *this, start_time, image);
+        start_external_restored(start_time, image, GraphCheckpointSelection::whole_graph());
     }
 
     GraphCheckpointImage GraphExecutorView::capture_external() const
     {
+        return capture_external(GraphCheckpointSelection::whole_graph());
+    }
+
+    void GraphExecutorView::start_external_restored(DateTime start_time, const GraphCheckpointImage &image,
+                                                    const GraphCheckpointSelection &selection) const
+    {
+        const auto &ops = external_ops(*this, "start_external_restored");
+        ops.external_start_restored_impl(ops.context, *this, start_time, image, selection);
+    }
+
+    GraphCheckpointImage GraphExecutorView::capture_external(const GraphCheckpointSelection &selection) const
+    {
         const auto &ops = external_ops(*this, "capture_external");
-        return ops.external_capture_impl(ops.context, *this);
+        return ops.external_capture_impl(ops.context, *this, selection);
     }
 
     void GraphExecutorView::run() const

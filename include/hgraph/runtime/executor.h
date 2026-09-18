@@ -25,6 +25,7 @@ namespace spdlog
 
 namespace hgraph
 {
+    class GraphCheckpointSelection;
     namespace detail
     {
         struct GraphExecutorPhaseActionAccess;
@@ -144,10 +145,10 @@ namespace hgraph
         // Whole-graph recovery of a stepped graph (RFC 0039). Same rule: every
         // mode binds them, and the looping modes bind the refusal.
         void (*external_start_restored_impl)(const void *context, const GraphExecutorView &executor,
-                                             DateTime start_time,
-                                             const GraphCheckpointImage &image) = nullptr;
-        GraphCheckpointImage (*external_capture_impl)(const void *context,
-                                                      const GraphExecutorView &executor) = nullptr;
+                                             DateTime start_time, const GraphCheckpointImage &image,
+                                             const GraphCheckpointSelection &selection) = nullptr;
+        GraphCheckpointImage (*external_capture_impl)(const void *context, const GraphExecutorView &executor,
+                                                      const GraphCheckpointSelection &selection) = nullptr;
         void (*request_stop_impl)(const void *context, void *memory) noexcept = nullptr;
         /** One-shot cycle-boundary notification (2026-08-01): ``before``
             selects the FIFO queue drained just before the next root
@@ -364,6 +365,13 @@ namespace hgraph
          */
         void start_external_restored(DateTime start_time, const GraphCheckpointImage &image) const;
         [[nodiscard]] GraphCheckpointImage capture_external() const;
+        /** The same, for the part of the graph ``selection`` names. Nodes it
+         * leaves out are neither captured nor restored: they start fresh,
+         * bootstrap schedule and all, and a schedule they leave pending does
+         * not stop a capture. */
+        void start_external_restored(DateTime start_time, const GraphCheckpointImage &image,
+                                     const GraphCheckpointSelection &selection) const;
+        [[nodiscard]] GraphCheckpointImage capture_external(const GraphCheckpointSelection &selection) const;
         void request_stop() const noexcept;
 
       private:

@@ -187,13 +187,14 @@ namespace hgraph::distributed
         {
             // Failures are reported, not thrown: the caller is in another
             // process and can only learn of them through a reply.
-            if (const auto image = restore_frame_image(payload))
+            if (payload.starts_with(restore_frame_prefix))
             {
                 CycleReply reply;
                 try
                 {
                     if (started) { throw std::logic_error("a restore must be the first frame"); }
-                    reply.next_scheduled_time = start_worker_restored(host, start_time, *image);
+                    const auto restore = *decode_restore_frame(payload);
+                    reply.next_scheduled_time = start_worker_restored(host, start_time, restore.image, restore.component);
                     started                   = true;
                 }
                 catch (const std::exception &error)
@@ -212,10 +213,10 @@ namespace hgraph::distributed
                 host.start(start_time);
                 started = true;
             }
-            if (payload == checkpoint_frame)
+            if (const auto component = checkpoint_frame_component(payload))
             {
                 std::string reply;
-                try { reply = encode_checkpoint_reply(capture_worker_image(host)); }
+                try { reply = encode_checkpoint_reply(capture_worker_image(host, *component)); }
                 catch (const std::exception &error)
                 {
                     reply = encode_checkpoint_error(fmt::format("distributed worker: {}", error.what()));

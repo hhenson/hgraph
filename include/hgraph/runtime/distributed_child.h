@@ -29,6 +29,7 @@
 #include <hgraph/runtime/distributed_boundary.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/global_state.h>
+#include <hgraph/runtime/graph_checkpoint_coordinator.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -178,14 +179,19 @@ namespace hgraph::distributed
          * already hold their baselines, so the first cycle stages deltas, not
          * a full image.
          */
-        void start_restored(DateTime start_time, const GraphCheckpointImage &image)
+        void start_restored(DateTime start_time, const GraphCheckpointImage &image,
+                            const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph())
         {
-            executor_.view().start_external_restored(start_time, image);
+            executor_.view().start_external_restored(start_time, image, selection);
             locate_boundary_sources();
         }
 
-        /** The whole graph's image at the last completed cycle. */
-        [[nodiscard]] GraphCheckpointImage capture() const { return executor_.view().capture_external(); }
+        /** The image of ``selection`` -- by default the whole graph -- at the last completed cycle. */
+        [[nodiscard]] GraphCheckpointImage capture(
+            const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph()) const
+        {
+            return executor_.view().capture_external(selection);
+        }
 
         /** Stage one boundary input for the next prepared cycle. */
         void stage(std::string_view slot, const ValueView &delta) const
@@ -279,10 +285,14 @@ namespace hgraph::distributed
      * RFC 0037's attribution property: if the two modes disagree after a
      * restore, the fault is in the transport.
      */
-    [[nodiscard]] HGRAPH_EXPORT std::string capture_worker_image(const DistributedChildHost &host);
+    /** ``component`` names the component the image covers
+     * (``GraphCheckpointSelection::hosted``); empty is the whole graph. */
+    [[nodiscard]] HGRAPH_EXPORT std::string capture_worker_image(const DistributedChildHost &host,
+                                                                 std::string_view component = {});
     /** Start ``host`` from ``image`` and report what the restored graph wants next. */
     [[nodiscard]] HGRAPH_EXPORT DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time,
-                                                               std::string_view image);
+                                                               std::string_view image,
+                                                               std::string_view component = {});
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_CHILD_H
