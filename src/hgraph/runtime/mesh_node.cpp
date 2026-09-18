@@ -136,6 +136,31 @@ struct MeshNodeStorage final : SlotObserver {
   // depends_on -> set of keys that depend on it (reverse edges).
   ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
       dependents{};
+  // requester -> the keys it depends on: the mirror of ``dependents``, so that
+  // removing an instance visits its own edges rather than every dependency in
+  // the mesh. The two maps change together, and only through add_edge,
+  // remove_edge and remove_requester_edges.
+  ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
+      dependencies{};
+
+  void add_edge(const Value &depends_on, const Value &requester) {
+    dependents[depends_on].insert(requester);
+    dependencies[requester].insert(depends_on);
+  }
+
+  /** True when ``depends_on`` lost its last dependent and left the map. */
+  bool remove_edge(const ValueView &depends_on, const ValueView &requester) {
+    auto it = dependents.find(depends_on);
+    if (it == dependents.end()) { return false; }
+    it->second.erase(value_impl::graph_local_value(requester));
+    if (auto forward = dependencies.find(requester); forward != dependencies.end()) {
+      forward->second.erase(value_impl::graph_local_value(depends_on));
+      if (forward->second.empty()) { dependencies.erase(forward); }
+    }
+    if (!it->second.empty()) { return false; }
+    dependents.erase(it);
+    return true;
+  }
 
   std::vector<Value>
       graphs_to_remove{}; // lost a dependent; remove if unreferenced
@@ -242,6 +267,7 @@ struct MeshNodeStorage final : SlotObserver {
     }
     entries.destroy_all();
     dependents.clear();
+    dependencies.clear();
     graphs_to_remove.clear();
     outer_sources.clear();
     refresh_all_bindings = false;
@@ -656,15 +682,22 @@ void queue_graph_removal(MeshNodeStorage &storage, const ValueView &key) {
   storage.graphs_to_remove.push_back(value_impl::graph_local_value(key));
 }
 
+// Walks the requester's own edges. Sweeping every dependency in the mesh for
+// it made removing k instances cost k times the number of dependencies.
 void remove_requester_edges(MeshNodeStorage &storage,
                             const ValueView &requester) {
-  for (auto it = storage.dependents.begin(); it != storage.dependents.end();) {
-    it->second.erase(value_impl::graph_local_value(requester));
+  auto forward = storage.dependencies.find(requester);
+  if (forward == storage.dependencies.end()) { return; }
+  const ValueSet depends_on = std::move(forward->second);
+  storage.dependencies.erase(forward);
+  const Value local_requester = value_impl::graph_local_value(requester);
+  for (const Value &dependency : depends_on) {
+    auto it = storage.dependents.find(dependency);
+    if (it == storage.dependents.end()) { continue; }
+    it->second.erase(local_requester);
     if (it->second.empty()) {
       queue_graph_removal(storage, it->first.view());
-      it = storage.dependents.erase(it);
-    } else {
-      ++it;
+      storage.dependents.erase(it);
     }
   }
 }
@@ -727,6 +760,7 @@ void stop_and_clear_all_instances(const NodeView &view,
     }
   }
   storage.dependents.clear();
+  storage.dependencies.clear();
   storage.graphs_to_remove.clear();
   storage.evaluation_candidates.reset();
   storage.evaluation_order.clear();
@@ -1648,8 +1682,8 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
   }
   storage.instance_keys->restore_free_slots(free);
   for (auto [dependency, requester] : edges) {
-    storage.dependents[storage.entries.entry_at(dependency)->key].insert(
-        storage.entries.entry_at(requester)->key);
+    storage.add_edge(storage.entries.entry_at(dependency)->key,
+                     storage.entries.entry_at(requester)->key);
   }
   for (auto slot : pending) { storage.graphs_to_remove.push_back(storage.entries.entry_at(slot)->key); }
   storage.max_rank = static_cast<int>(max_rank);
@@ -1955,8 +1989,8 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   const auto &context = *static_cast<const MeshNodeContext *>(context_);
   const DateTime t = view_.graph().evaluation_time();
 
-  storage.dependents[value_impl::graph_local_value(depends_on)].insert(
-      value_impl::graph_local_value(key));
+  storage.add_edge(value_impl::graph_local_value(depends_on),
+                   value_impl::graph_local_value(key));
 
   MeshEntry *key_entry = storage.find(key);
   if (key_entry == nullptr) {
@@ -2000,14 +2034,10 @@ bool MeshNodeView::add_dependency(const ValueView &key,
 void MeshNodeView::remove_dependency(const ValueView &key,
                                      const ValueView &depends_on) const {
   auto &storage = *MemoryUtils::cast<MeshNodeStorage>(storage_);
-  auto it = storage.dependents.find(depends_on);
-  if (it == storage.dependents.end()) {
-    return;
-  }
-  it->second.erase(value_impl::graph_local_value(key));
-  if (it->second.empty()) {
-    queue_graph_removal(storage, depends_on);
-    storage.dependents.erase(it);
+  // Queue before the edge goes: ``depends_on`` may be the map's own key.
+  const Value dependency = value_impl::graph_local_value(depends_on);
+  if (storage.remove_edge(dependency.view(), key)) {
+    queue_graph_removal(storage, dependency.view());
   }
 }
 
