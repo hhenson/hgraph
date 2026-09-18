@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -542,6 +543,100 @@ namespace
         }
     };
 
+    struct RefBundlePassThrough
+    {
+        static constexpr auto name = "ref_bundle_pass_through";
+
+        static void eval(In<"bundle", SwitchSignalBundle> bundle,
+                         Out<REF<SwitchSignalBundle>> out)
+        {
+            out.set(bundle.base().reference());
+        }
+    };
+
+    struct ForwardingBundleNodeTag
+    {
+    };
+
+    [[nodiscard]] NodeBuilder forwarding_bundle_node_builder()
+    {
+        const auto *bundle = ts_type<SwitchSignalBundle>();
+        const auto *p1 = ts_type<TS<Int>>();
+        const auto *p2 = ts_type<TS<Str>>();
+        const auto *input = TypeRegistry::instance().un_named_tsb(
+            {{"p1", p1}, {"p2", p2}});
+
+        NodeTypeMetaData meta;
+        meta.display_name = "forwarding_bundle_node";
+        meta.input_schema = input;
+        meta.output_schema = bundle;
+        meta.output_endpoint_schema = forwarding_output_endpoint_schema(bundle);
+
+        NodeCallbacks callbacks;
+        callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
+            auto input = view.input(evaluation_time);
+            auto inputs = input.as_bundle();
+            auto output = view.output(evaluation_time);
+            bind_forwarding_output_to_source(
+                output.indexed_child_at(0), inputs[0].bound_output());
+            bind_forwarding_output_to_source(
+                output.indexed_child_at(1), inputs[1].bound_output());
+        };
+        return NodeBuilder::native(
+            std::move(meta), std::move(callbacks),
+            TSEndpointSchema::non_peered(
+                input, {TSEndpointSchema::peered(p1),
+                        TSEndpointSchema::peered(p2)}));
+    }
+
+    struct ForwardingBundleBranch
+    {
+        static constexpr auto name = "forwarding_bundle_branch";
+
+        static Port<SwitchSignalBundle> compose(Wiring &w,
+                                                Port<TS<Int>> p1,
+                                                Port<TS<Str>> p2)
+        {
+            const std::array<WiringPortRef, 2> inputs{p1.erased(), p2.erased()};
+            auto output = w.add_node(
+                std::type_index(typeid(ForwardingBundleNodeTag)),
+                forwarding_bundle_node_builder(), inputs, Value{});
+            return Port<SwitchSignalBundle>{w, std::move(output)};
+        }
+    };
+
+    struct ReferencedBundleBranch
+    {
+        static constexpr auto name = "referenced_bundle_branch";
+
+        static Port<REF<SwitchSignalBundle>> compose(Wiring &w,
+                                                     Port<TS<Int>> p1,
+                                                     Port<TS<Str>> p2)
+        {
+            return wire<RefBundlePassThrough>(
+                w, stdlib::to_tsb<SwitchSignalBundle>(w, p1, p2));
+        }
+    };
+
+    struct ForwardingBundleInRefSwitchGraph
+    {
+        static constexpr auto name = "forwarding_bundle_in_ref_switch_graph";
+
+        static Port<SwitchSignalBundle> compose(Wiring &w,
+                                                Port<TS<Bool>> reference,
+                                                Port<TS<Int>> p1,
+                                                Port<TS<Str>> p2)
+        {
+            return wire<stdlib::switch_, REF<SwitchSignalBundle>>(
+                       w, reference,
+                       stdlib::switch_cases(
+                           {{Value{false}, fn<ForwardingBundleBranch>()},
+                            {Value{true}, fn<ReferencedBundleBranch>()}}),
+                       p1, p2)
+                .as<SwitchSignalBundle>();
+        }
+    };
+
     struct ConstantBundleBranch
     {
         static constexpr auto name = "constant_bundle_branch";
@@ -1022,6 +1117,21 @@ TEST_CASE("switch_: a direct structural branch samples held bundle values on act
                                tsb_delta<SwitchSignalBundle>(Int{20}, Str{"b"}),
                                tsb_delta<SwitchSignalBundle>(Int{1}, Str{"fixed"}),
                                tsb_delta<SwitchSignalBundle>(Int{40}, Str{"d"})));
+}
+
+TEST_CASE("switch_: a REF-shaped outer switch preserves a forwarding value terminal")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<ForwardingBundleInRefSwitchGraph>(
+                     values<Bool>(false, true, false),
+                     values<Int>(7, 8, 9),
+                     values<Str>(Str{"value"}, Str{"reference"}, Str{"value-again"})),
+                 values<Value>(
+                     tsb_delta<SwitchSignalBundle>(Int{7}, Str{"value"}),
+                     tsb_delta<SwitchSignalBundle>(Int{8}, Str{"reference"}),
+                     tsb_delta<SwitchSignalBundle>(Int{9}, Str{"value-again"})));
 }
 
 TEST_CASE("switch_: structural branch inputs adapt covariant child fields")
