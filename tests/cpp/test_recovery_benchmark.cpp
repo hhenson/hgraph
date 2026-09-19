@@ -136,11 +136,14 @@ namespace
         std::optional<ComponentCheckpoint>      completed;
         using Clock = std::chrono::steady_clock;
         std::vector<Phases> *phases = nullptr;
+        bool                 keep = false;
         // ``previous`` is MOVED into the run, as a store hands over a decoded image. The
         // harness used to copy it three times inside the clock (a by-value parameter, the
         // load lambda's capture, its return) and copy every captured image in commit; those
         // deep copies of an N-child image, and freeing them, were charged to restore and
-        // save. The caller now stages one copy per repetition before the clock starts.
+        // save. The caller now stages one copy per repetition before the clock starts, and
+        // the image itself comes from one UNTIMED run (``keep``): a copy in one of five timed
+        // repetitions is not reliably dropped by their median.
         const auto day = [&](std::size_t begin, const std::vector<std::optional<Value>> &events, bool recover,
                              std::optional<ComponentCheckpoint> *previous) {
             const auto               started = Clock::now();
@@ -157,7 +160,7 @@ namespace
                         },
                         .commit = [&](const auto &image) {
                             committed = Clock::now();
-                            if (!completed) { completed = image; } // Once: the median drops that repetition.
+                            if (keep) { completed = image; }
                         }});
                 }
                 (void)eval_node_with_options<Graph>(interval(begin, begin + 1), events);
@@ -178,6 +181,9 @@ namespace
         Row row{.keys = keys};
         std::vector<Phases> busy_phases, quiet_phases;
         const double busy_plain = median_ms([&] { day(0, first, false, nullptr); });
+        keep = true;
+        day(0, first, true, nullptr);
+        keep = false;
         phases = &busy_phases;
         const double busy_saved = median_ms([&] { day(0, first, true, nullptr); });
         phases = nullptr;
