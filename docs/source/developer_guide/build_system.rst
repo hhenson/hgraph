@@ -98,7 +98,10 @@ the list). They are outside the registration budget — a packaged build
 (``BUILD_TESTING=OFF``) never compiles them — and they set the parallelism
 of the ``BUILD_TESTING=ON`` workflow jobs: two jobs on the 7 GB macOS
 runners, four on the 16 GB Linux runners. Splitting the largest suites by
-operator family would let those jobs use every core.
+operator family would let those jobs use every core. The
+:ref:`self-hosted Linux runner <self-hosted-linux-runner>` does not have that
+constraint and builds with every core: a full ``BUILD_TESTING=ON`` build with
+all extensions at 128 parallel jobs measured about 75 GB peak.
 
 Version Header
 --------------
@@ -169,6 +172,58 @@ machine on 26 or later compiles such code happily, so only the wheel job, which
 pins the target, ever saw the error. With the floor at 26 the wheel is built
 against the same library surface developers and the ``macos-26`` native leg
 already use.
+
+.. _self-hosted-linux-runner:
+
+Self-hosted Linux runner
+------------------------
+
+The heavy Linux validation jobs can run on a self-hosted build host instead of
+GitHub's hosted runners. Routing is opt-in: unless the repository variable
+``HGRAPH_SELF_HOSTED`` is ``true``, every job stays on ``ubuntu-24.04``.
+Clearing it is also the fallback when the host is down, because a job aimed
+at an offline self-hosted runner waits in the queue rather than failing over.
+
+The routed jobs are the Linux legs of ``native-cpp`` and ``language``,
+``native-shared-install``, the docs ``doctest``, the packaging ``container``
+image, and the nightly parity ``build-candidate``. Each selects its runner
+with the same expression (the matrix jobs also require
+``matrix.os == 'ubuntu-24.04'`` and fall back to ``matrix.os``)::
+
+   runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true'
+                && !github.event.pull_request.head.repo.fork
+                && fromJSON('["self-hosted","linux","x64","hg-build"]')
+                || 'ubuntu-24.04' }}
+
+The build steps in those jobs use every core when ``runner.environment`` is
+``self-hosted`` and keep the hosted ``--parallel`` values otherwise. Test
+parallelism is the same on both.
+
+Release artifacts never come from the self-hosted host. ``release-wheels.yml``
+is not routed at all, because a tag publishes the wheels that the push run of
+the same commit built (``reuse-build``). Routing that push build would
+therefore route the release. The parity campaign shards and every job with a
+write scope also stay on hosted runners.
+
+Two independent checks keep fork pull requests off the host. The routing
+expression sends them to a hosted runner, but a ``pull_request`` run uses the
+workflow file from the pull request itself, so a fork could edit that
+expression. The host therefore also runs a job-started hook
+(``ACTIONS_RUNNER_HOOK_JOB_STARTED``). The hook rejects every job except a
+``push``, ``workflow_dispatch`` or ``schedule`` event of this repository, or
+a pull request whose head branch is in this repository. The repository also
+requires approval before workflows run for any outside contributor.
+
+The runner account cannot install software, so the host provides:
+
+- an unprivileged runner account registered with the ``hg-build`` label;
+- GCC 14 as ``gcc-14``/``g++-14`` and ``pipx`` on ``PATH``, which the
+  workflows assume as they do on GitHub's image;
+- rootless Docker for the runner account, reachable through ``DOCKER_HOST``,
+  for the container jobs and the S3 and Kafka conformance services;
+- the job-started hook, owned by root so the runner account cannot modify it;
+- CPU, I/O and memory limits on the runner service and the runner account's
+  slice, so CI yields to interactive work on the host.
 
 Downstream Native Extensions
 ----------------------------
