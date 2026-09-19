@@ -427,9 +427,10 @@ that is there -- with quiet cycles, and keys that leave and return.
   two moments recovery calls out -- ``load`` (the graph is built) and
   ``commit`` (it has been captured and stopped) -- into ``build``, ``run`` and
   ``destroy``, because a difference of medians cannot say which part grew. The
-  image a day restores from is staged before the clock starts and handed over
-  by move, as a store does; copies made inside the clock once inflated the
-  restore figure by a fifth to two fifths. Results: ``benchmarks/results/recovery-*``.
+  image a day restores from comes from an untimed run, is staged before the
+  clock starts and is handed over by move, as a store does; copies made inside
+  the clock once inflated the restore figure by up to a half and changed which
+  phase appeared to grow. Results: ``benchmarks/results/recovery-*``.
 
 .. code-block:: bash
 
