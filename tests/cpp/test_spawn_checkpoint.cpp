@@ -57,7 +57,8 @@ namespace
             return value;
         }
     };
-    /** The other nesting: ``spawn_`` is itself a member of a recoverable component. */
+    /** The other nesting: ``spawn_`` is itself a member of a recoverable component, so every
+        stage is saved whole -- and its sink, having no recordable state, is transient there too. */
     template <typename Stage> struct MemberPipeline
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
@@ -69,7 +70,7 @@ namespace
                 [&](std::span<const WiringPortRef> ports) -> WiringPortRef {
                     std::array arguments{input_arg(ports[0])};
                     wire_spawn(w, pipeline_({test_stage<Identity<TS<Int>>>(), test_stage<Stage>(),
-                                             test_stage<RecoverableSink>(trace.value())}),
+                                             test_stage<Sink<TS<Int>>>(trace.value())}),
                                arguments, process_config());
                     return ports[0];
                 });

@@ -1234,12 +1234,6 @@ struct py_sink_node {
   static constexpr std::string_view implementation_label = "hgraph.python.sink";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
-  // The bridge's injectable tuple is broad; the user's signature is what the
-  // managed signature validates. A sink whose signature asks for no local
-  // state or runtime service is a member like any other (RFC 0039).
-  static const NodeCheckpointOps &checkpoint_ops() noexcept {
-    return py_managed_checkpoint_ops();
-  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,

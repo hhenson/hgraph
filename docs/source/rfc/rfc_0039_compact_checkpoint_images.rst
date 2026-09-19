@@ -505,12 +505,32 @@ If ``spawn_`` is itself wired inside a recoverable component, the user has said
 the pipeline is part of that component, and every stage is captured whole as a
 member's children are. The same mechanism, with the empty selection.
 
-*Sinks.* A sink with no state, scheduler, global state or clock has nothing to
-capture, exactly as a compute node like it has nothing beyond its output. RFC
-0023 refused it anyway, to make the author acknowledge that recovery does not
-replay an effect. Placing it inside a component is that acknowledgement
-(ruling 2026-09-18): such a sink is a member like any other, and needs no
-declaration -- which is also why no Python API for one was added.
+*Sinks* (ruling 2026-09-19). A sink may sit inside a component, and what
+recovery does with it depends on one thing:
+
+* **With recordable state it is recovered**, through that state: it is a member,
+  and its recordable state and input observation state are in the image.
+* **Without, it is transient**: inside the scope, outside the image *and* the
+  contract. It starts fresh on every run; it has no id, so adding, removing or
+  changing one never refuses a checkpoint; and whatever it holds -- ordinary
+  state, a scheduler, the clock -- is its own business.
+
+This is safe for a sink and for nothing else, because a sink has no output:
+nothing inside the recovered graph can observe what it forgot. A compute node
+that lost its ``State`` would change values downstream. Recordable state is how
+a sink's author marks what must survive, and no other declaration exists or is
+needed -- which is also why no Python API for one was added. RFC 0023 refused a
+sink outright, to make its author acknowledge that recovery does not replay an
+effect; that acknowledgement is now implicit in the rule.
+
+*A sink's schedule is its own, in both cases.* A pending alarm does not block a
+capture, and a restored sink keeps the schedule its start hook set. Both are
+things the coordinator does to every other restored node, and either would
+break a periodic flush: it would never re-arm. A sink re-evaluating cannot
+disturb the graph, so there is nothing to protect.
+
+A sink that declares ``NodeCheckpointOps`` -- a boundary sink, or an owner of
+worker graphs, which is a sink by kind -- is what its operations say.
 
 The mechanics below are unchanged by any of this.
 

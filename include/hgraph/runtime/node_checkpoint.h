@@ -59,6 +59,10 @@ namespace hgraph
         /** Why this node cannot be checkpointed, recorded by a worker-graph
          * scope where a component scope would have refused to wire it. */
         std::string refusal{};
+        /** A sink with no recordable state (``checkpoint_transient``): inside
+         * the scope, outside the image and the contract. It has no id, so it
+         * can be added, removed or changed without disturbing anyone else's. */
+        bool transient{false};
     };
 
     struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint

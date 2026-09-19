@@ -1585,6 +1585,11 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   manifest::CanonicalWriter signature;
   const auto *schema = builder.type().schema();
   const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
+  // A transient sink is inside the scope and outside the contract: no id to
+  // consume an ordinal, nothing signed, nothing about it that can refuse.
+  if (!checkpoint_ops.supported && schema->checkpoint_transient()) {
+    return {.component = impl_->checkpoint_component, .transient = true};
+  }
   if (schema->captures_errors) {
     throw std::invalid_argument("component checkpoint: error capture is unsupported; failed evaluations must abort the completed day");
   }
@@ -1647,9 +1652,13 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   builder.visit_child_graphs(&signature, [](void *context, ChildGraphInspectionView child) {
     auto &writer = *static_cast<manifest::CanonicalWriter *>(context);
     if (child.graph == nullptr) { throw std::invalid_argument("component checkpoint: missing child plan"); }
-    writer.varint(child.graph->node_count());
+    // Transient sinks are no part of the contract, not even by their number.
+    std::size_t signed_nodes = 0;
+    for (const auto &node : child.graph->nodes()) { signed_nodes += !node.checkpoint_identity().transient; }
+    writer.varint(signed_nodes);
     for (const auto &node : child.graph->nodes()) {
       const auto &identity = node.checkpoint_identity();
+      if (identity.transient) { continue; }
       if (identity.component.empty()) { throw std::invalid_argument("component checkpoint: child outside managed ownership"); }
       writer.string_field(identity.component);
       writer.string_field(identity.id);

@@ -34,7 +34,7 @@ namespace hgraph::distributed::worker_checkpoint
             for (const NodeBuilder &node : graph.nodes())
             {
                 const auto &identity = node.checkpoint_identity();
-                if (!hosted.selection->selects(identity.component)) { continue; }
+                if (identity.transient || !hosted.selection->selects(identity.component)) { continue; }
                 if (identity.component.empty() || !identity.refusal.empty())
                 {
                     throw std::invalid_argument(fmt::format(
@@ -84,12 +84,15 @@ namespace hgraph::distributed::worker_checkpoint
     {
         require_recoverable(graph, Hosted{owner, index, &selection});
         std::size_t selected = 0;
-        for (const NodeBuilder &node : graph.nodes()) { selected += selection.selects(node.checkpoint_identity().component); }
+        const auto in_contract = [&](const NodeCheckpointIdentity &identity) {
+            return !identity.transient && selection.selects(identity.component);
+        };
+        for (const NodeBuilder &node : graph.nodes()) { selected += in_contract(node.checkpoint_identity()); }
         writer.varint(selected);
         for (const NodeBuilder &node : graph.nodes())
         {
             const auto &identity = node.checkpoint_identity();
-            if (!selection.selects(identity.component)) { continue; }
+            if (!in_contract(identity)) { continue; }
             writer.string_field(identity.component);
             writer.string_field(identity.id);
             writer.string_field(identity.signature);
@@ -101,7 +104,8 @@ namespace hgraph::distributed::worker_checkpoint
         const auto selection = GraphCheckpointSelection::owned_by(std::string{component});
         for (const NodeBuilder &node : graph.nodes())
         {
-            if (selection.selects(node.checkpoint_identity().component)) { return true; }
+            const auto &identity = node.checkpoint_identity();
+            if (!identity.transient && selection.selects(identity.component)) { return true; }
         }
         return false;
     }

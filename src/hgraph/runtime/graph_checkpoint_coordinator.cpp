@@ -342,7 +342,19 @@ namespace hgraph
 
         bool selected(const NodeView &node) const
         {
-            return selection.selects(node.checkpoint_identity().component);
+            // A transient sink is inside the scope and outside the image.
+            const auto &identity = node.checkpoint_identity();
+            return !identity.transient && selection.selects(identity.component);
+        }
+
+        // A sink's schedule is its own (RFC 0039). It has no output, so an
+        // evaluation it asks for cannot disturb the recovered graph; a pending
+        // alarm does not block a capture, and a restored sink keeps the
+        // schedule its start hook set, or a periodic one would never re-arm.
+        // A sink that declares operations -- a worker owner -- is what they say.
+        static bool owns_its_schedule(const NodeView &node)
+        {
+            return node.schema()->node_kind == NodeKind::Sink && !node.checkpoint_ops().supported;
         }
 
         NodeView ingress_source(const NodeView &node, DateTime time) const
@@ -401,7 +413,7 @@ namespace hgraph
                 if (shape_only) { image.nodes.push_back(std::move(item)); continue; }
                 const auto time = graph.evaluation_time();
                 const auto scheduled = graph.node_scheduled_time(i);
-                if (scheduled != MAX_DT && scheduled > time)
+                if (scheduled != MAX_DT && scheduled > time && !owns_its_schedule(node))
                 {
                     throw std::runtime_error("component checkpoint: pending schedule at '" + item.id + "'");
                 }
@@ -837,7 +849,7 @@ namespace hgraph
         // input event. Fresh start defaults must not reactivate frozen inputs.
         const bool active_input_changed = node.has_input() &&
             node.input(impl_->start).restore_checkpoint_activity(saved->input_activity);
-        if (!active_input_changed)
+        if (!active_input_changed && !Impl::owns_its_schedule(node))
         {
             node.graph().clear_restored_schedule(node.node_index());
             // A NodeScheduler holds the same bootstrap alarm in the node's own

@@ -44,7 +44,6 @@ namespace hgraph_test
         register_plain<SideComponentStage, TS<Int>, TS<Int>>();
         register_plain<ForgetfulComponentStage, TS<Int>>();
         register_trace<ComponentAndSinkStage, TS<Int>>();
-        register_trace<RecoverableSink, TS<Int>>();
         register_boundary<SIGNAL>();
         register_boundary<TSS<Int>>();
         register_boundary<Dict>();

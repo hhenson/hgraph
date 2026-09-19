@@ -88,11 +88,13 @@ workers whole, while `spawn_` saves the component a stage hosts
 through a host scope (`Wiring::checkpoint_host`), so the session finds a member
 where it looks for one.
 
-A node needs no checkpoint operations when it holds nothing beyond its endpoints
-(`NodeTypeMetaData::checkpoints_without_ops`): a compute node or a sink with no
-state, scheduler, global state or clock. Sinks were refused until 2026-09-18;
-placement inside a component is the author's acknowledgement that recovery does
-not replay an effect.
+A node needs no checkpoint operations when it is a compute node that holds
+nothing beyond its endpoints, or a sink with recordable state
+(`NodeTypeMetaData::checkpoints_without_ops`). A sink *without* recordable state
+is transient (`checkpoint_transient`, `NodeCheckpointIdentity::transient`): wired
+inside the scope with no id, selected by no image, signed into no contract. The
+coordinator also leaves every such sink its schedule. The reason it is safe for
+sinks alone is that a sink has no output (RFC 0039, ruling 2026-09-19).
 
 Recovery uses these phases:
 

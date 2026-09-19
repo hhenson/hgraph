@@ -131,34 +131,9 @@ namespace
     // --- recovery (RFC 0039) -------------------------------------------------
     // What recovers is a component inside a stage. Everything else in the
     // stage is processed, the pipeline's sink first of all: it acts in a worker
-    // process, and no checkpoint could replay that.
-    //
-    // This sink is only for the form where spawn_ is ITSELF a component member,
-    // which makes every stage node a member. It declares support because its
-    // scalar is a pointer, which has no manifest encoding to sign -- not
-    // because it is a sink; a stateless sink is a member as it stands.
-    struct RecoverableCapture
-    {
-        static const NodeCheckpointOps &checkpoint_ops() noexcept
-        {
-            static const NodeCheckpointOps ops{.supported = true, .captures_output = false};
-            return ops;
-        }
-        static void start(Scalar<"trace", Trace *> trace) { ++trace.value()->starts; trace.value()->save(); }
-        static void stop(Scalar<"trace", Trace *> trace) { ++trace.value()->stops; trace.value()->save(); }
-        static void eval(In<"value", TS<Int>, InputValidity::Unchecked> value, Scalar<"trace", Trace *> trace,
-                         DateTime time)
-        {
-            const auto &base = value.base();
-            trace.value()->samples.push_back({time, base.valid() ? base.value().to_string() : "<invalid>",
-                base.modified() ? base.delta_value().to_string() : "<invalid>", base.valid(), process_id()});
-        }
-    };
-    struct RecoverableSink
-    {
-        static void compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
-        { wire<RecoverableCapture>(w, value, arg<"trace">(trace.value())); }
-    };
+    // process, and no checkpoint could replay that. The sinks in these tests
+    // are the plain ``Capture`` above. It has no recordable state, so it is
+    // transient wherever it sits -- outside the component, or inside one.
     using SpawnRunningState = TSB<"SpawnRunningState", Field<"total", TS<Int>>>;
     /** State that a lost, repeated or re-ticked frame changes. */
     struct SpawnAccumulate

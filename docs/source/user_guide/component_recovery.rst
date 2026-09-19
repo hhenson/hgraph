@@ -234,10 +234,14 @@ If ``spawn_`` is itself wired inside a recoverable component, the whole pipeline
 is that component's and every stage is saved whole, so every stage node has to
 be recoverable.
 
-A sink with no state of its own is an ordinary member of a component. There is
-nothing of it to capture; putting it inside a component is how you say you
-expect the component around it to recover, and recovery will not replay what
-the sink did.
+A sink may sit inside a component. If it has recordable state it is recovered
+through that state; if it has none it is *transient*: recovery leaves it alone,
+it starts again on every run, and it can be added, removed or changed without
+invalidating a checkpoint. A sink has no output, so nothing in the recovered
+component can see what it forgot -- put whatever must survive a restart in
+``RECORDABLE_STATE`` and the rest is free. Either way its schedule is its own: a
+timer it set is neither saved nor discarded, so a periodic sink re-arms when it
+starts. Recovery never replays what a sink did.
 
 Two limits are ``map_``'s rather than ``dmap_``'s, and reach through it: a
 ``dmap_`` child has to end in a node that writes its own output, not in a
@@ -310,9 +314,9 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State``, scheduler-driven nodes, external sources inside
-the boundary, sinks that hold state or use a runtime service, and dynamic owners
-without checkpoint operations are refused. A stateless compute node's declarative ``schedule_on_start`` bootstrap
+Ordinary semantic ``State`` and schedulers in compute nodes, external sources
+inside the boundary, and dynamic owners without checkpoint operations are
+refused. Sinks are not: see above. A stateless compute node's declarative ``schedule_on_start`` bootstrap
 is allowed; recovery discards that historical bootstrap instead of evaluating
 the saved inputs again. This does not add recovery of pending scheduler events.
 
