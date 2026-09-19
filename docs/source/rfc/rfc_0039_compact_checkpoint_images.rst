@@ -471,12 +471,27 @@ So the recovery configuration names a component, and that component is wired
 
 Three things make that work.
 
-*A worker graph wires its components as identity scopes, always.* It already
+*A worker graph names the nodes of every component in it, always.* It already
 carries identities always, for the same reason: the owner and the stage's
 process each wire the graph for themselves and have to agree without being told.
-Where a configured component would refuse to wire -- a reference in an input, a
-reference escaping the output -- a worker scope records the refusal on the
-component's nodes instead, as it does for a single node.
+Naming is *all* a hosted component does. It adds no node and changes no binding,
+because it has to be invisible in a graph nobody will ever capture; and it
+needs no input boundary of its own, because the runtime's boundary nodes already
+hold the baselines. (An earlier cut gave it the forwarding input boundary a
+configured component has. Inside a ``map_`` child created mid-cycle that lost
+the creation-cycle tick and the removals, with no recovery configured at all;
+a test now pins that wrapping a child or a stage in a component changes
+nothing.) Where a configured component would refuse to wire -- a reference in
+an input, a reference escaping the output -- a hosted one records the refusal on
+its nodes, as a worker scope does for a single node.
+
+One thing a boundary used to guarantee is now checked instead. A member fed by a
+node that is neither in its component nor one of the runtime's boundary nodes is
+noted at wiring (``NodeCheckpointIdentity::fed_from_outside``). An image of the
+whole graph restores that producer too, so there it is nothing. An image
+selected by component does not, and would restore the member beside an input
+that was not, so there it is refused -- at the owner's wiring, naming the node
+and the remedy: move what computes the input inside the component.
 
 *The* ``spawn_`` *node stands in for the component in the owner graph.* At wiring
 it looks for the configured component among its stages' nodes. If a stage hosts

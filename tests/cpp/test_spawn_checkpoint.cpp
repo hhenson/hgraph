@@ -362,3 +362,36 @@ TEST_CASE("spawn recovery: a spawn_ that is itself a component member saves its 
     prepare();
     every_boundary<MemberPipeline<AccumulateStage>>("spawn-pipeline");
 }
+
+TEST_CASE("spawn: wrapping a stage in a component changes nothing when nothing is recovered", "[checkpoint][spawn]")
+{
+    prepare();
+    // A worker graph names the nodes of every component in it, configured or
+    // not, and that is all: no node added, no binding changed.
+    const Ticks ticks = values<Int>(1, 2, none, 3);
+    CHECK(uninterrupted<HostedPipeline<ComponentStage>>(ticks) == uninterrupted<HostedPipeline<AccumulateStage>>(ticks));
+}
+
+TEST_CASE("spawn recovery: a component fed from outside itself, inside the stage, is refused when it is what recovers",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // A node in the stage computes the component's input. An image selected
+    // by component would restore the component beside an input that was not,
+    // so it is refused at wiring, naming the node and the remedy.
+    using Graph = HostedPipeline<PreprocessedComponentStage>;
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Graph>(interval(0, 1), values<Int>(1), arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("fed from outside its component") &&
+                                Catch::Matchers::ContainsSubstring("move what computes its input inside"));
+    }
+    // Recovery not configured: it wires and runs.
+    const auto observed = uninterrupted<Graph>(values<Int>(1, 2));
+    REQUIRE(observed.size() == 2);
+    CHECK(std::get<1>(observed.back()) == "6");
+}

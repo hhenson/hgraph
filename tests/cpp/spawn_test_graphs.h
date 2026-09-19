@@ -229,6 +229,16 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
         { return stdlib::component<KeyedBody>(w, spawn_component_id, value); }
     };
+    /** Inside the stage, something computes the component's input OUTSIDE it. */
+    struct SpawnDoubled
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value() * 2); }
+    };
+    struct PreprocessedComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<AccumulateBody>(w, spawn_component_id, wire<SpawnDoubled>(w, value).as<TS<Int>>()); }
+    };
     /** The same component id over another body: another contract. */
     struct OtherBody
     {

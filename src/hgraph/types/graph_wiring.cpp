@@ -1574,6 +1574,7 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
 
 NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   manifest::CanonicalWriter signature;
+  bool fed_from_outside = false;
   const auto *schema = builder.type().schema();
   const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
   // A transient sink is inside the scope and outside the contract: no id to
@@ -1666,18 +1667,17 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
     if (const auto *producer = source.peered_node_or_null()) {
       const auto &identity = producer->builder.checkpoint_identity();
       // In a worker graph everything has an identity, so "outside the
-      // component" is no longer "has none". A component member fed from
-      // outside its component would be restored beside an input that was
-      // not; only a component input boundary may reach out.
+      // component" is no longer "has none". The runtime's boundary nodes
+      // travel with a component's image; anything else outside it does not,
+      // which matters only to an image selected by component -- so it is
+      // noted here and judged there (``fed_from_outside``).
       const auto &scope = impl_->checkpoint_component;
       const bool in_component = impl_->checkpoint_records_refusals && scope != worker_checkpoint_scope &&
           scope != worker_boundary_checkpoint_scope;
-      const bool outside = in_component && identity.component != scope &&
-          !(identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
-            identity.component[scope.size()] == '.');
-      if (outside && !checkpoint_ops.boundary_input) {
-        throw std::invalid_argument("component checkpoint: external sources must enter through component inputs");
-      }
+      const bool inside = identity.component == scope ||
+          (identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
+           identity.component[scope.size()] == '.');
+      if (in_component && !inside && identity.component != worker_boundary_checkpoint_scope) { fed_from_outside = true; }
       signature.varint(identity.component.empty());
       if (identity.component.empty()) {
         if (!checkpoint_ops.boundary_input) {
@@ -1733,7 +1733,8 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   }
   return {.component = impl_->checkpoint_component,
       .id = std::move(id),
-      .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()}};
+      .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()},
+      .fed_from_outside = fed_from_outside};
 }
 
 GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }

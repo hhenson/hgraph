@@ -231,10 +231,12 @@ Everything outside the component is *processed*, not recovered -- above all the
 sink the pipeline ends in. It acts in a worker process, recovery restores what
 the component knew and cannot replay what the sink did, and the sink declares
 nothing. Nodes outside the component start afresh on each run, so keep state
-that has to survive a restart inside the component. The component's usual rules
-apply inside the stage as they do anywhere: its inputs come straight from the
-stage's inputs, so preprocessing belongs inside it; and a component nested under
-a ``map_`` in the stage is not reached.
+that has to survive a restart inside the component. Inside the stage the
+component takes its inputs straight from the stage's inputs: if a node in the
+stage computes one of them, move that node inside the component, or the graph is
+refused when it is wired. A component nested under a ``map_`` in the stage is
+not reached. Wrapping part of a stage in a component costs nothing when nothing
+is being recovered: it adds no node.
 
 If ``spawn_`` is itself wired inside a recoverable component, the whole pipeline
 is that component's and every stage is saved whole, so every stage node has to

@@ -36,12 +36,16 @@ namespace hgraph::distributed::worker_checkpoint
             {
                 const auto &identity = node.checkpoint_identity();
                 if (identity.transient || !hosted.selection->selects(identity.component)) { continue; }
-                if (identity.component.empty() || !identity.refusal.empty())
+                const bool stranded = !hosted.selection->whole() && identity.fed_from_outside;
+                if (identity.component.empty() || !identity.refusal.empty() || stranded)
                 {
                     throw std::invalid_argument(fmt::format(
                         "component checkpoint: {} worker {} hosts '{}', which cannot be recovered: {}", hosted.owner,
                         hosted.index, node.type().schema()->name(),
-                        identity.refusal.empty() ? "it was wired outside a worker checkpoint scope" : identity.refusal));
+                        !identity.refusal.empty() ? identity.refusal
+                        : stranded ? "it is fed from outside its component by a node the image does not restore; "
+                                     "move what computes its input inside the component"
+                                   : "it was wired outside a worker checkpoint scope"));
                 }
                 node.visit_child_graphs(const_cast<Hosted *>(&hosted), [](void *context, ChildGraphInspectionView child) {
                     if (child.graph != nullptr) { require_recoverable(*child.graph, *static_cast<const Hosted *>(context)); }

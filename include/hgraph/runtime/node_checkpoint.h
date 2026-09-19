@@ -63,6 +63,13 @@ namespace hgraph
          * the scope, outside the image and the contract. It has no id, so it
          * can be added, removed or changed without disturbing anyone else's. */
         bool transient{false};
+        /** In a worker graph: a component member with an input from a node
+         * that is neither in its component nor one of the runtime's boundary
+         * nodes. An image of the WHOLE graph restores that producer too, so
+         * it is nothing; an image selected by component does not, and would
+         * restore this node beside an input that was not -- so there it is a
+         * refusal. The fix is the usual one: move the producer inside. */
+        bool fed_from_outside{false};
     };
 
     struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint

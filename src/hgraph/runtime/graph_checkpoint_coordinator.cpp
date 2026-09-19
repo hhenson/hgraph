@@ -330,6 +330,14 @@ namespace hgraph
                 throw std::runtime_error("component checkpoint: node '" + std::string{node.schema()->name()} +
                     "' has no checkpoint identity; wire the whole graph inside a checkpoint scope");
             }
+            // An image selected by component does not restore what feeds this
+            // node from outside it; a whole-graph image does, so there it is fine.
+            if (!selection.whole() && node.checkpoint_identity().fed_from_outside)
+            {
+                throw std::runtime_error("component checkpoint: node '" + node_id(node) + "' (" +
+                    std::string{node.schema()->name()} + ") is fed from outside its component by a node "
+                    "this image does not restore; move what computes its input inside the component");
+            }
             // Recorded by a worker-graph scope, where a component scope
             // would have refused to wire the node at all.
             if (const auto &refusal = node.checkpoint_identity().refusal; !refusal.empty())

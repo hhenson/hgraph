@@ -97,6 +97,33 @@ namespace
                              dict_delta<Int, TS<Int>>({{3, 200}, {1, 5}}, {4}));
     }
 
+    // A worker graph names the nodes of every component in it, configured or
+    // not. That has to be invisible: no node added, no binding changed.
+    struct WrappedAccumulateBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts)
+        { return wire<PreparedAccumulate>(w, ts).as<TS<Int>>(); }
+    };
+    struct WrappedAccumulate
+    {
+        static constexpr auto name = "dmap_checkpoint_wrapped_accumulate";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<WrappedAccumulateBody>(w, "wrapped", ts); }
+    };
+    template <typename Child> struct Undistinguished
+    {
+        static Port<Dict> compose(Wiring &w, Port<Dict> ts)
+        {
+            const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+            WorkerPoolConfig config;
+            config.workers = 3;
+            config.hosting = WorkerHosting::InProcess;
+            auto plan = prepare_distributed_map_pool(fn<Child>(), inputs, {}, config);
+            return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+                .template as<Dict>();
+        }
+    };
+
     template <typename Child, std::size_t Workers> struct PlainBody
     {
         static Port<Dict> compose(Wiring &w, NamedPort<"ts", Dict> ts)
@@ -393,4 +420,23 @@ TEST_CASE("dmap_ recovery: a worker process serves the control frames", "[checkp
         CHECK_FALSE(decode_reply(slots, payload).error.empty());
         CHECK(worker.wait_for_exit() == 0);
     }
+}
+
+TEST_CASE("dmap_: wrapping the child in a component changes nothing when nothing is recovered", "[checkpoint][dmap]")
+{
+    stdlib::register_standard_operators();
+    // The same child with and without the wrapper, tick for tick -- including
+    // the cycle a key's child is created in, and the removals. An earlier cut
+    // gave a hosted component the forwarding input boundary a configured one
+    // has; inside a child created mid-cycle that lost the first tick and the
+    // removals, with no recovery configured at all.
+    const auto run = [](auto graph) {
+        GlobalContext context;
+        return graph();
+    };
+    const auto plain   = run([] { return eval_node_with_options<Undistinguished<PreparedAccumulate>>(interval(0, 7), events()); });
+    const auto wrapped = run([] { return eval_node_with_options<Undistinguished<WrappedAccumulate>>(interval(0, 7), events()); });
+    REQUIRE(plain.size() >= 1);
+    REQUIRE(plain.front().has_value());
+    CHECK_OUTPUT(wrapped, plain);
 }

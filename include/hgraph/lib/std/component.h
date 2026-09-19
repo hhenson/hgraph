@@ -315,21 +315,25 @@ namespace hgraph::stdlib
 
         if (!fq.empty()) { w.claim_component_id(fq); }
 
-        // A worker-hosted graph wires every component as an identity scope,
+        // A worker-hosted graph NAMES the nodes of every component in it,
         // configured or not (RFC 0039): its owner and its process each wire it
         // for themselves and have to agree without being told, and the owner
-        // may be recovering exactly this component. What a configured
-        // component refuses, a hosted one records on its nodes, so a graph
-        // nobody will ever capture still wires.
+        // may be recovering exactly this component. Naming is all it does. A
+        // hosted component adds no node and changes no binding -- it has to be
+        // invisible in a graph nobody will ever capture -- and it needs no
+        // input boundary, because the runtime's own boundary nodes already
+        // hold the baselines. What a configured component refuses, a hosted
+        // one records on its nodes.
         const bool hosted = w.checkpoint_records_refusals() && !fq.empty() && mode == Mode::None;
-        const bool checkpointed = hosted || component_recovery_selected(w.operator_state(), fq);
+        const bool checkpointed = !hosted && component_recovery_selected(w.operator_state(), fq);
         if (checkpointed && mode != Mode::None)
         {
             throw std::invalid_argument("component checkpoint: legacy record/replay modes cannot be combined with recovery configuration");
         }
-        const std::string previous_component = checkpointed ? w.checkpoint_component(fq) : std::string{};
+        const bool        scoped = hosted || checkpointed;
+        const std::string previous_component = scoped ? w.checkpoint_component(fq) : std::string{};
         auto restore_component_scope = make_scope_exit([&] {
-            if (checkpointed) { (void)w.checkpoint_component(previous_component); }
+            if (scoped) { (void)w.checkpoint_component(previous_component); }
         });
         std::string refusal;
         const auto refuse = [&](std::string reason) {
@@ -341,7 +345,7 @@ namespace hgraph::stdlib
         wrapped.reserve(inputs.size());
         for (const WiringNamedPortRef &input : inputs)
         {
-            if (checkpointed && ts_checkpoint_schema_contains_reference(input.source.schema))
+            if (scoped && ts_checkpoint_schema_contains_reference(input.source.schema))
             {
                 refuse("component checkpoint: inputs must expose dereferenced time-series values");
             }
@@ -359,17 +363,9 @@ namespace hgraph::stdlib
         WiringPortRef out = std::invoke(
             compose, std::span<const WiringPortRef>{wrapped.data(), wrapped.size()});
 
-        if (checkpointed && !out.is_unbound_source() && ts_checkpoint_schema_contains_reference(out.schema))
+        if (scoped && !out.is_unbound_source() && ts_checkpoint_schema_contains_reference(out.schema))
             refuse("component checkpoint: references cannot escape the component output");
-        if (checkpointed && refusal.empty())
-        {
-            if (!hosted) { w.checkpoint_component_output(out); }
-            else
-            {
-                try { w.checkpoint_component_output(out); }
-                catch (const std::invalid_argument &error) { refuse(error.what()); }
-            }
-        }
+        if (checkpointed) { w.checkpoint_component_output(out); }
         if (!refusal.empty()) { w.refuse_checkpoint_component(refusal); }
 
         if (!out.is_unbound_source())
