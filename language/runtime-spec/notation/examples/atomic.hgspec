@@ -1,5 +1,5 @@
 # PROPOSED notation and C++ cell layout; no implementation or generator exists.
-spec hgraph.atomic revision 1
+spec hgraph.atomic revision 2
 status proposed
 
 model AtomicI64 {
@@ -43,7 +43,7 @@ scenario AtomicRetention for AtomicI64 {
 
 scenario AtomicZeroTick for AtomicI64 {
     meaning "Tick zero is a real publication time, distinct from never."
-    covers [HG-ATOM-001, HG-ATOM-003, LAYOUT.ENCODING]
+    covers [HG-ATOM-001, HG-ATOM-003]
     observe [current, last, valid, modified]
     initial expect [none, none, false, false]
     step begin(0) expect [none, none, false, false]
@@ -62,19 +62,21 @@ layout AtomicStorage(payload: storage) {
     rule LAYOUT.STABILITY "The containing owner provides aligned storage and keeps its address fixed from successful construction until all live objects are destroyed. A field never frees its containing region."
     rule LAYOUT.OBJECTS "Construct live C++ objects at the planned addresses before typed access. Do not assume a native struct has these offsets or use byte copying as object relocation. Generic payload lifecycle needs its own type contract."
 
-    bind AtomicI64 using i64 {
-        require payload == storage(8, 8)
-        external now from evaluation_context
-        decode current = if stamp == -1 then none else some(value)
-        decode last = if stamp == -1 then none else some(tick(stamp))
-        rule LAYOUT.ENCODING "Construct value as i64 zero and stamp as i64 minus one. Stamp is either minus one or a nonnegative tick representable in i64; minus one is private storage encoding, not an engine clock decision."
-        rule LAYOUT.PUBLICATION "On admitted publication, assign value then stamp at the current context tick; observation occurs after both assignments. The owner excludes concurrent reads. begin changes only the external context."
-        rule LAYOUT.FOOTPRINT "For this i64 binding, publication and inspection allocate no storage. No valid, modified, current-tick, or operation-pointer field is stored in this cell region. External owner infrastructure is not included in its byte count."
-    }
-
     case I64 arguments [storage(8, 8)] expect {value: 0, stamp: 8, size: 16, alignment: 8}
     case Byte arguments [storage(1, 1)] expect {value: 0, stamp: 8, size: 16, alignment: 8}
     case Aligned arguments [storage(32, 16)] expect {value: 0, stamp: 32, size: 48, alignment: 16}
     case InvalidAlignment arguments [storage(8, 3)] error InvalidStorage
     case Overflow arguments [storage(18446744073709551608, 8)] error LayoutOverflow
+}
+
+realization AtomicCell for AtomicI64 using AtomicStorage(storage(8, 8)) {
+    meaning "Relate the independent atomic model to the independent i64 cell layout."
+    payload i64
+    external now from evaluation_context
+    decode current = if stamp == -1 then none else some(value)
+    decode last = if stamp == -1 then none else some(tick(stamp))
+    scenarios [AtomicRetention, AtomicZeroTick]
+    rule LAYOUT.ENCODING "Construct value as i64 zero and stamp as i64 minus one. Stamp is either minus one or a nonnegative tick representable in i64; minus one is private storage encoding, not an engine clock decision."
+    rule LAYOUT.PUBLICATION "On admitted publication, assign value then stamp at the current context tick; observation occurs after both assignments. The owner excludes concurrent reads. begin changes only the external context."
+    rule LAYOUT.FOOTPRINT "For this i64 realization, publication and inspection allocate no storage. No valid, modified, current-tick, or operation-pointer field is stored in this cell region. External owner infrastructure is not included in its byte count."
 }

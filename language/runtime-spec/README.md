@@ -29,7 +29,10 @@ recorded here until a separate integration change is appropriate.
 
 Start with the [visual review and notation examples](notation/README.md). They
 show the proposed authoring form through an atomic cell, a two-cell owner, and
-single-level validity. The broader foundation remains useful background:
+single-level validity. The next layer separates
+[behavior, representations, and their realizations](notation/representations.md),
+with a shared TSD trace and map/pivot storage candidates. The broader foundation
+remains useful background:
 
 1. [Core model](core-model.md): values, types, temporal observation, wiring,
    evaluation, ownership, and their relationship to HGL.
@@ -93,6 +96,9 @@ C++ layout contract can require exact placement, alignment, allocation ownership
 address stability, object lifetime, and resource bounds. An implementation may
 satisfy the behavioral contract while failing that particular layout contract;
 the [notation experiment](notation/README.md) makes both reviewable separately.
+A named realization links those independent contracts and records applicability
+and evidence. Current values, deltas, and temporal metadata must all be
+preserved, without prescribing one memory organization for them.
 
 Runtime semantics alone cannot specify every user program: the operator and
 native capabilities it invokes also need contracts. A conformance claim must

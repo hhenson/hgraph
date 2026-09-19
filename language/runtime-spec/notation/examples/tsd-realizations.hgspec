@@ -1,0 +1,33 @@
+# PROPOSED relationships only; all state relations and action obligations await native evidence.
+spec hgraph.tsd_realizations revision 2
+status proposed
+
+realization MapQuote for QuoteTsd using NodeMap {
+    meaning "Read the shared quote contract from one recursive map entry and its change tracking."
+    external now from evaluation_context
+    relate present "True exactly when rows contains the live key X."
+    relate bid "If X is live and its bid leaf time is not never, some(the leaf payload); otherwise none."
+    relate ask "If X is live and its ask leaf time is not never, some(the leaf payload); otherwise none."
+    relate last "The optional root time in tracking."
+    relate row_last "The optional X bundle time in tracking if X is live; otherwise none."
+    relate bid_last "The optional X.bid leaf time in tracking if X is live; otherwise none."
+    relate ask_last "The optional X.ask leaf time in tracking if X is live; otherwise none."
+    relate removed "True exactly when changes contains removal of key X at now; false before the first tick."
+    scenarios [QuoteHistory]
+    rule MAP.ACTIONS "Initially the root time is never, rows and changes are empty. begin advances the external clock; old changes may remain allocated but are no longer observable. Publication creates fresh never-published children when needed, writes the chosen leaf and stamps that leaf, X's bundle, and the root with now. Removal records X with now, removes X from live membership, and stamps the root. Inspection changes nothing. These operations finish before the post-action observation."
+}
+
+realization PivotQuote for QuoteTsd using FlatPivot {
+    meaning "Read exactly the same quote contract from row membership, payload columns, and time columns."
+    external now from evaluation_context
+    relate present "True exactly when rows maps X to an occupied row slot."
+    relate bid "If X has a row and that row's bid time is not never, some(the bid column payload at that row); otherwise none."
+    relate ask "If X has a row and that row's ask time is not never, some(the ask column payload at that row); otherwise none."
+    relate last "The optional root time in tracking."
+    relate row_last "The optional bundle time column at X's occupied row; none if X has no row."
+    relate bid_last "The optional bid time column at X's occupied row; none if X has no row."
+    relate ask_last "The optional ask time column at X's occupied row; none if X has no row."
+    relate removed "True exactly when changes contains removal of logical key X at now, independently of slot occupancy or reuse; false before the first tick."
+    scenarios [QuoteHistory]
+    rule PIVOT.ACTIONS "Initially the root time is never, no rows are occupied, and changes is empty. begin advances the external clock; no physical column sweep is required. Publication creates a fresh row when needed, writes only the chosen payload, and stamps its leaf column, the bundle time column, and the root with now. Removal records key X with now, removes its occupied-row mapping, and stamps the root. Inspection changes nothing. Column/index updates are indivisible at the model's observation points."
+}

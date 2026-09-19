@@ -1,11 +1,11 @@
 # PROPOSED work description only; no prototype or implementation is delivered.
-spec hgraph.work revision 1
+spec hgraph.work revision 2
 status proposed
 
 slice AtomicCellProof {
     status proposed
     meaning "Prove one C++ atomic cell representation and its trace before selecting any core integration."
-    requires [AtomicI64, AtomicStorage, AtomicRetention, AtomicZeroTick]
+    requires [AtomicI64, AtomicStorage, AtomicCell, AtomicRetention, AtomicZeroTick]
     delivers [
         "An isolated C++ cell owner and immutable layout description",
         "A C++ scenario driver with explicit begin, admitted publish, and inspect actions",
