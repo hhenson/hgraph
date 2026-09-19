@@ -769,6 +769,32 @@ TEST_CASE(
        tsb_delta<QuoteWithSet>(set_delta<Int>({3}, {1}), 6)});
 }
 
+TEST_CASE("ts_delta: partial TSB capture preserves an omitted collection field") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+
+  const Value partial =
+      tsb_delta<QuoteWithSet>(std::nullopt, Int{5});
+  const auto authored = partial.view().as_bundle();
+  REQUIRE_FALSE(authored.at(0).has_value());
+  REQUIRE(authored.at(1).checked_as<Int>() == 5);
+
+  const auto *schema = schema_descriptor<QuoteWithSet>::ts_meta();
+  TSOutput output{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+  apply_delta(output.view(MIN_ST), partial.view());
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  const auto delta = captured.view().as_bundle();
+  REQUIRE_FALSE(delta.at(0).has_value());
+  REQUIRE(delta.at(1).checked_as<Int>() == 5);
+
+  const Value explicit_empty = tsb_delta<QuoteWithSet>(
+      set_delta<Int>({}, {}), std::nullopt);
+  REQUIRE(explicit_empty.view().as_bundle().at(0).has_value());
+}
+
 TEST_CASE("ts_delta: capture_current_delta includes unchanged scalar and collection fields") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   const std::vector<std::optional<Value>> deltas{

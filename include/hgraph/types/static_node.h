@@ -435,7 +435,10 @@ namespace hgraph
         template <typename... Fields>
         struct tsb_delta_builder<UnNamedTSB<Fields...>>
         {
-            static void initialize(BundleBuilder &builder) { initialize_tsb_delta_defaults<Fields...>(builder); }
+            // A normal TSB delta is sparse: omitted fields did not tick. Only
+            // empty_delta_builder<TSB> below explicitly validates empty
+            // collection children.
+            static void initialize(BundleBuilder &) {}
 
             template <typename... Args>
             static void fill(BundleBuilder &builder, Args &&...args)

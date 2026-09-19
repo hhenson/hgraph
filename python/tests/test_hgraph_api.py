@@ -51,6 +51,20 @@ def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
     assert eval_node(partial, [1, 2]) == [{"value": 1}, {"value": 2}]
 
 
+def test_compute_node_partial_tsb_return_omits_unticked_collection_fields():
+    class Result(TimeSeriesSchema):
+        value: TS[int]
+        by_name: TSD[str, TS[int]]
+        names: TSS[str]
+        values: TSL[TS[int], Size[2]]
+
+    @hg.compute_node
+    def partial(value: TS[int]) -> TSB[Result]:
+        return {"value": value.value}
+
+    assert eval_node(partial, [1, 2]) == [{"value": 1}, {"value": 2}]
+
+
 def test_global_state_copy_in_and_copy_back():
     state = hg.GlobalState(seed=7)
 

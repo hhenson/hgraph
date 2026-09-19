@@ -1552,7 +1552,6 @@ namespace hgraph
                     ValuePlanFactory::instance().realized_composite_type_for(
                         schema.delta_value_schema, field_bindings)};
             }
-            initialize_tsb_delta_defaults(schema, builder);
             for (std::size_t index = 0; index < captured.size(); ++index)
             {
                 if (captured[index])
