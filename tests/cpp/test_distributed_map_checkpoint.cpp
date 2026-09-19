@@ -478,6 +478,46 @@ struct RecordedFixedListOfComponents
     }
 };
 
+// Two DISTINCT components that share an id, in the function a fixed list unrolls.
+struct TwoComponentsOneId
+{
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+    {
+        auto first = stdlib::component<hgraph_test::PreparedAccumulateBody>(w, hgraph_test::dmap_component_id, ts);
+        return stdlib::component<hgraph_test::PreparedAccumulateBody>(w, hgraph_test::dmap_component_id, first);
+    }
+};
+struct FixedListOfClashingComponents
+{
+    using List = TSL<TS<Int>, 3>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    {
+        // Through dmap_: the map_ operator resolves its output type by wiring the
+        // function once on a probe wiring, which rejects this before any repeat
+        // opens -- by accident, and as "output type could not be resolved".
+        const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+        WorkerPoolConfig config;
+        config.workers = 1;
+        config.hosting = WorkerHosting::InProcess;
+        auto plan = prepare_distributed_map_pool(fn<TwoComponentsOneId>(), inputs, {}, config);
+        return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+            .template as<List>();
+    }
+};
+
+TEST_CASE("component: a repeat across list indices is an instance, a repeat within one index is still a duplicate",
+          "[checkpoint][hosted]")
+{
+    stdlib::register_standard_operators();
+    // Only the unrolling repeats a component legitimately. Two call sites
+    // sharing an id inside ONE index are the user error the claim exists to
+    // catch, and the first cut of InlineRepeat let it through (Codex, #998).
+    GlobalContext context;
+    const auto input = values<Value>(list_delta<TS<Int>>({1, 10, 100}));
+    REQUIRE_THROWS_WITH((eval_node_with_options<FixedListOfClashingComponents>(interval(0, 1), input)),
+                        Catch::Matchers::ContainsSubstring("duplicate recordable id"));
+}
+
 TEST_CASE("component: mapped over a fixed-size list it is one component wired per index", "[checkpoint][hosted]")
 {
     stdlib::register_standard_operators();

@@ -1282,8 +1282,10 @@ namespace hgraph
             The one exception is ``InlineRepeat``: a function wired once per
             index on this wiring claims the same id each time, and those are
             instances of ONE component, not two components that collide. Such a
-            claim returns ``false``. An id first claimed outside the repeat is
-            still a duplicate inside it. */
+            claim returns ``false``. Only a repeat ACROSS indices is an
+            instance: an id claimed twice within one index is two call sites
+            sharing an id, and an id first claimed outside the repeat is
+            another component altogether. Both are still duplicates. */
         bool claim_component_id(std::string_view fq_recordable_id);
         /**
          * A user function unrolled inline, once per index, on this wiring --
@@ -1301,6 +1303,9 @@ namespace hgraph
           public:
             explicit InlineRepeat(Wiring &wiring);
             ~InlineRepeat();
+            /** Begin the next index. What one index claims twice is a duplicate;
+                what the next index claims again is an instance. */
+            void next_index();
             InlineRepeat(const InlineRepeat &) = delete;
             InlineRepeat &operator=(const InlineRepeat &) = delete;
 

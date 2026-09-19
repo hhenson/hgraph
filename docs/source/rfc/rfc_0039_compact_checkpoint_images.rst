@@ -870,7 +870,10 @@ list is unrolled inline instead and recovers with any worker count.
 **A component repeated per index cannot be recorded or recovered apart.**
 ``map_`` over a fixed-size list wires its function once per index on one
 wiring (``Wiring::InlineRepeat``), so a component in it is one component with
-several instances. With nothing recorded and nothing recovered that is just a
+several instances. Only a repeat *across* indices is an instance: an id claimed
+twice within one index is two call sites sharing an id, and one first claimed
+outside the list is another component, and both are duplicates as they are
+anywhere else. With nothing recorded and nothing recovered that is just a
 graph wired several times, and it wires -- it used to be refused as a duplicate
 recordable id, with no recovery configured at all. A **hosted** component
 recovers too: its nodes share one ordinal sequence, so they are distinct, and

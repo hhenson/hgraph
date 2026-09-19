@@ -1203,9 +1203,16 @@ struct Wiring::Impl {
   const std::uint64_t identity{next_wiring_identity.fetch_add(
       1, std::memory_order_relaxed)};
   std::unordered_set<std::string> component_ids; // claimed recordable ids
-  // Open ``InlineRepeat`` scopes, and the ids first claimed inside them: the
-  // ones a later index may claim again.
-  std::size_t inline_repeats{0};
+  // Open ``InlineRepeat`` scopes, innermost last. ``index`` is what the
+  // current index has claimed, where a second claim is a duplicate; ``all`` is
+  // everything the scope has claimed, which its enclosing index inherits when
+  // it closes. ``inline_repeat_ids`` are the ids first claimed inside any open
+  // scope: the only ones a later index may claim again.
+  struct InlineRepeatClaims {
+    std::unordered_set<std::string> index;
+    std::unordered_set<std::string> all;
+  };
+  std::vector<InlineRepeatClaims> inline_repeats;
   std::unordered_set<std::string> inline_repeat_ids;
 
   explicit Impl(WiringKind wiring_kind,
@@ -1844,16 +1851,26 @@ bool Wiring::claim_component_id(std::string_view fq_recordable_id) {
     throw std::invalid_argument("component: recordable id uses the reserved @hgraph. namespace");
   }
   std::string id{fq_recordable_id};
-  if (impl_->component_ids.emplace(id).second) {
-    if (impl_->inline_repeats != 0) { impl_->inline_repeat_ids.insert(std::move(id)); }
-    return true;
+  auto &repeats = impl_->inline_repeats;
+  const bool first = impl_->component_ids.emplace(id).second;
+  // An instance is a claim some EARLIER index made, in a repeat that is still
+  // open. Claimed already by this index -- of any enclosing repeat -- it is a
+  // second call site; claimed before any repeat opened, another component.
+  const bool instance = !first && !repeats.empty() && impl_->inline_repeat_ids.contains(id) &&
+      std::none_of(repeats.begin(), repeats.end(), [&](const auto &claims) { return claims.index.contains(id); });
+  if (!first && !instance) {
+    throw std::invalid_argument("component: duplicate recordable id '" + id + "' in one wiring");
   }
-  if (impl_->inline_repeats != 0 && impl_->inline_repeat_ids.contains(id)) { return false; }
-  throw std::invalid_argument("component: duplicate recordable id '" + id + "' in one wiring");
+  if (!repeats.empty()) {
+    repeats.back().index.insert(id);
+    repeats.back().all.insert(id);
+    impl_->inline_repeat_ids.insert(std::move(id));
+  }
+  return first;
 }
 
 Wiring::InlineRepeat::InlineRepeat(Wiring &wiring) : wiring_(wiring) {
-  ++wiring_.impl_->inline_repeats;
+  wiring_.impl_->inline_repeats.emplace_back();
   // The mapping ``child_wiring`` applies, for a function that gets no child wiring.
   if (wiring_.impl_->checkpoint_component == worker_boundary_checkpoint_scope) {
     scope_ = wiring_.checkpoint_component(std::string{worker_checkpoint_scope});
@@ -1861,9 +1878,18 @@ Wiring::InlineRepeat::InlineRepeat(Wiring &wiring) : wiring_(wiring) {
   }
 }
 
+void Wiring::InlineRepeat::next_index() { wiring_.impl_->inline_repeats.back().index.clear(); }
+
 Wiring::InlineRepeat::~InlineRepeat() {
   if (rescoped_) { (void)wiring_.checkpoint_component(std::move(scope_)); }
-  if (--wiring_.impl_->inline_repeats == 0) { wiring_.impl_->inline_repeat_ids.clear(); }
+  auto &repeats = wiring_.impl_->inline_repeats;
+  auto claimed = std::move(repeats.back().all);
+  repeats.pop_back();
+  if (repeats.empty()) { wiring_.impl_->inline_repeat_ids.clear(); return; }
+  // To the enclosing index this whole repeat was ONE call site: a second map
+  // of the same component beside it, in that index, is a duplicate.
+  repeats.back().index.insert(claimed.begin(), claimed.end());
+  repeats.back().all.merge(claimed);
 }
 
 Wiring::~Wiring() = default;

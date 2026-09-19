@@ -4342,8 +4342,9 @@ namespace hgraph::stdlib
             // as a child template: a component in it is one component with
             // several instances, and in a worker graph it is the user's code,
             // not the runtime's.
-            const Wiring::InlineRepeat unrolled{w};
+            Wiring::InlineRepeat unrolled{w};
             for (std::size_t slot = 0; slot < partition.child_count(size); ++slot) {
+                unrolled.next_index();
                 const auto i = partition.logical_index(slot);
                 std::vector<WiringPortRef> args;
                 args.reserve(func.arity);
