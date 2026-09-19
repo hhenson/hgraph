@@ -245,8 +245,9 @@ Compatibility
 
 Version 1 images were published by hgraph 0.8.25-0.8.27 and remain **readable**.
 The extension recognises the version 1 envelope and decodes it with the
-retained version 1 reader; it writes only version 2. No migration is needed: a
-day recovered from a version 1 predecessor publishes a version 2 successor.
+retained version 1 reader; it writes only the current image format. No migration
+is needed: a day recovered from a version 1 predecessor publishes a successor
+in the current format.
 An unknown version is refused, as before.
 
 **Version 3** (RFC 0040) keeps this layout and adds, after the fixed header and
