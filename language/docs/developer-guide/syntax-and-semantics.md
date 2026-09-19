@@ -377,9 +377,11 @@ names its own descendant, is rejected too: hgraph declares a parent before its
 children, so such a cycle cannot be registered. A struct type cannot name
 another module's struct, and imports are acyclic, so no cycle crosses a module
 (rule 5). The resolver marks each admitted edge on the struct's effective
-fields. Recursive fields are not implemented past name resolution yet: HIR
-lowering stops every admitted edge with a diagnostic, so no backend sees a
-recursive type.
+fields, and typed HIR and hgraph IR carry the mark with the edge's target
+named by struct identity (compiler and lowering guide, "Recursive struct
+edges"). The execution backends do not realize recursive fields yet:
+hgraph-IR lowering stops every admitted edge with a diagnostic, so no backend
+sees a recursive type.
 
 Struct generic parameters use the common `generic_parameters` production, and
 their trailing `requires` clause uses the same constraint grammar as a function

@@ -1,0 +1,25 @@
+# Recursive struct edges (ADR 0012) as the dumps show them: marked in typed
+# HIR, and named by target identity in hgraph IR. Lowering still stops each
+# edge until the execution backends realize them.
+
+module tests.recursive_structs
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct Forest<T> {
+    tree: atomic<Tree<T>> = null
+}
+
+struct Tree<T> {
+    value: T
+    forest: atomic<Forest<T>> = null
+}
+
+abstract struct Expr {}
+
+struct Add: Expr {
+    lhs: atomic<Expr> = null
+}

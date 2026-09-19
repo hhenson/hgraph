@@ -612,6 +612,13 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            /// The identity of the struct inside a recursive edge's `atomic<...>`.
+            [[nodiscard]] std::string recursive_target(hir::TypeId field_type) const {
+                const hir::Type &boundary = source_.type(canonical(field_type));
+                if (boundary.kind != hir::TypeKind::Atomic || boundary.children.size() != 1U) { return {}; }
+                return symbol_identity(source_.type(canonical(boundary.children.front())).symbol);
+            }
+
             void lower_structures() {
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::StructDecl>(&declaration.node);
@@ -646,10 +653,22 @@ namespace hgl::hgraph_ir
                             .name          = field.name,
                             .type          = lower_type(field.type, applied, field.range),
                             .default_value = lower_const_expr(field.default_value, applied, field.range, "a struct field default"),
-                            .origin_identity = declaration_identity(field.origin),
-                            .optional        = field.optional,
-                            .range           = field.range,
+                            .origin_identity  = declaration_identity(field.origin),
+                            .optional         = field.optional,
+                            .recursive        = field.recursive,
+                            .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                            .range            = field.range,
                         });
+                        // No execution backend realizes a recursive edge yet (ADR 0012,
+                        // slices 3 and 4); stop it here, once at its declaring struct,
+                        // so both backends reject the same programs.
+                        if (field.recursive && field.origin == declaration.id) {
+                            diagnostics_.report(syntax::Category::Type, field.range,
+                                                "recursive edge '" + field.name + "' of '" +
+                                                    source_.symbol(declaration.symbol).name +
+                                                    "' is admitted by ADR 0012, but no execution backend realizes recursive "
+                                                    "struct fields yet");
+                        }
                     }
                     result_.structures.push_back(std::move(target));
                 }

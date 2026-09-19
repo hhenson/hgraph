@@ -127,9 +127,7 @@ uses strongly typed arena IDs, gives every declaration, parameter, local,
 state value, injectable, loop value, anonymous parameter, type name, imported
 operator, and intrinsic a stable `SymbolId`, and retains structured control
 flow, constraints, effective struct fields, and source ranges. Bare generic
-arguments become explicit type or value references. Until later passes realize
-recursive struct fields, lowering stops each admitted recursive edge, once at
-its declaring struct, with a "not yet supported" diagnostic. `hgl check --dump-hir`
+arguments become explicit type or value references. `hgl check --dump-hir`
 prints the deterministic diagnostic representation used by snapshot tests.
 
 `src/ir/canonical_types` owns structural interning and source-to-canonical
@@ -743,6 +741,42 @@ named `SIZE<"n">` variable that binds the argument's concrete size, and an
 unbounded list binds it to `-1`. A concrete `TSL<T, 0>` is a fixed empty list.
 The source sentinel `unbounded` lowers to `-1`, and a `const` generic in a
 list-size position lowers to the existing size variable.
+
+### Recursive struct edges
+
+[ADR 0012](../design/decisions/0012-recursive-struct-fields.md) admits a
+field through which a value of a struct can hold another value of the same
+struct, as an optional `atomic<T>`. The resolver finds these edges and applies
+the rules (syntax guide, "Compilation-unit grammar"); every later pass sees an
+edge only as a mark on a field:
+
+- `semantics::StructField::recursive` marks an admitted edge on each struct's
+  effective fields, including a struct that inherits it;
+- `hir::StructField::recursive` carries the mark into typed HIR, printed as a
+  trailing ` recursive` by `--dump-hir`;
+- `hgraph_ir::StructField` carries `recursive` and `recursive_target`, the
+  identity of the struct inside the edge's `atomic<...>`, printed as
+  ` recursive->identity` by `--dump-hgraph-ir`.
+
+The target is named, never expanded. The passes the two backends share
+terminate on a recursive type because none of them follows a field into its
+type: canonical types and generic substitution intern struct types
+nominally, by symbol and arguments; the type checker and constraint solver
+build effective fields by walking parents, whose cycles the resolver
+rejects, and read one field at a time for construction, field access and
+reflection (`fields`, `has_fields`, `field_type`); hgraph-IR lowering lowers
+types by nominal identity and maps inherited fields by walking parents; and
+activation planning, execution completion and binding reachability walk
+bodies, not types. `tests/hgraph_ir/lower_tests.cpp` drives a direct edge, a
+mutual pair, an abstract-family edge and a generic self edge through all of
+them.
+
+What expands fields is type realization: direct wiring's type bridge and the
+C++ emitter's struct declarations. The descriptor writer records struct
+layouts by nominal type too, but its format cannot yet say that a field is an
+edge (ADR 0004 format change). Until those realize an edge as an owner of its
+target, hgraph-IR lowering stops each admitted edge once, at its declaring
+struct, so neither backend receives one.
 
 ## Generic constraint IR and lowering
 

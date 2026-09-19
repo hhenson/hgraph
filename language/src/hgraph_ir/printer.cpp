@@ -610,6 +610,7 @@ namespace hgl::hgraph_ir
                 if (field.optional) { out << '?'; }
                 out << ':';
                 print_type_id(out, field.type);
+                if (field.recursive) { out << " recursive->" << field.recursive_target; }
                 if (field.default_value.valid()) {
                     out << '=';
                     print_const_expr_id(out, field.default_value);

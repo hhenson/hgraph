@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Carry recursive struct edges (ADR 0012) through the passes both backends
+  share. Typed HIR marks an admitted edge (`--dump-hir` prints ` recursive`),
+  and hgraph IR marks it with its target's identity (`--dump-hgraph-ir` prints
+  ` recursive->identity`). Every shared pass is shown to terminate on a
+  recursive type, since none follows a field into its type; the stop moves
+  from HIR lowering to hgraph-IR lowering, before the execution backends.
 - Admit recursive struct fields at name resolution (ADR 0012). A field
   through which a value of a struct can contain another value of the same
   struct is a recursive edge; the resolver accepts it as an optional

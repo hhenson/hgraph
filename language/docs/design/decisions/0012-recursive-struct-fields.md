@@ -1,11 +1,13 @@
 # ADR 0012: recursive struct fields
 
-Status: accepted (2026-09-19). Implemented through name resolution only.
-`check_recursive_fields` (`src/semantics/resolve.cpp`) finds every recursive
-edge, admits the ones rules 2, 3, 4 and 8 allow and reports the rule each
-other edge breaks (`tests/semantics/resolve_tests.cpp`). HIR lowering then
-stops every admitted edge with a "not yet supported" diagnostic
-(`src/ir/lower.cpp`), so no program with a recursive field compiles yet.
+Status: accepted (2026-09-19). Implemented through the passes the two
+backends share. `check_recursive_fields` (`src/semantics/resolve.cpp`) finds
+every recursive edge, admits the ones rules 2, 3, 4 and 8 allow and reports
+the rule each other edge breaks (`tests/semantics/resolve_tests.cpp`); typed
+HIR and hgraph IR mark each admitted edge and name its target by identity.
+hgraph-IR lowering then stops every admitted edge with a "not yet supported"
+diagnostic (`src/hgraph_ir/lower.cpp`), so no program with a recursive field
+compiles yet.
 
 ## Context
 

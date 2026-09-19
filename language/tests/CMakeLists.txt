@@ -80,6 +80,24 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
+# Recursive struct edges (ADR 0012) are marked in both dumps. Lowering stops
+# them, so `check` exits non-zero; only the printed marker is asserted.
+add_test(
+    NAME hgraph_language_dump_hir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hir
+)
+set_tests_properties(hgraph_language_dump_hir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "next:t[0-9]+\\?=e[0-9]+@d[0-9]+ recursive"
+)
+
+add_test(
+    NAME hgraph_language_dump_hgraph_ir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_dump_hgraph_ir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "tree\\?:t[0-9]+ recursive->tests\\.recursive_structs\\.Tree"
+)
+
 add_test(
     NAME hgraph_language_check_descriptor
     COMMAND ${CMAKE_COMMAND}
