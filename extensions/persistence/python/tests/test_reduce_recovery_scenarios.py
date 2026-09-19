@@ -123,9 +123,10 @@ def _own_output(ts: hg.TS[int]) -> hg.TS[int]:
     "A restored keyed input iterates its keys in a different order from the unbroken run when "
     "a slot freed before the cut is still free at it and another removal follows: "
     "(0, 3) unbroken, (3, 0) restored. An order-sensitive reduction shows it as 76 vs 40. "
-    "Python-value keyed storage only; the same stream passes from C++ "
+    "The keys are native ints. The C++ counterpart with the same stream passes "
     "(tests/cpp/test_reduce_checkpoint.cpp, 'reduce checkpoint keeps leaf order when one "
-    "cycle both removes and adds keys')."))
+    "cycle both removes and adds keys'); why the two paths differ is not established. Ruled "
+    "out: the order of adds and removals inside one delta -- all three orderings fail alike."))
 def test_a_restored_input_keeps_its_key_order_with_a_removal_on_each_side_of_the_cut(tmp_path):
     # The minimal stream, reduced from eight nightly failures that shared this shape and
     # nothing else -- one of them with no dmap_ or spawn_ in it at all.

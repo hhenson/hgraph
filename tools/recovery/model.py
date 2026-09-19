@@ -96,9 +96,11 @@ def _removes(event) -> bool:
 #: seed to rediscover the defect as a new failure.
 TSD_SLOT_ORDER = KnownDefect(
     "tsd-restored-slot-order",
-    "Python-value keyed storage: a slot freed before the cut and still free at it, then another "
-    "removal after it, leaves a restored TSD iterating its keys in a different order from the "
-    "unbroken run. Only an order-sensitive reduction shows it. The same stream passes from C++.")
+    "A removal before a cut and another after it leave the RESTORED keyed input iterating its "
+    "keys in a different order from the unbroken run: (0, 3) unbroken, (3, 0) restored. Only an "
+    "order-sensitive reduction shows it. Reproduced from Python, with native int keys; the C++ "
+    "counterpart with the same stream passes, and why the two differ is NOT established. Ruled "
+    "out: the order of adds and removals inside one delta.")
 
 
 def known_defect(scenario: Scenario):
