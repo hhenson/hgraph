@@ -1,0 +1,39 @@
+# PROPOSED work description only; no prototype or implementation is delivered.
+spec hgraph.work revision 1
+status proposed
+
+slice AtomicCellProof {
+    status proposed
+    meaning "Prove one C++ atomic cell representation and its trace before selecting any core integration."
+    requires [AtomicI64, AtomicStorage, AtomicRetention, AtomicZeroTick]
+    delivers [
+        "An isolated C++ cell owner and immutable layout description",
+        "A C++ scenario driver with explicit begin, admitted publish, and inspect actions",
+        "Measured cell size/alignment and allocation counts scoped to the cell"
+    ]
+    preserves [HG-ATOM-001, HG-ATOM-002, HG-ATOM-003, HG-ATOM-004, ATOM.COHERENCE, LAYOUT.PUBLICATION]
+    touches [
+        "language/runtime-spec/prototype/atomic_cell.h",
+        "language/runtime-spec/prototype/atomic_cell_test.cpp",
+        "language/runtime-spec/prototype/CMakeLists.txt"
+    ]
+    excludes [
+        "Core runtime or public SDK changes",
+        "HGL syntax or lowering changes",
+        "Python runtime semantics",
+        "Collection storage, reference adaptation, scheduler policy, and ABI changes"
+    ]
+    checks [
+        "All AtomicRetention and AtomicZeroTick observations, without rewriting expected values",
+        "All five AtomicStorage layout cases, with target sizeof/alignof assertions",
+        "Construction before typed access and destruction before release",
+        "Stable addresses while live; zero cell-storage allocations on publish or inspect",
+        "ASan/UBSan for the prototype's placement, access, and lifetime paths",
+        "Report untested prose requirements separately from passing finite traces"
+    ]
+    open [
+        "The mapping from existing public setter behavior to admitted publish is not selected",
+        "Invalidation, same-tick write batching, generic payload failure, and observer integration are not covered",
+        "Before core integration, name the actual files and public C++/Python behavioral coverage and run the repository's full acceptance gates"
+    ]
+}

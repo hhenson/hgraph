@@ -1,0 +1,115 @@
+# PROPOSED bounded ownership model; it does not replace the graph lifecycle.
+spec hgraph.pair_owner revision 1
+status proposed
+
+layout PairStorage {
+    meaning "One 32-byte allocation containing two i64 atomic cell regions, with no owner controller or observer storage embedded."
+    target "C++ object storage; 8-bit bytes; 64-bit size_t"
+    field left use AtomicStorage(storage(8, 8)) at 0
+    field right use AtomicStorage(storage(8, 8)) at end(left)
+    alignment 8
+    size end(right)
+    rule OWNER.REGION "PairOwner owns the allocation and its two cells. Its controller and links live outside PairStorage. No child releases the allocation."
+    case Pair expect {left: 0, right: 16, size: 32, alignment: 8}
+}
+
+model PairOwner {
+    meaning "Own two cells, release them safely, and unwind a failed second construction."
+    scope "Synchronous owner with at most one consumer link and one read borrow. Allocation succeeds; start, stop, destruction, and detach hooks finish without throwing. A fault may be injected at entry to right construction, before any right subobject is live. Other failures and concurrent callbacks need separate contracts."
+    contract proposed
+    state phase: text = "fresh"
+    state allocated: bool = false
+    state live: u32 = 0
+    state borrowed: bool = false
+    state linked: bool = false
+    invariant OWNER.BOUNDS: live <= 2
+    invariant OWNER.LIVE: live == 0 or allocated
+    invariant OWNER.BORROW: not borrowed or phase == "running"
+    rule OWNER.EVENTS "Logs record completed operations, except fail:right which records the injected fault before right construction. live counts complete cell objects at action boundaries. construct:left and construct:right increase the constructed prefix; destroy:right and destroy:left decrease it."
+    rule OWNER.UNWIND "The fault occurs before any right subobject is live. The owner destroys only the completed left cell, never the unconstructed right cell, and then releases the region exactly once. No start or stop hook runs on this path."
+    rule OWNER.LOAN "A read borrow is valid only until end_borrow. It permits observation but no payload mutation, cannot be retained by callbacks, and does not independently own storage. Stop and release attempts while borrowed are admitted and reject without effects."
+    rule OWNER.QUIESCENCE "quiesce disables new delivery before stop hooks. Both cells remain live during those hooks. detach removes the consumer link before any cell destruction; no later notification may access it."
+
+    on construct_ok() {
+        require phase == "fresh"
+        next phase = "ready"
+        next allocated = true
+        next live = 2
+        emit ["allocate:32/8", "construct:left", "construct:right"]
+    }
+    on construct_fail_right() {
+        require phase == "fresh"
+        next phase = "released"
+        emit ["allocate:32/8", "construct:left", "fail:right", "destroy:left", "release"]
+        fail ConstructionFailed
+    }
+    on start() {
+        require phase == "ready"
+        next phase = "running"
+        emit ["start:left", "start:right"]
+    }
+    on attach() {
+        require phase == "running" and not linked and not borrowed
+        next linked = true
+        emit ["attach:left"]
+    }
+    on borrow() {
+        require phase == "running" and not borrowed
+        next borrowed = true
+    }
+    on end_borrow() {
+        require borrowed
+        next borrowed = false
+    }
+    on stop() {
+        require phase == "running"
+        reject if borrowed with BorrowLive
+        next phase = "stopped"
+        next linked = false
+        emit ["quiesce", "stop:right", "stop:left", "detach"]
+    }
+    on release() {
+        reject if borrowed with BorrowLive
+        reject if phase != "ready" and phase != "stopped" with WrongPhase
+        next phase = "released"
+        next allocated = false
+        next live = 0
+        emit ["destroy:right", "destroy:left", "release"]
+    }
+}
+
+scenario OwnerNormal for PairOwner {
+    meaning "Borrow rejection is effect-free; stop detaches before reverse destruction."
+    covers [HG-LIFE-001, OWNER.REGION, OWNER.EVENTS, OWNER.LOAN, OWNER.QUIESCENCE]
+    observe [phase, allocated, live, borrowed, linked]
+    initial expect ["fresh", false, 0, false, false]
+    step construct_ok() expect ["ready", true, 2, false, false] events ["allocate:32/8", "construct:left", "construct:right"]
+    step start() expect ["running", true, 2, false, false] events ["start:left", "start:right"]
+    step attach() expect ["running", true, 2, false, true] events ["attach:left"]
+    step borrow() expect ["running", true, 2, true, true] events []
+    step release() error BorrowLive expect ["running", true, 2, true, true] events []
+    step stop() error BorrowLive expect ["running", true, 2, true, true] events []
+    step end_borrow() expect ["running", true, 2, false, true] events []
+    step release() error WrongPhase expect ["running", true, 2, false, true] events []
+    step stop() expect ["stopped", true, 2, false, false] events ["quiesce", "stop:right", "stop:left", "detach"]
+    step release() expect ["released", false, 0, false, false] events ["destroy:right", "destroy:left", "release"]
+    step inspect expect ["released", false, 0, false, false] events []
+}
+
+scenario OwnerConstructionFailure for PairOwner {
+    meaning "A failed right constructor releases the completed prefix and its allocation."
+    covers [HG-LIFE-001, OWNER.UNWIND, OWNER.EVENTS]
+    observe [phase, allocated, live, borrowed, linked]
+    initial expect ["fresh", false, 0, false, false]
+    step construct_fail_right() error ConstructionFailed expect ["released", false, 0, false, false] events ["allocate:32/8", "construct:left", "fail:right", "destroy:left", "release"]
+    step inspect expect ["released", false, 0, false, false] events []
+}
+
+scenario OwnerNeverStarted for PairOwner {
+    meaning "Constructed storage can be released without running semantic stop on unstarted objects."
+    covers [HG-LIFE-001, OWNER.EVENTS]
+    observe [phase, allocated, live, borrowed, linked]
+    initial expect ["fresh", false, 0, false, false]
+    step construct_ok() expect ["ready", true, 2, false, false] events ["allocate:32/8", "construct:left", "construct:right"]
+    step release() expect ["released", false, 0, false, false] events ["destroy:right", "destroy:left", "release"]
+}

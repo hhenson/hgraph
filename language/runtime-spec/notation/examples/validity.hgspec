@@ -1,0 +1,62 @@
+# PROPOSED notation for ESTABLISHED single-level validity behavior.
+spec hgraph.validity revision 1
+status proposed
+
+model NestedLists {
+    meaning "An outer TSL checks immediate child valid, not child all_valid."
+    scope "A valid snapshot of a fixed outer list with two inner lists. sample supplies observed metadata, not a new runtime mutation API."
+    contract established
+    state root_valid: bool = false
+    state a_valid: bool = false
+    state a_all: bool = false
+    state b_valid: bool = false
+    state b_all: bool = false
+    derive all_valid = root_valid and a_valid and b_valid
+    rule VALID.FIXED "The same single-level rule applies to TSL and TSB: endpoint valid and every immediate child valid. There is no recursive all_valid traversal."
+    rule VALID.DRIVER "A runtime adapter constructs and drives actual nested temporal inputs. It must not manufacture result metadata by assigning these abstract flags directly in engine internals."
+
+    on sample(root: bool, a: bool, a_full: bool, b: bool, b_full: bool) {
+        require not a_full or a
+        require not b_full or b
+        require root or not (a or b)
+        next root_valid = root
+        next a_valid = a
+        next a_all = a_full
+        next b_valid = b
+        next b_all = b_full
+    }
+}
+
+scenario NestedValidity for NestedLists {
+    meaning "Partially populated valid children satisfy the outer check; an invalid immediate child does not."
+    covers [HG-VALID-001, VALID.FIXED]
+    observe [root_valid, a_valid, a_all, b_valid, b_all, all_valid]
+    initial expect [false, false, false, false, false, false]
+    step sample(true, true, false, false, false) expect [true, true, false, false, false, false]
+    step sample(true, true, false, true, false) expect [true, true, false, true, false, true]
+}
+
+model DictionaryValidity {
+    meaning "A TSD uses its own valid for all_valid and does not walk its values."
+    scope "A TSD containing an inner list; sample supplies observed metadata."
+    contract established
+    state root_valid: bool = false
+    state child_all: bool = false
+    derive all_valid = root_valid
+    rule VALID.DICTIONARY "TS, TSD, and TSS use all_valid equal to valid. This model demonstrates the TSD case with a partially populated child."
+
+    on sample(root: bool, child_full: bool) {
+        require not child_full or root
+        next root_valid = root
+        next child_all = child_full
+    }
+}
+
+scenario DictionaryDoesNotRecurse for DictionaryValidity {
+    meaning "A partially populated list value does not prevent a valid TSD from being all_valid."
+    covers [HG-VALID-001, VALID.DICTIONARY]
+    observe [root_valid, child_all, all_valid]
+    initial expect [false, false, false]
+    step sample(true, false) expect [true, false, true]
+    step sample(true, true) expect [true, true, true]
+}
