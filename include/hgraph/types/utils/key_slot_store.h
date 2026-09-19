@@ -598,8 +598,12 @@ namespace hgraph
          * Capturing a completed cycle normalizes removed keys to absent;
          * the returned LIFO order preserves the next insertion's identity.
          * Normalizing is sound only because every other change to the free
-         * pool commutes with that flush: allocation never runs before it, and
-         * ``reserve_to`` grows underneath the pool rather than on top of it.
+         * pool commutes with that flush. Growth does by construction:
+         * ``reserve_to`` adds capacity underneath the pool, not on top of it.
+         * Allocation does by the OWNER's discipline, which a new owner must
+         * keep: flush before the first insert of a new evaluation time, as
+         * TSS/TSD do in ``prepare_delta`` and ``mesh_`` does in
+         * ``erase_retired_before``.
          */
         [[nodiscard]] std::vector<size_t> checkpoint_free_slots() const {
             std::vector<size_t> result = m_free_slots;

@@ -370,9 +370,13 @@ removed key is recorded as absent and its slot as free, in the position the
 next ordinary flush would give it (``KeySlotStore::checkpoint_free_slots``).
 That is sound only while every other change to the free pool commutes with the
 flush, because a restored store has flushed where the uninterrupted one may
-not yet have. Allocation cannot precede the flush -- the owner flushes at the
-first mutation of a new evaluation time. Capacity growth can: a caller may
-reserve ahead of its first mutation, and the Python result path does. So
+not yet have. Allocation cannot precede the flush, by the owner's discipline:
+``TSS``/``TSD`` flush at the first mutation of a new evaluation time and
+``mesh_`` at the start of its evaluation, and a new owner of a checkpointed
+store must do the same. Capacity growth can precede it: a caller may reserve
+ahead of its first mutation (the Python result path does), and ``mesh_``
+mirrors the capacity of its requested key set, which grows before the mesh
+itself evaluates. So
 ``KeySlotStore::reserve_to`` adds new capacity UNDERNEATH the pool while the
 flush returns slots to the top, and the pool is the same in either order. The
 rule lives in the store, not in its callers. Before it did, the recovery
