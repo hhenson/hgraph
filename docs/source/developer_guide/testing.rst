@@ -423,7 +423,13 @@ that is there -- with quiet cycles, and keys that leave and return.
   component member and hosting a component, in process and across processes,
   at 5k / 10k / 20k / 40k keys. It differences a day with and without recovery
   configured, prints one JSON row per size, and **requires** the cost per key
-  to stay flat (guardrail iv). Results: ``benchmarks/results/recovery-*``.
+  to stay flat (guardrail iv). Each row also splits the recovered days at the
+  two moments recovery calls out -- ``load`` (the graph is built) and
+  ``commit`` (it has been captured and stopped) -- into ``build``, ``run`` and
+  ``destroy``, because a difference of medians cannot say which part grew. The
+  image a day restores from is staged before the clock starts and handed over
+  by move, as a store does; copies made inside the clock once inflated the
+  restore figure by a fifth to two fifths. Results: ``benchmarks/results/recovery-*``.
 
 .. code-block:: bash
 
