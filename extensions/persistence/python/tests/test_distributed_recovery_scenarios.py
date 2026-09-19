@@ -134,8 +134,11 @@ def test_dmap_restarts_without_recovery_lose_the_hosted_component(tmp_path):
     def scenario(values: SCHEMA) -> SCHEMA:
         return hg.dmap_(running, values, __workers__=3, in_process=True)
 
-    days = _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:3],), 0) + _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[3:],), 3)
-    assert days[6] == {1: 11, 3: 1}
+    # Cut after the removal: with nothing restored the next day's source could not
+    # even express the removal of a key it never held, which is the other face
+    # of why a hosting dmap_ takes its inputs through component boundaries.
+    days = _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:5],), 0) + _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[5:],), 5)
+    assert days[6] == {1: 7, 3: 1}      # recovered, it is {1: 16, 3: 101}
 
 
 NESTED = hg.TSD[str, hg.TSD[str, hg.TS[int]]]
