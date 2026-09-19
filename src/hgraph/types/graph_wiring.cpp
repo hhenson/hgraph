@@ -1303,7 +1303,6 @@ struct Wiring::Impl {
   std::deque<WiringInstance> instances{};
   std::string checkpoint_component{};
   bool checkpoint_records_refusals{false};
-  bool checkpoint_hosting{false};
   std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
@@ -1469,15 +1468,7 @@ std::string Wiring::checkpoint_component(std::string component_id) {
   if (!component_id.empty()) {
     impl_->checkpoint_component_starts.try_emplace(component_id, impl_->instances.size());
   }
-  impl_->checkpoint_hosting = false;
   return std::exchange(impl_->checkpoint_component, std::move(component_id));
-}
-
-std::string Wiring::checkpoint_host(std::string component_id) {
-  if (component_id.empty()) { throw std::invalid_argument("component checkpoint: a host scope requires a component id"); }
-  auto previous = checkpoint_component(std::move(component_id));
-  impl_->checkpoint_hosting = true;
-  return previous;
 }
 
 bool Wiring::checkpoint_records_refusals() const noexcept { return impl_->checkpoint_records_refusals; }
@@ -1672,12 +1663,6 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   });
   const auto append_source = [&](const auto &self, const WiringPortRef &source) -> void {
     signature.varint(static_cast<std::uint8_t>(source.source_kind()));
-    if (impl_->checkpoint_hosting) {
-      // A host stands in for a component hosted elsewhere. What feeds it is
-      // the owner graph's business and no part of the component's contract.
-      manifest::append_ts_descriptor(signature, source.schema);
-      return;
-    }
     if (const auto *producer = source.peered_node_or_null()) {
       const auto &identity = producer->builder.checkpoint_identity();
       // In a worker graph everything has an identity, so "outside the

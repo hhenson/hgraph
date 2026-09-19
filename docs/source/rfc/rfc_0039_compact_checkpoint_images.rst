@@ -480,12 +480,21 @@ component's nodes instead, as it does for a single node.
 
 *The* ``spawn_`` *node stands in for the component in the owner graph.* At wiring
 it looks for the configured component among its stages' nodes. If a stage hosts
-it, the ``spawn_`` node is wired in a *host scope* under that component's id, so
-the completed-day session finds a member exactly where it looks for one, and
-nothing else about the session changes. A host's inputs are external by
-definition -- they are whatever the owner graph feeds the pipeline -- so they
-are signed by schema and not held to a member's rule that inputs enter through
-a component boundary. The caller's contract is the component's usual one: a run
+it, the ``spawn_`` node is wired inside that component's scope, so the
+completed-day session finds a member exactly where it looks for one, and
+nothing else about the session changes.
+
+Its inputs enter through component input boundaries, as any component's do, and
+for the same reason. The owner graph is not recovered, so without a restored
+source baseline its side of a keyed input would be empty after a restart, and
+the removal of a key it never saw again could not be expressed: the worker would
+hold that key for good. (The first cut of this wired the owner in a separate
+"host scope" that took its inputs as they came; a keyed input with a removal
+after a restart showed the hole, and the host scope is gone.) The usual rules
+follow. An input has to be a direct source output, and that source may feed
+nothing else; a computed input is refused at wiring. The usual remedy follows
+too: wrap ``spawn_``, and whatever computes its inputs, in a component, which is
+the other nesting below. The caller's contract is the component's: a run
 supplies only future events.
 
 *A stage's image is selected, not whole.* It covers the component and the

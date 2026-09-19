@@ -205,6 +205,30 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value, NamedPort<"offset", TS<Int>> offset)
         { return stdlib::component<SideBody>(w, spawn_component_id, value, offset); }
     };
+    /** A hosted component over a KEYED input: per-key totals, folded to one number. */
+    using SpawnKeyed = TSD<Str, TS<Int>>;
+    struct SpawnKeyedDigest
+    {
+        static void eval(In<"d", SpawnKeyed> d, Out<TS<Int>> out)
+        {
+            Int total = 0;
+            for (auto &&[key, child] : d.valid_items()) { total += child.value(); }
+            out.set(total);
+        }
+    };
+    struct KeyedBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        {
+            auto totals = wire<stdlib::map_>(w, fn<SpawnAccumulate>(), value).as<SpawnKeyed>();
+            return wire<SpawnKeyedDigest>(w, totals).as<TS<Int>>();
+        }
+    };
+    struct KeyedComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        { return stdlib::component<KeyedBody>(w, spawn_component_id, value); }
+    };
     /** The same component id over another body: another contract. */
     struct OtherBody
     {

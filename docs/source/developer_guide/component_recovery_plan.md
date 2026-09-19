@@ -85,8 +85,9 @@ externally driven executor is the other: `start_external_restored` and
 worker-hosted graph needs. Those verbs also take a selection: `dmap_` saves its
 workers whole, while `spawn_` saves the component a stage hosts
 (`GraphCheckpointSelection::hosted`) and stands in for it in the owner graph
-through a host scope (`Wiring::checkpoint_host`), so the session finds a member
-where it looks for one.
+(`worker_checkpoint::HostedComponentScope`): wired inside the component's scope,
+so the session finds a member where it looks for one, with its inputs entering
+through component input boundaries so their source baselines are restored.
 
 A node needs no checkpoint operations when it is a compute node that holds
 nothing beyond its endpoints, or a sink with recordable state

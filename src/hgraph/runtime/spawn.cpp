@@ -753,31 +753,31 @@ namespace hgraph
             plan->stages.push_back(std::move(prepared));
         }
         plan->input_schema = TypeRegistry::instance().un_named_tsb(fields);
-        const auto source = WiringPortRef::structural_source(plan->input_schema, std::move(external));
         // What recovers is a component inside a stage (RFC 0039). If a stage
         // hosts the component recovery is configured for, this node stands in
-        // for it in the owner graph, so the completed-day session finds a
-        // member where it looks for one. Wired inside a component of the
-        // owner's instead, the pipeline is that component's, whole.
-        std::string previous_scope;
-        bool        hosting = false;
+        // for it in the owner graph: wired in its scope, so the completed-day
+        // session finds a member where it looks for one, with the pipeline's
+        // inputs entering through component input boundaries. Wired inside a
+        // component of the owner's instead, the pipeline is that component's,
+        // whole, and its inputs already are.
+        std::optional<std::string> hosted;
         if (wiring.checkpoint_component().empty())
         {
-            if (const auto configured = configured_recovery_component(wiring.operator_state()))
+            if (auto configured = configured_recovery_component(wiring.operator_state()))
             {
-                hosting = std::any_of(plan->stages.begin(), plan->stages.end(), [&](const StagePlan &stage) {
-                    return distributed::worker_checkpoint::hosts_component(stage.graph, *configured);
-                });
-                if (hosting)
+                if (std::any_of(plan->stages.begin(), plan->stages.end(), [&](const StagePlan &stage) {
+                        return distributed::worker_checkpoint::hosts_component(stage.graph, *configured);
+                    }))
                 {
-                    plan->hosted_component = *configured;
-                    previous_scope         = wiring.checkpoint_host(*configured);
+                    hosted = std::move(configured);
                 }
             }
         }
-        auto leave_host_scope = make_scope_exit([&] {
-            if (hosting) { (void)wiring.checkpoint_component(previous_scope); }
-        });
+        distributed::worker_checkpoint::HostedComponentScope standing_in{wiring, hosted};
+        plan->hosted_component = standing_in.component();
+        for (std::size_t index = 0; index < external.size(); ++index)
+            external[index] = standing_in.input(std::move(external[index]), fields[index].first);
+        const auto source = WiringPortRef::structural_source(plan->input_schema, std::move(external));
         // A freshly owned immutable plan gives every spawn distinct identity,
         // including two identical sink calls with observable side effects.
         wire<SpawnNode>(wiring, Port<void>{wiring, source}, PlanPtr{std::move(plan)});

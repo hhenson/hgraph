@@ -221,6 +221,12 @@ and a restarted run raises that worker with the component restored and does not
 re-send the input baselines it already holds. The component can share a stage
 with the sink, as above, or sit in an earlier stage of a ``pipeline_``.
 
+The pipeline's inputs are held to a component's input rules, because for
+recovery they *are* the component's inputs: each has to come straight from a
+source, and that source may feed nothing else. A computed input is refused when
+the graph is wired. If that is what you have, wrap ``spawn_`` and whatever
+computes its inputs in a component instead (below).
+
 Everything outside the component is *processed*, not recovered -- above all the
 sink the pipeline ends in. It acts in a worker process, recovery restores what
 the component knew and cannot replay what the sink did, and the sink declares

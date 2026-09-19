@@ -24,6 +24,11 @@
 
 namespace
 {
+    // eval_node needs an output, and these graphs have none worth having. It
+    // must not be the input: a source whose baseline the session restores may
+    // feed only its component input boundary, here as for any component.
+    Port<TS<Int>> no_output(Wiring &w) { return wire<stdlib::const_>(w, Int{0}).as<TS<Int>>(); }
+
     /** The component in one stage, the sink in the next. ``spawn_`` is in no component. */
     template <typename Stage> struct HostedPipeline
     {
@@ -32,7 +37,7 @@ namespace
             std::array arguments{input_arg(value.erased())};
             wire_spawn(w, pipeline_({test_stage<Stage>(), test_stage<Sink<TS<Int>>>(trace.value())}), arguments,
                        process_config());
-            return value;
+            return no_output(w);
         }
     };
     /** The component and the sink side by side in ONE stage graph. */
@@ -42,7 +47,7 @@ namespace
         {
             std::array arguments{input_arg(value.erased())};
             wire_spawn(w, test_stage<ComponentAndSinkStage>(trace.value()), arguments, process_config());
-            return value;
+            return no_output(w);
         }
     };
     /** A hosted component with a bound side input that ticks once, on the first day. */
@@ -54,7 +59,7 @@ namespace
             std::array arguments{input_arg(value.erased(), "value")};
             wire_spawn(w, pipeline_({std::move(first), test_stage<Sink<TS<Int>>>(trace.value())}), arguments,
                        process_config());
-            return value;
+            return no_output(w);
         }
     };
     /** The other nesting: ``spawn_`` is itself a member of a recoverable component, so every
@@ -185,6 +190,95 @@ TEST_CASE("spawn recovery: a restored pipeline does not re-send the baselines it
     CHECK(restarted<HostedSideInput>(value.size(), spawn_component_id, value, offset) == expected);
 }
 
+TEST_CASE("spawn recovery: a key removed after a restart is removed in the worker too", "[checkpoint][spawn]")
+{
+    prepare();
+    // The owner graph is not recovered, so after a restart its side of a keyed
+    // input would be empty -- and the removal of a key it never saw again could
+    // not be expressed, leaving the worker holding that key for good. The
+    // pipeline's inputs therefore enter through component input boundaries,
+    // whose source baselines the session restores, as any component's do.
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<SpawnKeyed> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<KeyedComponentStage>(), test_stage<Sink<TS<Int>>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    using Events = std::vector<std::optional<Value>>;
+    const Events events = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 10}}),
+                                        dict_delta<Str, TS<Int>>({{"a", 2}}),
+                                        dict_delta<Str, TS<Int>>({{"a", 3}}, {"b"}),
+                                        dict_delta<Str, TS<Int>>({{"a", 4}, {"b", 20}}));
+    const auto run = [&](std::size_t begin, std::size_t end, bool recover, std::optional<ComponentCheckpoint> &completed,
+                         Observed &observed) {
+        GlobalContext context;
+        if (recover)
+        {
+            configure_component_recovery(context.state().view(), {
+                .component_id = spawn_component_id, .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+        }
+        Trace trace;
+        (void)eval_node_with_options<Pipeline>(interval(begin, end), Events{events.begin() + begin, events.begin() + end},
+                                               arg<"trace">(&trace));
+        append(observed, trace);
+    };
+    Observed expected;
+    {
+        std::optional<ComponentCheckpoint> unused;
+        run(0, events.size(), false, unused, expected);
+    }
+    // a: 1, 3, 6, 10; b: 10, then removed, then back as 20 alone.
+    REQUIRE(expected.size() == 4);
+    REQUIRE(std::get<1>(expected[2]) == "6");
+    REQUIRE(std::get<1>(expected[3]) == "30");
+
+    std::optional<ComponentCheckpoint> completed;
+    Observed                           observed;
+    for (std::size_t day = 0; day < events.size(); ++day) { run(day, day + 1, true, completed, observed); }
+    CHECK(observed == expected);
+}
+
+TEST_CASE("spawn recovery: a hosted pipeline takes its inputs as a component does, straight from a source",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // A computed input has no source baseline the session could restore, so it
+    // is refused at wiring rather than recovered wrongly. The remedy is the
+    // usual one: wrap spawn_, and what computes its input, in a component.
+    struct Doubled
+    {
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value() * 2); }
+    };
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(wire<Doubled>(w, value).erased())};
+            wire_spawn(w, pipeline_({test_stage<ComponentStage>(), test_stage<Sink<TS<Int>>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Pipeline>(interval(0, 1), values<Int>(1), arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("external inputs require direct owned pull-source outputs"));
+    }
+    // Recovery not configured: the same pipeline wires and runs.
+    const auto observed = uninterrupted<Pipeline>(values<Int>(1, 2));
+    REQUIRE(observed.size() == 2);
+    CHECK(std::get<1>(observed.back()) == "6");
+}
+
 TEST_CASE("spawn recovery: what is outside the component is processed, recoverable or not", "[checkpoint][spawn]")
 {
     prepare();
@@ -201,7 +295,7 @@ TEST_CASE("spawn recovery: what is outside the component is processed, recoverab
             wire_spawn(w, pipeline_({test_stage<ComponentStage>(), test_stage<ForgetfulStage>(),
                                      test_stage<Sink<TS<Int>>>(trace.value())}),
                        arguments, process_config());
-            return value;
+            return no_output(w);
         }
     };
     const Ticks ticks    = values<Int>(1, 2, 3);

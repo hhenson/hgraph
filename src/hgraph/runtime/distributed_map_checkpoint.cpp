@@ -1,5 +1,6 @@
 #include <hgraph/runtime/distributed_map.h>
 
+#include <hgraph/lib/std/component.h>
 #include <hgraph/manifest/canonical.h>
 #include <hgraph/runtime/child_graph_inspection.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -97,6 +98,23 @@ namespace hgraph::distributed::worker_checkpoint
             writer.string_field(identity.id);
             writer.string_field(identity.signature);
         }
+    }
+
+    HostedComponentScope::HostedComponentScope(Wiring &wiring, std::optional<std::string> component)
+        : wiring_(wiring), component_(std::move(component))
+    {
+        if (component_) { previous_ = wiring_.checkpoint_component(*component_); }
+    }
+
+    HostedComponentScope::~HostedComponentScope()
+    {
+        if (component_) { (void)wiring_.checkpoint_component(previous_); }
+    }
+
+    WiringPortRef HostedComponentScope::input(WiringPortRef source, std::string_view name)
+    {
+        if (!component_) { return source; }
+        return stdlib::component_detail::checkpoint_boundary(wiring_, std::move(source), name);
     }
 
     bool hosts_component(const GraphBuilder &graph, std::string_view component)

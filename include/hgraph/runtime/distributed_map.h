@@ -712,6 +712,41 @@ namespace hgraph::distributed
         HGRAPH_EXPORT void sign_worker_graph(
             manifest::CanonicalWriter &writer, const GraphBuilder &graph, std::string_view owner, std::size_t index,
             const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph());
+        /**
+         * Wires a worker owner as the stand-in, in the owner graph, for the
+         * component its workers host.
+         *
+         * The owner is wired inside that component's scope, so the
+         * completed-day session finds a member where it looks for one. Its
+         * inputs enter through component input boundaries (``input``), as any
+         * component's do, and for the same reason: the owner graph is not
+         * recovered, so without a restored source baseline its side of a keyed
+         * input would be empty after a restart, and the removal of a key it
+         * never saw again could not be expressed. The usual rule follows -- an
+         * input has to be a direct source output -- and the usual remedy: wrap
+         * the owner, and whatever computes its inputs, in a component.
+         *
+         * Constructed with no component, it does nothing and ``input`` is the
+         * identity, so an owner wires the same way whether it hosts or not.
+         */
+        class HGRAPH_CLASS_EXPORT HostedComponentScope
+        {
+          public:
+            HostedComponentScope(Wiring &wiring, std::optional<std::string> component);
+            ~HostedComponentScope();
+            HostedComponentScope(const HostedComponentScope &) = delete;
+            HostedComponentScope &operator=(const HostedComponentScope &) = delete;
+            [[nodiscard]] bool hosting() const noexcept { return component_.has_value(); }
+            /** The hosted component's id, or empty. */
+            [[nodiscard]] std::string component() const { return component_.value_or(std::string{}); }
+            [[nodiscard]] WiringPortRef input(WiringPortRef source, std::string_view name);
+
+          private:
+            Wiring                    &wiring_;
+            std::optional<std::string> component_;
+            std::string                previous_{};
+        };
+
         /** True when ``graph`` has a node ``component`` owns. */
         [[nodiscard]] HGRAPH_EXPORT bool hosts_component(const GraphBuilder &graph, std::string_view component);
         [[nodiscard]] HGRAPH_EXPORT NodeCheckpointState capture(const NodeView &node, const CaptureGraphCheckpoint &);
