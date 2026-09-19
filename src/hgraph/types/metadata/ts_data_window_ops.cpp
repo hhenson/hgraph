@@ -1386,9 +1386,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.capacity_impl      = &size_capacity;
                 ops.full_impl          = &size_full;
                 ops.all_valid_impl     = &size_all_valid;
-                // A tick window is VALID only once it holds min_period
-                // elements (hgraph: consumers below the minimum see an
-                // invalid input, not a short window).
+                // A window is valid from its first value. all_valid is the
+                // separate minimum-period readiness predicate.
                 ops.has_current_value_impl = &size_has_current_value;
             }
 

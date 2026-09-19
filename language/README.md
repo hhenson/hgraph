@@ -7,10 +7,12 @@ depend on it. The language combines temporal computations with value-level
 work and explicit state; transports, threads, callbacks, and arbitrary native
 extensions remain native responsibilities.
 
-The agreed direction for `const fn`, reconstructible caches, and portable
-native contracts is recorded in
+Local scalar `const fn` functions, default temporal lifting, and scalar
+reconstructible caches are implemented. Generic value functions, non-scalar
+caches, mixed cache/state declarations, and portable native target mappings
+remain separate work. See the
+[status matrix](docs/design/roadmap.md#feature-status-matrix-2026-09-07) and
 [ADR 0008](docs/design/decisions/0008-temporal-contracts-and-target-mappings.md).
-These are design decisions, not claims of compiler support.
 
 Two backends share one frontend: the direct-wiring backend wires composition
 programs onto the hgraph runtime in process, and the C++ backend writes the

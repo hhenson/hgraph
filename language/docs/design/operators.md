@@ -157,8 +157,9 @@ claims into trusted native kernel flags, or enable new optimizations from them.
 Descriptor loading validates metadata shape and checks identity literals against
 the result type after substituting the declared domain (including the normal
 `i64` to `f64` widening). It does not verify mathematical truth. The
-existing descriptor import catalog remains a native-function boundary; general
-operator-contract imports and optimizer proof transport are not implemented.
+descriptor import catalog supports operator contracts as well as native
+functions, but rejects operator contracts carrying properties until property
+reconstruction is implemented. Optimizer proof transport is also unimplemented.
 
 An explicitly requested `reduce` retains its own contract. Removing an unsafe
 native law prevents the lifted reduction fast path; it does not silently change

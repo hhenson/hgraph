@@ -136,6 +136,10 @@ namespace
         return !source.has_current_value() || target.value() == source.value();
     }
 
+    void leave_child_invalid(hgraph::TSDProxy &, std::size_t, const hgraph::TSDataView &,
+                             const hgraph::TSDataView &, hgraph::DateTime, const void *) {}
+    const hgraph::TSDProxyValueOps invalid_child_ops{&leave_child_invalid, nullptr};
+
     const hgraph::TSDProxyValueOps key_value_ops{&key_value_builder, nullptr};
     const hgraph::TSDProxyValueOps window_key_ops{&window_key_builder, nullptr};
     const hgraph::TSDProxyValueOps sparse_bundle_key_ops{&sparse_bundle_key_builder, nullptr};
@@ -1366,6 +1370,8 @@ TEST_CASE("TSDProxy non-atomic owning copy preserves nested typed holes")
     }
 
     auto proxy_view = proxy.view();
+    REQUIRE(proxy_view.all_valid());
+    REQUIRE_FALSE(proxy_view.as_dict().at(key.view()).all_valid());
     auto live = proxy_view.as_dict().value();
     auto sparse = live.as_map().at(key.view()).as_bundle();
     REQUIRE(sparse.size() == 2);
@@ -1381,4 +1387,60 @@ TEST_CASE("TSDProxy non-atomic owning copy preserves nested typed holes")
     REQUIRE_FALSE(owned_sparse.at(1).has_value());
     REQUIRE(live.equals(owned.view()));
     REQUIRE(live.hash() == owned.view().hash());
+}
+
+
+TEST_CASE("TSDProxy all_valid checks live projected children and excludes removed slots")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *schema = registry.tsd(integer, ts);
+    const auto source_type = TSDataPlanFactory::instance().data_type_for(schema);
+    const auto child_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSData source{source_type};
+    TSData proxy{proxy_data_type_for(*schema, TSRoleTypeRef{child_type.as_role()})};
+    REQUIRE_FALSE(proxy.view().all_valid());
+    Value key{1};
+    Value value{7};
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(MIN_ST);
+        auto child = mutation.at(key.view());
+        REQUIRE(child.begin_mutation(MIN_ST).copy_value_from(value.view()));
+    }
+    {
+        auto root = proxy.view();
+        auto original = source.view();
+        bind_tsd_proxy(root, original.as_dict(), &invalid_child_ops, nullptr, MIN_ST);
+    }
+    REQUIRE(source.view().all_valid());
+    REQUIRE(proxy.view().has_current_value());
+    REQUIRE_FALSE(proxy.view().all_valid());
+    {
+        auto root = proxy.view();
+        auto child = root.as_dict().at(key.view());
+        REQUIRE(child.begin_mutation(MIN_ST).copy_value_from(value.view()));
+    }
+    REQUIRE(proxy.view().all_valid());
+    const auto t2 = MIN_ST + TimeDelta{1};
+    {
+        auto root = proxy.view();
+        auto child = root.as_dict().at(key.view());
+        REQUIRE(child.begin_mutation(t2).invalidate());
+    }
+    REQUIRE_FALSE(proxy.view().all_valid());
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(t2);
+        REQUIRE(mutation.erase(key.view()));
+    }
+    REQUIRE(proxy.view().all_valid());
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(t2 + TimeDelta{1});
+        static_cast<void>(mutation.at(key.view()));
+    }
+    REQUIRE_FALSE(proxy.view().all_valid());
 }

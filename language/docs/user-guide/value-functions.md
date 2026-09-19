@@ -61,7 +61,7 @@ wrapped in a runtime node with the normal `when { ... }` policy:
 - all input endpoints must be valid;
 - the value result becomes an output tick, without implicit deduplication.
 
-The rule uses ordinary `valid`, not recursive `all_valid`. A value function
+The rule uses ordinary `valid`, without the additional child checks of `all_valid`. A value function
 that returns no value is lifted as an outputless node. Borrowed ranges or
 endpoint handles do not become owned outputs by being passed through a helper.
 
@@ -73,7 +73,7 @@ explicitly. There is no separate `lift` configuration language.
 
 ## Testing the value version
 
-`eval` uses the same generated adapter as graph composition:
+`eval` applies the same lifting rules as graph composition:
 
 ```hgl
 test scale_values {
@@ -98,22 +98,19 @@ structural replay limitations remain in force.
 
 Local, non-generic, fixed-arity `const fn` declarations, positional/named calls,
 scalar defaults, direct value calls, same-name role selection, automatic lifting,
-and `const(function)` selection are implemented in the C++ compiler path and
-scripted harness. The executable fixture is
+and `const(function)` selection are implemented for compiled packages and scripted execution on Unix. The executable fixture is
 [`value-functions.hgl`](../../tests/codegen/value-functions.hgl), with matching
 public C++ wiring tests.
 
 Value-function signatures currently accept scalar value types, with `void`
 also allowed as a result. Structural parameters and results, including tuples,
 collections, and structs, are rejected
-during checking. Their schema markers are not C++ payload types; supporting them
-requires an explicit runtime-value representation and borrowed/owned conversion
-contract. This restriction also applies to explicitly `const` parameters.
+during checking. This restriction also applies to explicitly `const` parameters.
 Value helpers may call later declarations, but recursive calls are not supported.
 
-Value bodies reuse the compiler's supported value expressions and runtime
-statements; this feature does not fill the existing tuple/list-literal,
-constant-field-access, or `if`-as-a-value backend gaps.
+Value bodies use the supported value expressions and runtime statements.
+Tuple/list literals, constant field access, and `if` used as a runtime value
+remain restricted.
 
 Generic and parameter-pack value functions are explicitly diagnosed, not
 silently emitted as incomplete templates. Exported value-function descriptors,

@@ -7,9 +7,8 @@ how source calls reach hgraph.
 
 > **Design preview:** the current `hgl` command checks the compiler example corpus and
 > runs composition functions directly and, for file-based `hgl test` and
-> `hgl run`, compiles, caches, and loads the documented scalar runtime-node
-> subset on Unix. The REPL uses the same native route and transactionally
-> replaces the session image when a runtime declaration is accepted.
+> `hgl run`, supports the documented runtime-function subset on Unix with a C++
+> toolchain. Failed REPL declarations leave the last working session intact.
 > The remaining limits are listed in
 > [Testing and running](testing-and-running.md#first-pass-limits), and the
 > status of every surface (implemented, partial, provisional, or blocked) in
@@ -31,12 +30,12 @@ how source calls reach hgraph.
    rolling windows, the `atomic<T>` boundary, metadata, and runtime collection
    traversal.
 4. [Modules and tools](modules-and-tools.md) covers public declarations,
-   implementation discovery, compiled module lifecycle, native modules,
+   implementation discovery, native module use,
    `check`, `test`, `run`, `emit-cpp`, `hgl_add_module()`, and the REPL
    (there is no `hgl build`).
 5. [Testing and running](testing-and-running.md) covers `test` declarations,
    `eval` with dense and timed sequences, running an entry from the command
-   line or a configuration file, and the REPL.
+   line and the REPL. Configuration-file execution remains planned.
 
 Source files are collected under [`language/examples`](../../examples). The
 frontend checks every example; the scripted backends run the supported subset described in
@@ -60,6 +59,8 @@ fn midpoint(
 In an ordinary `fn`, parameters are temporal by default. Parameter-level
 `const` marks a wiring-time value:
 
+Import `rolling_mean` with `use hgraph.analytics::{rolling_mean}` for this example.
+
 ```hgl
 export fn smooth(
     tob: atomic<tuple<f64, f64>>,
@@ -77,20 +78,21 @@ The agreed extension adds [value-level `const fn`](functions.md#value-level-func
 for direct computations without independent ticks, and
 [reconstructible caches](functions.md#reconstructible-cache) for node-local
 data excluded from record/replay. Local fixed-arity value functions and
-[default lifting](value-functions.md) are implemented; caches remain design work.
+[default lifting](value-functions.md) are implemented, as are scalar caches. Mixed `state`/`cache` and non-scalar
+cache storage remain unsupported.
 `const fn` does not mean compile-time-only or pure; its role is distinct from
 parameter-level `const`.
 
 The current design classifies a function from the constructs used in its body:
 
 - an ordinary expression body describes wiring composition;
-- `state`, `inject`, `start`, `when`, or `stop` makes the complete function a
+- `state`, `cache`, `inject`, `start`, `when`, or `stop` makes the complete function a
   runtime implementation compiled as one node.
 
 The agreed [iteration model](../design/iteration.md) makes `for`, `keys`,
 `values`, and `items` follow the containing phase; they do not alone force a
-runtime function. Both compiler backends expand fixed temporal lists and map
-independent dynamic map/list bodies through native child graphs.
+runtime function. In composition functions, loops describe independent computations for the
+elements of supported lists and maps.
 
 Runtime functions use ordinary `return` to produce an output tick. They may
 request direct output access alongside other runtime capabilities:
@@ -110,7 +112,7 @@ fn running_total(value: f64) -> f64 {
 ```
 
 This lets the same `fn` declaration either compose existing operations or
-fuse per-tick work into one generated node without adding `graph` and `node`
+express per-tick work in one runtime function without adding `graph` and `node`
 declaration keywords.
 
 ## Native boundary

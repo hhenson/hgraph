@@ -37,7 +37,7 @@ export fn smooth(
 All files in a multi-file compilation declare the same module and a unique
 `part` name. They share one declaration scope, so a private helper such as
 `midpoint` is visible in another part. They also produce one public module,
-descriptor, generated namespace, and registration identity; a part never adds
+public namespace; a part never adds
 an import path or re-exports a declaration. Part names provide deterministic
 compiler ordering only, and moving a declaration between parts does not change
 its identity. Each file keeps its own rule that `use` declarations precede
@@ -82,98 +82,22 @@ be imported, reached through a module alias, or declared locally.
 
 An exported generic struct exposes one nominal family, not a separate export
 for every possible specialization. Downstream code applies that family with a
-complete argument list such as `Box<f64>`; the application target records and
-registers only the concrete specializations it actually uses.
+complete argument list such as `Box<f64>`.
 
-## Writing a small native C++ helper
+## Native functions
 
-Use a top-level `native fn` when node logic needs a direct calculation over
-current values or a live hgraph collection view:
+Call an imported native function using its HGL signature, just like another
+module function. Its declared parameter types and permitted call phases apply.
+A fallible helper can end the current evaluation; writes already made in that
+evaluation are not rolled back. HGL has no `try` statement.
 
-```hgl
-cpp include <hgraph/types/time_series/ts_input/list_view.h>
+Writing a `native fn` with a C++ body is extension-authoring work. See
+[Native modules and packages](../developer-guide/native-modules-and-packages.md#writing-a-small-native-c-helper).
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
-    cpp(const hgraph::TSLInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
-    }
-}
+## Core utility functions
 
-fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
-    when modified(value) && valid(value) {
-        return len(value)
-    }
-}
-```
-
-The outer signature is HGL: it controls type checking, generic overload
-selection, and what another module can import. The `cpp(...)` parameter list
-and body are real C++. HGL generates the function name and return type, marks
-the function `noexcept`, formats it with `clang-format`, and emits a direct call.
-It does not create or subclass an hgraph operator for the helper.
-
-A body that may raise says so with `throws` after the signature:
-
-```hgl
-native fn checked_reciprocal(value: f64) -> f64 throws {
-    cpp(hgraph::Float value) {
-        if (value == 0.0) { throw std::domain_error("checked_reciprocal: division by zero"); }
-        return 1.0 / value;
-    }
-}
-```
-
-The generated function is then not `noexcept`. A raise ends the node's
-evaluation: if the node's error output is captured (`exception_time_series`,
-or `try_except` around the graph) it ticks a `NodeError` carrying the message;
-otherwise the exception propagates out of the graph. Outputs written earlier in
-the same evaluation stand, so call fallible helpers before writing. HGL has no
-`try` of its own. A `noexcept` body that raises anyway terminates the process,
-as in C++.
-
-For temporal `list`, `set`, `map`, and `rolling` parameters, C++ receives the
-corresponding live input view. A scalar temporal parameter receives its current
-value. Generics in the HGL signature can select the overload even when the C++
-view erases those details. For example, `size` participates in matching
-`list<T, size>` but need not be a C++ parameter merely to call `value.size()`.
-The contextual `schema` parameter is the narrow runtime-metadata case: it
-receives a borrowed `const hgraph::TSValueTypeMetaData *` obtained from
-`schemas(pack)` and cannot be stored or returned.
-
-Native declarations are automatically public and same-named declarations form
-an overload family. Generated C++ keeps these as plain free functions and gives
-each candidate a stable readable symbol (`len`, `len__candidate_2`, and so on),
-so erased HGL distinctions such as fixed versus unbounded list shapes cannot
-create a C++ redefinition. Source-native `requires` clauses currently fail closed
-because descriptor constraints are not reconstructed by the version-one
-catalog. Native parameters cannot have defaults. This first form runs only
-in `start`, `when`, and `stop` when its parameters are all values, and only
-during evaluation when it takes a live collection view; it cannot be nested
-inside another function.
-Use `cpp include <header>` for a system header or `cpp include "header"` for a
-project header needed by source-native signatures or bodies. These declarations
-are local to this source module, retain their order and delimiter form, and are
-deduplicated in the generated header. They do not follow HGL imports. Configure
-header search paths and linked libraries on the `hgl_add_module()` CMake target;
-macros and conditional includes are deliberately not HGL syntax.
-
-There is no general source syntax yet for linked libraries, state, lifecycle,
-ownership, effects, or throwing functions; the immutable lifetime of a
-`schema` parameter is fixed by that type. Use a separately built
-descriptor-backed native package for other cases. `hgl check` validates the
-parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
-validates that the generated descriptor fits the version-one native ABI.
-Native compilation validates the C++ declarations and body.
-
-The complete, compiled example is
-[`native-functions.hgl`](../../examples/native-functions.hgl).
-
-## Using the core native substrate
-
-The opt-in language build ships one real source-native module today:
-`hgraph.native`. Its typed surface provides `len` and `is_empty` for `str`,
-fixed and unbounded lists, sets, maps, and tick-count rolling windows. Its
-payload-erased surface provides `valid`, `all_valid`, `modified`,
+The `hgraph.native` module provides `len` and `is_empty` for `str`,
+fixed and unbounded lists, sets, maps, and tick-count rolling windows. It also provides `valid`, `all_valid`, `modified`,
 `last_modified`, `bound`, and `active` for every standard time-series shape.
 Additional string and window queries live in parts of the same module; see
 the [native inventory](../../stdlib/hgl/hgraph/README.md). Value operations keep
@@ -190,36 +114,16 @@ fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
 }
 ```
 
-Its CMake target supplies both the native library and descriptor:
-
-```cmake
-hgl_add_module(my_hgl_library STATIC
-    HGL my_library.hgl
-    LINK_LIBRARIES hgl::core_native)
-```
-
-The repository's first HGL-authored operator module consumes this substrate as
-`hgl::standard_library`. Its `len_` and `is_empty` implementations use compact
-`when {}` handlers, retained generic materializations, and `inject out` to avoid
-unchanged collection-size ticks. They are executable compiler examples, but do
-not yet replace the public C++ operators: complete core-contract metadata,
-start scheduling, never-valid collection observation, and retained rolling
-extents are named blockers. See the
-[core HGL module inventory](../../stdlib/hgl/hgraph/README.md).
-
-See the compiled
-[`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
-example and
-the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
-windows, nominal bundles, and reference views are available through the erased
-`signal` operations, but still lack typed view declarations such as `len`
-because the descriptor type schema cannot yet faithfully import those generic
-patterns.
+The native library must be included in the package that runs the program.
+For build configuration, see the
+[package-authoring guide](../developer-guide/native-modules-and-packages.md#building-a-package).
+The [module inventory](../../stdlib/hgl/hgraph/README.md) lists available
+functions and current type restrictions.
 
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short
-name alone. The descriptor identities `market.pricing.value` and
+name alone. The qualified operator names `market.pricing.value` and
 `risk.pricing.value` therefore denote distinct contracts. Canonical identities
 appear in diagnostics and metadata; source calls qualify through a local module
 alias rather than spelling a dotted module path as an expression.
@@ -301,87 +205,23 @@ requires T in {i64, f64} {
 instantiate adjust<i64>, adjust<f64>
 ```
 
-A consumer imports `example.contracts`, not `example.provider`, to name
-`adjust`. In CMake, `hgl_add_module(provider STATIC HGL provider.hgl
-LINK_LIBRARIES contracts)` makes the contract target's descriptor available to
-the compiler. A consumer links both targets; before wiring, its host calls
-`example::provider::register_operators()` and retains the returned provider
-handle for removal through the native registry. Linking alone does not activate
-an arbitrary external provider. The generated implementations register against
-the contract's original dispatch key, not a new provider-local operator.
-
-The [contract/provider/consumer fixtures](../../tests/codegen/imported-operators/)
-exercise concrete nodes, a materialized generic node, a graph implementation,
-and an HGL `test` context. The installed-SDK test builds the same modules without
-private compiler headers. This enables separate implementations; it does not
-yet replace existing C++ core nodes.
+A consumer imports `example.contracts` to name `adjust`. Its application must
+also enable a package providing a compatible implementation. The contract and
+implementation can be authored in separate modules; importing the contract
+alone does not supply its implementation. See the
+[package-authoring guide](../developer-guide/native-modules-and-packages.md#building-a-package)
+for linking and registration.
 
 ## Implementation discovery
 
-Imports control source names; they do not decide which operator implementations
-are installed. The complete candidate universe comes from the resolved
-application target:
+Imports determine which names your source can use. The application determines
+which implementation packages are enabled. Installing a package somewhere on
+the machine does not automatically make its implementations available.
 
-- every source module belonging to the target;
-- every module contributed by a locked package dependency;
-- the hgraph kernel and selected native extension packages.
-
-The compiler reads each module descriptor and indexes its candidates by the
-operator's canonical identity. A provider module participates even when none of
-its exact functions is imported. Conversely, a package installed somewhere on
-the machine contributes nothing unless it belongs to the target's dependency
-closure. This makes overload resolution reproducible and avoids scanning the
-environment for implementations.
-
-For an operator such as `add`, source imports its one defining contract. User
-and extension modules in the target may contribute many implementations, but
-they do not re-export or rename `add`. If equally specific candidates overlap,
-the build reports their provider modules as an ambiguity rather than using
-module or registration order as a tie-break.
-
-Each imported declaration and each provider in the target closure is checked
-against a language module descriptor. A descriptor contains public exact
-functions, nominal operator identities, requested implementation candidates
-with provider provenance, versions, required public headers, CMake package and
-target names, and lifecycle and registration entry points. Explicit generic
-materializations substitute concrete slots and expose only explicitly retained
-residual generics in their descriptor signatures; the hidden unrestricted
-templates do not enter the provider inventory. A descriptor does not grant
-access to arbitrary symbols in a library.
-
-## Compiled module lifecycle
-
-Each dynamically loaded scripted module has compiler-generated lifecycle entry
-points. Module initialization attaches the library to the application and
-records a keyed installer containing its type and operator registrations.
-Registry installation may run again after an hgraph registry reset without
-repeating unrelated module initialization effects.
-
-The generated application initializes every module in dependency order before
-wiring a graph. Deinitialization proceeds in reverse dependency order and
-removes the module from future function and operator resolution, removes its
-installer so a reset cannot restore it, and releases its registrations and
-resources.
-
-A live graph may retain generated code or metadata from a provider module.
-Such a graph holds a lease on that module: deinitialization must wait or fail
-while the module is in use, and the native library cannot be unloaded until all
-leases are released. The first implementation may remove registrations while
-keeping the native image resident; physical unloading is a stricter later
-capability.
-
-These entry points are generated infrastructure, not HGL `init` or `deinit`
-blocks. The installed `hgl/native_module_abi.h` contract uses one versioned
-query function returning module-owned `init`, `deinit`, and `is_active`
-callbacks plus identity and fingerprint metadata. Native C++ extensions may
-attach resource hooks behind that opaque module context, but language source
-cannot perform arbitrary module-load side effects. Logical deactivation does
-not imply that the library image is unloaded.
-
-The AOT `hgl emit-cpp` / `hgl_add_module()` path currently emits a descriptor
-and an explicit `register_operators()` function, not the dynamic lifecycle query
-ABI. Its linked application therefore owns registration lifetime until AOT
-lifecycle bootstrap generation is implemented.
+Operator resolution considers enabled implementations of the selected contract.
+It does not choose a different contract just because the names look alike.
+Current builds require explicit dependencies; automatic discovery and locking
+of a complete transitive package set remain planned.
 
 ## Native adaptors stay native
 
@@ -403,7 +243,7 @@ service, module-lifecycle, or external dependency semantics.
 
 ## Command-line workflow
 
-The intended command surface is:
+The implemented command surface is:
 
 ```text
 hgl check path/to/program.hgl [--module-descriptor <file>]...
@@ -413,7 +253,7 @@ hgl test path/to/program.hgl [--part <file>]...
         [--module-descriptor <file>]... [test-name]...
 hgl run path/to/program.hgl [--part <file>]... [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
-        [--set name=<constant expression>]... [--config run.toml]
+        [--set name=<constant expression>]...
         [--module-descriptor <file>]...
 hgl emit-cpp path/to/program.hgl [--part <file>]...
         [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
@@ -425,7 +265,7 @@ hgl repl [--module-descriptor <file>]...
 
 | Command | Behavior |
 | --- | --- |
-| `check` | Parse and resolve without compiling; the current prototype also constructs and can dump its resolved HIR |
+| `check` | Check syntax, names, types, and supported semantic rules without executing the program |
 | `test` | Run the module's `test` declarations and report failing assertions |
 | `run` | Bind an entry to a mode, clock, and parameters, then execute it |
 | `emit-cpp` | Write `program.h`, `program.cpp`, and `program.hgl-module.json` in the module's namespace |
@@ -440,9 +280,8 @@ The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 supported scalar runtime-node subset through a native cache on Unix; the REPL
 uses the same route when its session contains runtime declarations. `test`
 accepts test names after the file to run a selection.
-`check --dump-hir` and `check --dump-hgraph-ir` are compiler-development views
-with stable IDs and source ranges. They are diagnostic views, not persisted
-formats.
+Compiler debugging flags are described in the
+[developer guide](../developer-guide/compiler-and-lowering.md).
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
@@ -450,273 +289,39 @@ constructs `emit-cpp` does not yet lower are listed under
 
 ## Building a package
 
-`hgl emit-cpp` turns a module into ordinary hgraph C++ plus its reviewable module
-descriptor. `prices.hgl` with `module examples.prices` becomes `prices.h`,
-`prices.cpp`, and `prices.hgl-module.json`:
+Use `hgl emit-cpp prices.hgl --out-dir build/generated` to generate a module
+for a native build. The build needs the hgraph SDK, a C++ compiler, and
+`clang-format`. Configure `HGL_CLANG_FORMAT` if the formatter is not on `PATH`.
 
-```cpp
-namespace examples::prices
-{
-    namespace operators
-    {
-        using smooth = hgraph::Operator<"examples.prices.smooth", ...>;
-    }
-    struct smooth
-    {
-        static constexpr auto name = "examples.prices.smooth";
-        static auto defaults() { return std::tuple{hgraph::arg<"window">(hgraph::Int{20})}; }
-        static hgraph::Port<hgraph::TS<hgraph::Float>> compose(
-            hgraph::Wiring &, hgraph::Port<hgraph::TS<hgraph::Tuple<hgraph::Float, hgraph::Float>>>,
-            hgraph::Scalar<"window", hgraph::Int>);
-    };
-    hgraph::OperatorProviderHandle register_operators();
-}
-```
+For reusable libraries or Python packages, use `hgl_add_module()` in CMake.
+The [package-authoring guide](../developer-guide/native-modules-and-packages.md#building-a-package)
+covers dependencies, public exports, installation, and Python wrappers. There
+is no separate `hgl build` command.
 
-Exported functions become graph structs a C++ author wires with
-`wire<examples::prices::smooth>(w, tob, hgraph::Int{20})`, and — after
-`register_operators()` — operators any hgraph front end reaches by name,
-`examples.prices.smooth`. The returned provider handle owns that registration.
-Module-internal functions stay inside the `.cpp`.
+## Execution requirements
 
-The compiler runs both generated C++ files through `clang-format` before it
-prints, writes, caches, or compiles them. `clang-format` is therefore a tool
-dependency of `hgl`; set `HGL_CLANG_FORMAT` to select a particular executable.
-The repository's `.clang-format` policy is embedded in the compiler, so the
-result does not depend on a consuming project's local formatter settings. The
-generated `operators` namespace contains transparent type aliases rather than
-derived marker classes, so the registry contract visible in the source is the
-exact hgraph `Operator` type.
+Composition-only programs can run directly with `hgl test`, `hgl run`, and the
+REPL. Programs containing runtime functions, value functions, or operator
+implementations also need a C++ toolchain and `clang-format`. Scripted native
+execution is supported on Unix; on Windows, build a native package instead.
 
-The JSON sidecar is canonical and versioned. It records the module and language
-versions; public structures, operators, and functions; implementation
-candidates and provider requirements; and the generated build boundary. Its
-structured schema records preserve generic bindings, parameters and results,
-struct inheritance and effective fields, defaults and rolling bounds, nominal
-type applications, and `requires` constraints. Integer and float literal
-payloads are tagged strings so the full i64 range and non-finite floats remain
-valid JSON.
+The same language rules apply to scripted and packaged programs. Some imported
+native dependencies need an explicit package build; supplying a descriptor
+alone does not install or load an external dependency. See the
+[package-authoring guide](../developer-guide/native-modules-and-packages.md).
 
-For example, a generic operator points to descriptor-local type records rather
-than embedding source text that another tool would need to parse:
+The REPL keeps the last working session if a new declaration fails to check,
+compile, or activate. A failed native build reports the directory containing
+its diagnostics. Useful environment settings are:
 
-```json
-{
-  "category": "operator",
-  "identity": "examples.windows.summarize",
-  "signature": {
-    "generic_parameters": [
-      {
-        "name": "T",
-        "kind": "type",
-        "binding": "examples.windows.summarize::T",
-        "type": null
-      }
-    ],
-    "parameters": [
-      {
-        "name": "window",
-        "kind": "signal",
-        "binding": "examples.windows.summarize::window",
-        "type": 1,
-        "default": null
-      }
-    ],
-    "result": 2,
-    "requires": null
-  }
-}
-```
+| Variable | Purpose |
+| --- | --- |
+| `HGL_CXX` | Select the native compiler |
+| `HGL_CLANG_FORMAT` | Select the required formatter |
+| `HGL_ARTIFACT_DIR` | Choose where failed and temporary builds are retained |
+| `HGL_CACHE_DIR` | Choose the compilation cache directory |
+| `HGL_DISABLE_CACHE=1` | Compile without reusing the cache |
+| `HGL_CACHE_TRACE=1` | Report cache decisions for troubleshooting |
 
-The `type`, `result`, `default`, and `requires` numbers refer to records in the
-same file's `schema` object. They have no identity outside that one descriptor.
-
-A parameter's `"kind"` in format v1 is `"const"` for a `const` parameter and
-`"signal"` for every temporal parameter, whatever its type (`window` above is
-a `rolling<T, ...>`). That `signal` is a parameter-role label and is unrelated
-to the `signal` type of [Types and expressions](types-and-expressions.md);
-renaming it is an open decision for a format v2 with reader compatibility
-(#767 item 6).
-
-Validate a descriptor without loading its native library:
-
-```sh
-hgl check build/generated/prices.hgl-module.json
-```
-
-This checks the versioned envelope, required field types, record shapes, and
-all descriptor-local schema references. Object order and whitespace do not
-matter; duplicate keys and unsupported versions are errors, while unknown
-members are ignored for forward-compatible additions. Syntax and IR dump flags
-apply only to HGL source and are rejected for descriptors.
-
-This command validates one descriptor. Native declarations describe where a
-function may run, its effects, value ownership and borrowed lifetimes, exception
-policy, and thread-safety policy. Validation rejects unsafe combinations such
-as blocking or throwing evaluation code, implicit mutation, shared ownership
-in ABI version 1, and borrowed results without a declared input lifetime. It
-also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
-metadata without loading native code.
-
-Descriptor validation does not yet locate or lock transitive provider
-requirements. For source compilation, each repeatable `--module-descriptor`
-option adds one explicitly named module to the import catalog. The compiler can
-currently lower exact canonical-value functions and overloaded collection-view
-functions used during runtime evaluation. For example, `len(value)` can select
-a native list, set, or map overload and read the live collection size.
-Unsupported ownership, effects, nominal native types, or phases are diagnosed
-at the import or call boundary rather than silently approximated.
-
-Native libraries create descriptors with the installed C++ target
-`hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
-than the descriptor format: a signature can contain canonical scalars, a
-nominal native type declared by that package, or a generic `list`, `set`, `map`,
-or `rolling` input-view pattern. `descriptor_json(package)`
-returns canonical sealed JSON; `write_descriptor(package, path)` additionally
-writes it for installation. Both reject the same unsafe phase, effect,
-ownership, borrow, and lifecycle combinations as `hgl check`.
-
-The package names either an exact public C++ function family or its own reviewed
-normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an
-HGL identity form an overload family and must have distinguishable exact type
-patterns. The authoring API does not parse C++ headers and does not make
-arbitrary templates part of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
-for the complete example and current wrapper boundary.
-
-A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
-`lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
-the result beside any hand-written C++:
-
-```cmake
-find_package(hgraph CONFIG REQUIRED)
-include(${hgraph_DIR}/../hgl/HglLanguage.cmake)   # or list(APPEND CMAKE_MODULE_PATH ...)
-
-hgl_add_module(prices
-    HGL prices.hgl
-    PARTS signals.hgl statistics.hgl
-    SOURCES native_helpers.cpp
-    LINK_LIBRARIES hgraph::analytics
-    PYTHON_MODULE _prices)
-```
-
-With `PARTS`, `prices.hgl` is the anchor whose filename determines the three
-generated artifact names. It and every listed part declare the same module
-with `part <name>`, and the compiler emits one logical module. Without
-`PARTS`, multiple files in `HGL` remain independent modules which happen to be
-built into the same CMake library.
-
-The library `prices` publishes its generated headers and exposes its descriptor
-paths through the CMake target property `HGL_MODULE_DESCRIPTORS`. When a target
-listed directly in `LINK_LIBRARIES` has the same property, `hgl_add_module()`
-passes those descriptors to `hgl emit-cpp`, makes them build dependencies, and
-links the target that supplies the native header and exact symbol. This initial
-bootstrap follows direct target edges; it does not yet calculate a transitive
-locked package closure. `PYTHON_MODULE` adds a
-stable-ABI extension module whose import registers every operator the HGL
-modules export (its bootstrap is generated at build time from each module's
-descriptor, which carries the registration symbol the compiler spelled; the
-same spelling is what `hgl emit-cpp <file> --print-namespace` prints), and a
-Python package directory with one generated wrapper
-module per source so that
-
-```python
-from prices import smooth      # operator_function("examples.prices.smooth")
-```
-
-works exactly as it does for `hgraph_analytics`. Placement is yours:
-`OUT_DIR` puts header and source in one directory, `INCLUDE_DIR` / `SRC_DIR`
-split them; the default is `${CMAKE_CURRENT_BINARY_DIR}/hgl/<target>/`.
-For a `SHARED` package, `hgl_add_module()` exports generated symbols from the
-Windows DLL so descriptor-selected source-native calls remain linkable from a
-consumer module.
-The native extension is placed directly beside the wrappers for single- and
-multi-configuration generators. Replacing an installed `hgl` executable also
-invalidates the generated files. HGL export names that are Python keywords use
-a trailing underscore in this wrapper (`class` becomes `class_`) while their
-operator registry name remains unchanged; aliases that would collide are a
-generation error.
-
-What `emit-cpp` lowers today includes every checked-in example: composition
-functions, runtime functions and sinks, source operators and implementations,
-nominal and generic structs, fixed and duration rolling windows, sparse struct
-deltas, concise functions passed to `map`, collection inputs and iteration,
-scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
-writes, `inject logger`, lifecycle blocks over state and `const` configuration,
-and exact canonical-value or collection-view calls imported from native
-descriptors during runtime evaluation. Native calls remain direct and readable
-in generated C++; the compiler does not synthesize an operator subclass or
-implicit node. The generated package tests compile every example and execute a
-native-call fixture as C++.
-
-It still reports, by name, and writes nothing for generated runtime sources,
-calls to other HGL runtime functions, non-scalar state, native opaque state,
-injectables other than `out` and `logger`, lifecycle access to temporal inputs
-or output, optional-field clearing in a sparse delta, generic constructor
-inference and typed `const` generic struct metadata, compound constant literals,
-runtime-node `if` used as a value, temporal conditionals embedded inside another
-expression, and zoned or civil literals.
-
-## One execution model
-
-The target architecture gives `test`, `run`, `emit-cpp`, and the REPL one
-checked semantic IR and one hgraph runtime. The direct evaluator now consumes
-hgraph IR. C++ generation uses the same IR for module, callable, operator,
-export, registration, type, signature, internal dependency planning, and
-composition and runtime bodies, whether concise or block-shaped (including
-concise functions passed to `map`). A program made only of composition
-functions is wired onto the runtime directly, in process. A file-based `test`
-or `run` containing supported runtime functions goes through generated C++, as
-does an ahead-of-time package.
-The REPL selects the same two routes from the accepted session:
-
-```text
-source -> typed HIR -> hgraph IR -> direct wiring -> hgraph runtime
-                              \-> C++ backend -> native -> hgraph runtime
-```
-
-Parity tests require both paths to build the same graph across their shared
-subset; completing the C++ migration will make that a structural invariant.
-The scripted image resolves hgraph symbols
-from the running `hgl` process, so it registers into that process's registry
-rather than linking a second static runtime. The compiler's parity suite holds
-the shared composition subset to the same ticks and executes the runtime
-subset through both the scripted and ahead-of-time compiled paths.
-
-An imported native function may add public headers, CMake packages, linked
-targets, and runtime images that do not belong to the compiler process. AOT
-modules receive that build context from `hgl_add_module()` today. Scripted
-commands validate and lower explicitly supplied descriptors but do not yet
-resolve arbitrary external package build metadata. Native calls that require
-that context are therefore AOT-only for now; descriptor-only `check` remains
-available to scripted workflows.
-
-The native path caches complete images by a SHA-256 key over the emitted code,
-the resolved compiler binary and its version/target and effective options,
-build profile, hgraph identity, relevant compiler environment, and the hosting
-`hgl` executable. The default root follows the platform per-user cache
-convention; `HGL_CACHE_DIR` overrides it. If either executable cannot be
-identified or no per-user cache root is available, the command uses a transient
-image instead of a shared temporary cache.
-`HGL_DISABLE_CACHE=1` forces a transient compile, while `HGL_CACHE_TRACE=1`
-prints cache hits, misses, and publication fallbacks. `HGL_ARTIFACT_DIR`
-selects where transient and failed builds are written, `HGL_CXX` overrides the
-compiler, and `HGL_CLANG_FORMAT` overrides the formatter used for generated
-C++. Cache entries are immutable and safe for concurrent command
-processes; this prototype does not yet prune them automatically.
-
-The initial REPL rebuilds the whole session after each accepted runtime
-declaration.
-That is slower than a JIT but guarantees that exploration sees the same
-function classification, overload, graph, node, and scheduling semantics as an
-ahead-of-time production binary.
-
-When a REPL module changes, the driver first compiles and loads the complete
-candidate image without activating it, then removes the old revision's provider
-at the quiescent prompt boundary and activates the replacement. An activation
-failure reactivates the old image; a frontend, emission, or native compile
-failure never touches it. Native images remain mapped for process lifetime,
-while removed candidates and installer intent cannot survive a registry reset.
-
-External input is supplied by imported native facilities or purpose-built
-testing sources. A REPL convenience must not become an interpreter-only push
-adaptor.
+External input comes from imported facilities or test sequences. The REPL does
+not provide a separate adaptor language.

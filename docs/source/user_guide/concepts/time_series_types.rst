@@ -201,15 +201,16 @@ The ``all_valid`` flag is ``True`` when all the elements of a collection
 type are valid, for example in a TSL (time-series list), it is possible that
 only some of the elements in the list could be valid and others not yet
 valid. The ``all_valid`` property ensures that each element is valid. This
-is a stronger requirement then ``valid`` which becomes true as soon as at
+is a stronger requirement than ``valid`` which becomes true as soon as at
 least one element becomes valid.
 
 Where ``all_valid`` differs from ``valid``
 ..........................................
 
-The distinction only exists for the types that are made up of independently
-ticking elements, which is to say ``TSL`` and ``TSB``. Everywhere else
-``all_valid`` is defined as ``valid``, and asking for it buys you nothing:
+For types made up of independently ticking elements — ``TSD``, ``TSL`` and
+``TSB`` — ``all_valid`` checks the
+collection's own validity and the ``valid`` flag of each immediate live child.
+It does not recurse into grandchildren:
 
 .. list-table::
     :header-rows: 1
@@ -220,30 +221,30 @@ ticking elements, which is to say ``TSL`` and ``TSB``. Everywhere else
     * - ``TS``
       - Same as ``valid``. A single value is either set or it is not.
     * - ``TSL``, ``TSB``
-      - ``valid`` **and** every element valid. This is the case worth using.
+      - ``valid`` **and** every immediate element valid.
     * - ``TSD``
-      - Same as ``valid``. A key only exists once it has a value, so there is
-        no partially populated state to detect.
+      - ``valid`` **and** every live value child valid. Creating a key does not
+        initialize its value; invalidating its value leaves the key present.
+        Removed keys do not participate.
     * - ``TSS``
       - Same as ``valid``. The set holds scalars, not time-series.
     * - ``TSW``
       - ``valid`` **and** the buffer has reached its ``min_size``. Useful, but
         it means something different to the collection case.
 
-It follows that ``all_valid`` on a ``TS``, ``TSD`` or ``TSS`` input is not a
+It follows that ``all_valid`` on a ``TS`` or ``TSS`` input is not a
 stricter guard, it is the same guard written the long way:
 
 .. testcode::
 
-    from hgraph import compute_node, TS, TSD, TSS
+    from hgraph import compute_node, TS, TSS
     from hgraph.test import eval_node
-    from frozendict import frozendict as fd
 
     @compute_node(valid=tuple())
-    def same(ts: TS[int], tsd: TSD[str, TS[int]], tss: TSS[int]) -> TS[bool]:
-        return all(x.valid == x.all_valid for x in (ts, tsd, tss))
+    def same(ts: TS[int], tss: TSS[int]) -> TS[bool]:
+        return all(x.valid == x.all_valid for x in (ts, tss))
 
-    assert eval_node(same, [1], [fd(k=1)], [frozenset({1})]) == [True]
+    assert eval_node(same, [1], [frozenset({1})]) == [True]
 
 .. warning:: The check is one level deep, it does **not** recurse. A collection
              asks each of its elements for ``valid``, not for ``all_valid``, so
@@ -282,14 +283,12 @@ If you need the nested guarantee, check it explicitly in the body.
 The cost
 ........
 
-``all_valid`` is not cached and it is not a one-off gate. When declared as a
-node pre-condition it is re-evaluated on **every** evaluation of that node, for
-the life of the graph, including long after the condition has been satisfied
-and can no longer become false. Each evaluation walks the collection's elements,
-so the cost is proportional to the size of the collection, paid per engine cycle
-in which the node is scheduled.
+When declared as a node pre-condition, ``all_valid`` is checked on every
+evaluation. It is not a one-off readiness gate: an immediate child can become
+invalid again after the gate has opened. Checking a large collection can
+require a scan on each scheduled evaluation.
 
-For a ``TSL[..., Size[2]]`` that is irrelevant. For a large ``TSB``, on a node
+For a ``TSL[..., Size[2]]`` the scan is small. For a large ``TSD`` or ``TSB``, on a node
 that ticks frequently, it is not. Only ask for ``all_valid`` when the constraint
 is actually required; where a node simply needs to wait for a collection to fill
 up once, it is usually cheaper to check in the body and make the input passive,

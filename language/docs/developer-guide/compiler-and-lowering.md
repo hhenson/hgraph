@@ -1081,8 +1081,9 @@ eventually resolve to an admitted scalar kernel or another implementation that
 can execute without wiring. The first slice may reject such calls until that
 contract is designed.
 
-Output access during lifecycle hooks, non-scalar caches, and generated sink
-behavior remain future source-design work.
+Output access during lifecycle hooks and non-scalar caches remain unsupported.
+Outputless runtime functions already lower to generated sinks; scheduler-driven
+sources use the lifecycle capabilities in ADR 0010.
 
 ## Metadata and collection-view lowering
 
@@ -1892,23 +1893,21 @@ packages, imported targets, and runtime images with its own build boundary.
 Every emitted function is preceded by a `// file:line` comment; output is
 deterministic (basenames, no timestamps).
 
-The first pass still fails closed, before writing either file, on: generated
-runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
-native state, output kinds other than the
-implemented scalar, nominal-struct, map, and reference forms, lifecycle access
-to temporal inputs, a list or rolling size given by a `const` generic, optional
-field clearing in a sparse delta, generic constructor inference and typed
-`const` generic struct metadata, tuple and list literals and other compound
-constants, runtime-node `if` or a block used as a value, temporal conditionals
-embedded inside another expression, zoned and civil temporal literals,
-an `impl fn` of an imported operator, wiring-time access through a reference,
-unresolved collection-reference mappings, and a missing module declaration.
-Each is a diagnostic naming the construct.
+Unsupported forms fail closed before either generated file is written. These
+include calls to another temporal HGL function during runtime evaluation,
+non-scalar or opaque state/cache, mixed state/cache declarations, lifecycle
+access to temporal inputs/output, optional-field clearing, generic constructor
+inference and typed `const` generic struct metadata, compound constant
+literals, runtime-node `if` used as a value, zoned/civil temporal literals, and
+wiring-time dereference. Imported operator implementations and scheduler-driven
+sources are supported within their documented type boundaries. The
+[status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07) owns the
+remaining restrictions; do not infer support from a target mapping alone.
 
 The rules the language reference states as semantic restrictions are typed
 HIR completion's, not a backend's (`type_check.cpp`, `check_type_shape`,
 `check_runtime_layout`, the `inject` and `out` checks): rolling-window size
-kinds and ranges, positive fixed list sizes, the approved injectable list
+kinds and ranges, non-negative fixed list sizes, the approved injectable list
 (`out`, `logger`, `clock` and `scheduler`), `out` requiring a function output, `state` and `inject` before the
 executable blocks, at most one `start` and one `stop`, no nested `when`, and
 no `out` or `return` inside a lifecycle block. `hgl check` reports them; the

@@ -1,14 +1,7 @@
-"""``all_valid`` is a one-level check, matching the Python-first implementation.
+"""TSD, TSB and TSL all_valid checks immediate child validity only.
 
-A collection asks each of its direct children for ``valid``, never for their
-``all_valid``. So a partially populated collection nested inside another does
-not make the outer one ``all_valid``-false.
-
-Upstream (``release/0.5``) defines this in ``hgraph/_impl/_types``:
-``PythonTimeSeriesBundleOutput.all_valid`` and
-``PythonTimeSeriesListOutput.all_valid`` are both
-``all(ts.valid for ts in self.values())``, while ``TSD`` and ``TSS`` inherit
-``PythonTimeSeriesOutput.all_valid``, which is just ``valid``.
+A nested child need not itself be all_valid. These tests specify the C++-first
+contract, including cases where the released Python implementation differs.
 """
 
 from __future__ import annotations
@@ -17,7 +10,7 @@ from dataclasses import dataclass
 
 from frozendict import frozendict as fd
 
-from hgraph import TS, TSB, TSD, TSL, TSS, Size, TimeSeriesSchema, compute_node
+from hgraph import TS, TSB, TSD, TSL, TSS, Size, TimeSeriesSchema, compute_node, graph
 from hgraph.test import eval_node
 
 
@@ -75,13 +68,13 @@ def test_tsl_all_valid_checks_its_own_children():
     assert eval_node(probe, [{0: 1}, {1: 2}]) == [False, True]
 
 
-def test_tsd_and_tss_all_valid_match_valid():
+def test_tsd_all_valid_does_not_recurse_into_a_partially_valid_child():
     @compute_node(valid=tuple())
     def probe(tsd: TSD[str, TSL[TS[int], Size[2]]], tss: TSS[int]) -> TS[str]:
         return f"tsd={tsd.valid == tsd.all_valid} tss={tss.valid == tss.all_valid}"
 
     # The TSD value is a partially populated TSL; that must not make the TSD
-    # all_valid-false, because a TSD's all_valid is defined as its valid.
+    # all_valid-false: its immediate list child is valid despite the leaf hole.
     assert eval_node(probe, [fd(a={0: 1})], [frozenset({1})]) == [
         "tsd=True tss=True"
     ]
@@ -97,3 +90,41 @@ def test_ts_all_valid_matches_valid():
         "valid=False all_valid=False",
         "valid=True all_valid=True",
     ]
+
+
+@compute_node
+def _dictionary_membership(event: TS[int], _output: TSD = None) -> TSD[str, TS[int]]:
+    if event.value == 1:
+        _output.get_or_create("a")
+    elif event.value in (2, 5):
+        _output.get_or_create("a").value = event.value
+    elif event.value == 3:
+        _output["a"].invalidate()
+    else:
+        del _output["a"]
+
+
+@compute_node(valid=tuple())
+def _dictionary_all_valid(values: TSD[str, TS[int]], tick: TS[int]) -> TS[bool]:
+    return values.all_valid
+
+
+@compute_node(all_valid=("values",))
+def _dictionary_all_valid_gate(values: TSD[str, TS[int]], tick: TS[int]) -> TS[int]:
+    return tick.value
+
+
+def test_tsd_all_valid_tracks_invalid_live_children_and_removal():
+    @graph
+    def probe(event: TS[int]) -> TS[bool]:
+        return _dictionary_all_valid(_dictionary_membership(event), event)
+
+    assert eval_node(probe, [1, 2, 3, 4, 5]) == [False, True, False, True, True]
+
+
+def test_tsd_all_valid_gate_rechecks_child_validity_on_every_evaluation():
+    @graph
+    def probe(event: TS[int]) -> TS[int]:
+        return _dictionary_all_valid_gate(_dictionary_membership(event), event)
+
+    assert eval_node(probe, [1, 2, 3, 4, 5]) == [None, 2, None, 4, 5]

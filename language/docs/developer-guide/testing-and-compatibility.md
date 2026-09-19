@@ -5,20 +5,20 @@ Parser-only milestones remain intermediate progress.
 
 The pass and documentation gates below follow
 [Compiler architecture](../design/compiler-architecture.md) and
-[Documentation architecture](../design/documentation.md). They are target
-acceptance requirements while both execution backends still walk
-`ResolvedModule` directly. The driver also constructs the first resolved HIR
-checkpoint so its migration contract is continuously exercised.
+[Documentation architecture](../design/documentation.md). They are acceptance
+requirements, not a claim that every listed feature has landed. Both execution
+backends consume hgraph IR after typed HIR completion; neither backend walks
+`ResolvedModule`. Shared admission planning belongs to `src/hgraph_ir/plan.cpp`.
+The [status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
+identifies implemented forms and forms that must currently produce a diagnostic.
+For example, constructor inference, multiple-parent semantic completion, typed
+`const` generic metadata, and optional-field clearing remain fail-closed cases.
 
-The lists below are the acceptance matrix, not a claim that every item has
-landed. At the 2026-09-03 prototype checkpoint, syntax tests cover struct,
-generic application, constraint, `null`, and delta nodes; resolver tests cover
-effective single-parent fields, hierarchy failures, generic argument roles,
-closed-set struct admission, nominal constraint binding, and constructor
-shape; and direct-wiring tests cover scalar/defaulted/inherited Bundle values,
-type-generic and atomic values, sparse deltas, and field-wise temporal
-composition. The tests also lock fail-closed diagnostics for multiple parents,
-typed `const` generic metadata, and explicit optional-field clearing.
+For the runtime validity contract, `tests/cpp/test_static_node.cpp`,
+`tests/cpp/test_ts_output.cpp`, `tests/cpp/test_tsd_proxy.cpp`, and
+`python/tests/test_all_valid_parity.py` cover one-level structural checks. Live
+invalid dictionary children must close an all-valid gate even though the key
+exists; a valid but incompletely populated child collection must not close it.
 
 ## Lexer and parser
 
@@ -339,7 +339,9 @@ Runtime semantic tests additionally cover:
   missing top-level selector default;
 - diagnostics for empty selector calls outside a `when` predicate and for
   empty `all_valid()`;
-- top-level `valid(value)` versus recursive `all_valid(value)` semantics;
+- top-level `valid(value)` versus one-level `all_valid(value)` semantics for
+  TSD, TSB and TSL, including invalid live children, removed keys, and nested
+  children that are valid but not themselves all-valid;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;
 - activation union and common validity admission across ordered handlers;

@@ -2334,15 +2334,17 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<TSDSlotStorage>(memory).tracking().last_modified_time != MIN_DT;
             }
 
-            // A TSD's ``all_valid`` is its ``valid``. A key only exists once it
-            // has a value, so there is no partially populated state for a
-            // deeper walk to detect, and walking into the values would make
-            // this a recursive check. Upstream agrees: ``TSD`` declares no
-            // ``all_valid`` override and inherits
-            // ``PythonTimeSeriesOutput.all_valid``, which returns ``valid``.
+            // Membership does not imply child validity: a live slot may be
+            // uninitialized or invalidated. Inspect only immediate children.
             [[nodiscard]] static bool tsd_all_valid(const void *context, const void *memory)
             {
-                return tsd_has_current_value(context, memory);
+                if (!tsd_has_current_value(context, memory)) { return false; }
+                const auto &store = storage<TSDSlotStorage>(memory);
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (store.keys().slot_live(slot) && !store.child_has_current_value(slot)) { return false; }
+                }
+                return true;
             }
 
             [[nodiscard]] static const void *tsd_value_memory(const void *, const void *memory) noexcept

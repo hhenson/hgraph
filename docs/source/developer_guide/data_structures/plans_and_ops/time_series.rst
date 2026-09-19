@@ -62,7 +62,7 @@ The implementation uses the following names consistently:
 ``TSDataOps``
     The type-erased operation table over a ``TSData`` memory region:
     the literal ``allows_mutation`` property, common layout access,
-    current-value validity, recursive ``all_valid`` checks, read/write
+    current-value validity, ``all_valid`` checks, read/write
     memory access, delta reset, copy/move value assignment, canonical delta construction,
     erased delta capture/apply, and the per-kind hook used when a child
     time-series value reports that it modified. Implementations that own
@@ -74,6 +74,12 @@ The implementation uses the following names consistently:
     empty optional behaviours use no-op thunks, and unsupported
     operations are explicit throwing thunks rather than missing
     pointers.
+
+Structural ``all_valid`` requires the endpoint and each immediate live child
+to have a current value. It never invokes a child's ``all_valid``. TSD slot
+strategies scan retained slot capacity, skipping removed keys; a projected TSD
+checks its projected children rather than the source dictionary's children.
+TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
 
 ``TSDataObserverSet``
     The compact observer set stored in each ``TSDataTracking`` record.
