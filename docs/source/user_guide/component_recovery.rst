@@ -66,6 +66,12 @@ invalid; overwriting a restored endpoint in ``start`` is rejected. Python
 compute callbacks with captured closure state are refused because those values
 are not part of the declared checkpoint contract. Supply immutable scalar
 parameters explicitly and semantic mutable state through ``RECORDABLE_STATE``.
+A node may also hold ``State<T>`` / Python ``STATE`` as a reconstructible cache
+beside that durable state. Recovery creates a fresh cache; rebuild it from the
+restored state in ``start``. The cache is never serialized. Typed Python cache
+classes participate in checkpoint identity by module and qualified name; change
+the application revision when their behavior changes. Local-state-only compute
+nodes still need an explicit native checkpoint contract.
 
 Configure each completed day
 ----------------------------

@@ -1,8 +1,8 @@
 # ADR 0011: `cache` declarations
 
 Status: accepted. Scalar cache declarations and aggregation are implemented.
-Native pending scheduler recovery is implemented independently of user state.
-Mixed recordable state/cache lowering and schedule-operator progress remain
+Native mixed recordable state/cache storage and pending scheduler recovery are
+implemented. HGL mixed lowering and schedule-operator progress remain
 implementation gaps, not exceptions to the recovery contract.
 
 ## Decision
@@ -19,9 +19,10 @@ variables lower to fields of a generated C++ struct in one `State<Struct>`.
 Reads use the corresponding field and writes mutate it in place. The native
 one-`State<>` constraint is a storage-slot constraint, not a one-variable limit.
 All cache fields are constructed before `start` and initialized on every start.
-The current native restriction against combining `State<>` and
-`RecordableState<>` is separate; shared graph-IR validation diagnoses that
-unsupported combination before backend dispatch. Non-scalar caches and generic
+Native nodes now support `State<>` alongside `RecordableState<>`, restoring the
+latter before `start` rebuilds the former. HGL mixed lowering remains gated by
+shared graph-IR validation until its initialization and recovery integration
+has generated-C++ coverage. Non-scalar caches and generic
 recordable state without an initializer remain future work.
 
 ## Scheduler recovery contract

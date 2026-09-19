@@ -673,8 +673,8 @@ every start, not yet beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for the reconstruction contract and the current C++ restriction against
-combining both state selectors.
+for the reconstruction contract. Native nodes support both state selectors;
+mixed HGL lowering remains unimplemented.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special

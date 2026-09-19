@@ -400,6 +400,26 @@ struct ConsumerDistributedGraph {
         return wire<ConsumerReadKey>(w, result);
     }
 };
+struct ConsumerMixedState {
+    static void start(State<Int> cache, RecordableState<TS<Int>> state) {
+        if (!state.valid()) { state.set(Int{0}); }
+        cache.set(state.value().checked_as<Int>());
+    }
+    static void eval(In<"ts", TS<Int>> input, State<Int> cache,
+                     RecordableState<TS<Int>> state, Out<TS<Int>> out) {
+        if (cache.get() != state.value().checked_as<Int>())
+            throw std::runtime_error("installed mixed-state lifecycle is inconsistent");
+        const auto total = cache.get() + input.value();
+        cache.set(total);
+        state.set(total);
+        out.set(total);
+    }
+};
+void check_mixed_state() {
+    const auto result = testing::eval_node<ConsumerMixedState>(std::vector<std::optional<Int>>{1, 2});
+    if (result != std::vector<std::optional<Int>>{1, 3})
+        throw std::runtime_error("installed mixed-state node API is unusable");
+}
 void check_distributed_client() {
     stdlib::register_standard_operators();
     const auto result = testing::eval_node<ConsumerDistributedGraph>(std::vector<std::optional<Int>>{5, 7});
@@ -730,6 +750,7 @@ int main(int argc, char **argv)
         throw std::runtime_error("installed Arrow frame metadata codec is unusable");
     }
 
+    check_mixed_state();
     check_distributed_client();
     check_probe_backend_round_trip();
     check_push_source_queue_contract();
