@@ -262,23 +262,29 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
         { return stdlib::component<OtherBody>(w, spawn_component_id, value); }
     };
-    /** Recoverable, and always has an event pending: a capture of it is refused. */
-    struct SpawnPendingCompute
+    /** Explicit capture failure, independent of which runtime state is supported. */
+    struct SpawnRefusingCompute
     {
         static const NodeCheckpointOps &checkpoint_ops() noexcept
-        { static const NodeCheckpointOps ops{.supported = true}; return ops; }
-        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD * 1000); }
-        static void eval(In<"value", TS<Int>> value, NodeScheduler, Out<TS<Int>> out) { out.set(value.value()); }
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .capture_impl = +[](const NodeView &, const CaptureGraphCheckpoint &) -> NodeCheckpointState {
+                    throw std::runtime_error("test capture refusal");
+                }};
+            return ops;
+        }
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value()); }
     };
-    struct PendingBody
+    struct RefusingBody
     {
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
-        { return wire<SpawnPendingCompute>(w, value).as<TS<Int>>(); }
+        { return wire<SpawnRefusingCompute>(w, value).as<TS<Int>>(); }
     };
-    struct PendingComponentStage
+    struct RefusingComponentStage
     {
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
-        { return stdlib::component<PendingBody>(w, spawn_component_id, value); }
+        { return stdlib::component<RefusingBody>(w, spawn_component_id, value); }
     };
     struct ForgetfulBody
     {

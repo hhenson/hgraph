@@ -109,9 +109,9 @@ namespace hgraph_test
             auto plan = prepare_distributed_map(fn<AccumulateWithStopMarker>(), inputs, {}, group, groups);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("pending compute, stop marker", +[](std::size_t group, std::size_t groups) {
+        hosted("refusing compute, stop marker", +[](std::size_t group, std::size_t groups) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PendingComputeWithStopMarker>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<RefusingComputeWithStopMarker>(), inputs, {}, group, groups);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
         hosted("pending compute", +[](std::size_t group, std::size_t groups) {

@@ -389,7 +389,8 @@ every field of every row is charged, and the bytes present must be at least
 what those columns could occupy. The field-wise reader never needed this,
 because it built a row only once it had read one.
 
-RFC 0039 checkpoint images use it as **format version 3**: profile, revision,
+RFC 0039 checkpoint images introduced it in **format version 3**
+(and retain it in version 4): profile, revision,
 then one block holding the tables and the body, with the checksum over the
 compressed bytes.
 

@@ -445,10 +445,10 @@ int main(int argc, char **argv)
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
     // ABI 7 extends node images with owner-specific endpoint images.
-    static_assert(NODE_OPS_ABI_VERSION == 8);
+    static_assert(NODE_OPS_ABI_VERSION == 9);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 9);
+    static_assert(GRAPH_OPS_ABI_VERSION == 10);
     // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
     static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     // ABI 20 adds timestamp-preserving window sample replacement.

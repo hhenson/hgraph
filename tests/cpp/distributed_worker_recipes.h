@@ -342,11 +342,24 @@ namespace hgraph_test
         }
     };
     inline constexpr const char *accumulate_stop_marker_name = "accumulate, stop marker";
-    struct PendingComputeWithStopMarker
+    struct RefusingCheckpointCompute
+    {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .capture_impl = +[](const NodeView &, const CaptureGraphCheckpoint &) -> NodeCheckpointState {
+                    throw std::runtime_error("test capture refusal");
+                }};
+            return ops;
+        }
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value()); }
+    };
+    struct RefusingComputeWithStopMarker
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
         {
-            auto out = wire<CheckpointPendingCompute>(w, ts).as<TS<Int>>();
+            auto out = wire<RefusingCheckpointCompute>(w, ts).as<TS<Int>>();
             wire<CheckpointStopMarker>(w, out);
             return out;
         }

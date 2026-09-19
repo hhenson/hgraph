@@ -7,7 +7,8 @@ day-by-day simulation components whose external inputs are explicit ports.
 ## Contract
 
 - A component checkpoint contains source baselines and boundary alias clocks, ordinary outputs,
-  hidden recordable-state and error endpoints, supported dynamic children,
+  hidden recordable-state and error endpoints, independent pending node scheduler
+  events, supported dynamic children,
   internal reference locators, and synthetic adapter recipes and clocks.
 - Each external input owns a dedicated direct pull-source endpoint baseline.
   Restore imports this baseline before source start so collection deltas retain
@@ -36,11 +37,14 @@ day-by-day simulation components whose external inputs are explicit ports.
   before static import; each dynamic child is validated before its own import.
   Changed strategy code must use an explicit application
   revision; arbitrary function bodies cannot be identified by the runtime.
-- Unsupported endpoint representations, semantic local State, scheduler-driven
-  nodes, sources/effects inside the component, and unsupported dynamic owners
-  fail closed. Stateless compute `schedule_on_start` bootstraps are allowed and
-  discarded on resume. General scheduler state, references outside the boundary,
-  and input-tail journals remain later RFC 0023 stages, not implicit fallbacks.
+- Unsupported endpoint representations, semantic local State in compute nodes,
+  sources inside the component, and unsupported dynamic owners fail closed.
+  Stateless compute `schedule_on_start` bootstraps are discarded on resume.
+  Pending `NodeScheduler` events have a dedicated checkpoint element; restore
+  replaces bootstrap events and makes ordinary graph scheduling notifications.
+  `SingleShotScheduler` remains best effort and is not saved or recovered.
+  Wall-clock recovery, references outside the boundary, and input-tail journals
+  remain later RFC 0023 stages, not implicit fallbacks.
 
 RecordableState already is the hidden output endpoint; there is no duplicate
 internal state to synchronize through an additional observer.
@@ -90,7 +94,7 @@ so the session finds a member where it looks for one, with its inputs entering
 through component input boundaries so their source baselines are restored.
 
 A node needs no checkpoint operations when it is a compute node that holds
-nothing beyond its endpoints, or a sink with recordable state
+nothing beyond its endpoints and pending scheduler events, or a sink with recordable state
 (`NodeTypeMetaData::checkpoints_without_ops`). A sink *without* recordable state
 is transient (`checkpoint_transient`, `NodeCheckpointIdentity::transient`): wired
 inside the scope with no id, selected by no image, signed into no contract. The
@@ -111,7 +115,10 @@ Recovery uses these phases:
    historical inputs.
 6. Run ordinary start hooks and start the prepared nested graphs in owner order.
    Restore each node's saved input activity and discard historical bootstrap
-   schedules, while preserving freshly admitted source events.
+   schedules, while preserving freshly admitted source events. Restore the
+   dedicated scheduler element, rebuild its tag index, and notify the graph of
+   the earliest pending event, including events exactly at the restart time.
+   A restart after a saved deadline is refused before endpoint import.
 
 Component input boundaries forward the original endpoint rather than copying
 deltas: even an uninterrupted configured run must retain the source integer-slot
@@ -188,7 +195,7 @@ source cursors, replay ordering, and effect suppression have explicit contracts.
 Steps 1–5 are implemented for the declared component subset. Acceptance includes
 native and Python public-wiring restart tests, real process restart through the
 durable example, malformed image refusal, and no publication after evaluation,
-stop, or encoding failure. Full-graph, general scheduler state, references
+stop, or encoding failure. Full-graph, wall-clock scheduler recovery, references
 outside the component boundary, and input-tail replay support remain outside
 this implementation. Python component `recordable_id` and per-node
 `__recordable_id__` remain optional; omitted IDs use the existing function-name
@@ -259,7 +266,9 @@ REF values observed as an ordinary `TSD`) and REF values inside custom hidden-ow
 endpoint images whose owner does not supply reference-aware checkpointing.
 Ordinary node recordable-state endpoints do receive the reference context.
 Owner-specific forwarding-terminal restrictions still apply. A full graph
-image, pending semantic schedules, online snapshot/suspend, and input journal
-replay remain future work. Images are written in format version 2 (RFC 0039);
-version 1, published by hgraph 0.8.25-0.8.27, remains readable. Any other
-version is rejected rather than migrated.
+image, schedule-operator progress, online snapshot/suspend, and input journal
+replay remain future work. Images use format version 4, adding independent
+pending node scheduler data to the profile/compression framing from version 3.
+Core reads versions 2 and 3; the persistence extension also reads the version 1
+envelope published by hgraph 0.8.25-0.8.27. Older images have no scheduler data.
+Unknown versions are rejected rather than migrated.

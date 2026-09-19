@@ -151,7 +151,7 @@ def test_mapped_membership_and_child_state_survive_silent_restart_and_removal(tm
         {"a": 4, "b": 16}]
 
 
-@pytest.mark.parametrize("injectable", [hg.STATE, hg.SCHEDULER, hg.CLOCK, hg.GlobalState, hg.NODE])
+@pytest.mark.parametrize("injectable", [hg.STATE, hg.CLOCK, hg.GlobalState, hg.NODE])
 def test_checkpoint_eligibility_uses_actual_python_injectables(tmp_path, injectable):
     @hg.compute_node
     def unsupported(ts: hg.TS[int], resource: injectable = None) -> hg.TS[int]:
@@ -305,6 +305,85 @@ def test_passivated_inputs_remain_passive_after_durable_restart(tmp_path, kind):
     assert reopened.contains("two")
 
 
+@hg.compute_node
+def pending_alarms(ts: hg.TS[int], scheduler: hg.SCHEDULER = None) -> hg.TS[int]:
+    if ts.modified and ts.value == -1:
+        scheduler.un_schedule("second")
+        scheduler.schedule(hg.MIN_TD, "first")
+    if scheduler.is_scheduled_now and scheduler.has_tag("first"):
+        return ts.value
+    if scheduler.is_scheduled_now and scheduler.has_tag("second"):
+        return ts.value * 2
+
+
+@pending_alarms.start
+def pending_alarms_start(scheduler: hg.SCHEDULER = None):
+    scheduler.schedule(hg.MIN_TD * 2, "first")
+    scheduler.schedule(hg.MIN_TD * 4, "second")
+    scheduler.schedule(hg.MIN_TD * 6, "cancelled")
+    scheduler.un_schedule("cancelled")
+
+
+@hg.component(recordable_id="alarms")
+def alarm_component(ts: hg.TS[int]) -> hg.TS[int]:
+    return pending_alarms(ts)
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_pending_scheduler_restores_without_recordable_state(tmp_path, replace):
+    def day(key, previous, start, end, values):
+        with hg.GlobalState() as state:
+            persistence.configure_component_recovery(
+                persistence.ComponentCheckpointStore(tmp_path), "alarms", key,
+                previous, global_state=state)
+            return hg.eval_node(alarm_component, values,
+                                __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + end * hg.MIN_TD)
+
+    assert day("one", None, 0, 2, [7, None]) is None
+    if replace:
+        assert day("two", "one", 2, 7, [-1, None, None, None, None]) == [None, -1, None, None, None]
+    else:
+        assert day("two", "one", 2, 4, [None, None]) == [7, None]
+        assert day("three", "two", 4, 5, [None]) == [14]
+        assert day("four", "three", 5, 12, [None] * 7) is None
+
+
+@hg.component(recordable_id="alarms")
+def mapped_alarm_component(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+    return hg.map_(pending_alarms, ts)
+
+
+def test_restored_child_scheduler_notifies_parent_graph(tmp_path):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "one", global_state=state)
+        assert hg.eval_node(mapped_alarm_component, [{"a": 7}, None],
+                            __end_time__=hg.MIN_ST + hg.MIN_TD * 2) == [{}, None]
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "two", "one", global_state=state)
+        assert hg.eval_node(mapped_alarm_component, [None],
+                            __start_time__=hg.MIN_ST + hg.MIN_TD * 2,
+                            __end_time__=hg.MIN_ST + hg.MIN_TD * 5) == [{"a": 7}, None, {"a": 14}]
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_future_alarm_preserves_fresh_restart_tick(tmp_path, mapped):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    component = mapped_alarm_component if mapped else alarm_component
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "one", global_state=state)
+        result = hg.eval_node(component, [{"a": 7}] if mapped else [7],
+                              __end_time__=hg.MIN_ST + hg.MIN_TD)
+        assert result == ([{}] if mapped else None)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "two", "one", global_state=state)
+        result = hg.eval_node(component, ([{"a": -1}] if mapped else [-1]) + [None] * 4,
+                              __start_time__=hg.MIN_ST + hg.MIN_TD,
+                              __end_time__=hg.MIN_ST + hg.MIN_TD * 6)
+        assert result == [None, {"a": -1} if mapped else -1, None, None, None]
+
+
 class DerivedCache:
     total = None
 
@@ -351,6 +430,49 @@ def test_recordable_state_rebuilds_fresh_cache_after_each_restore(tmp_path, type
             store = persistence.ComponentCheckpointStore(tmp_path)
             persistence.configure_component_recovery(store, "cached", key, previous, global_state=state)
             assert hg.eval_node(strategy, values,
+                                __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + (start + len(values)) * hg.MIN_TD) == expected
+        assert store.contains(key)
+
+
+@hg.compute_node
+def cached_alarms(ts: hg.TS[int], cache: hg.STATE[DerivedCache] = None,
+                  state: hg.RECORDABLE_STATE[RunningState] = None,
+                  scheduler: hg.SCHEDULER = None) -> hg.TS[int]:
+    assert cache.total == state.total.value
+    if ts.modified:
+        cache.total += ts.value
+        state.total.value = cache.total
+    if scheduler.is_scheduled_now and scheduler.has_tag("publish"):
+        return cache.total
+
+
+@cached_alarms.start
+def cached_alarms_start(cache: hg.STATE[DerivedCache] = None,
+                        state: hg.RECORDABLE_STATE[RunningState] = None,
+                        scheduler: hg.SCHEDULER = None):
+    assert cache.total is None
+    if not state.total.valid:
+        state.total.value = 0
+    cache.total = state.total.value
+    scheduler.schedule(hg.MIN_TD * 2, "publish")
+
+
+@hg.component(recordable_id="cached-alarms")
+def cached_alarm_component(ts: hg.TS[int]) -> hg.TS[int]:
+    return cached_alarms(ts)
+
+
+def test_pending_alarm_restores_beside_rebuilt_cache_and_recordable_state(tmp_path):
+    for key, previous, start, values, expected in [
+        ("one", None, 0, [3], None),
+        ("two", "one", 1, [None, None], [None, 3]),
+        ("three", "two", 3, [None, None, None], None),
+    ]:
+        with hg.GlobalState() as state:
+            store = persistence.ComponentCheckpointStore(tmp_path)
+            persistence.configure_component_recovery(store, "cached-alarms", key, previous, global_state=state)
+            assert hg.eval_node(cached_alarm_component, values,
                                 __start_time__=hg.MIN_ST + start * hg.MIN_TD,
                                 __end_time__=hg.MIN_ST + (start + len(values)) * hg.MIN_TD) == expected
         assert store.contains(key)

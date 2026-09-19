@@ -235,3 +235,41 @@ TEST_CASE("node scheduler: wall-clock alarms require realtime support")
     realtime.schedule(one * 2, "wc", /*on_wall_clock=*/true);
     CHECK(realtime.tag_time("wc") == base + one * 2);
 }
+
+TEST_CASE("node scheduler: checkpoint rebuilds tag indexes and rejects malformed images", "[checkpoint][scheduler]")
+{
+    NodeSchedulerState state;
+    NodeScheduler scheduler{state, nullptr, 0, base};
+    scheduler.schedule(one, "replaced");
+    scheduler.schedule(one * 3, "replaced");
+    scheduler.schedule(one * 2);
+    scheduler.schedule(one * 2, "same-time");
+    scheduler.schedule(one * 4, "cancelled");
+    scheduler.un_schedule("cancelled");
+    const auto image = scheduler.capture_checkpoint(base + one);
+    REQUIRE(image.events.size() == 3);
+    NodeSchedulerState restored;
+    NodeScheduler recovered{restored, nullptr, 0, base + one * 2};
+    recovered.restore_checkpoint(image);
+    CHECK(recovered.is_scheduled_now());
+    CHECK(recovered.tag_time("replaced") == base + one * 3);
+    CHECK(recovered.pop_tag("same-time") == base + one * 2);
+    recovered.advance();
+    CHECK(recovered.next_scheduled_time() == base + one * 3);
+    auto malformed = image;
+    malformed.events.push_back(image.events.back());
+    CHECK_THROWS(recovered.restore_checkpoint(malformed));
+    CHECK(recovered.tag_time("replaced") == base + one * 3);
+    malformed = image;
+    malformed.events.emplace_back(base + one * 4, "replaced");
+    CHECK_THROWS(recovered.restore_checkpoint(malformed));
+    CHECK_THROWS(NodeScheduler::validate_checkpoint(image, base + one * 3));
+    recovered.restore_checkpoint({});
+    CHECK_FALSE(recovered.is_scheduled());
+    CHECK(restored.tags.empty());
+    // MAX_DT is accepted by ordinary scheduling and must round-trip too.
+    scheduler.reset();
+    scheduler.schedule(MAX_DT, "sentinel");
+    recovered.restore_checkpoint(scheduler.capture_checkpoint(base));
+    CHECK(recovered.tag_time("sentinel") == MAX_DT);
+}

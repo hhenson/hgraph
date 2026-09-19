@@ -137,7 +137,7 @@ struct PyCallShape {
       if (marker == 's' || marker == 'i' || marker == 'Q') { ++scalar_index; }
       const bool cache = (marker == 'S' || marker == 'Q') &&
           builder.type().schema()->recordable_state_schema != nullptr;
-      if (!cache && std::string_view{"tuaTUARosi"}.find(marker) == std::string_view::npos) {
+      if (!cache && std::string_view{"tuaTUARosid"}.find(marker) == std::string_view::npos) {
         throw std::invalid_argument(
             "component checkpoint: Python node signature requires unsupported "
             "local state or runtime services (layout marker '" +

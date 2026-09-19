@@ -1,8 +1,8 @@
 # ADR 0011: `cache` declarations
 
 Status: accepted. Scalar cache declarations and aggregation are implemented.
-Native mixed recordable state/cache storage is implemented. HGL mixed lowering
-and scheduler checkpoint recovery remain
+Native mixed recordable state/cache storage and pending scheduler recovery are
+implemented. HGL mixed lowering and schedule-operator progress remain
 implementation gaps, not exceptions to the recovery contract.
 
 ## Decision
@@ -27,29 +27,29 @@ recordable state without an initializer remain future work.
 
 ## Scheduler recovery contract
 
-Pending scheduled tasks must be recoverable. Authoritative recordable state
-holds the raw schedule records: deadlines and their clock domain, stable task
-identity and tie order, cancellation/replacement status, and progress needed to
-preserve a finite schedule's remaining work. A heap, lookup table or other
-ordering/index structure may be a cache of indices into that state. Process
-pointers, native handles and container iterators are not durable records.
+Pending native `NodeScheduler` events have a dedicated checkpoint element,
+independent of `State<>`, `RecordableState<>`, and HGL `cache` declarations.
+At a completed checkpoint cut it stores the pending deadlines and tags. Restore
+replaces bootstrap scheduler data after the normal node `start` hook, rebuilds
+the tag lookup, and notifies the graph through its ordinary scheduling path.
+An empty saved schedule clears bootstrap events too. Events at the restart time
+are delivered in that cycle; restarting after a saved deadline is refused.
+Component recovery currently supports simulation only.
 
-Recovery restores the records quietly, rebuilds derived indices, and re-arms the
-native scheduler before any dependent evaluation. It must not schedule duplicate
-tasks, reset finite progress, emit extra startup ticks, resurrect cancellations,
-or change same-deadline ordering. Wall-clock and overdue-task behavior must follow
-the native recovery contract rather than invent a second scheduler in HGL.
+`SingleShotScheduler` is best effort. Its schedules are neither stored nor
+recovered; its normal `start` behaviour is unchanged.
 
-Required trace: after a three-tick schedule has emitted once, restoring with an
-empty cache must leave exactly two emissions at the same pending deadlines as an
-uninterrupted run. Also exercise cancelled/replaced tasks, equal deadlines,
-repeated checkpoints, and wall-clock deadlines. Restarting a fresh graph twice
-is not checkpoint-recovery evidence.
+Native and Python persistence tests cover pending deadlines, equal deadlines,
+cancelled/replaced tags, empty schedules, and repeated checkpoints. Operator
+progress is a separate contract: a finite schedule's emitted-tick counter is
+semantic history and needs recordable state. Recovering its native alarm does
+not recover that counter. The eventual operator test must show that a three-tick
+schedule checkpointed after one emission resumes with exactly two remaining.
 
 The current native and HGL `schedule` implementations keep their counter in
 non-recordable storage, so full checkpoint recovery for these schedule
 implementations is not implemented. Their ordinary-run parity tests establish
 only that supported execution slice. This
-is a correctness gap to repair through the native scheduler/state contract
+is a correctness gap to repair through the operator recordable-state contract
 before production migration or claims of recovery equivalence. It is not an
 accepted exception allowing semantic history in a cache.

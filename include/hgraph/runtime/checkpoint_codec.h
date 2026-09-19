@@ -30,11 +30,12 @@ namespace hgraph
      * profile and that profile's revision -- and holds everything after the
      * fixed header as one block that may be compressed. The checksum covers
      * the compressed bytes, so damage is found before a claimed length is
-     * trusted. Version 2 images remain readable.
+     * trusted. Version 4 adds independent pending node scheduler images.
+     * Version 2 and 3 images remain readable without scheduler recovery.
      *
      * Cold path only. Nothing here is reachable from evaluation.
      */
-    inline constexpr std::uint32_t checkpoint_image_format_version = 3;
+    inline constexpr std::uint32_t checkpoint_image_format_version = 4;
 
     /**
      * What an image is for decides how it is written (RFC 0040): one that is

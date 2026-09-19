@@ -2,6 +2,7 @@
 #define HGRAPH_RUNTIME_NODE_CHECKPOINT_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/node_scheduler_checkpoint.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_input/activity.h>
@@ -91,6 +92,7 @@ namespace hgraph
         std::optional<TSCheckpointImage> recordable_state{};
         /** Direct external source baseline admitted through a component input. */
         std::optional<TSCheckpointImage> ingress{};
+        std::optional<NodeSchedulerCheckpoint> scheduler{};
         /** Complete active set; omitted static input paths are passive. */
         std::vector<TSInputActivityEntry> input_activity{};
         /** Root-owned synthetic adapter identities and independent historical clocks. */
@@ -144,11 +146,6 @@ namespace hgraph
         bool captures_output{true};
         /** This node owns a component input boundary, including source baseline. */
         bool boundary_input{false};
-        /** All pending wakeups belong to children. capture_impl must capture
-         * those children (thereby validating their schedules) and reject any
-         * incomplete owner work. A transient child's alarm is not a pending
-         * event in the recovered state merely because it wakes this owner. */
-        bool schedules_children{false};
         NodeCheckpointState (*capture_impl)(
             const NodeView &, const CaptureGraphCheckpoint &){&node_checkpoint_detail::capture_none};
         /** Create saved topology and import child-owned endpoints before REF

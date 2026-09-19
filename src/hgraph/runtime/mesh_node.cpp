@@ -1885,7 +1885,6 @@ void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpoint
 [[nodiscard]] const NodeCheckpointOps &mesh_checkpoint_ops() noexcept {
   static const NodeCheckpointOps ops{
       .supported = true,
-      .schedules_children = true,
       .capture_impl = &capture_mesh_checkpoint,
       .prepare_restore_impl = &prepare_mesh_checkpoint,
       .restore_impl = &restore_mesh_checkpoint,

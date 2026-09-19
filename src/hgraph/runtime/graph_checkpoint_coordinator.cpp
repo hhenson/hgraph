@@ -40,7 +40,7 @@ namespace hgraph
             if (node.checkpoint_ops().supported || schema->checkpoints_without_ops()) { return; }
             throw std::runtime_error("component checkpoint: node '" + node_id(node) +
                 "' (" + std::string{schema->name()} +
-                ") requires explicit checkpoint support (local state, scheduler, source or runtime service)");
+                ") requires explicit checkpoint support (local state, source or runtime service)");
         }
 
         void validate_cut(const TSCheckpointImage &image, DateTime cut)
@@ -363,11 +363,9 @@ namespace hgraph
             return !identity.transient && selection.selects(identity.component);
         }
 
-        // A sink's schedule is its own (RFC 0039). It has no output, so an
-        // evaluation it asks for cannot disturb the recovered graph; a pending
-        // alarm does not block a capture, and a restored sink keeps the
-        // schedule its start hook set, or a periodic one would never re-arm.
-        // A sink that declares operations -- a worker owner -- is what they say.
+        // Legacy images and sinks without NodeScheduler data retain their
+        // ordinary startup schedule. New scheduler images replace that data.
+        // A sink with explicit operations follows its owner's contract.
         static bool owns_its_schedule(const NodeView &node)
         {
             return node.schema()->node_kind == NodeKind::Sink && !node.checkpoint_ops().supported;
@@ -428,12 +426,6 @@ namespace hgraph
                 }
                 if (shape_only) { image.nodes.push_back(std::move(item)); continue; }
                 const auto time = graph.evaluation_time();
-                const auto scheduled = graph.node_scheduled_time(i);
-                if (scheduled != MAX_DT && scheduled > time && !owns_its_schedule(node) &&
-                    !node.checkpoint_ops().schedules_children)
-                {
-                    throw std::runtime_error("component checkpoint: pending schedule at '" + item.id + "'");
-                }
                 if (!inventory_only && node.has_output() && node.checkpoint_ops().captures_output && !aliased_output(node))
                 {
                     item.output.emplace(capture_ts_checkpoint(node.output(time).data_view(), &reference_context));
@@ -559,6 +551,8 @@ namespace hgraph
                 if (node.has_error_output()) { item.error = capture_ts_checkpoint(node.error_output(time).data_view(), &reference_context); }
                 if (node.has_recordable_state())
                     item.recordable_state = capture_ts_checkpoint(node.recordable_state(time).data_view(), &reference_context);
+                if (node.has_scheduler())
+                    item.scheduler = NodeScheduler{node.scheduler_state(), nullptr, i, time}.capture_checkpoint(time);
                 auto ingress = ingress_source(node, time);
                 if (ingress.valid()) { item.ingress = capture_ts_checkpoint(ingress.output(time).data_view()); }
                 const auto adapters = [&](const TSOutputHandle &handle) {
@@ -607,6 +601,12 @@ namespace hgraph
                     saved.ingress.has_value() != ingress.valid())
                 {
                     throw std::runtime_error("component checkpoint: endpoint inventory mismatch at '" + saved.id + "'");
+                }
+                if (saved.scheduler)
+                {
+                    if (!node.has_scheduler())
+                        throw std::runtime_error("component checkpoint: scheduler inventory mismatch at '" + saved.id + "'");
+                    NodeScheduler::validate_checkpoint(*saved.scheduler, start);
                 }
                 if (saved.output) { validate_cut(*saved.output, cut); }
                 if (saved.error) { validate_cut(*saved.error, cut); }
@@ -873,7 +873,7 @@ namespace hgraph
         // input event. Fresh start defaults must not reactivate frozen inputs.
         const bool active_input_changed = node.has_input() &&
             node.input(impl_->start).restore_checkpoint_activity(saved->input_activity);
-        if (!active_input_changed && !Impl::owns_its_schedule(node))
+        if (!active_input_changed && (saved->scheduler || !Impl::owns_its_schedule(node)))
         {
             node.graph().clear_restored_schedule(node.node_index());
             // A NodeScheduler holds the same bootstrap alarm in the node's own
@@ -886,11 +886,16 @@ namespace hgraph
                 scheduler.tags.clear();
             }
         }
-        // What the restored start found still to do is not historical. Asked
-        // whichever way the branch above went: an input stamped at the start
-        // reads as modified without having scheduled anyone, and scheduling keeps
-        // the earliest time, so asking twice costs nothing.
+        if (saved->scheduler)
+            NodeScheduler{node.scheduler_state(), node.graph_value(), node.node_index(), impl_->start}
+                .restore_checkpoint(*saved->scheduler);
+        // Owners also report live child work discovered during restored start.
         const auto live = node.checkpoint_ops().live_schedule_impl(node);
         if (live != MAX_DT) { node.graph().schedule_node(node.node_index(), std::max(live, impl_->start)); }
+        // Scheduling a future alarm can replace a slot already marked for the
+        // current cycle. Fresh active inputs must run first; evaluation then
+        // advances/re-arms the restored scheduler through its normal path.
+        if (saved->scheduler && active_input_changed)
+            node.graph().schedule_node(node.node_index(), impl_->start);
     }
 }

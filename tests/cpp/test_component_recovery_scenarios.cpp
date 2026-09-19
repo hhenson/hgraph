@@ -163,7 +163,7 @@ struct SequencedPublish {
     }
 };
 // Recoverable AND scheduled: recordable state puts it in the image, so the
-// coordinator sees its schedule -- and has to leave it alone.
+// coordinator saves its pending alarm independently of its recordable state.
 std::vector<std::pair<DateTime, Int>> sequence_flushed;
 struct SequencedFlusher {
     static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD); }
@@ -172,6 +172,17 @@ struct SequencedFlusher {
         auto count = state.field<"count">();
         if (ts.modified()) { count.set((count.valid() ? count.value().checked_as<Int>() : 0) + 1); }
         if (scheduler.is_scheduled_now()) { sequence_flushed.emplace_back(now, count.valid() ? count.value().checked_as<Int>() : 0); }
+    }
+};
+// SingleShotScheduler remains best effort, with no scheduler checkpoint data.
+std::vector<DateTime> single_shot_evaluations;
+struct SingleShotFlusher {
+    static void start(SingleShotScheduler scheduler) { scheduler.schedule(MIN_TD); }
+    static void eval(In<"ts", TS<Int>, InputValidity::Unchecked> ts,
+                     RecordableState<Sequence> state, DateTime now) {
+        auto count = state.field<"count">();
+        if (ts.modified()) { count.set((count.valid() ? count.value().checked_as<Int>() : 0) + 1); }
+        else { single_shot_evaluations.push_back(now); }
     }
 };
 template<typename... Sinks> struct PublishingBody {
@@ -426,7 +437,7 @@ TEST_CASE("a transient sink is no part of the contract: adding one does not refu
     CHECK(published == std::vector<Int>{6});
 }
 
-TEST_CASE("a recoverable sink keeps its own schedule too: pending at the cut, re-armed after it",
+TEST_CASE("a recoverable sink restores its pending alarm and recordable state",
           "[checkpoint][scenario][sink]") {
     stdlib::register_standard_operators();
     std::optional<ComponentCheckpoint> completed;
@@ -438,13 +449,28 @@ TEST_CASE("a recoverable sink keeps its own schedule too: pending at the cut, re
         (void)eval_node_with_options<PublishingComponent<SequencedFlusher>>(interval(begin, end), ticks);
     };
     sequence_flushed.clear();
-    day(0, 1, values<Int>(1));          // its alarm is pending at the cut; anyone else's would block the capture
+    day(0, 1, values<Int>(1));          // its alarm is pending at the cut
     REQUIRE(completed);
     REQUIRE(sequence_flushed.empty());
     day(1, 4, values<Int>(2, none, 3));
-    // It re-armed after the restart -- discarding a restored node's bootstrap
-    // would have silenced it for good -- and the count it flushed is the
-    // recovered one: 1 from the first day, 2 by the time the alarm fires.
+    // The saved alarm fires at its original deadline, together with the fresh
+    // input: the restored count of 1 has become 2.
     REQUIRE(sequence_flushed.size() == 1);
-    CHECK(sequence_flushed.front() == std::pair<DateTime, Int>{MIN_ST + MIN_TD * 2, 2});
+    CHECK(sequence_flushed.front() == std::pair<DateTime, Int>{MIN_ST + MIN_TD, 2});
+}
+
+TEST_CASE("single-shot schedules are excluded and the normal start hook runs on recovery", "[checkpoint][scenario][scheduler]") {
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "schema-scenario", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    single_shot_evaluations.clear();
+    (void)eval_node_with_options<PublishingComponent<SingleShotFlusher>>(interval(0, 1), values<Int>(1));
+    REQUIRE(completed);
+    for (const auto &node : completed->graph.nodes) { CHECK_FALSE(node.scheduler); }
+    (void)eval_node_with_options<PublishingComponent<SingleShotFlusher>>(interval(1, 4), values<Int>(none));
+    REQUIRE(single_shot_evaluations.size() == 1);
+    CHECK(single_shot_evaluations.front() == MIN_ST + MIN_TD * 2);
 }

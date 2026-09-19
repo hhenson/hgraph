@@ -453,10 +453,10 @@ TEST_CASE("checkpoint codec: a version 2 image is still read", "[checkpoint][cod
     REQUIRE(node.recordable_state.has_value());
     CHECK(node.recordable_state->payload.view().checked_as<Str>() == "version two");
 
-    // What it says survives being written again, as version 3.
+    // What it says survives being written again, as the current version.
     std::string rewritten;
     encode_component_checkpoint(restored, rewritten);
-    CHECK(rewritten[24] == 3);
+    CHECK(rewritten[24] == checkpoint_image_format_version);
     const auto again = decode_component_checkpoint(rewritten);
     CHECK(again.graph.nodes.front().output->keys[8].view().checked_as<Int>() == 8007);
     CHECK(again.graph.nodes.front().recordable_state->payload.view() == node.recordable_state->payload.view());
@@ -572,4 +572,36 @@ TEST_CASE("checkpoint codec: large compact boolean rows stay within the reader w
     const auto image = component(std::move(node));
     const auto decoded = decode_component_checkpoint(encoded(image));
     CHECK(decoded.graph.nodes.front().custom.payload.view() == value.view());
+}
+
+TEST_CASE("checkpoint codec: scheduler presence, deadlines and tags survive all profiles", "[checkpoint][codec][scheduler]")
+{
+    NodeCheckpointImage node;
+    node.id = "alarm";
+    node.signature = "scheduler";
+    node.scheduler = NodeSchedulerCheckpoint{{{MIN_ST + MIN_TD * 6, ""}, {MIN_ST + MIN_TD * 8, "next"}}};
+    for (const auto &options : {CheckpointImageOptions::stored(), CheckpointImageOptions::transport()})
+    {
+        std::string bytes;
+        encode_component_checkpoint(component(node), bytes, options);
+        const auto restored = decode_component_checkpoint(bytes);
+        REQUIRE(restored.graph.nodes.front().scheduler);
+        CHECK(restored.graph.nodes.front().scheduler->events == node.scheduler->events);
+    }
+    node.scheduler->events.clear();
+    auto restored = decode_component_checkpoint(encoded(component(node)));
+    REQUIRE(restored.graph.nodes.front().scheduler);
+    CHECK(restored.graph.nodes.front().scheduler->events.empty());
+    // A forged event count is refused before reserving the event vector.
+    std::string oversized;
+    encode_component_checkpoint(component(node), oversized, CheckpointImageOptions{});
+    REQUIRE(oversized[oversized.size() - 9] == 0);
+    oversized[oversized.size() - 9] = 0x7f;
+    CHECK_THROWS_WITH(decode_component_checkpoint(resealed(oversized)), ContainsSubstring("invalid sequence size"));
+    node.scheduler.reset();
+    auto legacy = encoded(component(node));
+    REQUIRE(legacy[24] == 4);
+    legacy[24] = 3; // Same version 3 framing, without a scheduler field.
+    restored = decode_component_checkpoint(resealed(legacy));
+    CHECK_FALSE(restored.graph.nodes.front().scheduler);
 }

@@ -126,15 +126,16 @@ namespace hgraph
         /**
          * True when the node needs no ``NodeCheckpointOps`` to be a component
          * member (RFC 0023): a compute node that holds nothing beyond its
-         * endpoints and reconstructible local cache beside recordable state,
+         * endpoints, pending scheduler events, and reconstructible local cache
+         * beside recordable state,
          * or a sink with recordable state, which is recovered
-         * through that state alone. Sources need operations: they hold cursors.
+         * through that state. Scheduler recovery is independent of recordable
+         * state. Sources need operations: they hold cursors.
          */
         [[nodiscard]] bool checkpoints_without_ops() const noexcept
         {
             if (node_kind == NodeKind::Sink) { return recordable_state_schema != nullptr; }
             return node_kind == NodeKind::Compute && (state_schema == nullptr || recordable_state_schema != nullptr) &&
-                   !uses_scheduler &&
                    !uses_global_state && !uses_evaluation_clock;
         }
         // True when this node consumes and/or produces time-series values
