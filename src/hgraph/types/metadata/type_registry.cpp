@@ -15,6 +15,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgraph
@@ -754,6 +755,7 @@ namespace hgraph
         deref_cache_.clear();
 
         // Drop auxiliary storage referenced by metadata.
+        name_index_.clear();
         name_storage_.clear();
         value_field_storage_.clear();
         ts_field_storage_.clear();
@@ -782,6 +784,7 @@ namespace hgraph
     {
         auto stored = std::make_unique<std::string>(name);
         const char *ptr = stored->c_str();
+        name_index_.try_emplace(std::string_view{*stored}, ptr);
         name_storage_.push_back(std::move(stored));
         return ptr;
     }
@@ -793,12 +796,9 @@ namespace hgraph
             return nullptr;
         }
 
-        for (const auto &entry : name_storage_)
+        if (const auto found = name_index_.find(name); found != name_index_.end())
         {
-            if (*entry == name)
-            {
-                return entry->c_str();
-            }
+            return found->second;
         }
         return store_name(name);
     }
@@ -1047,6 +1047,11 @@ namespace hgraph
 
         std::vector<std::string> qualified_names;
         qualified_names.reserve(definitions.size());
+        // Names and field names are checked through hash sets: a scan per
+        // definition or per field would be quadratic in the batch.
+        std::unordered_set<std::string_view> batch_names;
+        batch_names.reserve(definitions.size());
+        std::unordered_map<std::string_view, const RecursiveBundleFieldDefinition *> field_by_name;
         for (const auto &definition : definitions)
         {
             const std::string qualified_name =
@@ -1055,8 +1060,7 @@ namespace hgraph
             {
                 throw std::invalid_argument("recursive bundle requires a non-empty local name");
             }
-            if (value_type(qualified_name) != nullptr ||
-                std::ranges::count(qualified_names, qualified_name) != 0)
+            if (value_type(qualified_name) != nullptr || batch_names.contains(qualified_name))
             {
                 throw std::invalid_argument(
                     "recursive bundle '" + qualified_name + "' is already registered");
@@ -1083,11 +1087,11 @@ namespace hgraph
                     throw std::invalid_argument(
                         "recursive bundle owned target is outside the declaration batch");
                 }
-                if (std::ranges::count_if(
-                        definition.fields,
-                        [&](const auto &candidate) {
-                            return candidate.name == field.name;
-                        }) != 1)
+            }
+            field_by_name.clear();
+            for (const auto &field : definition.fields)
+            {
+                if (!field_by_name.emplace(field.name, &field).second)
                 {
                     throw std::invalid_argument(
                         "recursive bundle fields must have unique names");
@@ -1110,15 +1114,12 @@ namespace hgraph
                      field_index < parent->field_count; ++field_index)
                 {
                     const auto &parent_field = parent->fields[field_index];
-                    const auto child_field = std::ranges::find_if(
-                        definition.fields,
-                        [&](const auto &field) {
-                            return parent_field.name != nullptr &&
-                                   field.name == parent_field.name;
-                        });
-                    if (child_field == definition.fields.end() ||
-                        child_field->owned_target.has_value() ||
-                        child_field->type != parent_field.type)
+                    const auto found = parent_field.name == nullptr
+                                           ? field_by_name.end()
+                                           : field_by_name.find(parent_field.name);
+                    if (found == field_by_name.end() ||
+                        found->second->owned_target.has_value() ||
+                        found->second->type != parent_field.type)
                     {
                         throw std::invalid_argument(
                             "recursive bundle '" + qualified_name +
@@ -1127,6 +1128,7 @@ namespace hgraph
                 }
             }
             qualified_names.push_back(qualified_name);
+            batch_names.insert(qualified_names.back());
         }
 
         // Hashing, equality and ordering of a member run through its owned
@@ -1303,6 +1305,13 @@ namespace hgraph
         }
         const ValueTypeMetaData *un_named = un_named_bundle(fields);
 
+        // Inherited fields are found by name, not by a scan per parent field.
+        std::unordered_map<std::string_view, const ValueTypeMetaData *> field_types;
+        if (!parents.empty())
+        {
+            field_types.reserve(fields.size());
+            for (const auto &[field_name, field_type] : fields) { field_types.try_emplace(field_name, field_type); }
+        }
         for (const ValueTypeMetaData *parent : parents)
         {
             if (parent == nullptr || !parent->is_named_bundle() || parent->bundle_hierarchy == nullptr)
@@ -1320,10 +1329,9 @@ namespace hgraph
             for (std::size_t index = 0; index < parent->field_count; ++index)
             {
                 const auto &parent_field = parent->fields[index];
-                const auto child_field = std::ranges::find_if(fields, [&](const auto &field) {
-                    return parent_field.name != nullptr && field.first == parent_field.name;
-                });
-                if (child_field == fields.end())
+                const auto child_field =
+                    parent_field.name == nullptr ? field_types.end() : field_types.find(parent_field.name);
+                if (child_field == field_types.end())
                 {
                     throw std::invalid_argument(
                         "bundle '" + qualified_name + "' must preserve inherited field '" +
@@ -1354,7 +1362,9 @@ namespace hgraph
         }
 
         NamedBundleKey key{std::string{bundle_namespace}, std::string{local_name}, un_named};
+        bool created = false;
         const ValueTypeMetaData &meta = named_bundle_cache_.intern(std::move(key), [&]() {
+            created = true;
             // Named bundle wraps the un-named: shares the same field array
             // (no duplication), records its own name, and sets
             // wrapped_un_named so consumers can navigate to the structural
@@ -1390,12 +1400,13 @@ namespace hgraph
             throw std::invalid_argument("named bundle '" + qualified_name +
                                         "' is already registered with different hierarchy metadata");
         }
-        for (const ValueTypeMetaData *parent : parents)
+        // A re-registration finds its parents already listing it; only the
+        // registration that created the bundle adds it, without a search.
+        if (created)
         {
-            auto &children = parent->bundle_hierarchy->children;
-            if (std::ranges::find(children, &meta) == children.end())
+            for (const ValueTypeMetaData *parent : parents)
             {
-                children.push_back(&meta);
+                parent->bundle_hierarchy->children.push_back(&meta);
                 parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
             }
         }
@@ -1709,7 +1720,9 @@ namespace hgraph
         }
 
         const std::string key{name};
+        bool created = false;
         const ValueTypeMetaData &meta = opaque_python_cache_.intern(key, [&]() {
+            created = true;
             ValueTypeMetaData m(
                 ValueTypeKind::Any,
                 ValueTypeFlags::Hashable | ValueTypeFlags::Equatable |
@@ -1732,13 +1745,9 @@ namespace hgraph
         }
         for (const ValueTypeMetaData *parent : parents)
         {
-            if (parent->bundle_hierarchy == nullptr) { continue; }
-            auto &children = parent->bundle_hierarchy->children;
-            if (std::ranges::find(children, &meta) == children.end())
-            {
-                children.push_back(&meta);
-                parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
-            }
+            if (!created || parent->bundle_hierarchy == nullptr) { continue; }
+            parent->bundle_hierarchy->children.push_back(&meta);
+            parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
         }
         return &meta;
     }
