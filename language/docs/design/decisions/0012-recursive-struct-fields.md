@@ -1,10 +1,11 @@
 # ADR 0012: recursive struct fields
 
 Status: accepted (2026-09-19). Not implemented. The compiler rejects every
-struct whose field names the struct itself (`src/semantics/resolve.cpp`,
-"self-recursive struct fields are not supported in this prototype"), and
-`tests/semantics/resolve_tests.cpp` pins that rejection. Nothing below is a
-claim of compiler support.
+field through which a value of a struct could contain another value of the
+same struct, by any path (`src/semantics/resolve.cpp`,
+`reject_recursive_fields`: "recursive struct fields are not supported in this
+prototype"), and `tests/semantics/resolve_tests.cpp` pins that rejection.
+Nothing below is a claim of compiler support.
 
 ## Context
 
@@ -84,11 +85,15 @@ check:
 
 ## Consequences
 
-- **Name resolution** (`semantics/resolve`): `contains_struct` stops being a
-  rejection and becomes the detector of recursive edges, extended to follow
-  same-module structs (rule 5) and abstract parents (rule 6). As read today it
-  tests only for the struct itself, so a field typed as the struct's own
-  abstract parent is not caught; that needs a test before anything else.
+- **Name resolution** (`semantics/resolve`): `reject_recursive_fields`
+  stops being a rejection and becomes the detector of recursive edges. It
+  already follows same-module structs (rule 5), abstract families (rule 6),
+  generic arguments and collection elements, and names every field that
+  closes a cycle; the rules above then decide which of those fields are
+  admitted. (When this record was written the check looked only for the
+  struct itself, so edges through another struct or an abstract parent passed
+  the resolver and crashed direct wiring; that was fixed first, as its own
+  change.)
 - **Every pass that walks struct fields must terminate on a recursive type**:
   canonical types, capability and recordability checks, temporalization,
   constraint reflection, substitution, and both backends' type realization.
