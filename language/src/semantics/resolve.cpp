@@ -1,10 +1,14 @@
 #include "semantics/resolve.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -33,6 +37,56 @@ namespace hgl::semantics
             "at",     "time_at",  "front",      "back",      "removed_value", "scheduled", "passivate", "activate",
         };
 
+        /// Tarjan's strongly connected components over an adjacency list,
+        /// without recursion; returns the component of every node.
+        [[nodiscard]] std::vector<std::uint32_t>
+        strongly_connected_components(const std::vector<std::vector<std::uint32_t>> &edges) {
+            constexpr std::uint32_t                            unvisited = std::numeric_limits<std::uint32_t>::max();
+            const std::size_t                                  count     = edges.size();
+            std::vector<std::uint32_t>                         order(count, unvisited);
+            std::vector<std::uint32_t>                         low(count, 0);
+            std::vector<std::uint32_t>                         component(count, unvisited);
+            std::vector<bool>                                  on_stack(count, false);
+            std::vector<std::uint32_t>                         stack;
+            std::vector<std::pair<std::uint32_t, std::size_t>> frames;  ///< node, next edge
+            std::uint32_t                                      next_order     = 0;
+            std::uint32_t                                      next_component = 0;
+            const auto                                         visit          = [&](std::uint32_t node) {
+                order[node] = low[node] = next_order++;
+                stack.push_back(node);
+                on_stack[node] = true;
+                frames.emplace_back(node, 0U);
+            };
+            for (std::uint32_t root = 0; root < count; ++root) {
+                if (order[root] != unvisited) { continue; }
+                visit(root);
+                while (!frames.empty()) {
+                    const std::uint32_t node = frames.back().first;
+                    if (const std::size_t next = frames.back().second++; next < edges[node].size()) {
+                        const std::uint32_t target = edges[node][next];
+                        if (order[target] == unvisited) {
+                            visit(target);
+                        } else if (on_stack[target]) {
+                            low[node] = std::min(low[node], order[target]);
+                        }
+                        continue;
+                    }
+                    frames.pop_back();
+                    if (!frames.empty()) { low[frames.back().first] = std::min(low[frames.back().first], low[node]); }
+                    if (low[node] != order[node]) { continue; }
+                    std::uint32_t member = unvisited;
+                    while (member != node) {
+                        member = stack.back();
+                        stack.pop_back();
+                        on_stack[member]  = false;
+                        component[member] = next_component;
+                    }
+                    ++next_component;
+                }
+            }
+            return component;
+        }
+
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
             std::string result;
             for (const ast::Name &segment : path) {
@@ -50,6 +104,7 @@ namespace hgl::semantics
                 : module_{module}, catalog_{catalog}, has_operator_{has_operator}, diagnostics_{diagnostics} {
                 result_.bindings.resize(module.exprs.size());
                 result_.type_bindings.resize(module.types.size());
+                argument_bindings_.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
                 result_.implementation_bindings.resize(module.decls.size());
                 result_.instantiation_bindings.resize(module.decls.size());
@@ -890,8 +945,11 @@ namespace hgl::semantics
                        generics_of(binding.decl)[binding.index].is_const;
             }
 
-            void resolve_generic_argument(const ast::GenericArgument &argument, const ast::GenericParameter &parameter,
-                                          Context &context) {
+            /// Resolves one argument of an applied struct type and returns what a
+            /// bare-name argument names: that argument has no type node to carry
+            /// the binding, and the struct recursion check must see through it.
+            std::optional<Binding> resolve_generic_argument(const ast::GenericArgument  &argument,
+                                                            const ast::GenericParameter &parameter, Context &context) {
                 if (argument.type != ast::no_node) {
                     resolve_type(argument.type, context);
                     if (parameter.is_const) {
@@ -905,7 +963,7 @@ namespace hgl::semantics
                                    "the temporal shape in the field declaration");
                         }
                     }
-                    return;
+                    return std::nullopt;
                 }
                 if (argument.value != ast::no_node) {
                     resolve_expr(argument.value, context);
@@ -913,21 +971,21 @@ namespace hgl::semantics
                         report(Category::Type, argument.range,
                                "type generic '" + std::string{parameter.name.text} + "' takes a type argument");
                     }
-                    return;
+                    return std::nullopt;
                 }
 
                 const std::optional<Binding> binding = lookup(argument.name.text);
                 if (!binding) {
                     report(Category::Type, argument.name.range,
                            "unknown generic argument '" + std::string{argument.name.text} + "'");
-                    return;
+                    return std::nullopt;
                 }
                 if (parameter.is_const) {
                     if (!is_const_generic(*binding)) {
                         report(Category::Type, argument.name.range,
                                "const generic '" + std::string{parameter.name.text} + "' takes a const value argument");
                     }
-                    return;
+                    return binding;
                 }
                 if (binding->kind == BindingKind::Generic && is_const_generic(*binding)) {
                     report(Category::Type, argument.name.range,
@@ -938,6 +996,7 @@ namespace hgl::semantics
                     report(Category::Type, argument.name.range,
                            "generic struct '" + std::string{argument.name.text} + "' must be fully applied");
                 }
+                return binding;
             }
 
             void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
@@ -992,7 +1051,12 @@ namespace hgl::semantics
                             }
                             const std::size_t count = std::min(parameters.size(), type.arguments.size());
                             for (std::size_t i = 0; i < count; ++i) {
-                                resolve_generic_argument(type.arguments[i], parameters[i], context);
+                                if (std::optional<Binding> named =
+                                        resolve_generic_argument(type.arguments[i], parameters[i], context)) {
+                                    std::vector<Binding> &slots = argument_bindings_[id];
+                                    slots.resize(type.arguments.size());
+                                    slots[i] = std::move(*named);
+                                }
                             }
                             for (std::size_t i = count; i < type.arguments.size(); ++i) {
                                 const ast::GenericArgument &argument = type.arguments[i];
@@ -1128,21 +1192,6 @@ namespace hgl::semantics
                 return id != ast::no_node && std::holds_alternative<ast::NullLiteral>(module_.expr(id).node);
             }
 
-            [[nodiscard]] bool contains_struct(ast::TypeId id, ast::DeclId target) const {
-                const ast::Type &type = module_.type(id);
-                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct &&
-                    result_.type_bindings[id].decl == target) {
-                    return true;
-                }
-                for (const ast::TypeId child : type.children) {
-                    if (contains_struct(child, target)) { return true; }
-                }
-                for (const ast::GenericArgument &argument : type.arguments) {
-                    if (argument.type != ast::no_node && contains_struct(argument.type, target)) { return true; }
-                }
-                return false;
-            }
-
             bool validate_struct(ast::DeclId id) {
                 if (struct_states_[id] == 2) { return result_.struct_info[id].valid; }
                 const auto &structure = std::get<ast::StructDecl>(module_.decl(id).node);
@@ -1177,27 +1226,27 @@ namespace hgl::semantics
                     }
                     if (!validate_struct(binding.decl)) { valid = false; }
                     info.parents.push_back(binding.decl);
-                    if (structure.parents.size() == 1) { info.fields = result_.struct_info[binding.decl].fields; }
+                    if (structure.parents.size() == 1) {
+                        info.fields        = result_.struct_info[binding.decl].fields;
+                        field_indices_[id] = field_indices_[binding.decl];
+                    }
                 }
 
-                std::vector<std::string_view> local_names;
-                std::vector<std::string_view> overridden;
+                std::unordered_map<std::string_view, std::size_t> &field_index = field_indices_[id];
+                std::unordered_set<std::string_view>               local_names;
+                std::unordered_set<std::string_view>               overridden;
                 for (const ast::StructMember &member : structure.members) {
                     std::visit(
                         [&](const auto &item) {
                             using T = std::decay_t<decltype(item)>;
                             if constexpr (std::is_same_v<T, ast::StructField>) {
-                                if (std::find(local_names.begin(), local_names.end(), item.name.text) != local_names.end()) {
+                                if (!local_names.insert(item.name.text).second) {
                                     report(Category::Name, item.name.range,
                                            "struct field '" + std::string{item.name.text} + "' is declared twice");
                                     valid = false;
                                     return;
                                 }
-                                local_names.push_back(item.name.text);
-                                const auto inherited =
-                                    std::find_if(info.fields.begin(), info.fields.end(),
-                                                 [&](const StructField &field) { return field.name == item.name.text; });
-                                if (inherited != info.fields.end()) {
+                                if (field_index.contains(item.name.text)) {
                                     report(Category::Type, item.name.range,
                                            "inherited field '" + std::string{item.name.text} +
                                                "' cannot be redeclared with a type; override only "
@@ -1205,38 +1254,31 @@ namespace hgl::semantics
                                     valid = false;
                                     return;
                                 }
-                                if (contains_struct(item.type, id)) {
-                                    report(Category::Type, module_.type(item.type).range,
-                                           "self-recursive struct fields are not supported in this "
-                                           "prototype");
-                                    valid = false;
-                                }
+                                field_index.emplace(item.name.text, info.fields.size());
                                 info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value, id,
                                                                   is_null(item.default_value)});
                             } else {
-                                if (std::find(overridden.begin(), overridden.end(), item.name.text) != overridden.end()) {
+                                if (!overridden.insert(item.name.text).second) {
                                     report(Category::Name, item.name.range,
                                            "inherited default '" + std::string{item.name.text} + "' is set twice");
                                     valid = false;
                                     return;
                                 }
-                                overridden.push_back(item.name.text);
-                                const auto inherited =
-                                    std::find_if(info.fields.begin(), info.fields.end(),
-                                                 [&](const StructField &field) { return field.name == item.name.text; });
-                                if (inherited == info.fields.end()) {
+                                const auto found = field_index.find(item.name.text);
+                                if (found == field_index.end()) {
                                     report(Category::Type, item.name.range,
                                            "default override names no inherited field '" + std::string{item.name.text} + "'");
                                     valid = false;
                                     return;
                                 }
-                                if (is_null(item.value) && !inherited->optional) {
+                                StructField &inherited = info.fields[found->second];
+                                if (is_null(item.value) && !inherited.optional) {
                                     report(Category::Type, module_.expr(item.value).range,
                                            "only an optional inherited field may have a null default");
                                     valid = false;
                                     return;
                                 }
-                                inherited->default_value = item.value;
+                                inherited.default_value = item.value;
                             }
                         },
                         member);
@@ -1248,7 +1290,201 @@ namespace hgl::semantics
 
             void validate_structs() {
                 struct_states_.assign(module_.decls.size(), 0);
+                field_indices_.assign(module_.decls.size(), {});
                 for (const ast::DeclId id : result_.structs) { (void)validate_struct(id); }
+                reject_recursive_fields();
+            }
+
+            // ------------------------------------------- recursive struct fields
+
+            static constexpr std::uint32_t no_position = std::numeric_limits<std::uint32_t>::max();
+
+            /// A struct named in a field type, and the applied type naming it;
+            /// no_node for a bare generic argument, which applies nothing.
+            struct StructReference
+            {
+                ast::DeclId decl{ast::no_node};
+                ast::TypeId applied{ast::no_node};
+            };
+
+            [[nodiscard]] const Binding *argument_binding(ast::TypeId id, std::size_t index) const noexcept {
+                const std::vector<Binding> &slots = argument_bindings_[id];
+                return index < slots.size() && slots[index].kind != BindingKind::Unbound ? &slots[index] : nullptr;
+            }
+
+            void struct_references(ast::TypeId id, std::vector<StructReference> &out) const {
+                const ast::Type &type = module_.type(id);
+                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct) {
+                    out.push_back(StructReference{result_.type_bindings[id].decl, id});
+                }
+                for (const ast::TypeId child : type.children) { struct_references(child, out); }
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    if (type.arguments[index].type != ast::no_node) {
+                        struct_references(type.arguments[index].type, out);
+                    } else if (const Binding *binding = argument_binding(id, index);
+                               binding != nullptr && binding->kind == BindingKind::Struct) {
+                        out.push_back(StructReference{binding->decl, ast::no_node});
+                    }
+                }
+            }
+
+            [[nodiscard]] static std::string struct_key(ast::DeclId decl, std::string_view arguments) {
+                return std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) + ':' + std::to_string(decl) +
+                       std::string{arguments};
+            }
+
+            /// A structural key for a concrete type, or nothing when the type
+            /// mentions a generic parameter, a constant or an unresolved name
+            /// and so may denote more than one specialization.
+            [[nodiscard]] std::optional<std::string> type_key(ast::TypeId id) const {
+                const ast::Type &type = module_.type(id);
+                if (type.size != ast::no_node || type.min_size != ast::no_node) { return std::nullopt; }
+                if (type.kind == ast::TypeKind::Named) {
+                    const std::optional<std::string> arguments = arguments_key(id);
+                    if (result_.type_bindings[id].kind != BindingKind::Struct || !arguments) { return std::nullopt; }
+                    return struct_key(result_.type_bindings[id].decl, *arguments);
+                }
+                std::string key = std::to_string(static_cast<unsigned>(type.kind));
+                if (type.kind == ast::TypeKind::Scalar) { key += ':' + std::to_string(static_cast<unsigned>(type.scalar)); }
+                key += type.unbounded ? "*(" : "(";
+                for (const ast::TypeId child : type.children) {
+                    const std::optional<std::string> element = type_key(child);
+                    if (!element) { return std::nullopt; }
+                    key += *element + ',';
+                }
+                return key + ')';
+            }
+
+            [[nodiscard]] std::optional<std::string> arguments_key(ast::TypeId id) const {
+                const ast::Type &type = module_.type(id);
+                std::string      key{"<"};
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    std::optional<std::string> element;
+                    if (type.arguments[index].type != ast::no_node) {
+                        element = type_key(type.arguments[index].type);
+                    } else if (const Binding *binding = argument_binding(id, index);
+                               binding != nullptr && binding->kind == BindingKind::Struct) {
+                        element = struct_key(binding->decl, "<>");
+                    }
+                    if (!element) { return std::nullopt; }
+                    key += *element + ',';
+                }
+                return key + '>';
+            }
+
+            /// Rejects every field through which a value of a struct could
+            /// contain another value of the same struct (syntax guide,
+            /// "Compilation-unit grammar"). A field reaches each struct its type
+            /// names, through collection elements and generic arguments. A field
+            /// typed by a struct with descendants also reaches that family: every
+            /// descendant of a non-generic struct, and of a generic one only the
+            /// children whose parent application can equal the field's.
+            /// Strongly connected components find every such field in one pass
+            /// that is linear in the declared fields.
+            void reject_recursive_fields() {
+                const std::size_t          count = result_.structs.size();
+                std::vector<std::uint32_t> position(module_.decls.size(), no_position);
+                for (std::size_t index = 0; index < count; ++index) {
+                    position[result_.structs[index]] = static_cast<std::uint32_t>(index);
+                }
+                // Node 2i is a value of struct i; node 2i+1 is a value of struct i
+                // or of any of its descendants. Family group nodes follow them.
+                std::vector<std::vector<std::uint32_t>> edges(2 * count);
+                const auto                              value_node  = [](std::uint32_t index) { return 2 * index; };
+                const auto                              family_node = [](std::uint32_t index) { return 2 * index + 1; };
+                const auto                              add_node    = [&] {
+                    edges.emplace_back();
+                    return static_cast<std::uint32_t>(edges.size() - 1);
+                };
+
+                struct Family
+                {
+                    std::uint32_t                                  any{no_position};   ///< every child group
+                    std::uint32_t                                  open{no_position};  ///< non-concrete parent applications
+                    std::unordered_map<std::string, std::uint32_t> exact{};            ///< by concrete parent application
+                };
+                std::vector<Family> families(count);
+                for (std::uint32_t child = 0; child < count; ++child) {
+                    edges[family_node(child)].push_back(value_node(child));
+                    const auto &structure = std::get<ast::StructDecl>(module_.decl(result_.structs[child]).node);
+                    for (const ast::TypeId parent_type : structure.parents) {
+                        const Binding &binding = result_.type_bindings[parent_type];
+                        if (binding.kind != BindingKind::Struct || position[binding.decl] == no_position) { continue; }
+                        Family &family = families[position[binding.decl]];
+                        if (family.any == no_position) { family.any = add_node(); }
+                        std::uint32_t *group = &family.open;
+                        if (const std::optional<std::string> key = arguments_key(parent_type)) {
+                            group = &family.exact.try_emplace(*key, no_position).first->second;
+                        }
+                        if (*group == no_position) {
+                            *group = add_node();
+                            edges[family.any].push_back(*group);
+                        }
+                        edges[*group].push_back(family_node(child));
+                    }
+                }
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    if (families[index].any != no_position) { edges[family_node(index)].push_back(families[index].any); }
+                }
+
+                struct FieldEdges
+                {
+                    std::uint32_t owner{};
+                    std::size_t   field{};
+                    std::size_t   begin{};
+                    std::size_t   end{};
+                };
+                std::vector<FieldEdges>      field_edges;
+                std::vector<StructReference> references;
+                for (std::uint32_t owner = 0; owner < count; ++owner) {
+                    const StructInfo &info = result_.struct_info[result_.structs[owner]];
+                    for (std::size_t field = 0; field < info.fields.size(); ++field) {
+                        if (info.fields[field].type == ast::no_node) { continue; }
+                        std::vector<std::uint32_t> &out   = edges[value_node(owner)];
+                        const std::size_t           begin = out.size();
+                        references.clear();
+                        struct_references(info.fields[field].type, references);
+                        for (const StructReference &reference : references) {
+                            const std::uint32_t target = position[reference.decl];
+                            if (target == no_position) { continue; }
+                            out.push_back(value_node(target));
+                            const Family &family = families[target];
+                            if (family.any == no_position) { continue; }
+                            const std::optional<std::string> key = reference.applied == ast::no_node
+                                                                       ? std::optional<std::string>{"<>"}
+                                                                       : arguments_key(reference.applied);
+                            if (!key) {
+                                out.push_back(family.any);
+                                continue;
+                            }
+                            if (const auto exact = family.exact.find(*key); exact != family.exact.end()) {
+                                out.push_back(exact->second);
+                            }
+                            if (family.open != no_position) { out.push_back(family.open); }
+                        }
+                        field_edges.push_back(FieldEdges{owner, field, begin, out.size()});
+                    }
+                }
+
+                const std::vector<std::uint32_t> component = strongly_connected_components(edges);
+                std::vector<bool>                reported(module_.types.size(), false);
+                for (const FieldEdges &item : field_edges) {
+                    const std::vector<std::uint32_t> &out   = edges[value_node(item.owner)];
+                    const std::uint32_t               self  = component[value_node(item.owner)];
+                    const auto                        begin = out.begin() + static_cast<std::ptrdiff_t>(item.begin);
+                    const auto                        end   = out.begin() + static_cast<std::ptrdiff_t>(item.end);
+                    if (std::none_of(begin, end, [&](std::uint32_t target) { return component[target] == self; })) { continue; }
+                    const ast::DeclId  decl  = result_.structs[item.owner];
+                    StructInfo        &info  = result_.struct_info[decl];
+                    const StructField &field = info.fields[item.field];
+                    info.valid               = false;
+                    if (reported[field.type]) { continue; }
+                    reported[field.type] = true;
+                    const std::string name{std::get<ast::StructDecl>(module_.decl(decl).node).name.text};
+                    report(Category::Type, module_.type(field.type).range,
+                           "recursive struct fields are not supported in this prototype: through field '" + field.name +
+                               "', a value of '" + name + "' can contain another '" + name + "'");
+                }
             }
 
             void validate_constructor(ast::DeclId decl, const std::vector<ast::Argument> &arguments, bool delta,
@@ -1261,26 +1497,26 @@ namespace hgl::semantics
                            "abstract struct '" + std::string{structure.name.text} + "' is not constructible");
                     return;
                 }
-                std::vector<bool> supplied(info.fields.size(), false);
+                const std::unordered_map<std::string_view, std::size_t> &field_index = field_indices_[decl];
+                std::vector<bool>                                        supplied(info.fields.size(), false);
                 for (const ast::Argument &argument : arguments) {
                     if (argument.name.empty()) { continue; }
-                    const auto found = std::find_if(info.fields.begin(), info.fields.end(),
-                                                    [&](const StructField &field) { return field.name == argument.name.text; });
-                    if (found == info.fields.end()) {
+                    const auto found = field_index.find(argument.name.text);
+                    if (found == field_index.end()) {
                         report(Category::Name, argument.name.range,
                                "struct '" + std::string{structure.name.text} + "' has no field named '" +
                                    std::string{argument.name.text} + "'");
                         continue;
                     }
-                    const auto index = static_cast<std::size_t>(found - info.fields.begin());
+                    const std::size_t index = found->second;
                     if (supplied[index]) {
                         report(Category::Name, argument.name.range,
                                "field '" + std::string{argument.name.text} + "' is given twice");
                     }
                     supplied[index] = true;
-                    if (is_null(argument.value) && !found->optional) {
+                    if (is_null(argument.value) && !info.fields[index].optional) {
                         report(Category::Type, module_.expr(argument.value).range,
-                               "required field '" + found->name + "' cannot be null");
+                               "required field '" + info.fields[index].name + "' cannot be null");
                     }
                 }
                 if (delta) { return; }
@@ -1350,6 +1586,12 @@ namespace hgl::semantics
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};
+            /// What each bare-name argument of an applied type names, indexed
+            /// by TypeId and argument position; empty for other types.
+            std::vector<std::vector<Binding>> argument_bindings_{};
+            /// Each struct's effective field names, keyed by the declaring source
+            /// spelling, to their position in StructInfo::fields; by DeclId.
+            std::vector<std::unordered_map<std::string_view, std::size_t>> field_indices_{};
         };
     }  // namespace
 

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Reject a struct field through which a value of the struct could contain
+  another value of the same struct, by any path. Only a field naming its own
+  struct was rejected before; a cycle through another struct of the module, a
+  bare generic argument (`Box<Node>`) or an abstract parent's family passed
+  `hgl check`, then crashed direct wiring with unbounded recursion, compared
+  equal values as unequal, or emitted C++ that did not compile. The resolver
+  now finds every such field in one pass over the module's struct references
+  and reports each field of the cycle. A generic family is followed only to
+  children whose parent application can equal the field's, so
+  `inner: Event<f64>` inside `struct IntEvent: Event<i64>` stays valid. Struct
+  and constructor field names are looked up through an index rather than a
+  scan per field.
 - Add `cache` declarations (ADR 0011): `cache name[: T] = init` is node-local
   data outside record/replay, declared like `state` and re-initialized on
   every start, lowered to the native `State<T>` selector. One scalar cache per
