@@ -9,6 +9,29 @@
 namespace
 {
     using namespace hgraph;
+    struct DerivedCache
+    {
+        std::vector<Int> values;
+        std::shared_ptr<Int> lifetime;
+        friend bool operator==(const DerivedCache &, const DerivedCache &) = default;
+    };
+}
+
+namespace hgraph
+{
+    template <> struct scalar_descriptor<DerivedCache>
+    {
+        static constexpr bool is_concrete() noexcept { return true; }
+        static const ValueTypeMetaData *value_meta()
+        {
+            return TypeRegistry::instance().register_scalar<DerivedCache>("checkpoint_derived_cache");
+        }
+    };
+}
+
+namespace
+{
+    using namespace hgraph;
     using namespace hgraph::testing;
     using CounterState = TSB<"checkpoint_counter", Field<"total", TS<Int>>>;
     std::vector<Int> starts;
@@ -36,6 +59,88 @@ namespace
             {
                 throw std::runtime_error("failed day stop");
             }
+        }
+    };
+    std::weak_ptr<Int> cache_lifetime;
+    bool fail_cache_start = false;
+    std::vector<Int> cache_stops;
+
+    struct CachedCounter
+    {
+        static constexpr auto name = "checkpoint_cached_counter";
+        static void start(State<DerivedCache> cache, RecordableState<CounterState> state)
+        {
+            REQUIRE(cache.ref().values.empty());
+            REQUIRE_FALSE(cache.ref().lifetime);
+            cache.modify().lifetime = std::make_shared<Int>(42);
+            cache_lifetime = cache.ref().lifetime;
+            auto total = state.field<"total">();
+            starts.push_back(total.valid() ? total.value().checked_as<Int>() : Int{-1});
+            if (!total.valid()) { total.set(Int{0}); }
+            cache.modify().values = {state.field<"total">().value().checked_as<Int>()};
+            if (fail_cache_start) { throw std::runtime_error("cache start failed"); }
+        }
+        static void eval(In<"ts", TS<Int>> input, State<DerivedCache> cache,
+                         RecordableState<CounterState> state, Out<TS<Int>> out)
+        {
+            REQUIRE(cache.ref().values.at(0) == state.field<"total">().value().checked_as<Int>());
+            if (input.value() == -999) { throw std::runtime_error("failed day computation"); }
+            auto total = state.field<"total">();
+            const auto value = total.value().checked_as<Int>() + input.value();
+            total.set(value);
+            if (input.value() != 5) { out.set(value); }
+            cache.modify().values[0] = state.field<"total">().value().checked_as<Int>();
+        }
+        static void stop(State<DerivedCache> cache, RecordableState<CounterState> state)
+        {
+            cache_stops.push_back(cache.ref().values.at(0));
+            Counter::stop(std::move(state));
+        }
+    };
+    struct CachedSink
+    {
+        static void start(State<DerivedCache> cache, RecordableState<CounterState> state)
+        {
+            CachedCounter::start(std::move(cache), std::move(state));
+        }
+        static void eval(In<"ts", TS<Int>> input, State<DerivedCache> cache, RecordableState<CounterState> state)
+        {
+            REQUIRE(cache.ref().values[0] == state.field<"total">().value().checked_as<Int>());
+            cache.modify().values[0] += input.value();
+            state.field<"total">().set(cache.ref().values[0]);
+        }
+        static void stop(State<DerivedCache> cache, RecordableState<CounterState> state)
+        {
+            CachedCounter::stop(std::move(cache), std::move(state));
+        }
+    };
+    struct CachedSinkStrategy
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> input)
+        {
+            (void)wire<CachedSink>(w, input);
+            return wire<Counter>(w, input);
+        }
+    };
+    struct CachedSinkComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return stdlib::component<CachedSinkStrategy>(w, "strategy", input);
+        }
+    };
+    struct CachedStrategy
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> input)
+        {
+            return wire<CachedCounter>(w, input);
+        }
+    };
+    struct CachedComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return stdlib::component<CachedStrategy>(w, "strategy", input);
         }
     };
     struct Strategy
@@ -343,4 +448,91 @@ TEST_CASE("component checkpoint validates revision and recovery interval before 
     CHECK_THROWS_WITH(eval_node_with_options<Component>(interval(0, 1), values<Int>(2)),
                       Catch::Matchers::ContainsSubstring("recovery must start"));
     CHECK(starts.empty());
+}
+
+TEST_CASE("component checkpoint rebuilds local cache after restoring durable state", "[checkpoint][component][cache]")
+{
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    starts.clear();
+    cache_stops.clear();
+    CHECK_OUTPUT(eval_node_with_options<CachedComponent>(interval(0, 2), values<Int>(1, 5)), {1, none});
+    REQUIRE(completed);
+    CHECK(cache_lifetime.expired());
+    CHECK_OUTPUT(eval_node_with_options<CachedComponent>(interval(2, 4), values<Int>(none, 2)), {none, 8});
+    CHECK(cache_lifetime.expired());
+    CHECK_OUTPUT(eval_node_with_options<CachedComponent>(interval(4, 5), values<Int>(3)), {11});
+    CHECK(starts == std::vector<Int>{-1, 6, 8});
+    CHECK(cache_stops == std::vector<Int>{6, 8, 11});
+    CHECK(cache_lifetime.expired());
+}
+
+TEST_CASE("mixed cache state is destroyed on lifecycle failures", "[checkpoint][component][cache]")
+{
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .commit = [&](const auto &image) { completed = image; }});
+    cache_stops.clear();
+    SECTION("start")
+    {
+        fail_cache_start = true;
+        CHECK_THROWS_WITH(eval_node_with_options<CachedComponent>(interval(0, 1), values<Int>(1)),
+                          Catch::Matchers::ContainsSubstring("cache start failed"));
+        fail_cache_start = false;
+        CHECK(cache_stops.empty());
+    }
+    SECTION("eval")
+    {
+        CHECK_THROWS_WITH(eval_node_with_options<CachedComponent>(interval(0, 1), values<Int>(-999)),
+                          Catch::Matchers::ContainsSubstring("failed day computation"));
+    }
+    SECTION("stop")
+    {
+        CHECK_THROWS_WITH(eval_node_with_options<CachedComponent>(interval(0, 1), values<Int>(-1)),
+                          Catch::Matchers::ContainsSubstring("failed day stop"));
+    }
+    CHECK_FALSE(completed);
+    CHECK(cache_lifetime.expired());
+}
+
+TEST_CASE("mixed state keeps independent planned slots and checkpoint service restrictions", "[checkpoint][cache]")
+{
+    auto node = NodeBuilder{}.implementation<CachedCounter>().make_node();
+    const auto view = node.view();
+    CHECK(view.has_state());
+    CHECK(view.has_recordable_state());
+    CHECK(view.type().checked_plan().find_component("state") != nullptr);
+    CHECK(view.type().checked_plan().find_component("recordable_state") != nullptr);
+    auto schema = *view.schema();
+    CHECK(schema.checkpoints_without_ops());
+    schema.recordable_state_schema = nullptr;
+    CHECK_FALSE(schema.checkpoints_without_ops());
+    schema = *view.schema();
+    schema.uses_scheduler = true;
+    CHECK_FALSE(schema.checkpoints_without_ops());
+    schema = *view.schema();
+    schema.uses_global_state = true;
+    CHECK_FALSE(schema.checkpoints_without_ops());
+    schema = *view.schema();
+    schema.uses_evaluation_clock = true;
+    CHECK_FALSE(schema.checkpoints_without_ops());
+}
+
+TEST_CASE("recordable sink rebuilds local cache before resumed input", "[checkpoint][component][cache]")
+{
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    cache_stops.clear();
+    CHECK_OUTPUT(eval_node_with_options<CachedSinkComponent>(interval(0, 2), values<Int>(1, 2)), {1, 3});
+    CHECK(cache_lifetime.expired());
+    CHECK_OUTPUT(eval_node_with_options<CachedSinkComponent>(interval(2, 4), values<Int>(none, 4)), {none, 7});
+    CHECK(cache_stops == std::vector<Int>{3, 7});
+    CHECK(cache_lifetime.expired());
 }

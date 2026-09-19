@@ -142,7 +142,13 @@ polluting `eval`.
 - Use `RecordableState<TSchema>` when a tick updates state that affects later
   ticks: this is loopback or feedback state and should be observable and
   restorable by record/replay.
-- Do not combine `State` and `RecordableState` in one static node.
+- A static node may combine one `State` with one `RecordableState`. In a
+  recoverable node, `State` is a reconstructible cache; rebuild it in `start`
+  from already restored recordable state and inputs. Aggregate multiple cache
+  variables in one struct. Do not overwrite restored durable fields.
+- Both slots are constructed before `start` and destroyed after `stop` (or
+  during failed-start cleanup). Use RAII for partial initialization: a failed
+  `start` does not receive `stop`.
 - Keep recordable state structured and typed. Update only the fields modified
   by the current tick.
 

@@ -65,12 +65,17 @@ def main() -> int:
             configure.extend(["-G", "Ninja"])
         subprocess.run(configure, check=True)
 
-        build = [cmake, "--build", str(build_dir), "--parallel", "2"]
+        build = [cmake, "--build", str(build_dir), "--parallel",
+                 os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2")]
         if sys.platform == "win32":
             build.extend(["--config", "Release"])
         subprocess.run(build, check=True)
 
         runtime_dirs = [package_prefix, package_prefix / "lib", package_prefix / "pyarrow"]
+        if sys.platform == "win32":
+            # An embedding executable also needs python3.dll/python314.dll
+            # from the base interpreter, outside the virtual environment.
+            runtime_dirs.append(Path(sys.base_prefix))
         runtime_variable = (
             "PATH"
             if sys.platform == "win32"
