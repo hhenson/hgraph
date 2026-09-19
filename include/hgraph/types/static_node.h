@@ -3301,8 +3301,6 @@ namespace hgraph
             static_assert(signature::state_count() <= 1, "Static nodes support at most one State<...> parameter");
             static_assert(signature::recordable_state_count() <= 1,
                           "Static nodes support at most one RecordableState<...> parameter");
-            static_assert(signature::state_count() == 0 || signature::recordable_state_count() == 0,
-                          "Static nodes cannot mix State<...> and RecordableState<...>; recordable state replaces local state");
             static_assert(signature::input_names_unique(), "Static node In<> selector names must be unique");
             static_assert(signature::scalar_names_unique(), "Static node Scalar<> selector names must be unique");
 

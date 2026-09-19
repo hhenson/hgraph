@@ -462,13 +462,9 @@ namespace hgraph::distributed
          * failure is what the caller sees. */
         void stop()
         {
-            std::exception_ptr first;
-            for (auto &worker : workers_)
-            {
-                try { worker.stop(); }
-                catch (...) { if (!first) { first = std::current_exception(); } }
-            }
-            if (first) { std::rethrow_exception(first); }
+            FirstExceptionRecorder errors;
+            for (auto &worker : workers_) { errors.capture([&] { worker.stop(); }); }
+            errors.rethrow_if_any();
         }
 
         /** Prepared workers share a boundary but own disjoint mapped children. */

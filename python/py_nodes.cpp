@@ -113,7 +113,8 @@ struct PyCallShape {
 }
 
 /** Python adapter state consists only of call leases and caches when the
- * actual user signatures do not request STATE or runtime services. Validate
+ * actual user signatures do not request runtime services or semantic local
+ * state. Beside RECORDABLE_STATE, STATE is a reconstructible cache. Validate
  * those signatures while wiring a checkpointed component; the native bridge's
  * broad injectable tuple is not the user's semantic state contract. */
 [[nodiscard]] std::string py_checkpoint_signature(const NodeBuilder &builder) {
@@ -128,8 +129,14 @@ struct PyCallShape {
     writer.varint(enabled);
     if (!enabled) { continue; }
     const auto config = scalars[prefix + "config"].checked_as<Str>();
+    std::vector<std::size_t> cache_factories;
+    std::size_t scalar_index = 0;
     for (const char marker : parse_py_call_shape(config).layout) {
-      if (std::string_view{"tuaTUARosi"}.find(marker) == std::string_view::npos) {
+      if (marker == 'Q') { cache_factories.push_back(scalar_index); }
+      if (marker == 's' || marker == 'i' || marker == 'Q') { ++scalar_index; }
+      const bool cache = (marker == 'S' || marker == 'Q') &&
+          builder.type().schema()->recordable_state_schema != nullptr;
+      if (!cache && std::string_view{"tuaTUARosi"}.find(marker) == std::string_view::npos) {
         throw std::invalid_argument(
             "component checkpoint: Python node signature requires unsupported "
             "local state or runtime services (layout marker '" +
@@ -157,8 +164,19 @@ struct PyCallShape {
     writer.varint(values.size());
     for (std::size_t index = 0; index < values.size(); ++index) {
       auto value = values[index].as_any().get();
-      manifest::append_value_descriptor(writer, value.schema());
-      manifest::encode_manifest_scalar(writer, value);
+      if (std::find(cache_factories.begin(), cache_factories.end(), index) != cache_factories.end()) {
+        // A typed cache is reconstructed, not serialized. Its class identity
+        // participates in compatibility; the application revision covers code.
+        const auto factory = value_to_py(value);
+        if (!PyType_Check(factory.ptr())) {
+          throw std::invalid_argument("component checkpoint: typed STATE requires a cache class");
+        }
+        writer.string_field(nb::cast<std::string>(factory.attr("__module__")));
+        writer.string_field(nb::cast<std::string>(factory.attr("__qualname__")));
+      } else {
+        manifest::append_value_descriptor(writer, value.schema());
+        manifest::encode_manifest_scalar(writer, value);
+      }
     }
   }
   const auto &bytes = writer.bytes();
@@ -1106,7 +1124,7 @@ struct py_compute_recordable_node {
       Scalar<"start_config", Str>, Scalar<"start_scalars", ScalarVar<"SSV">>,
       Scalar<"stop_fn", PyNodeRef>, Scalar<"stop_enabled", Bool>,
       Scalar<"stop_config", Str>, Scalar<"stop_scalars", ScalarVar<"XSV">>,
-      RecordableState<TsVar<"RS">>, NodeScheduler, DateTime, GlobalStateView,
+      State<PyStateRef>, RecordableState<TsVar<"RS">>, NodeScheduler, DateTime, GlobalStateView,
       EngineControlView, NodeView, Out<TsVar<"O">>>;
 
   static void resolve_default_types(ResolutionMap &resolution,
@@ -1128,26 +1146,32 @@ struct py_compute_recordable_node {
         Scalar<"start_enabled", Bool> enabled,
         Scalar<"start_config", Str> config,
         Scalar<"start_scalars", ScalarVar<"SSV">> scalars,
-        RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+        State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
         SingleShotScheduler initial_sample, GlobalStateView global_state,
         EngineControlView engine, NodeView node) {
+    auto rollback = UnwindCleanupGuard([&] {
+      py_clear_input_activity(parse_py_call_shape(eval_config.value()).layout, args.base());
+      py_release_state(cache);
+    });
     const auto layout = parse_py_call_shape(eval_config.value()).layout;
     py_apply_input_activity(layout, args.base());
     py_schedule_initial_reference_sample(layout, args.base(), initial_sample);
     if (!enabled.value()) {
+      rollback.release();
       return;
     }
     translate_python_error([&] {
       nb::list call_args;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(config.value(), global_state, lease);
+          py_runtime_global_state_for_call(config.value(), global_state, lease,
+                                           cache.get().call_lease);
       py_assemble_lifecycle_args(
           config.value(), scalars.value(),
-          static_cast<PyStateRef *>(nullptr), &state_view,
+          &cache, &state_view,
           state.evaluation_time(), scheduler, runtime_state, engine, lease,
           node, call_args);
       (void)py_call_with_contexts(fn.value().record->fn, call_args,
@@ -1155,6 +1179,7 @@ struct py_compute_recordable_node {
       invalid.release();
       lease.invalidate();
     });
+    rollback.release();
   }
 
   static void
@@ -1162,22 +1187,23 @@ struct py_compute_recordable_node {
            args,
        Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
        Scalar<"scalars", ScalarVar<"SV">> scalars,
-       RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+       State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
        DateTime now, GlobalStateView global_state, EngineControlView engine,
        NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       const auto &out_view = static_cast<const TSOutputView &>(out);
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(shape.layout, global_state, lease);
+          py_runtime_global_state_for_call(shape.layout, global_state, lease,
+                                           cache.get().call_lease);
       if (!py_assemble_args(shape.layout, args.base(), scalars.value(),
-                            PyInvocationState{.recordable = &state_view},
+                            PyInvocationState{.local = &cache, .recordable = &state_view},
                             scheduler, now, call_args, context_values, lease,
                             runtime_state, engine, node, &out_view)) {
         return;
@@ -1200,24 +1226,29 @@ struct py_compute_recordable_node {
        Scalar<"stop_enabled", Bool> enabled,
        Scalar<"stop_config", Str> config,
        Scalar<"stop_scalars", ScalarVar<"XSV">> scalars,
-       RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+       State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
        GlobalStateView global_state, EngineControlView engine, NodeView node) {
     auto cleanup = UnwindCleanupGuard([&] {
       py_clear_input_activity(
           parse_py_call_shape(eval_config.value()).layout, args.base());
+      py_release_state(cache);
     });
-    if (!enabled.value()) { return; }
+    if (!enabled.value()) {
+      cleanup.complete();
+      return;
+    }
     translate_python_error([&] {
       nb::list call_args;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(config.value(), global_state, lease);
+          py_runtime_global_state_for_call(config.value(), global_state, lease,
+                                           cache.get().call_lease);
       py_assemble_lifecycle_args(
           config.value(), scalars.value(),
-          static_cast<PyStateRef *>(nullptr), &state_view,
+          &cache, &state_view,
           state.evaluation_time(), scheduler, runtime_state, engine, lease,
           node, call_args, &args.base());
       (void)py_call_with_contexts(fn.value().record->fn, call_args,

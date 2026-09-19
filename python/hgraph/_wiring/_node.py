@@ -455,12 +455,6 @@ class _PyNode:
         if sum(isinstance(param.annotation, _RecordableStateExpr)
                for param in self._params) > 1:
             raise TypeError(f"'{self.__name__}' supports at most one RECORDABLE_STATE parameter")
-        if self._recordable_state is not None and any(
-                (param.annotation is STATE or
-                 isinstance(param.annotation, _StateExpr))
-                for param in self._params):
-            raise TypeError(
-                f"'{self.__name__}' cannot combine STATE with RECORDABLE_STATE")
 
     @staticmethod
     def _policy_names(policy, names):
