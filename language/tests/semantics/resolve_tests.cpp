@@ -649,6 +649,14 @@ TEST_CASE("struct fields cannot lead back to their own struct", "[semantics]") {
                  "struct Tagged<T>: Event<T> { inner: Event<f64> = null }\n",
                  "through field 'inner', a value of 'Tagged' can contain another 'Tagged'");
     }
+    SECTION("through an intermediate generic parent at the same specialization") {
+        rejected("module t\nabstract struct Event<T> { payload: T }\nabstract struct Middle<T>: Event<T> {}\n"
+                 "struct IntEvent: Middle<i64> { inner: Event<i64> = null }\n",
+                 "through field 'inner', a value of 'IntEvent' can contain another 'IntEvent'");
+        rejected("module t\nabstract struct Two<A, B> { at: i64 }\nabstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                 "struct Leaf: Swapped<i64, f64> { inner: Two<f64, i64> = null }\n",
+                 "through field 'inner', a value of 'Leaf' can contain another 'Leaf'");
+    }
 }
 
 TEST_CASE("struct fields may name other structs that do not lead back", "[semantics]") {
@@ -666,6 +674,19 @@ TEST_CASE("struct fields may name other structs that do not lead back", "[semant
                                                 "struct IntEvent: Event<i64> { inner: Event<f64> = null }\n"
                                                 "struct FloatEvent: Event<f64> {}\n");
         CHECK(resolved.result.structure(resolved.struct_id("IntEvent")).valid);
+    }
+    SECTION("another specialization through an intermediate generic parent") {
+        // `Middle<T>` passes its parameter through, so `IntEvent` is an
+        // `Event<i64>` only and `Event<f64>` does not lead back to it.
+        const Resolved nested = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                              "abstract struct Middle<T>: Event<T> {}\n"
+                                              "struct IntEvent: Middle<i64> { inner: Event<f64> = null }\n"
+                                              "struct FloatEvent: Middle<f64> {}\n");
+        CHECK(nested.result.structure(nested.struct_id("IntEvent")).valid);
+        const Resolved permuted = resolve_clean("module t\nabstract struct Two<A, B> { at: i64 }\n"
+                                                "abstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                                                "struct Leaf: Swapped<i64, f64> { inner: Two<i64, f64> = null }\n");
+        CHECK(permuted.result.structure(permuted.struct_id("Leaf")).valid);
     }
 }
 

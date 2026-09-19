@@ -10,8 +10,10 @@
   equal values as unequal, or emitted C++ that did not compile. The resolver
   now finds every such field in one pass over the module's struct references
   and reports each field of the cycle. A generic family is followed only to
-  children whose parent application can equal the field's, so
-  `inner: Event<f64>` inside `struct IntEvent: Event<i64>` stays valid. Struct
+  descendants that can be the field's specialization, so `inner: Event<f64>`
+  inside `struct IntEvent: Event<i64>` stays valid, also when `IntEvent`
+  reaches `Event` through a generic parent that passes its parameters
+  through, such as `abstract struct Middle<T>: Event<T>`. Struct
   and constructor field names are looked up through an index rather than a
   scan per field.
 - Check struct-heavy modules in time linear in their size. A constructor asked

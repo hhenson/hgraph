@@ -1357,21 +1357,72 @@ namespace hgl::semantics
                 return key + ')';
             }
 
-            [[nodiscard]] std::optional<std::string> arguments_key(ast::TypeId id) const {
-                const ast::Type &type = module_.type(id);
-                std::string      key{"<"};
-                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
-                    std::optional<std::string> element;
-                    if (type.arguments[index].type != ast::no_node) {
-                        element = type_key(type.arguments[index].type);
-                    } else if (const Binding *binding = argument_binding(id, index);
-                               binding != nullptr && binding->kind == BindingKind::Struct) {
-                        element = struct_key(binding->decl, "<>");
-                    }
-                    if (!element) { return std::nullopt; }
-                    key += *element + ',';
+            /// The key of argument `index` of `id`, or nothing when it may denote
+            /// more than one type.
+            [[nodiscard]] std::optional<std::string> argument_key(ast::TypeId id, std::size_t index) const {
+                const ast::GenericArgument &argument = module_.type(id).arguments[index];
+                if (argument.type != ast::no_node) { return type_key(argument.type); }
+                if (const Binding *binding = argument_binding(id, index);
+                    binding != nullptr && binding->kind == BindingKind::Struct) {
+                    return struct_key(binding->decl, "<>");
                 }
+                return std::nullopt;
+            }
+
+            /// The key of each of `id`'s arguments, or nothing when one may
+            /// denote more than one type.
+            [[nodiscard]] std::optional<std::vector<std::string>> argument_keys(ast::TypeId id) const {
+                const std::size_t        count = module_.type(id).arguments.size();
+                std::vector<std::string> keys;
+                keys.reserve(count);
+                for (std::size_t index = 0; index < count; ++index) {
+                    std::optional<std::string> key = argument_key(id, index);
+                    if (!key) { return std::nullopt; }
+                    keys.push_back(std::move(*key));
+                }
+                return keys;
+            }
+
+            [[nodiscard]] static std::string joined_key(const std::vector<std::string> &keys) {
+                std::string key{"<"};
+                for (const std::string &element : keys) { key += element + ','; }
                 return key + '>';
+            }
+
+            [[nodiscard]] std::optional<std::string> arguments_key(ast::TypeId id) const {
+                const std::optional<std::vector<std::string>> keys = argument_keys(id);
+                if (!keys) { return std::nullopt; }
+                return joined_key(*keys);
+            }
+
+            /// When `child`'s parent application `applied` is exactly `child`'s
+            /// generic parameters, each once and in any order, the parameter at
+            /// each argument: every specialization of `child` is then the parent
+            /// at the same arguments, permuted. Otherwise nothing.
+            [[nodiscard]] std::optional<std::vector<std::uint32_t>> parameter_permutation(ast::TypeId applied,
+                                                                                          ast::DeclId child) const {
+                const ast::Type  &type       = module_.type(applied);
+                const std::size_t parameters = std::get<ast::StructDecl>(module_.decl(child).node).generics.size();
+                if (type.arguments.size() != parameters) { return std::nullopt; }
+                std::vector<std::uint32_t> result;
+                std::vector<bool>          seen(parameters, false);
+                result.reserve(parameters);
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    const ast::GenericArgument &argument = type.arguments[index];
+                    const Binding              *binding  = argument_binding(applied, index);
+                    if (argument.type != ast::no_node) {
+                        const ast::Type &named = module_.type(argument.type);
+                        if (named.kind != ast::TypeKind::Named || !named.arguments.empty()) { return std::nullopt; }
+                        binding = &result_.type_bindings[argument.type];
+                    }
+                    if (binding == nullptr || binding->kind != BindingKind::Generic || binding->decl != child ||
+                        binding->index >= parameters || seen[binding->index]) {
+                        return std::nullopt;
+                    }
+                    seen[binding->index] = true;
+                    result.push_back(binding->index);
+                }
+                return result;
             }
 
             /// Rejects every field through which a value of a struct could
@@ -1380,9 +1431,10 @@ namespace hgl::semantics
             /// names, through collection elements and generic arguments. A field
             /// typed by a struct with descendants also reaches that family: every
             /// descendant of a non-generic struct, and of a generic one only the
-            /// children whose parent application can equal the field's.
+            /// descendants that can be the field's specialization.
             /// Strongly connected components find every such field in one pass
-            /// that is linear in the declared fields.
+            /// that is linear in the declared fields, times the depth of generic
+            /// inheritance for the specialized groups.
             void reject_recursive_fields() {
                 const std::size_t          count = result_.structs.size();
                 std::vector<std::uint32_t> position(module_.decls.size(), no_position);
@@ -1399,24 +1451,46 @@ namespace hgl::semantics
                     return static_cast<std::uint32_t>(edges.size() - 1);
                 };
 
+                struct ExactGroup
+                {
+                    std::vector<std::string> keys{};  ///< the parent application's argument keys
+                    std::uint32_t            node{no_position};
+                };
                 struct Family
                 {
-                    std::uint32_t                                  any{no_position};   ///< every child group
-                    std::uint32_t                                  open{no_position};  ///< non-concrete parent applications
-                    std::unordered_map<std::string, std::uint32_t> exact{};            ///< by concrete parent application
+                    std::uint32_t                               any{no_position};   ///< every child group
+                    std::uint32_t                               open{no_position};  ///< non-concrete parent applications
+                    std::unordered_map<std::string, ExactGroup> exact{};            ///< by concrete parent application
                 };
-                std::vector<Family> families(count);
+                // A child whose parent application is exactly its own parameters
+                // is that parent at each of its specializations, arguments
+                // permuted; any other open child is kept whole.
+                struct Permuted
+                {
+                    std::uint32_t              child{};
+                    std::vector<std::uint32_t> parameters{};  ///< the child's parameter at each parent argument
+                };
+                std::vector<Family>                     families(count);
+                std::vector<std::vector<Permuted>>      permuted(count);
+                std::vector<std::vector<std::uint32_t>> unmatched(count);
                 for (std::uint32_t child = 0; child < count; ++child) {
                     edges[family_node(child)].push_back(value_node(child));
                     const auto &structure = std::get<ast::StructDecl>(module_.decl(result_.structs[child]).node);
                     for (const ast::TypeId parent_type : structure.parents) {
                         const Binding &binding = result_.type_bindings[parent_type];
                         if (binding.kind != BindingKind::Struct || position[binding.decl] == no_position) { continue; }
-                        Family &family = families[position[binding.decl]];
+                        const std::uint32_t parent = position[binding.decl];
+                        Family             &family = families[parent];
                         if (family.any == no_position) { family.any = add_node(); }
                         std::uint32_t *group = &family.open;
-                        if (const std::optional<std::string> key = arguments_key(parent_type)) {
-                            group = &family.exact.try_emplace(*key, no_position).first->second;
+                        if (std::optional<std::vector<std::string>> keys = argument_keys(parent_type)) {
+                            std::string joined = joined_key(*keys);
+                            group = &family.exact.try_emplace(std::move(joined), ExactGroup{std::move(*keys)}).first->second.node;
+                        } else if (std::optional<std::vector<std::uint32_t>> parameters =
+                                       parameter_permutation(parent_type, result_.structs[child])) {
+                            permuted[parent].push_back(Permuted{child, std::move(*parameters)});
+                        } else {
+                            unmatched[parent].push_back(child);
                         }
                         if (*group == no_position) {
                             *group = add_node();
@@ -1427,6 +1501,78 @@ namespace hgl::semantics
                 }
                 for (std::uint32_t index = 0; index < count; ++index) {
                     if (families[index].any != no_position) { edges[family_node(index)].push_back(families[index].any); }
+                }
+
+                // A value of struct i at a specialization nothing below it fixes:
+                // struct i and its permuted children at the same freedom, and,
+                // over-approximating, every other open child's whole family.
+                std::vector<std::uint32_t> free(count);
+                for (std::uint32_t index = 0; index < count; ++index) { free[index] = add_node(); }
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    edges[free[index]].push_back(value_node(index));
+                    for (const Permuted &link : permuted[index]) { edges[free[index]].push_back(free[link.child]); }
+                    for (const std::uint32_t child : unmatched[index]) { edges[free[index]].push_back(family_node(child)); }
+                }
+
+                // The values of struct i's family that exist only at one of its
+                // specializations: the children whose parent application is that
+                // specialization, and the same below each permuted child, keyed by
+                // struct i's argument keys. A permuted child's groups are complete
+                // before its parents', so each is built once.
+                struct Specialized
+                {
+                    std::vector<std::string> keys{};
+                    std::uint32_t            node{};
+                };
+                std::vector<std::unordered_map<std::string, Specialized>> specialized(count);
+                const auto specialized_node = [&](std::uint32_t index, std::vector<std::string> keys) {
+                    std::string joined     = joined_key(keys);
+                    auto [found, inserted] = specialized[index].try_emplace(std::move(joined));
+                    if (inserted) {
+                        found->second.keys = std::move(keys);
+                        found->second.node = add_node();
+                    }
+                    return found->second.node;
+                };
+                std::vector<std::uint32_t> children_first;
+                {
+                    std::vector<std::uint8_t>                          state(count, 0);  // 0 new, 1 open, 2 done
+                    std::vector<std::pair<std::uint32_t, std::size_t>> stack;
+                    for (std::uint32_t root = 0; root < count; ++root) {
+                        if (state[root] != 0) { continue; }
+                        state[root] = 1;
+                        stack.emplace_back(root, 0);
+                        while (!stack.empty()) {
+                            const std::uint32_t index = stack.back().first;
+                            if (stack.back().second < permuted[index].size()) {
+                                const std::uint32_t child = permuted[index][stack.back().second++].child;
+                                if (state[child] == 0) {
+                                    state[child] = 1;
+                                    stack.emplace_back(child, 0);
+                                }
+                                continue;
+                            }
+                            state[index] = 2;
+                            children_first.push_back(index);
+                            stack.pop_back();
+                        }
+                    }
+                }
+                for (const std::uint32_t index : children_first) {
+                    for (const auto &[joined, group] : families[index].exact) {
+                        const std::uint32_t node = specialized_node(index, group.keys);
+                        edges[node].push_back(group.node);
+                    }
+                    for (const Permuted &link : permuted[index]) {
+                        if (link.child == index) { continue; }
+                        for (const auto &[joined, entry] : specialized[link.child]) {
+                            std::vector<std::string> keys;
+                            keys.reserve(link.parameters.size());
+                            for (const std::uint32_t parameter : link.parameters) { keys.push_back(entry.keys[parameter]); }
+                            const std::uint32_t node = specialized_node(index, std::move(keys));
+                            edges[node].push_back(entry.node);
+                        }
+                    }
                 }
 
                 struct FieldEdges
@@ -1459,10 +1605,10 @@ namespace hgl::semantics
                                 out.push_back(family.any);
                                 continue;
                             }
-                            if (const auto exact = family.exact.find(*key); exact != family.exact.end()) {
-                                out.push_back(exact->second);
+                            out.push_back(free[target]);
+                            if (const auto found = specialized[target].find(*key); found != specialized[target].end()) {
+                                out.push_back(found->second.node);
                             }
-                            if (family.open != no_position) { out.push_back(family.open); }
                         }
                         field_edges.push_back(FieldEdges{owner, field, begin, out.size()});
                     }

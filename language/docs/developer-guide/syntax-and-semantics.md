@@ -349,9 +349,13 @@ in the first slice, and no recursive fields: a value of a struct may not
 contain another value of the same struct by any path. A field reaches every
 struct its type names, through collection elements and generic arguments, and
 a field typed by a struct with descendants also reaches that closed family.
-For a generic family the edge is followed only to children whose parent
-application can equal the field's, so `inner: Event<f64>` inside
-`struct IntEvent: Event<i64>` does not lead back to `IntEvent`. The resolver
+For a generic family the edge is followed only to descendants that can be the
+field's specialization, so `inner: Event<f64>` inside
+`struct IntEvent: Event<i64>` does not lead back to `IntEvent`, nor through
+`abstract struct Middle<T>: Event<T>` to `struct IntEvent: Middle<i64>`. An
+intermediate parent keeps the specialization when its application passes its
+own parameters through, in any order; any other generic application, such as
+`Middle<T>: Event<list<T>>`, is followed as its whole family. The resolver
 reports every field that closes such a cycle.
 
 Struct generic parameters use the common `generic_parameters` production, and
