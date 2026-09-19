@@ -355,6 +355,9 @@ can disable fetching after providing compatible CMake packages.
 Arrow remains an explicit external dependency. ``HGRAPH_USE_PYARROW_ARROW=ON``
 uses an existing compatible PyArrow installation and the selected
 ``Python_EXECUTABLE`` for discovery, without linking the Python runtime.
-Producer and native SDK consumer share this discovery implementation. The
+Producer and native SDK consumer share this discovery implementation. Arrow,
+ArrowCompute and ArrowAcero are discovered independently: an existing target
+for one component does not suppress discovery of the others. Existing component
+targets are preserved, including with explicit PyArrow discovery. The
 installed language consumer test passes that explicit choice through, so it
 cannot accidentally rely on a different globally installed Arrow package.

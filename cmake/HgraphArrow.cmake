@@ -63,39 +63,25 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
     if(NOT EXISTS "${_hgraph_pyarrow_include}/arrow/api.h")
         message(FATAL_ERROR "pyarrow headers not found under ${_hgraph_pyarrow_include}")
     endif()
-    add_library(Arrow::arrow_shared SHARED IMPORTED GLOBAL)
-    add_library(ArrowCompute::arrow_compute_shared SHARED IMPORTED GLOBAL)
-    add_library(ArrowAcero::arrow_acero_shared SHARED IMPORTED GLOBAL)
-    if(WIN32)
-        set_target_properties(Arrow::arrow_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_arrow_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_ARROW_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowCompute::arrow_compute_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_compute_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowAcero::arrow_acero_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_acero_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_ACERO_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-    else()
-        set_target_properties(Arrow::arrow_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_arrow_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowCompute::arrow_compute_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_compute_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowAcero::arrow_acero_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_acero_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-    endif()
+    function(_hgraph_import_pyarrow_component namespace name link_library runtime_library)
+        if(TARGET "${namespace}::${name}_shared" OR TARGET "${namespace}::${name}_static")
+            return()
+        endif()
+        add_library("${namespace}::${name}_shared" SHARED IMPORTED GLOBAL)
+        set_target_properties("${namespace}::${name}_shared" PROPERTIES
+            IMPORTED_LOCATION "${runtime_library}"
+            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}")
+        if(WIN32)
+            set_target_properties("${namespace}::${name}_shared" PROPERTIES
+                IMPORTED_IMPLIB "${link_library}")
+        endif()
+    endfunction()
+    _hgraph_import_pyarrow_component(Arrow arrow
+        "${_hgraph_pyarrow_arrow_lib}" "${HGRAPH_PYARROW_ARROW_RUNTIME}")
+    _hgraph_import_pyarrow_component(ArrowCompute arrow_compute
+        "${_hgraph_pyarrow_compute_lib}" "${HGRAPH_PYARROW_COMPUTE_RUNTIME}")
+    _hgraph_import_pyarrow_component(ArrowAcero arrow_acero
+        "${_hgraph_pyarrow_acero_lib}" "${HGRAPH_PYARROW_ACERO_RUNTIME}")
     set(HGRAPH_PYARROW_LIBRARY_DIR "${_hgraph_pyarrow_dir}" CACHE PATH
         "Directory containing pyarrow's bundled Arrow libraries" FORCE)
     set(HGRAPH_PYARROW_RUNTIME_DIRS "${_hgraph_pyarrow_dir}")
@@ -110,7 +96,9 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
         endif()
     endif()
 else()
-    find_package(Arrow CONFIG REQUIRED)
+    if(NOT TARGET Arrow::arrow_shared AND NOT TARGET Arrow::arrow_static)
+        find_package(Arrow CONFIG REQUIRED)
+    endif()
     # Recent Arrow releases split compute/acero into their own CMake packages; some
     # packagers (Conan's Arrow recipe) define all three target namespaces
     # from the single Arrow config, in which case the separate packages do

@@ -22,6 +22,8 @@ if(NOT TARGET simdjson::simdjson)
         target_compile_features(simdjson PRIVATE cxx_std_20)
     endif()
 endif()
-if(NOT TARGET Arrow::arrow_shared AND NOT TARGET Arrow::arrow_static)
+if((NOT TARGET Arrow::arrow_shared AND NOT TARGET Arrow::arrow_static) OR
+   (NOT TARGET ArrowCompute::arrow_compute_shared AND NOT TARGET ArrowCompute::arrow_compute_static) OR
+   (NOT TARGET ArrowAcero::arrow_acero_shared AND NOT TARGET ArrowAcero::arrow_acero_static))
     include("${CMAKE_CURRENT_LIST_DIR}/HgraphArrow.cmake")
 endif()
