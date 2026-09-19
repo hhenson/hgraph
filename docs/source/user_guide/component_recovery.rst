@@ -277,9 +277,10 @@ through that state; if it has none it is *transient*: recovery leaves it alone,
 it starts again on every run, and it can be added, removed or changed without
 invalidating a checkpoint. A sink has no output, so nothing in the recovered
 component can see what it forgot -- put whatever must survive a restart in
-``RECORDABLE_STATE`` and the rest is free. Either way its schedule is its own: a
-timer it set is neither saved nor discarded, so a periodic sink re-arms when it
-starts. Recovery never replays what a sink did.
+``RECORDABLE_STATE`` and the rest is free. A recoverable sink's pending
+``NodeScheduler`` events are saved independently of that state. A transient
+sink remains outside the image and starts normally on every run. Recovery never
+replays what a sink did.
 
 Two limits are ``map_``'s rather than ``dmap_``'s, and reach through it: a
 ``dmap_`` child has to end in a node that writes its own output, not in a
@@ -352,18 +353,36 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State`` and schedulers in compute nodes, external sources
+Ordinary semantic ``State`` in compute nodes, external sources
 inside the boundary, and dynamic owners without checkpoint operations are
 refused. Sinks are not: see above. A stateless compute node's declarative ``schedule_on_start`` bootstrap
 is allowed; recovery discards that historical bootstrap instead of evaluating
-the saved inputs again. This does not add recovery of pending scheduler events.
+the saved inputs again.
+
+Pending ``NodeScheduler`` events (Python ``SCHEDULER``) have their own checkpoint
+element, independent of user state. Completed events and cancelled alarms are
+not saved. After the normal node ``start`` hook, recovery replaces its scheduler
+data, rebuilds tagged lookup, and notifies the graph of the earliest pending
+time, including propagation through nested graphs. An empty image clears
+bootstrap alarms. A pending deadline at the restart time fires in that cycle;
+a restart after a pending deadline is refused. Wall-clock recovery remains
+outside the simulation-only component contract.
+
+``SingleShotScheduler`` is best effort: its schedules are not saved or recovered,
+and its existing startup behaviour is unchanged. Recovering a native scheduler
+does not recover an operator's private counters or buffers; these still require
+recordable state or explicit checkpoint operations.
+
+Checkpoint wire format 4 adds the scheduler element. Formats 2 and 3 remain
+readable, but contain no scheduler recovery data and retain their previous
+startup behaviour. Rebuild runtime extensions against the updated operations ABI.
 
 Supported map and mesh forms write child terminal outputs into owned parent elements; general forwarding-terminal
 variants still require further topology/reference contracts. The separate
 ``window`` operator family with private buffered state is not covered merely
 because ``TSW`` endpoint recovery is available. Immediate ``const`` values and
-``nothing`` placeholders are supported; delayed constants still require a
-scheduler checkpoint contract.
+``nothing`` placeholders are supported; delayed constants still require their
+own source checkpoint contract.
 
 Keyed interior reference adapters, such as observing ``TSD[K, REF[V]]`` as
 ``TSD[K, V]``, remain refused. This differs from a single ``REF[TSD[K, V]]``

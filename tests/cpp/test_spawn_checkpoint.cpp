@@ -344,10 +344,10 @@ TEST_CASE("spawn recovery: a stage that refuses the capture fails the day and th
         .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
         .commit = [](const auto &) { FAIL("a refused capture committed an image"); }});
     Trace trace;
-    REQUIRE_THROWS_WITH((eval_node_with_options<HostedPipeline<PendingComponentStage>>(
+    REQUIRE_THROWS_WITH((eval_node_with_options<HostedPipeline<RefusingComponentStage>>(
                             interval(0, 2), values<Int>(1, 2), arg<"trace">(&trace))),
                         Catch::Matchers::ContainsSubstring("cannot be checkpointed") &&
-                            Catch::Matchers::ContainsSubstring("pending schedule"));
+                            Catch::Matchers::ContainsSubstring("test capture refusal"));
     trace.load();
     CHECK(trace.starts == 1);
     CHECK(trace.stops == 1);

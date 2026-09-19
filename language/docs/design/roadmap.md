@@ -429,12 +429,14 @@ compiled wiring arithmetic, and independent rounding boundary expectations.
 A green language suite alone does not prove full native/Python compatibility.
 Catalogue counts measure authoring disposition, not line/branch coverage.
 
-The next semantic prerequisite is recoverable pending scheduling: authoritative
-schedule records/progress in state with rebuildable cache indices. Native mixed
-state/cache support is separate from multiple source cache variables, which now
-share one generated struct. The existing schedule parity slice is not recovery
-coverage; require the traces in [ADR 0011](decisions/0011-cache-declarations.md).
-
+Native pending scheduling now has a dedicated checkpoint element independent of
+user state: restore rebuilds tags and re-arms graph notifications. Single-shot
+scheduling remains best effort and is excluded. The next schedule-specific task
+is recordable operator progress, including the finite emission counter; native
+alarm recovery alone does not establish schedule-operator recovery. Mixed HGL
+state/cache lowering remains separate from multiple source cache variables,
+which already share one generated struct. Require the operator traces in
+[ADR 0011](decisions/0011-cache-declarations.md).
 Then proceed with explicit deferred operator/provider closure planning, remaining
 B1/B2 ownership/lifecycle/validity work, B3/B4 value and structural/reference
 contracts, and B5/B6 domains and higher-order work. Production cutover still
@@ -697,8 +699,8 @@ Candidates, in risk order:
 - enums and additional canonical temporal structures;
 - implement the agreed reconstructible-cache semantics and pre-`start`
   construction, using the settled scalar declaration/initializer syntax; next add native
-  coexistence with recordable state, non-scalar storage, and pending-schedule
-  recovery;
+  coexistence with recordable state, non-scalar storage, and recordable
+  schedule-operator progress (native pending alarms have their own checkpoint);
 - extend the implemented local `const fn` slice with generic/pack lowering,
   public value descriptors, and phase-eligible HGL/native operator candidates;
 - native type lifecycles and target mappings, staged through the bounded

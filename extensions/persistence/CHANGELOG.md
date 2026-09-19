@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Component checkpoint image format 4 saves pending native node scheduler
+  deadlines and tags independently of recordable state. Restore re-arms graph
+  notifications at the original deadlines. Single-shot schedules remain best
+  effort and are excluded. Older images remain readable without scheduler
+  recovery; rebuild extensions against the updated runtime operations ABI.
+
 - **Breaking:** `ValueStore` defaults to the `binary` codec instead of `json`
   (RFC 0040, amending RFC 0030). `binary` is the binary value codec's Compact
   profile in a compression block; `binary-fast` is the Fast profile, never

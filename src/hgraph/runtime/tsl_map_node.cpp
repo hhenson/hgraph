@@ -551,7 +551,6 @@ namespace hgraph
             static const NodeCheckpointOps ops{
                 .supported = true,
                 .captures_output = true,
-                .schedules_children = true,
                 .capture_impl = &capture_tsl_map_checkpoint,
                 .prepare_restore_impl = &prepare_tsl_map_checkpoint,
                 .restore_impl = &restore_tsl_map_checkpoint,

@@ -130,7 +130,7 @@ struct PyCallShape {
     if (!enabled) { continue; }
     const auto config = scalars[prefix + "config"].checked_as<Str>();
     for (const char marker : parse_py_call_shape(config).layout) {
-      if (std::string_view{"tuaTUARosi"}.find(marker) == std::string_view::npos) {
+      if (std::string_view{"tuaTUARosid"}.find(marker) == std::string_view::npos) {
         throw std::invalid_argument(
             "component checkpoint: Python node signature requires unsupported "
             "local state or runtime services (layout marker '" +

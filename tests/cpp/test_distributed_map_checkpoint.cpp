@@ -951,13 +951,13 @@ TEST_CASE("dmap_ recovery: a refused capture fails the day and leaves the worker
     // cut did, lost every stop hook in every worker over one refusal.
     const auto run = []<WorkerHosting Hosting>() {
         StopMarkers markers;
-        using Graph = PreparedComponent<Dict, Dict, hgraph_test::PendingComputeWithStopMarker,
-                                        "pending compute, stop marker", Hosting>;
+        using Graph = PreparedComponent<Dict, Dict, hgraph_test::RefusingComputeWithStopMarker,
+                                        "refusing compute, stop marker", Hosting>;
         // Three keys, so that with three workers more than one worker holds a
         // child whatever the hash does; every child's sink must be stopped.
         const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}}));
         REQUIRE_THROWS_WITH(days<Graph>(ticks, {}, "distributed-map"),
-                            Catch::Matchers::ContainsSubstring("pending schedule"));
+                            Catch::Matchers::ContainsSubstring("test capture refusal"));
         CHECK(markers.take() == 3);
     };
     run.template operator()<WorkerHosting::InProcess>();
@@ -993,11 +993,14 @@ TEST_CASE("dmap_ recovery: transient timers do not become pending recovered work
         const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}));
         CHECK_OUTPUT(days<Graph>(ticks, {1}, hgraph_test::dmap_component_id),
                      values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 3}})));
-        // The exemption is for child-owned wakeups, not all pending work:
-        // a selected compute child's future event must still refuse capture.
+        // A selected compute child's pending alarm now has its own image,
+        // independent of whether the surrounding owner hosts transient timers.
         using Pending = PreparedComponent<Dict, Dict, hgraph_test::CheckpointPendingCompute, "pending compute", Hosting>;
-        REQUIRE_THROWS_WITH(days<Pending>(ticks, {}, "distributed-map"),
-                            Catch::Matchers::ContainsSubstring("pending schedule"));
+        auto pending_ticks = ticks;
+        pending_ticks.resize(102);
+        auto expected = pending_ticks;
+        expected[100] = dict_delta<Str, TS<Int>>({{"a", 2}});
+        CHECK_OUTPUT(days<Pending>(pending_ticks, {1}, "distributed-map"), expected);
     };
     run.template operator()<WorkerHosting::InProcess>();
     run.template operator()<WorkerHosting::Process>();

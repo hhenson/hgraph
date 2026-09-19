@@ -263,6 +263,15 @@ than their values. Version 2 images remain readable: no profile, no revision,
 no block, values as ``Compact`` revision 0; real version 2 bytes are pinned in
 ``tests/cpp/checkpoint_v2_fixture.h``.
 
+**Version 4** adds optional node flag bit 9 for a scheduler checkpoint. After
+all existing node fields, this element contains an event count followed by
+``(deadline offset, tag string-table index)`` pairs in scheduler order. The tag
+lookup is rebuilt, not serialized. Presence with zero events differs from
+absence: it clears bootstrap scheduler events. Versions 2 and 3 remain readable
+with their previous startup behaviour and no recovered scheduler data. Version
+4 requires rebuilding extensions against the updated node and graph operations
+ABIs.
+
 Publication safety
 ------------------
 
@@ -321,8 +330,9 @@ a fresh start leaves its start-scheduled nodes waiting for a first step, the
 image would hold them unevaluated, and a restored start discards bootstrap
 schedules -- so they would never run. Capture therefore refuses while
 ``next_scheduled_time() <= evaluation_time()``. A completed cycle always leaves
-the next scheduled time after it, and a restored start leaves no bootstrap, so
-a worker that sat out a quiet day is still captured without a step. A graph
+the next scheduled time after it. A restored start drops historical bootstrap
+work and re-arms saved pending alarms; a worker with nothing due that sat out a
+quiet day can still be captured without a step. A graph
 whose last cycle failed has no completed cut and is refused too.
 
 The coordinator (``hgraph/runtime/graph_checkpoint_coordinator.h``) is one class
@@ -339,13 +349,15 @@ with one selection rule and four operations:
    what a client hashes into its own signature (``signature(image, revision)``).
 
 ``capture(graph)``
-   The owned image at ``graph.evaluation_time()``. A pending schedule beyond
-   that time is refused, as RFC 0023 requires.
+   The owned image at ``graph.evaluation_time()``, including pending
+   ``NodeScheduler`` events in an independent element. Single-shot schedules
+   are best effort and excluded.
 
 ``restore(graph, image, start, cut)``
    Validates the whole static graph, imports endpoints, resolves reference
    locators and adapter clocks, then finalises owners -- all before the graph
-   starts. Every restored timestamp must be at or before ``cut``. A failure
+   starts. Every restored endpoint timestamp must be at or before ``cut``; pending
+   scheduler deadlines must be at or after ``start``. A failure
    detaches the whole preparation before it propagates. The image is borrowed
    and must outlive the start phase.
 
@@ -495,11 +507,12 @@ list ``map_`` likewise, a ``dmap_`` owner from what its restored workers asked
 for. This also applies to whole-worker recovery: transient sinks are excluded
 from even a whole-worker image and may schedule fresh startup work.
 
-Owners whose wakeups come entirely from children declare
-``NodeCheckpointOps::schedules_children``. Their capture validates each child's
-work rather than rejecting the aggregate deadline: a transient sink's pending
-flush is allowed, while a selected compute node's pending event still refuses
-the image. The owner must still reject incomplete local work.
+Pending ``NodeScheduler`` events now travel in dedicated node checkpoint
+images. Child restore makes normal graph notifications, propagating to owners;
+aggregate graph deadlines are not persisted. The former
+``NodeCheckpointOps::schedules_children`` admission exception is removed.
+A transient sink's alarm remains outside the image, and owners must still
+reject incomplete local work.
 
 **A** ``dmap_`` **wired inside a component keeps working** as stage 4 built it:
 the owner is a member, and its workers are saved whole, with the empty
@@ -630,11 +643,11 @@ needed -- which is also why no Python API for one was added. RFC 0023 refused a
 sink outright, to make its author acknowledge that recovery does not replay an
 effect; that acknowledgement is now implicit in the rule.
 
-*A sink's schedule is its own, in both cases.* A pending alarm does not block a
-capture, and a restored sink keeps the schedule its start hook set. Both are
-things the coordinator does to every other restored node, and either would
-break a periodic flush: it would never re-arm. A sink re-evaluating cannot
-disturb the graph, so there is nothing to protect.
+*Scheduler recovery amendment:* a recoverable sink saves its pending
+``NodeScheduler`` alarms independently of recordable state. After normal start,
+restore replaces bootstrap alarms and notifies the graph at the original next
+deadline. A transient sink remains outside recovery and starts fresh.
+``SingleShotScheduler`` remains best effort and has no checkpoint element.
 
 One exception to "free to change" is known and fails closed. A reference
 adapter lives on the *producer's* output and is made for whichever consumer's
@@ -684,9 +697,10 @@ Three details the implementation settled:
   so unlike a ``dmap_`` worker it cannot wait to see whether its first frame is
   a restore. The owner says which, straight after the boundary identity:
   ``@hgraph-start:1`` or a restore frame.
-* **What else is restored.** Not the stages' requested next times, which an
-  earlier draft listed. An image never holds a pending schedule (RFC 0023), so
-  each is "nothing", and the stage reports its own in its start reply anyway.
+* **What else is restored.** The stages' aggregate requested next times are
+  not saved separately. Pending node scheduler events are restored inside the
+  stage and re-arm its graph; the stage reports the resulting next time in its
+  start reply.
   What *is* restored beside the images is the fact of restoration: a fresh
   pipeline sends every input in full on its first capture, and a restored one
   already holds those baselines. Re-sending them would tick inputs that did

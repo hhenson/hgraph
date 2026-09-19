@@ -67,7 +67,8 @@ namespace hgraph
             node_custom_payload = 1u << 6,
             node_custom_endpoints = 1u << 7,
             node_children = 1u << 8,
-            node_known_flags = (1u << 9) - 1,
+            node_scheduler = 1u << 9,
+            node_known_flags = (1u << 10) - 1,
         };
 
         enum class ChildKeys : std::uint8_t { None = 0, Uniform = 1, Mixed = 2 };
@@ -385,6 +386,7 @@ namespace hgraph
                     if (node.custom.payload.has_value()) { flags |= node_custom_payload; }
                     if (!node.custom.endpoints.empty()) { flags |= node_custom_endpoints; }
                     if (!node.custom.children.empty()) { flags |= node_children; }
+                    if (node.scheduler) { flags |= node_scheduler; }
                     write_varint(flags, body);
                     for (const auto *endpoint_image : {&node.output, &node.error, &node.recordable_state, &node.ingress})
                         if (*endpoint_image) { root_endpoint(**endpoint_image, reference_time, depth + 1); }
@@ -422,6 +424,15 @@ namespace hgraph
                             root_endpoint(endpoint_image, reference_time, depth + 1);
                     }
                     if (flags & node_children) { children(node.custom.children, reference_time, depth); }
+                    if (node.scheduler)
+                    {
+                        write_varint(node.scheduler->events.size(), body);
+                        for (const auto &[time, tag] : node.scheduler->events)
+                        {
+                            write_offset(time, reference_time, body);
+                            write_varint(string_ref(tag), body);
+                        }
+                    }
                 }
             }
 
@@ -810,6 +821,17 @@ namespace hgraph
                             node.custom.endpoints.push_back(endpoint(nullptr, reference_time, depth + 1));
                     }
                     if (flags & node_children) { node.custom.children = children(reference_time, depth); }
+                    if (flags & node_scheduler)
+                    {
+                        auto &scheduler = node.scheduler.emplace();
+                        const auto events = count();
+                        scheduler.events.reserve(events);
+                        for (std::size_t event = 0; event < events; ++event)
+                        {
+                            const auto time = offset(reference_time);
+                            scheduler.events.emplace_back(time, table_entry(strings, "string"));
+                        }
+                    }
                     image.nodes.push_back(std::move(node));
                 }
                 return image;
@@ -883,7 +905,7 @@ namespace hgraph
             Decoder probe{reader};
             if (probe.text() != image_marker) { malformed("unsupported format"); }
             const auto version = probe.number();
-            if (version != 2 && version != checkpoint_image_format_version) { malformed("unsupported image version"); }
+            if (version != 2 && version != 3 && version != checkpoint_image_format_version) { malformed("unsupported image version"); }
             if (stored != checksum(content)) { malformed("checksum mismatch"); }
             if (probe.number() != static_cast<std::uint8_t>(expected)) { malformed("unexpected image kind"); }
             const auto base_time = from_ticks(read_fixed(reader));

@@ -1616,7 +1616,7 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   }
   if (!checkpoint_ops.supported && !schema->checkpoints_without_ops()) {
     throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} +
-        "': it holds local state, a scheduler, a source cursor or a runtime service and declares no checkpoint support");
+        "': it holds local state, a source cursor or a runtime service and declares no checkpoint support");
   }
   // Validate even dormant mapped child templates. No lifecycle callback runs
   // when constructing this short-lived probe; endpoint strategy selection is

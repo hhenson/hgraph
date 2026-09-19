@@ -3,6 +3,8 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/runtime/node_scheduler.h>
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -155,6 +157,54 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> input)
         {
             return stdlib::component<MembershipStrategy>(w, "strategy", input);
+        }
+    };
+    struct PendingAlarms
+    {
+        static void start(NodeScheduler scheduler)
+        {
+            scheduler.schedule(MIN_TD * 2, "first");
+            scheduler.schedule(MIN_TD * 4, "second");
+            scheduler.schedule(MIN_TD * 6, "cancelled");
+            scheduler.un_schedule("cancelled");
+        }
+        static void eval(In<"ts", TS<Int>> input, NodeScheduler scheduler, Out<TS<Int>> out)
+        {
+            if (input.modified() && input.value() == -1)
+            {
+                scheduler.un_schedule("second");
+                scheduler.schedule(MIN_TD, "first");
+            }
+            if (scheduler.tag_is_scheduled_now("first")) { out.set(input.value()); }
+            if (scheduler.tag_is_scheduled_now("second")) { out.set(input.value() * 2); }
+        }
+    };
+    struct AlarmStrategy
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> input)
+        {
+            return wire<PendingAlarms>(w, input);
+        }
+    };
+    struct AlarmComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return stdlib::component<AlarmStrategy>(w, "strategy", input);
+        }
+    };
+    struct MappedAlarms
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, NamedPort<"ts", TSD<Str, TS<Int>>> input)
+        {
+            return wire<stdlib::map_>(w, fn<PendingAlarms>(), input).as<TSD<Str, TS<Int>>>();
+        }
+    };
+    struct MappedAlarmComponent
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> input)
+        {
+            return stdlib::component<MappedAlarms>(w, "strategy", input);
         }
     };
     EvalNodeRunOptions interval(Int begin, Int end)
@@ -343,4 +393,55 @@ TEST_CASE("component checkpoint validates revision and recovery interval before 
     CHECK_THROWS_WITH(eval_node_with_options<Component>(interval(0, 1), values<Int>(2)),
                       Catch::Matchers::ContainsSubstring("recovery must start"));
     CHECK(starts.empty());
+}
+
+TEST_CASE("component checkpoint restores pending alarms independently of recordable state", "[checkpoint][component][scheduler]")
+{
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) {
+            std::string bytes;
+            encode_component_checkpoint(image, bytes);
+            completed = decode_component_checkpoint(bytes);
+        }});
+    CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(0, 2), values<Int>(7, none)), values<Int>(none, none));
+    REQUIRE(completed);
+    const auto alarm = std::ranges::find_if(completed->graph.nodes, [](const auto &node) { return node.scheduler.has_value(); });
+    REQUIRE(alarm != completed->graph.nodes.end());
+    CHECK_FALSE(alarm->recordable_state);
+    REQUIRE(alarm->scheduler->events.size() == 2);
+    CHECK(alarm->scheduler->events.front() == std::pair<DateTime, std::string>{MIN_ST + MIN_TD * 2, "first"});
+
+    SECTION("deadlines at restart and later survive repeated checkpoints")
+    {
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(2, 4), values<Int>(none, none)), values<Int>(7, none));
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(4, 5), values<Int>(none)), values<Int>(14));
+        // An empty image clears the next run's bootstrap alarms too.
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(5, 12), values<Int>(none, none, none, none, none, none, none)), values<Int>(none, none, none, none, none, none, none));
+    }
+    SECTION("restored tags can be replaced and cancelled by fresh input")
+    {
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(2, 7), values<Int>(-1, none, none, none, none)), values<Int>(none, -1, none, none, none));
+    }
+    SECTION("a restart after a pending deadline is refused")
+    {
+        CHECK_THROWS_WITH(eval_node_with_options<AlarmComponent>(interval(3, 5), values<Int>(none)),
+                          Catch::Matchers::ContainsSubstring("deadline precedes restart"));
+    }
+}
+
+TEST_CASE("component checkpoint propagates restored child alarms to the enclosing graph", "[checkpoint][component][scheduler]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    CHECK_OUTPUT(eval_node_with_options<MappedAlarmComponent>(interval(0, 2),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a", 7}}), none)), values<Value>(dict_delta<Str, TS<Int>>({}), none));
+    CHECK_OUTPUT(eval_node_with_options<MappedAlarmComponent>(interval(2, 5), values<Value>(none)),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a", 7}}), none, dict_delta<Str, TS<Int>>({{"a", 14}})));
 }
