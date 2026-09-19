@@ -117,7 +117,7 @@ namespace hgl::semantics
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl       = module_.decl(id);
                     const bool       test_scope = decl.test_only || std::holds_alternative<ast::TestDecl>(decl.node);
-                    if (test_scope) { scopes_.push_back(test_scope_); }
+                    test_scope_active_          = test_scope;
                     if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
@@ -131,7 +131,7 @@ namespace hgl::semantics
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         resolve_test(id, *test);
                     }
-                    if (test_scope) { pop_scope(); }
+                    test_scope_active_ = false;
                 }
                 validate_structs();
                 validate_constructors();
@@ -139,8 +139,10 @@ namespace hgl::semantics
             }
 
           private:
+            /// One lexical scope. A name is declared at most once per scope, so a
+            /// hash lookup finds the only candidate without scanning.
             struct Scope
-            { std::vector<std::pair<std::string_view, Binding>> names; };
+            { std::unordered_map<std::string_view, Binding> names; };
 
             struct Context
             {
@@ -1552,21 +1554,22 @@ namespace hgl::semantics
 
             void declare(const ast::Name &name, Binding binding, std::string_view where) {
                 if (name.empty()) { return; }
-                Scope &scope = scopes_.back();
-                for (const auto &[existing, _] : scope.names) {
-                    if (existing == name.text) {
-                        report(Category::Name, name.range,
-                               "'" + std::string{name.text} + "' is declared twice " + std::string{where});
-                        return;
-                    }
+                if (!scopes_.back().names.try_emplace(name.text, std::move(binding)).second) {
+                    report(Category::Name, name.range, "'" + std::string{name.text} + "' is declared twice " + std::string{where});
                 }
-                scope.names.emplace_back(name.text, std::move(binding));
             }
 
+            /// Innermost scope first. While a test-only declaration resolves, the
+            /// test overlay sits between the module scope and its own scopes.
             [[nodiscard]] std::optional<Binding> lookup(std::string_view name) const {
-                for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
-                    for (auto entry = scope->names.rbegin(); entry != scope->names.rend(); ++entry) {
-                        if (entry->first == name) { return entry->second; }
+                for (std::size_t depth = scopes_.size(); depth-- > 0;) {
+                    if (depth == 0 && test_scope_active_) {
+                        if (const auto found = test_scope_.names.find(name); found != test_scope_.names.end()) {
+                            return found->second;
+                        }
+                    }
+                    if (const auto found = scopes_[depth].names.find(name); found != scopes_[depth].names.end()) {
+                        return found->second;
                     }
                 }
                 return std::nullopt;
@@ -1583,6 +1586,7 @@ namespace hgl::semantics
             ResolvedModule                                 result_{};
             std::vector<Scope>                             scopes_{};
             Scope                                          test_scope_{};
+            bool                                           test_scope_active_{false};
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};

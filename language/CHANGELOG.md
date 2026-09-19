@@ -14,6 +14,17 @@
   `inner: Event<f64>` inside `struct IntEvent: Event<i64>` stays valid. Struct
   and constructor field names are looked up through an index rather than a
   scan per field.
+- Check struct-heavy modules in time linear in their size. A constructor asked
+  the constraint solver for each argument's field type, and each request
+  rebuilt the struct's effective fields with a search per field: cubic in the
+  field count (checking a module whose one constructor names 4,000 fields
+  took 41 s). Effective fields are now
+  built once per applied struct type with a name index. The type checker also
+  scanned every type of the module for each declaration's generic struct
+  applications, and the resolver scanned whole scopes for each name and copied
+  the test overlay for every test declaration; types are now indexed by
+  owning declaration and scopes are hashed. `hgl check` of a module with
+  16,000 structs now takes 0.5 s, at a flat 32 us per struct from 4,000 up.
 - Add `cache` declarations (ADR 0011): `cache name[: T] = init` is node-local
   data outside record/replay, declared like `state` and re-initialized on
   every start, lowered to the native `State<T>` selector. One scalar cache per
