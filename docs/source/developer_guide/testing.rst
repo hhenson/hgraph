@@ -343,6 +343,100 @@ a new product is found in production, add it to the relevant sweep's axes
 first and let the sweep reproduce it; the fix then lands with the gap entry
 removed and the matching architecture ratchet lowered.
 
+Recovery campaign
+-----------------
+
+Recovery (RFC 0023, RFC 0039) has one promise -- *a run restarted at a completed
+day is indistinguishable from one that was never interrupted* -- and far more
+ways to break it than hand-written cases can hold: it depends on which owners
+are stacked (``map_``, ``mesh_``, ``dmap_`` in process and across processes,
+``reduce``, a ``spawn_`` pipeline), how deep, where the component sits, where
+the cuts fall, and what the keys were doing on each side of a cut. The
+campaign, ``tools/recovery``, generates those products from a seed and judges
+every one the same way.
+
+**A scenario** is a *chain* (``dmapp__map__total``: layers over a leaf), a
+*placement* (the component outermost, or *inside* the worker, where an owner
+stands in for it), a *host* (wired in the main graph, or a stage of a
+``spawn_`` pipeline whose sink runs in another process), a *mode*, a generated
+event stream and its cuts. Streams are presence-aware -- a removal names a key
+that is there -- with quiet cycles, and keys that leave and return.
+
+**Three modes**, because they promise different things:
+
+``clean``
+   Never interrupted. The oracle for the other two, and a check that the
+   scenario is well formed: a run that produced nothing to compare is an error.
+``snapshot``
+   Restart from a component checkpoint at each cut. State comes back, so the
+   restarted run must match the unbroken one **delta for delta**.
+``recover``
+   Restart in ``RECOVER`` mode at each cut: the component's recorded *inputs*
+   are re-seeded as a tick at the start of the day. No state comes back, so it
+   is generated for graphs whose output is a function of their current input,
+   and the promise is about **values**: a consumer that starts with the day and
+   folds what it is sent holds, after every cycle, what the unbroken run held.
+   The re-seed is an extra tick by design, so the deltas differ, and an
+   accumulating node restarts from its last input -- also by design.
+
+**Three ways a green campaign can lie, each closed:**
+
+* *Comparing nothing to nothing.* A sample of scenarios is run again with the
+  same cuts and **no recovery**. Where state crosses a cut that has to differ.
+  A mode in which no control differed is reported ``VACUOUS`` and fails.
+* *Expected refusals rotting.* ``model.expected`` says which placements are
+  refused and why (a component below a user ``map_`` is not reached by an
+  image). A scenario that was expected to be refused and ran fails as loudly as
+  the reverse, so lifting a limit cannot go unnoticed.
+* *An accepted defect quietly fixed, or quietly spreading.* A known defect is
+  a **family** -- the relation that makes it reachable -- not a list of
+  recipes, which would cover those recipes only and leave the next seed to
+  rediscover it. Members that fail are ``known``, reported and not a failure;
+  a failure outside every family is. When a large family stops failing
+  altogether the campaign reports ``RETIRED`` and fails, so the fix deletes the
+  family. Two exist today. ``tsd-restored-slot-order`` is a defect: a restored
+  keyed input iterates its keys in another order when there is a removal on
+  each side of a cut. It is pinned also as a strict ``xfail`` with its minimal
+  stream in
+  ``extensions/persistence/python/tests/test_reduce_recovery_scenarios.py``.
+  ``mesh-empty-input-no-tick`` is **not** a defect but the consequence of a
+  ruling (:doc:`parity_matrix`, no change means no tick): a ``mesh_`` started
+  over an empty key set emits nothing, one emptied later keeps its valid empty
+  output, and ``RECOVER`` is a fresh start -- so where a ``mesh_`` layer's own
+  input is empty at a cut, the enclosing key is absent afterwards.
+
+**Where it runs.**
+
+* Every test run: ``test_recovery_campaign.py`` runs every fifth scenario of
+  the ``pr`` profile in a few seconds, so the machinery is never first
+  exercised at night.
+* Nightly, ``.github/workflows/recovery-nightly.yml``: candidate core and
+  persistence wheels, the ``nightly`` profile over 16 shards with the run
+  number as seed, then a **verdict** job. A shard is too small a sample to call
+  a mode vacuous or a family retired, so shards never fail the run; ``merge``
+  judges the totals (and that every shard reported) and needs no hgraph. A
+  pull request that touches the campaign runs the ``pr`` profile through the
+  same jobs.
+* The same workflow runs the **save and restore benchmark**,
+  ``tests/cpp/test_recovery_benchmark.cpp`` (hidden from the ordinary suite,
+  ``[.][recovery-benchmark]``): ``map_`` as the bar, then ``dmap_`` as a
+  component member and hosting a component, in process and across processes,
+  at 5k / 10k / 20k / 40k keys. It differences a day with and without recovery
+  configured, prints one JSON row per size, and **requires** the cost per key
+  to stay flat (guardrail iv). Results: ``benchmarks/results/recovery-*``.
+
+.. code-block:: bash
+
+   python -m tools.recovery campaign --profile pr            # ~100 scenarios, ~30 s
+   python -m tools.recovery campaign --profile nightly --shard-index 0 --shard-count 16
+   python -m tools.recovery merge recovery-reports           # the verdict on a sharded run
+   python -m tools.recovery replay recovery-results/report.json   # re-run what failed
+
+A report's failures carry their full recipes, so ``replay`` needs nothing else.
+The campaign must run against a **real install** (core wheel, then the
+persistence extension built against its SDK): that is the only configuration
+in which the two share one core.
+
 Commands
 --------
 
