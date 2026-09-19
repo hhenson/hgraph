@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/type_carrier.h>   // ResolutionKind, TypeCarrier
 
 #include <fmt/format.h>
@@ -657,11 +658,19 @@ namespace hgraph
             concrete = unify_dereference(concrete);
             if constexpr (sizeof...(C) > 0)
             {
-                if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
+                if (!((time_series_value_equivalent(concrete, schema_descriptor<C>::ts_meta())) || ...))
                 {
                     throw std::logic_error(
                         fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
                 }
+            }
+            if (const TSValueTypeMetaData *bound = m.find_ts(Name.sv()))
+            {
+                if (!time_series_value_equivalent(bound, concrete))
+                {
+                    throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", Name.sv()));
+                }
+                return;
             }
             m.bind_ts(Name.sv(), concrete);
         }

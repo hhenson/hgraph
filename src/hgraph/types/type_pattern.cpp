@@ -69,6 +69,15 @@ namespace hgraph
             });
         }
 
+        [[nodiscard]] bool input_ts_allowed_by_constraints(const TypePattern &pattern,
+                                                            const TSValueTypeMetaData *concrete)
+        {
+            if (pattern.constraints.empty()) { return true; }
+            return std::ranges::any_of(pattern.constraints, [concrete](const TSValueTypeMetaData *constraint) {
+                return constraint != nullptr && time_series_value_equivalent(constraint, concrete);
+            });
+        }
+
         [[nodiscard]] bool size_allowed_by_constraints(const TypePattern &pattern, std::size_t concrete)
         {
             if (pattern.size_constraints.empty()) { return true; }
@@ -389,6 +398,16 @@ namespace hgraph
                 return concrete->kind == TSTypeKind::TS &&
                        input_scalar_pattern_match(pattern.scalar, concrete->value_schema, map);
             case TypePattern::Kind::Var:
+            {
+                if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
+                {
+                    return time_series_value_equivalent(bound, concrete) &&
+                           input_ts_allowed_by_constraints(pattern, concrete);
+                }
+                if (!input_ts_allowed_by_constraints(pattern, concrete)) { return false; }
+                map.bind_ts(pattern.name, concrete);
+                return true;
+            }
             case TypePattern::Kind::TSS:
             case TypePattern::Kind::TSW:
             case TypePattern::Kind::Signal:

@@ -1187,6 +1187,36 @@ TEST_CASE("operators: shared TypePattern input matcher mirrors wiring semantics"
     CHECK_FALSE(ts_pattern_match(nested_ref, ts_type<TSL<TS<Int>, 2>>(), nested_strict));
 }
 
+TEST_CASE("operators: repeated input variables accept equivalent interior reference layouts")
+{
+    using RefDict = TSD<Str, REF<TS<Int>>>;
+    using ValueDict = TSD<Str, TS<Int>>;
+
+    const TypePattern variable = to_pattern<TsVar<"S">>();
+    ResolutionMap runtime;
+    REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), runtime));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+    CHECK(runtime.find_ts("S") == ts_type<RefDict>());
+    CHECK_FALSE(input_ts_pattern_match(variable, ts_type<TSD<Str, TS<Float>>>(), runtime));
+
+    // Output matching remains representation-strict once the input selected S.
+    CHECK_FALSE(output_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+
+    ResolutionMap typed;
+    ts_unifier<TsVar<"S">>::unify(ts_type<RefDict>(), typed);
+    ts_unifier<TsVar<"S">>::unify(ts_type<ValueDict>(), typed);
+    CHECK(typed.find_ts("S") == ts_type<RefDict>());
+    CHECK_THROWS_AS((ts_unifier<TsVar<"S">>::unify(
+                        ts_type<TSD<Str, TS<Float>>>(), typed)),
+                    std::logic_error);
+
+    ResolutionMap output_first;
+    REQUIRE(output_ts_pattern_match(variable, ts_type<ValueDict>(), output_first));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), output_first));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), output_first));
+    CHECK(output_first.find_ts("S") == ts_type<ValueDict>());
+}
+
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")
 {
     auto &registry = TypeRegistry::instance();

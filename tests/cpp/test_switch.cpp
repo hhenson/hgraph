@@ -184,6 +184,50 @@ namespace
         }
     };
 
+    using SwitchValueDict = TSD<Int, TS<Int>>;
+    using SwitchRefDict = TSD<Int, REF<TS<Int>>>;
+    using SwitchPartitionedDict = TSD<Str, TSD<Int, TS<Int>>>;
+
+    struct InteriorRefDictBranch
+    {
+        static constexpr auto name = "interior_ref_dict_branch";
+
+        static Port<SwitchRefDict> compose(Wiring &w, Port<SwitchPartitionedDict> primary,
+                                           Port<SwitchValueDict>)
+        {
+            return wire<stdlib::unpartition>(w, primary).as<SwitchRefDict>();
+        }
+    };
+
+    struct ValueDictBranch
+    {
+        static constexpr auto name = "value_dict_branch";
+
+        static Port<SwitchValueDict> compose(Wiring &, Port<SwitchPartitionedDict>,
+                                             Port<SwitchValueDict> fallback)
+        {
+            return fallback;
+        }
+    };
+
+    struct MixedInteriorRefSwitchGraph
+    {
+        static constexpr auto name = "mixed_interior_ref_switch_graph";
+
+        static Port<SwitchValueDict> compose(Wiring &w, Port<TS<Str>> key,
+                                             Port<SwitchPartitionedDict> primary,
+                                             Port<SwitchValueDict> fallback)
+        {
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases(
+                           {{Value{Str{"refs"}}, fn<InteriorRefDictBranch>()},
+                            {Value{Str{"value"}}, fn<ValueDictBranch>()}}),
+                       primary, fallback)
+                .as<SwitchValueDict>();
+        }
+    };
+
     struct PauseRefPassThroughTag
     {
     };
@@ -959,6 +1003,27 @@ TEST_CASE("switch_: mixed value and REF branches remain visible across transitio
                      values<Str>(Str{"a"}, Str{"b"}, Str{"a"}),
                      values<Int>(1, 2, 3)),
                  values<Int>(1, 2, 3));
+}
+
+TEST_CASE("switch_: value and interior-REF TSD branches share a reference-leaved output")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<MixedInteriorRefSwitchGraph>(
+            values<Str>(Str{"value"}, Str{"refs"}),
+            values<Value>(
+                dict_delta<Str, TSD<Int, TS<Int>>>(
+                    {{"partition"s, dict_delta<Int, TS<Int>>({{1, 10}})}}),
+                dict_delta<Str, TSD<Int, TS<Int>>>(
+                    {{"partition"s, dict_delta<Int, TS<Int>>({{1, 11}})}})),
+            values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
+                          dict_delta<Int, TS<Int>>({{9, 91}})))),
+        values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
+                      dict_delta<Int, TS<Int>>({{1, 11}})));
 }
 
 TEST_CASE("switch_: a paused REF branch preserves the previous token until resume")

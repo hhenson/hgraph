@@ -31,6 +31,7 @@ namespace
     using QuoteDict = TSD<Str, Quote>;
     using PartitionedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
     using NestedPartitionedIntDict = TSD<Str, TSD<Str, TSD<Int, TS<Int>>>>;
+    using FlattenedIntDict = TSD<Int, TS<Int>>;
     using FlattenedNestedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
     using FlattenedIntRefDict = TSD<Int, REF<TS<Int>>>;
     using FlattenedNestedIntRefDict = TSD<Str, REF<TSD<Int, TS<Int>>>>;
@@ -75,6 +76,22 @@ namespace
                 throw std::logic_error("unpartition did not preserve structured leaves by reference");
             }
             return flattened.as<FlattenedNestedIntDict>();
+        }
+    };
+
+    struct DefaultUnpartitionedLeaves
+    {
+        static constexpr auto name = "default_unpartitioned_leaves";
+
+        static Port<FlattenedIntDict> compose(Wiring &w, Port<PartitionedIntDict> primary,
+                                              Port<FlattenedIntDict> fallback)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, primary);
+            if (flattened.erased().schema != ts_type<FlattenedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not expose reference leaves");
+            }
+            return wire<stdlib::default_>(w, flattened, fallback).as<FlattenedIntDict>();
         }
     };
 
@@ -749,6 +766,21 @@ TEST_CASE("collections: unpartition preserves structured leaves by reference")
                      dict_delta<Str, TSD<Int, TS<Int>>>(
                          {{"inner"s, dict_delta<Int, TS<Int>>({{2, 3}})}}),
                      dict_delta<Str, TSD<Int, TS<Int>>>({}, {"inner"s})));
+}
+
+TEST_CASE("collections: default adapts a non-empty value TSD to unpartition reference leaves")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<DefaultUnpartitionedLeaves>(
+            values<Value>(none, none),
+            values<Value>(dict_delta<Int, TS<Int>>({{7, 70}}),
+                          dict_delta<Int, TS<Int>>({{7, 71}, {8, 80}})))),
+        values<Value>(dict_delta<Int, TS<Int>>({{7, 70}}),
+                      dict_delta<Int, TS<Int>>({{7, 71}, {8, 80}})));
 }
 
 TEST_CASE("collections: union removes an element only when no input still holds it")

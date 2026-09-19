@@ -370,6 +370,21 @@ def test_default_tsd_with_polymorphic_compound_keys(key):
     assert eval_node(g, [True]) == [value]
 
 
+def test_default_adapts_non_empty_tsd_to_unpartition_reference_leaves():
+    @graph
+    def g(
+        primary: TSD[str, TSD[int, TS[int]]],
+        fallback: TSD[int, TS[int]],
+    ) -> TSD[int, TS[int]]:
+        return default(unpartition(primary), fallback)
+
+    assert eval_node(
+        g,
+        [None, None],
+        [{7: 70}, {7: 71, 8: 80}],
+    ) == [{7: 70}, {7: 71, 8: 80}]
+
+
 def test_tsd_get_items_change_tsd():
     @graph
     def g(c: TS[bool], ts1: TSD[int, TS[int]], ts2: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
