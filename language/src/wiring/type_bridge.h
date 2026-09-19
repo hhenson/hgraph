@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace hgl::wiring
 {
@@ -38,6 +39,19 @@ namespace hgl::wiring
             [[nodiscard]] bool empty() const noexcept { return types.empty() && values.empty(); }
         };
 
+        /// One applied struct: its contract, the generic bindings its fields see,
+        /// its argument schemas, and the registry names they give it.
+        struct Specialization
+        {
+            const hgraph_ir::StructContract               *contract{nullptr};
+            Bindings                                       applied{};
+            std::vector<const hgraph::ValueTypeMetaData *> generic_types{};
+            std::string                                    module_name{};
+            std::string                                    local_name{};
+
+            [[nodiscard]] std::string qualified() const { return module_name + "::" + local_name; }
+        };
+
         [[nodiscard]] const hgraph::ValueTypeMetaData   *value(hgraph_ir::TypeId type, const Bindings &bindings);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(hgraph_ir::TypeId type, const Bindings &bindings);
         [[nodiscard]] const hgraph_ir::StructContract   *structure(std::string_view identity) const noexcept;
@@ -46,6 +60,14 @@ namespace hgl::wiring
         [[nodiscard]] std::optional<std::int64_t>      integer(hgraph_ir::ConstExprId expression, syntax::SourceRange range,
                                                                std::string_view role);
         [[nodiscard]] const hgraph::ValueTypeMetaData *nominal_value(const hgraph_ir::Type &type, const Bindings &outer);
+        [[nodiscard]] std::optional<Specialization>      specialize(const hgraph_ir::Type &type, const Bindings &outer);
+        [[nodiscard]] hgraph_ir::TypeId                  resolved(hgraph_ir::TypeId type, const Bindings &bindings) const;
+        [[nodiscard]] const hgraph::ValueTypeMetaData   *field_value(const hgraph_ir::StructField &field, const Bindings &applied);
+        [[nodiscard]] std::optional<Specialization> recursive_target(const hgraph_ir::StructField &field, const Bindings &applied);
+        [[nodiscard]] const hgraph::ValueTypeMetaData *register_value(const Specialization &specialization,
+                                                                      syntax::SourceRange   range);
+        [[nodiscard]] const hgraph::ValueTypeMetaData *recursive_value(Specialization root, syntax::SourceRange range);
+        [[nodiscard]] const hgraph::ValueTypeMetaData *registered(const Specialization &specialization, syntax::SourceRange range);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *nominal_schema(const hgraph_ir::Type &type, const Bindings &outer);
         void                                             refresh_registry();
         void                                             report(syntax::SourceRange range, std::string message);
@@ -57,6 +79,8 @@ namespace hgl::wiring
         std::uint64_t                                                          generation_{0};
         std::unordered_map<std::uint32_t, const hgraph::ValueTypeMetaData *>   values_{};
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
+        /// Contracts by identity, so a nominal type finds its contract without a scan.
+        std::unordered_map<std::string_view, const hgraph_ir::StructContract *> structures_{};
     };
 }  // namespace hgl::wiring
 

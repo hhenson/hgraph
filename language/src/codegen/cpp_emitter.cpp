@@ -4831,6 +4831,13 @@ namespace hgl::codegen
         }
 
         void Emitter::emit_struct(const gir::StructContract &item, Writer &out) {
+            // Direct wiring realizes recursive edges (ADR 0012); the static schema
+            // has no spelling for one yet, so this backend stops at the edge.
+            for (const gir::StructField &field : item.fields) {
+                if (field.recursive && field.origin_identity == item.identity) {
+                    unsupported(field.range, "recursive edge '" + field.name + "' of '" + item.identity + "' (ADR 0012)");
+                }
+            }
             std::vector<std::string> template_parameters;
             std::vector<std::string> type_arguments;
             PlannedTypeBindings      generic_types;

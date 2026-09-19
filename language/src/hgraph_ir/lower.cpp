@@ -659,16 +659,6 @@ namespace hgl::hgraph_ir
                             .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
                             .range            = field.range,
                         });
-                        // No execution backend realizes a recursive edge yet (ADR 0012,
-                        // slices 3 and 4); stop it here, once at its declaring struct,
-                        // so both backends reject the same programs.
-                        if (field.recursive && field.origin == declaration.id) {
-                            diagnostics_.report(syntax::Category::Type, field.range,
-                                                "recursive edge '" + field.name + "' of '" +
-                                                    source_.symbol(declaration.symbol).name +
-                                                    "' is admitted by ADR 0012, but no execution backend realizes recursive "
-                                                    "struct fields yet");
-                        }
                     }
                     result_.structures.push_back(std::move(target));
                 }

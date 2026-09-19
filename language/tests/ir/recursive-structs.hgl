@@ -1,6 +1,5 @@
 # Recursive struct edges (ADR 0012) as the dumps show them: marked in typed
-# HIR, and named by target identity in hgraph IR. Lowering still stops each
-# edge until the execution backends realize them.
+# HIR, and named by target identity in hgraph IR.
 
 module tests.recursive_structs
 

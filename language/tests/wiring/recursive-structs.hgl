@@ -1,0 +1,104 @@
+# Recursive struct fields (ADR 0012) through direct wiring: construction,
+# equality through the whole depth, round trips through eval, edges through a
+# second struct, a generic application and an abstract family, and the finite
+# temporal shape whose recursive edge is one endpoint.
+
+module tests.recursive_structs
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct A {
+    tag: str
+    b: atomic<B> = null
+}
+
+struct B {
+    a: atomic<A> = null
+}
+
+struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+}
+
+struct Pair<X, Y> {
+    first: X
+    swapped: atomic<Pair<Y, X>> = null
+}
+
+abstract struct Expr {
+    note: str = "e"
+}
+
+struct Add: Expr {
+    lhs: atomic<Expr> = null
+}
+
+abstract struct Linked {
+    next: atomic<Linked> = null
+}
+
+struct Item: Linked {
+    value: i64
+}
+
+struct Holder {
+    first: Node
+    count: i64
+}
+
+fn three(x: i64) -> atomic<Node> => Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
+fn pass_node(x: atomic<Node>) -> atomic<Node> => x
+fn head(x: atomic<Node>) -> atomic<Node> => x.next
+fn pass_pair(x: atomic<A>) -> atomic<A> => x
+fn pass_tree(x: atomic<Tree<i64>>) -> atomic<Tree<i64>> => x
+fn pass_swapped(x: atomic<Pair<i64, str>>) -> atomic<Pair<i64, str>> => x
+fn pass_add(x: atomic<Add>) -> atomic<Add> => x
+fn pass_item(x: atomic<Item>) -> atomic<Item> => x
+fn pass_holder(x: atomic<Holder>) -> atomic<Holder> => x
+
+fn wrap(v: i64, n: atomic<Node>) -> Node => Node(value: v, next: n)
+fn unwrap(v: i64, n: atomic<Node>) -> atomic<Node> => wrap(v, n).next
+fn root_value(v: i64, n: atomic<Node>) -> i64 => wrap(v, n).value
+
+test three_deep {
+    assert eval(three, x: [0]) == [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]
+}
+
+test round_trip {
+    assert eval(pass_node, x: [Node(value: 1, next: Node(value: 2, next: Node(value: 3))), Node(value: 4)]) == [Node(value: 1, next: Node(value: 2, next: Node(value: 3))), Node(value: 4)]
+}
+
+test compared_at_depth {
+    assert eval(pass_node, x: [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]) != [Node(value: 1, next: Node(value: 2, next: Node(value: 4)))]
+}
+
+test field_access {
+    assert eval(head, x: [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]) == [Node(value: 2, next: Node(value: 3))]
+}
+
+test mutual_pair {
+    assert eval(pass_pair, x: [A(tag: "x", b: B(a: A(tag: "y")))]) == [A(tag: "x", b: B(a: A(tag: "y")))]
+}
+
+test generic_edges {
+    assert eval(pass_tree, x: [Tree<i64>(value: 1, left: Tree<i64>(value: 2))]) == [Tree<i64>(value: 1, left: Tree<i64>(value: 2))]
+    assert eval(pass_swapped, x: [Pair<i64, str>(first: 1, swapped: Pair<str, i64>(first: "s"))]) == [Pair<i64, str>(first: 1, swapped: Pair<str, i64>(first: "s"))]
+}
+
+test abstract_edges {
+    assert eval(pass_add, x: [Add(lhs: null)]) == [Add()]
+    assert eval(pass_item, x: [Item(value: 1)]) == [Item(value: 1)]
+}
+
+test held_inline {
+    assert eval(pass_holder, x: [Holder(first: Node(value: 1, next: Node(value: 2)), count: 3)]) == [Holder(first: Node(value: 1, next: Node(value: 2)), count: 3)]
+}
+
+test temporal_shape {
+    assert eval(unwrap, v: [1], n: [Node(value: 2, next: Node(value: 3))]) == [Node(value: 2, next: Node(value: 3))]
+    assert eval(root_value, v: [1], n: [Node(value: 2)]) == [1]
+}

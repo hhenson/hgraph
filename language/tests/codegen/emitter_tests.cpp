@@ -3127,3 +3127,22 @@ export fn f(value: i64) -> i64 {
     CHECK_FALSE(mixed.emit());
     CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
 }
+
+// ADR 0012: direct wiring realizes recursive edges; the static schema has no
+// spelling for one yet, so emit-cpp stops at the edge until it does.
+TEST_CASE("emit-cpp stops at a recursive struct edge", "[codegen][recursive]") {
+    Unit unit{R"(
+module recursive_emit
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+fn pass(x: atomic<Node>) -> atomic<Node> => x
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file),
+                   "recursive edge 'next' of 'recursive_emit.Node' (ADR 0012) is not supported by emit-cpp yet"));
+}

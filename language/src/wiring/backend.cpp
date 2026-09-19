@@ -22,6 +22,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
@@ -256,7 +257,10 @@ namespace hgl::wiring
           public:
             Compiler(const syntax::SourceFile &file, const gir::Module &module, syntax::DiagnosticSink &diagnostics)
                 : file_{file}, module_{module}, diagnostics_{diagnostics}, bridge_{module, diagnostics},
-                  registry_{hgraph::TypeRegistry::instance()} {}
+                  registry_{hgraph::TypeRegistry::instance()} {
+                structures_.reserve(module.structures.size());
+                for (const gir::StructContract &contract : module.structures) { structures_.emplace(contract.identity, &contract); }
+            }
 
             [[nodiscard]] std::vector<TestResult>      run_tests(const TestOptions &options);
             [[nodiscard]] bool                         run_program(const RunOptions &options, std::ostream &out);
@@ -304,12 +308,9 @@ namespace hgl::wiring
             [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
                 type                        = struct_type(type);
                 const std::string &identity = module_.types[type.value].nominal_identity;
-                const auto         found = std::find_if(module_.structures.begin(), module_.structures.end(),
-                                                        [&](const gir::StructContract &item) { return item.identity == identity; });
-                if (found == module_.structures.end()) {
-                    backend(module_.types[type.value].range, "unknown struct '" + identity + "'");
-                }
-                return *found;
+                const auto         found    = structures_.find(identity);
+                if (found == structures_.end()) { backend(module_.types[type.value].range, "unknown struct '" + identity + "'"); }
+                return *found->second;
             }
 
             [[nodiscard]] const hgraph::ValueTypeMetaData *value_meta(gir::TypeId type) {
@@ -462,6 +463,8 @@ namespace hgl::wiring
             syntax::DiagnosticSink                        &diagnostics_;
             TypeBridge                                     bridge_;
             hgraph::TypeRegistry                          &registry_;
+            /// Contracts by identity, so each construct finds its struct without a scan.
+            std::unordered_map<std::string_view, const gir::StructContract *> structures_{};
             const hgraph::stdlib::RegisteredStandardTypes &types_{standard_types()};
             hgraph::Wiring                                *wiring_{nullptr};
             std::string                                    comparison_detail_{};
@@ -522,6 +525,16 @@ namespace hgl::wiring
                         convert(hgraph::Value{input.at(index)}, target->fields[index].type, range, role).view());
                 }
                 return result;
+            }
+            if (target->is_owned()) {
+                // A recursive edge (ADR 0012) owns a deep copy of its target value.
+                const hgraph::ValueTypeRef owner = hgraph::ValuePlanFactory::instance().type_for(target);
+                const hgraph::ValueView    input = source.view();
+                if (owner.ops_ref().accepts_source(owner, input.binding())) {
+                    hgraph::Value result{owner};
+                    owner.ops_ref().copy_assign_from(owner, result.begin_mutation().mutable_data(), input.binding(), input.data());
+                    return result;
+                }
             }
             if (actual->try_value_kind() == hgraph::ValueTypeKind::List &&
                 target->try_value_kind() == hgraph::ValueTypeKind::List) {
@@ -941,9 +954,20 @@ namespace hgl::wiring
             return wire("const", {scalar_arg(slot.value, "value")}, slot.range, true, target);
         }
 
+        /// A recursive edge's endpoint carries its target through an owner
+        /// (ADR 0012). hgraph treats that storage layer as part of no type, so a
+        /// `TS[Owned[T]]` port binds where `TS[T]` is expected, and back.
+        [[nodiscard]] bool same_through_storage(const hgraph::TSValueTypeMetaData *lhs, const hgraph::TSValueTypeMetaData *rhs) {
+            return lhs == rhs ||
+                   (lhs != nullptr && rhs != nullptr && lhs->kind == hgraph::TSTypeKind::TS &&
+                    rhs->kind == hgraph::TSTypeKind::TS &&
+                    hgraph::value_schema_without_storage(lhs->value_type) == hgraph::value_schema_without_storage(rhs->value_type));
+        }
+
         Slot Compiler::convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
             if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
             if (slot.port.schema == target) { return slot; }
+            if (same_through_storage(slot.port.schema, target)) { return slot; }
             const bool fixed_list_refines_dynamic =
                 slot.port.schema != nullptr && target != nullptr && slot.port.schema->kind == hgraph::TSTypeKind::TSL &&
                 target->kind == hgraph::TSTypeKind::TSL && !slot.port.schema->is_unbounded_tsl() && target->is_unbounded_tsl() &&
@@ -1061,15 +1085,20 @@ namespace hgl::wiring
                 backend(range, "struct metadata does not match '" + contract.identity + "'");
             }
             std::vector<std::optional<Slot>> supplied(contract.fields.size());
+            // Fields by name, so a wide constructor does not scan its fields per argument.
+            std::unordered_map<std::string_view, std::size_t> field_index;
+            field_index.reserve(contract.fields.size());
+            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                field_index.try_emplace(contract.fields[index].name, index);
+            }
             for (auto &[name, slot] : supplied_values) {
                 if (name.empty()) { fail(Category::Type, slot.range, "struct construction uses named arguments"); }
-                const auto found = std::find_if(contract.fields.begin(), contract.fields.end(),
-                                                [&](const gir::StructField &field) { return field.name == name; });
-                if (found == contract.fields.end()) {
+                const auto found = field_index.find(name);
+                if (found == field_index.end()) {
                     fail(Category::Name, slot.range,
                          "struct '" + local_name(contract.identity) + "' has no field named '" + name + "'");
                 }
-                const std::size_t index = static_cast<std::size_t>(found - contract.fields.begin());
+                const std::size_t index = found->second;
                 if (supplied[index]) { fail(Category::Name, slot.range, "field '" + name + "' is given twice"); }
                 supplied[index] = std::move(slot);
             }
@@ -1123,7 +1152,7 @@ namespace hgl::wiring
                                                             effective[index]->range, "field '" + contract.fields[index].name + "'"),
                                                     effective[index]->range);
                         children.push_back(wire_constant(converted, field_schema).port);
-                    } else if (effective[index]->is_port() && effective[index]->port.schema == field_schema) {
+                    } else if (effective[index]->is_port() && same_through_storage(effective[index]->port.schema, field_schema)) {
                         children.push_back(effective[index]->port);
                     } else {
                         fail(Category::Type, effective[index]->range,

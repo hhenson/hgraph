@@ -5,9 +5,10 @@ backends share. `check_recursive_fields` (`src/semantics/resolve.cpp`) finds
 every recursive edge, admits the ones rules 2, 3, 4 and 8 allow and reports
 the rule each other edge breaks (`tests/semantics/resolve_tests.cpp`); typed
 HIR and hgraph IR mark each admitted edge and name its target by identity.
-hgraph-IR lowering then stops every admitted edge with a "not yet supported"
-diagnostic (`src/hgraph_ir/lower.cpp`), so no program with a recursive field
-compiles yet.
+Direct wiring realizes edges (`src/wiring/type_bridge.cpp`,
+`tests/wiring/recursive-structs.hgl`). The C++ emitter stops at each edge with
+a "not supported by emit-cpp yet" diagnostic, and module descriptors do not
+record edges yet.
 
 ## Context
 

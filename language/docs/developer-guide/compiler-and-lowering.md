@@ -771,12 +771,32 @@ bodies, not types. `tests/hgraph_ir/lower_tests.cpp` drives a direct edge, a
 mutual pair, an abstract-family edge and a generic self edge through all of
 them.
 
-What expands fields is type realization: direct wiring's type bridge and the
-C++ emitter's struct declarations. The descriptor writer records struct
+What expands fields is type realization. Direct wiring's type bridge realizes
+an edge as `Owned[T]`, one owner pointer, so a value is a finite tree:
+
+- a struct with recursive fields is realized by Tarjan's algorithm over the
+  specializations its edges reach; each strongly connected component is one
+  `TypeRegistry::recursive_bundles` batch, whose edges between members are
+  batch indices, registered as soon as the component closes, after every
+  component it reaches;
+- an edge that leaves its component, such as `lhs: atomic<Expr>` inside
+  `struct Add: Expr`, owns an already registered schema, and the struct is an
+  ordinary Bundle;
+- a batch already registered under the same names is reused, because
+  `recursive_bundles` does not accept a name twice;
+- the temporal shape is a named TSB whose recursive field is a
+  `TS[Owned[T]]` endpoint, so the bundle's value schema is the struct itself.
+  hgraph treats the owner as storage (`value_schema_without_storage`), so the
+  endpoint binds where `TS[T]` is expected, and the direct backend passes
+  such a port through without a conversion;
+- a constant struct value copies each edge's target into its owner.
+
+The C++ emitter does not realize an edge yet: its static schema has no
+spelling for one, so `emit-cpp` stops at each edge a struct declares with an
+explicit diagnostic. That is a backend-only gap during migration, tracked in
+the roadmap's feature status matrix. The descriptor writer records struct
 layouts by nominal type too, but its format cannot yet say that a field is an
-edge (ADR 0004 format change). Until those realize an edge as an owner of its
-target, hgraph-IR lowering stops each admitted edge once, at its declaring
-struct, so neither backend receives one.
+edge (ADR 0004 format change).
 
 ## Generic constraint IR and lowering
 

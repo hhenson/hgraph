@@ -80,8 +80,7 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
-# Recursive struct edges (ADR 0012) are marked in both dumps. Lowering stops
-# them, so `check` exits non-zero; only the printed marker is asserted.
+# Recursive struct edges (ADR 0012) are marked in both dumps.
 add_test(
     NAME hgraph_language_dump_hir_recursive_edges
     COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hir
@@ -517,6 +516,16 @@ if(UNIX)
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "13 tests, 0 failed"
+)
+
+# Recursive struct fields (ADR 0012) run through direct wiring only until the
+# C++ static schema can spell a recursive edge.
+add_test(
+    NAME hgraph_language_test_recursive_structs
+    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl
+)
+set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
+    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`

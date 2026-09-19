@@ -1003,10 +1003,9 @@ fn count(value: i64) -> i64 {
     CHECK(hgl::hgraph_ir::print(*lowered.graph).find(" cache seen:") != std::string::npos);
 }
 
-// ADR 0012, slice 2: a recursive edge reaches hgraph IR marked, with its
-// target named by struct identity rather than expanded, and every pass shared
-// by the two backends terminates on it. Lowering still stops each admitted
-// edge, so no backend receives one.
+// ADR 0012: a recursive edge reaches hgraph IR marked, with its target named
+// by struct identity rather than expanded, and every pass shared by the two
+// backends terminates on it.
 TEST_CASE("recursive struct edges reach hgraph IR marked by identity", "[hgraph-ir][recursive]") {
     Lowered lowered{R"(
 module t
@@ -1076,19 +1075,12 @@ fn latest(node: atomic<Node>) -> i64 {
     CHECK(hgl::hgraph_ir::print(graph).find("next?:t") != std::string::npos);
     CHECK(hgl::hgraph_ir::print(graph).find(" recursive->t.Node") != std::string::npos);
 
-    // The only diagnostics are the lowering stops, one per declared edge.
-    const auto &diagnostics = lowered.diagnostics.diagnostics();
-    CHECK(diagnostics.size() == 5U);
-    CHECK(std::ranges::all_of(diagnostics, [](const hgl::syntax::Diagnostic &diagnostic) {
-        return diagnostic.message.find("is admitted by ADR 0012, but no execution backend realizes recursive struct fields yet") !=
-               std::string::npos;
-    }));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
 
     // The passes a backend runs next terminate on the recursive contracts.
-    // Lowering withheld `Bodies` only because of its own stops; lift them here.
-    REQUIRE(graph.completion == hgl::hgraph_ir::Completion::Interfaces);
-    hgl::hgraph_ir::Module executable = graph;
-    executable.completion             = hgl::hgraph_ir::Completion::Bodies;
+    REQUIRE(graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    hgl::hgraph_ir::Module      executable = graph;
     hgl::syntax::DiagnosticSink later;
     hgl::hgraph_ir::plan(executable, later);
     CHECK(hgl::hgraph_ir::complete_execution(executable, {}, later));

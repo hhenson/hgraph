@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Realize recursive struct fields (ADR 0012) in direct wiring. An edge is an
+  owner of its target, so a value is a finite tree compared, hashed and copied
+  through its whole depth; structs that reach one another through edges
+  register as one `recursive_bundles` batch per group of specializations, an
+  edge to an abstract parent owns that parent's schema, and the temporal
+  shape's edge is one `TS[Owned[T]]` endpoint that binds as `TS[T]`. `hgl
+  test` constructs, compares and round-trips three-deep values through
+  `eval`. The C++ emitter stops at an edge with an explicit diagnostic until
+  the static schema can spell one. The direct backend and its type bridge
+  also find struct contracts and constructor fields through indexes rather
+  than scans.
 - Carry recursive struct edges (ADR 0012) through the passes both backends
   share. Typed HIR marks an admitted edge (`--dump-hir` prints ` recursive`),
   and hgraph IR marks it with its target's identity (`--dump-hgraph-ir` prints
