@@ -347,6 +347,8 @@ No new source syntax is needed for these checkpoints. Nullable lookup policy,
 recordable state/cache design, and other unresolved language decisions remain
 separate work.
 
+<a id="feature-status-matrix-2026-09-07"></a>
+
 ## Feature status matrix
 
 Unnamed `test { ... }` contexts now provide module-wide, cross-part private
