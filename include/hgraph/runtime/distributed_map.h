@@ -37,7 +37,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <exception>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -462,9 +461,9 @@ namespace hgraph::distributed
          * failure is what the caller sees. */
         void stop()
         {
-            FirstExceptionRecorder errors;
-            for (auto &worker : workers_) { errors.capture([&] { worker.stop(); }); }
-            errors.rethrow_if_any();
+            FirstExceptionRecorder failures;
+            for (auto &worker : workers_) { failures.capture([&worker] { worker.stop(); }); }
+            failures.rethrow_if_any();
         }
 
         /** Prepared workers share a boundary but own disjoint mapped children. */

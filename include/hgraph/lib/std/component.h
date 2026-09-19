@@ -313,7 +313,9 @@ namespace hgraph::stdlib
             throw std::invalid_argument("component: cannot recover and replay at the same time");
         }
 
-        if (!fq.empty()) { w.claim_component_id(fq); }
+        // False for the second and later index of a function unrolled over a
+        // fixed-size list: another instance of this component, on one wiring.
+        const bool first_instance = fq.empty() || w.claim_component_id(fq);
 
         // A worker-hosted graph NAMES the nodes of every component in it,
         // configured or not (RFC 0039): its owner and its process each wire it
@@ -329,6 +331,16 @@ namespace hgraph::stdlib
         if (checkpointed && mode != Mode::None)
         {
             throw std::invalid_argument("component checkpoint: legacy record/replay modes cannot be combined with recovery configuration");
+        }
+        if (!first_instance && (checkpointed || mode != Mode::None))
+        {
+            // Instances that share one id share its recordings and its image:
+            // nothing could tell them apart. Unrecorded and unrecovered, they
+            // are just a graph wired several times, which is fine.
+            throw std::invalid_argument(
+                "component: '" + fq + "' is wired once per index of a fixed-size list, and instances sharing an id "
+                "cannot be recorded or recovered apart; map it over a TSD or an unbounded list, or wrap the map_ "
+                "in the component");
         }
         const bool        scoped = hosted || checkpointed;
         const std::string previous_component = scoped ? w.checkpoint_component(fq) : std::string{};

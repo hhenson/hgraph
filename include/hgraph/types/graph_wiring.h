@@ -1277,8 +1277,43 @@ namespace hgraph
 
         /** Claim a component's fully-qualified recordable id for this wiring;
             a second claim of the same id throws (one component instance per
-            id per graph build - python parity). */
-        void claim_component_id(std::string_view fq_recordable_id);
+            id per graph build - python parity).
+
+            The one exception is ``InlineRepeat``: a function wired once per
+            index on this wiring claims the same id each time, and those are
+            instances of ONE component, not two components that collide. Such a
+            claim returns ``false``. Only a repeat ACROSS indices is an
+            instance: an id claimed twice within one index is two call sites
+            sharing an id, and an id first claimed outside the repeat is
+            another component altogether. Both are still duplicates. */
+        bool claim_component_id(std::string_view fq_recordable_id);
+        /**
+         * A user function unrolled inline, once per index, on this wiring --
+         * what ``map_`` over a fixed-size list does. A keyed ``map_`` wires its
+         * function once, as a child template, and needs none of this.
+         *
+         * While one is open a repeated component id is an instance rather than
+         * a duplicate (``claim_component_id``), and a worker graph's runtime
+         * scope gives way to the user's: the function is the user's, so its
+         * nodes are processed unless a component says otherwise, exactly as in
+         * the child wiring a keyed ``map_`` makes (RFC 0039).
+         */
+        class HGRAPH_CLASS_EXPORT InlineRepeat
+        {
+          public:
+            explicit InlineRepeat(Wiring &wiring);
+            ~InlineRepeat();
+            /** Begin the next index. What one index claims twice is a duplicate;
+                what the next index claims again is an instance. */
+            void next_index();
+            InlineRepeat(const InlineRepeat &) = delete;
+            InlineRepeat &operator=(const InlineRepeat &) = delete;
+
+          private:
+            Wiring     &wiring_;
+            std::string scope_;
+            bool        rescoped_{false};
+        };
         /** Select the checkpoint ownership scope; returns the previous scope. */
         std::string checkpoint_component(std::string component_id);
         /** Current checkpoint ownership scope, including for child-plan caches. */

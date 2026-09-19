@@ -230,6 +230,19 @@ TEST_CASE("dmap shapes: fixed and dynamic lists preserve sparse indices")
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 2}}), dynamic_list_delta<TS<Int>>({{2, 4}})));
 }
 
+TEST_CASE("dmap shapes: a component maps over a fixed list as any graph does")
+{
+    stdlib::register_standard_operators();
+    // A fixed list is wired inline, once per index, on the worker's own wiring.
+    // A component names its nodes in every worker graph, recovery configured or
+    // not, so the second index claimed the id the first one held and the dmap_
+    // stopped wiring at all (found by adversarial review).
+    using Graph = ListMap<4, hgraph_test::PreparedHostedChild>;
+    CHECK_OUTPUT(eval_node<Graph>(values<Value>(
+                     list_delta<TS<Int>>({1, 2, 3, 4}), list_delta<TS<Int>>({std::nullopt, 3, std::nullopt, 5}))),
+                 values<Value>(list_delta<TS<Int>>({1, 2, 3, 4}), list_delta<TS<Int>>({std::nullopt, 5, std::nullopt, 9})));
+}
+
 TEST_CASE("dmap shapes: structured elements retain recursive deltas")
 {
     stdlib::register_standard_operators();

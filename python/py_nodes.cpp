@@ -15,6 +15,7 @@
 #include "py_bindings.h"
 #include "py_runtime.h"
 
+#include <hgraph/util/scope.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/python/native_scalar_registration.h>
@@ -174,8 +175,25 @@ struct PyCallShape {
         writer.string_field(nb::cast<std::string>(factory.attr("__module__")));
         writer.string_field(nb::cast<std::string>(factory.attr("__qualname__")));
       } else {
-        manifest::append_value_descriptor(writer, value.schema());
-        manifest::encode_manifest_scalar(writer, value);
+        // What cannot be signed cannot be held to a contract, so it cannot be
+        // recovered: a REFUSAL, naming the callback and the argument. The signer
+        // reports a value with no canonical form as a runtime_error, and the
+        // value layer reports a scalar stored another way than its flags say --
+        // a Python Enum is flagged Enum and is not an Int -- as a bare "type
+        // mismatch". Neither is an invalid_argument, and a worker graph records
+        // only refusals, so left alone this stopped a graph nobody would ever
+        // capture from wiring.
+        annotate_on_exception<std::exception>(
+            [&] {
+              manifest::append_value_descriptor(writer, value.schema());
+              manifest::encode_manifest_scalar(writer, value);
+            },
+            [&](const std::exception &error) {
+              throw std::invalid_argument(
+                  "component checkpoint: scalar argument " + std::to_string(index) + " of Python node '" +
+                  nb::cast<std::string>(function.record->fn.attr("__qualname__")) +
+                  "' cannot be signed, so the node cannot be recovered: " + error.what());
+            });
       }
     }
   }
