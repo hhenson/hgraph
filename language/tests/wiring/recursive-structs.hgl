@@ -50,19 +50,19 @@ struct Holder {
     count: i64
 }
 
-fn three(x: i64) -> atomic<Node> => Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
-fn pass_node(x: atomic<Node>) -> atomic<Node> => x
-fn head(x: atomic<Node>) -> atomic<Node> => x.next
-fn pass_pair(x: atomic<A>) -> atomic<A> => x
-fn pass_tree(x: atomic<Tree<i64>>) -> atomic<Tree<i64>> => x
-fn pass_swapped(x: atomic<Pair<i64, str>>) -> atomic<Pair<i64, str>> => x
-fn pass_add(x: atomic<Add>) -> atomic<Add> => x
-fn pass_item(x: atomic<Item>) -> atomic<Item> => x
-fn pass_holder(x: atomic<Holder>) -> atomic<Holder> => x
+export fn three(x: i64) -> atomic<Node> => Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
+export fn pass_node(x: atomic<Node>) -> atomic<Node> => x
+export fn head(x: atomic<Node>) -> atomic<Node> => x.next
+export fn pass_pair(x: atomic<A>) -> atomic<A> => x
+export fn pass_tree(x: atomic<Tree<i64>>) -> atomic<Tree<i64>> => x
+export fn pass_swapped(x: atomic<Pair<i64, str>>) -> atomic<Pair<i64, str>> => x
+export fn pass_add(x: atomic<Add>) -> atomic<Add> => x
+export fn pass_item(x: atomic<Item>) -> atomic<Item> => x
+export fn pass_holder(x: atomic<Holder>) -> atomic<Holder> => x
 
-fn wrap(v: i64, n: atomic<Node>) -> Node => Node(value: v, next: n)
-fn unwrap(v: i64, n: atomic<Node>) -> atomic<Node> => wrap(v, n).next
-fn root_value(v: i64, n: atomic<Node>) -> i64 => wrap(v, n).value
+export fn wrap(v: i64, n: atomic<Node>) -> Node => Node(value: v, next: n)
+export fn unwrap(v: i64, n: atomic<Node>) -> atomic<Node> => wrap(v, n).next
+export fn root_value(v: i64, n: atomic<Node>) -> i64 => wrap(v, n).value
 
 test three_deep {
     assert eval(three, x: [0]) == [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Generate C++ for recursive struct fields (ADR 0012). An edge is an
+  `hgraph::Edge<Target>` field, and a `TS<Edge<Target>>` endpoint in the
+  temporal shape; generated structs register through hgraph's
+  `recursive_bundle_closure` (hgraph RFC 0041), which the direct backend's
+  type bridge now uses too, so both register the same schemas under the same
+  names and agree tick for tick on the recursive fixture. The emitter defines
+  each struct after the structs it holds inline and forward-declares only an
+  edge target defined later. A struct with an edge cannot be exported yet:
+  module descriptors cannot record an edge, so `emit-cpp` reports it rather
+  than hand an importer an ordinary field. Generic specializations are named
+  `Pair[int, str]` in both backends.
 - Realize recursive struct fields (ADR 0012) in direct wiring. An edge is an
   owner of its target, so a value is a finite tree compared, hashed and copied
   through its whole depth; structs that reach one another through edges
@@ -9,8 +20,7 @@
   edge to an abstract parent owns that parent's schema, and the temporal
   shape's edge is one `TS[Owned[T]]` endpoint that binds as `TS[T]`. `hgl
   test` constructs, compares and round-trips three-deep values through
-  `eval`. The C++ emitter stops at an edge with an explicit diagnostic until
-  the static schema can spell one. The direct backend and its type bridge
+  `eval`. The direct backend and its type bridge
   also find struct contracts and constructor fields through indexes rather
   than scans.
 - Carry recursive struct edges (ADR 0012) through the passes both backends

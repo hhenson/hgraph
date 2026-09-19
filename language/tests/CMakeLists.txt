@@ -373,6 +373,8 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl)
+hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
 hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hgl)
@@ -445,6 +447,7 @@ set(_hgl_generated_test_sources
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
+    codegen/generated_recursive_tests.cpp
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
     codegen/generated_imported_operator_tests.cpp
@@ -452,6 +455,7 @@ set(_hgl_generated_test_sources
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
     hgl_structural_fixture
+    hgl_recursive_fixture
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
@@ -518,8 +522,9 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "13 tests, 0 failed"
 )
 
-# Recursive struct fields (ADR 0012) run through direct wiring only until the
-# C++ static schema can spell a recursive edge.
+# Recursive struct fields (ADR 0012) through direct wiring; the same module is
+# compiled as hgl_recursive_fixture and checked tick for tick by
+# codegen/generated_recursive_tests.cpp.
 add_test(
     NAME hgraph_language_test_recursive_structs
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl

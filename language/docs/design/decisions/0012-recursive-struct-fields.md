@@ -5,10 +5,13 @@ backends share. `check_recursive_fields` (`src/semantics/resolve.cpp`) finds
 every recursive edge, admits the ones rules 2, 3, 4 and 8 allow and reports
 the rule each other edge breaks (`tests/semantics/resolve_tests.cpp`); typed
 HIR and hgraph IR mark each admitted edge and name its target by identity.
-Direct wiring realizes edges (`src/wiring/type_bridge.cpp`,
-`tests/wiring/recursive-structs.hgl`). The C++ emitter stops at each edge with
-a "not supported by emit-cpp yet" diagnostic, and module descriptors do not
-record edges yet.
+Both backends realize edges through hgraph's
+`TypeRegistry::recursive_bundle_closure` (hgraph RFC 0041): direct wiring from
+`src/wiring/type_bridge.cpp`, and generated C++ through the static schema's
+`hgraph::Edge<T>` field, with the two agreeing tick for tick
+(`tests/wiring/recursive-structs.hgl`,
+`tests/codegen/generated_recursive_tests.cpp`). Module descriptors do not
+record edges yet, so `emit-cpp` does not export a struct that has one.
 
 ## Context
 
@@ -133,7 +136,10 @@ answers.
   from inside its own field list, and nothing stands for `Self`. Either the
   static schema gains a self marker, or the emitter registers a recursive
   struct through the registry call. This is an hgraph change and lands there
-  first.
+  first. (Resolved by hgraph RFC 0041: the static schema's `Edge<T>` names a
+  generated struct, which may be incomplete, and a `NominalBundle` with an
+  edge registers through `TypeRegistry::recursive_bundle_closure`, the same
+  operation direct wiring uses.)
 - **Module descriptors** must express an edge to the enclosing struct or to a
   batch member in a struct layout. That is a format-version change (ADR 0004).
 - **`delta<S>`** needs no new rule: a recursive edge is an atomic field, and

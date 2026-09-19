@@ -645,6 +645,9 @@ namespace hgl::codegen
             };
             void                      emit_function(gir::CallableId id, Writer &out, Form form);
             void                      emit_struct(const gir::StructContract &item, Writer &out);
+            void                      emit_struct_declarations(Writer &out);
+            void                      struct_references(gir::TypeId id, std::vector<std::string_view> &out);
+            [[nodiscard]] std::string struct_template_head(const gir::StructContract &item);
             void                      emit_runtime_function(gir::CallableId id, Writer &out);
             [[nodiscard]] RuntimeInfo runtime_info(gir::CallableId id);
             [[nodiscard]] bool        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
@@ -4830,14 +4833,83 @@ namespace hgl::codegen
             return "hgraph::Operator<" + join(selectors, ", ") + ">";
         }
 
-        void Emitter::emit_struct(const gir::StructContract &item, Writer &out) {
-            // Direct wiring realizes recursive edges (ADR 0012); the static schema
-            // has no spelling for one yet, so this backend stops at the edge.
-            for (const gir::StructField &field : item.fields) {
-                if (field.recursive && field.origin_identity == item.identity) {
-                    unsupported(field.range, "recursive edge '" + field.name + "' of '" + item.identity + "' (ADR 0012)");
+        /// The local struct identities a type names, through children and generic arguments.
+        void Emitter::struct_references(gir::TypeId id, std::vector<std::string_view> &out) {
+            if (!id.valid() || id.value >= graph_.types.size()) { return; }
+            const gir::Type &type = graph_.types[id.value];
+            if (type.kind == hir::TypeKind::Symbol && !type.nominal_identity.empty()) { out.push_back(type.nominal_identity); }
+            for (const gir::TypeId child : type.children) { struct_references(child, out); }
+            for (const gir::TypeArgument &argument : type.arguments) {
+                if (argument.type) { struct_references(*argument.type, out); }
+            }
+        }
+
+        std::string Emitter::struct_template_head(const gir::StructContract &item) {
+            std::vector<std::string> parameters;
+            for (const gir::GenericParameter &parameter : item.generics) {
+                parameters.push_back("typename " + cpp_name(parameter.name));
+            }
+            return parameters.empty() ? std::string{} : "template <" + join(parameters, ", ") + "> ";
+        }
+
+        /// Struct declarations in source order, except that a struct is defined
+        /// after every struct it holds inline (a parent or a field that is not a
+        /// recursive edge). A recursive edge names its target through `Edge`,
+        /// which needs only a declaration, so each edge target is declared
+        /// first. A module without either keeps its source order exactly.
+        void Emitter::emit_struct_declarations(Writer &out) {
+            std::unordered_map<std::string_view, gir::StructId> by_identity;
+            for (const gir::StructId id : structure_declarations_) { by_identity.emplace(struct_contract(id).identity, id); }
+
+            // Definition order: a struct follows every struct it holds inline,
+            // through a parent or a field; an edge holds its target by owner.
+            std::vector<gir::StructId>         order;
+            std::vector<std::uint8_t>          state(graph_.structures.size(), 0);  // 0 pending, 1 defining, 2 defined
+            std::function<void(gir::StructId)> define = [&](gir::StructId id) {
+                if (state[id.value] == 2) { return; }
+                const gir::StructContract &item = struct_contract(id);
+                if (state[id.value] == 1) { backend(item.range, "hgraph IR struct '" + item.identity + "' holds itself inline"); }
+                state[id.value] = 1;
+                std::vector<std::string_view> held;
+                for (const gir::TypeId parent : item.parents) { struct_references(parent, held); }
+                for (const gir::StructField &field : item.fields) {
+                    if (!field.recursive) { struct_references(field.type, held); }
+                }
+                for (const std::string_view identity : held) {
+                    if (const auto found = by_identity.find(identity); found != by_identity.end()) { define(found->second); }
+                }
+                order.push_back(id);
+                state[id.value] = 2;
+            };
+            for (const gir::StructId id : structure_declarations_) { define(id); }
+
+            // An edge whose target is defined later needs the target declared
+            // first; one to itself or to an earlier struct does not.
+            std::vector<std::size_t> position(graph_.structures.size(), 0);
+            for (std::size_t index = 0; index < order.size(); ++index) { position[order[index].value] = index; }
+            std::vector<bool> declared(graph_.structures.size(), false);
+            bool              any_declared = false;
+            for (std::size_t index = 0; index < order.size(); ++index) {
+                for (const gir::StructField &field : struct_contract(order[index]).fields) {
+                    if (!field.recursive) { continue; }
+                    const auto target = by_identity.find(field.recursive_target);
+                    if (target == by_identity.end()) {
+                        backend(field.range, "hgraph IR recursive edge '" + field.name + "' names no local struct");
+                    }
+                    if (position[target->second.value] <= index || declared[target->second.value]) { continue; }
+                    declared[target->second.value]  = true;
+                    any_declared                    = true;
+                    const gir::StructContract &item = struct_contract(target->second);
+                    const std::string_view     name = std::string_view{item.identity}.substr(item.identity.find_last_of('.') + 1U);
+                    out.line(struct_template_head(item) + "struct " + cpp_name(std::string{name}) + ";");
                 }
             }
+            if (any_declared) { out.line(); }
+
+            for (const gir::StructId id : order) { emit_struct(struct_contract(id), out); }
+        }
+
+        void Emitter::emit_struct(const gir::StructContract &item, Writer &out) {
             std::vector<std::string> template_parameters;
             std::vector<std::string> type_arguments;
             PlannedTypeBindings      generic_types;
@@ -4891,6 +4963,19 @@ namespace hgl::codegen
             for (const gir::StructField &field : item.fields) {
                 const gir::Type &planned = graph_type(field.type, field.range);
                 const HType      type    = planned_type(field.type, field.range, &generic_types);
+                if (field.recursive) {
+                    // A recursive edge (ADR 0012) owns its target through hgraph's
+                    // static-schema `Edge`, which may name a struct declared later
+                    // or the struct being declared (RFC 0041).
+                    if (type.kind != HType::Kind::Atomic || type.children.size() != 1U ||
+                        type.children.front().kind != HType::Kind::Struct) {
+                        backend(field.range, "hgraph IR recursive edge '" + field.name + "' is not an atomic struct boundary");
+                    }
+                    const std::string edge = "hgraph::Edge<" + type.children.front().cpp_type + ">";
+                    value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + edge + ">");
+                    temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", hgraph::TS<" + edge + ">>");
+                    continue;
+                }
                 value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + value_type(type, planned.range) + ">");
                 temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + schema(type, planned.range) + ">");
             }
@@ -5358,7 +5443,7 @@ namespace hgl::codegen
                 header.close("  // namespace native");
                 header.line();
             }
-            for (const gir::StructId id : structure_declarations_) { emit_struct(struct_contract(id), header); }
+            emit_struct_declarations(header);
             if (!used_imported_operators_.empty()) {
                 header.line("/// Imported contract aliases; these retain their defining registry identity.");
                 header.open("namespace imported_operators");
@@ -5450,6 +5535,19 @@ namespace hgl::codegen
                 if (!function.source_defined) { continue; }
                 descriptor_options.source_native_symbols.emplace_back(
                     function.candidate_identity, native_cpp_symbol(gir::NativeFunctionId{static_cast<std::uint32_t>(index)}));
+            }
+            // An exported struct's layout is part of the descriptor, whose
+            // format cannot yet mark a field as a recursive edge; an importer
+            // would read the edge as an ordinary field.
+            for (const gir::StructContract &structure : graph_.structures) {
+                if (!structure.exported) { continue; }
+                for (const gir::StructField &field : structure.fields) {
+                    if (!field.recursive) { continue; }
+                    backend(field.range, "exported struct '" + std::string{local_identity(structure.identity)} +
+                                             "' has recursive edge '" + field.name +
+                                             "' (ADR 0012), which module descriptors cannot record yet; the struct can "
+                                             "be used inside its module but not exported");
+                }
             }
             const descriptor::ModuleDescriptor descriptor = descriptor::describe_module(graph_, std::move(descriptor_options));
             if (const std::optional<descriptor::ReadError> invalid = descriptor::validate(descriptor)) {

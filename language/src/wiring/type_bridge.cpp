@@ -167,7 +167,9 @@ namespace hgl::wiring
         result.local_name = split_identity(contract->identity).second;
         if (!contract->generics.empty()) { result.local_name += '['; }
         for (std::size_t index = 0; index < contract->generics.size(); ++index) {
-            if (index != 0) { result.local_name += ','; }
+            // The static schema's spelling (`Pair[int, str]`), so both backends
+            // register one specialization under one name.
+            if (index != 0) { result.local_name += ", "; }
             const hgraph_ir::GenericParameter &generic = contract->generics[index];
             if (generic.is_const) {
                 report(type.range, "const generic struct arguments require typed constant Bundle metadata in hgraph");

@@ -3128,21 +3128,55 @@ export fn f(value: i64) -> i64 {
     CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
 }
 
-// ADR 0012: direct wiring realizes recursive edges; the static schema has no
-// spelling for one yet, so emit-cpp stops at the edge until it does.
-TEST_CASE("emit-cpp stops at a recursive struct edge", "[codegen][recursive]") {
+// ADR 0012: an edge is an `Edge<T>` field, and one `TS<Edge<T>>` endpoint in
+// the temporal shape. A target defined after the struct holding the edge is
+// declared first; a struct defined earlier, or the struct itself, is not.
+TEST_CASE("emit-cpp spells a recursive struct edge as an Edge field", "[codegen][recursive]") {
     Unit unit{R"(
 module recursive_emit
+
+struct A {
+    tag: str
+    b: atomic<B> = null
+}
+
+struct B {
+    a: atomic<A> = null
+}
 
 struct Node {
     value: i64
     next: atomic<Node> = null
 }
 
-fn pass(x: atomic<Node>) -> atomic<Node> => x
+export fn pass(x: atomic<Node>) -> atomic<Node> => x
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Field<\"next\", hgraph::Edge<Node>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"next\", hgraph::TS<hgraph::Edge<Node>>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"b\", hgraph::Edge<B>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"a\", hgraph::Edge<A>>"));
+    CHECK(contains(emitted->header, "struct B;"));
+    CHECK(emitted->header.find("struct B;") < emitted->header.find("struct A\n"));
+    CHECK_FALSE(contains(emitted->header, "struct A;"));
+    CHECK_FALSE(contains(emitted->header, "struct Node;"));
+}
+
+// Until module descriptors record an edge (ADR 0012), an exported struct's
+// layout would reach an importer as an ordinary field, so it is refused.
+TEST_CASE("emit-cpp does not export a struct with a recursive edge", "[codegen][recursive]") {
+    Unit unit{R"(
+module recursive_export
+
+export struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
 )"};
     REQUIRE_FALSE(unit.diagnostics.has_errors());
     CHECK_FALSE(unit.emit());
     CHECK(contains(unit.diagnostics.render(unit.file),
-                   "recursive edge 'next' of 'recursive_emit.Node' (ADR 0012) is not supported by emit-cpp yet"));
+                   "exported struct 'Node' has recursive edge 'next' (ADR 0012), which module descriptors cannot record yet"));
 }

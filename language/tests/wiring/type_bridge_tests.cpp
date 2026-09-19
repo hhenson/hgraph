@@ -350,8 +350,8 @@ fn forms(
 
     const auto *pair    = value("pair");
     const auto *swapped = owned(pair, 1);
-    CHECK(pair->bundle_local_name() == "Pair[int,str]");
-    CHECK(swapped->bundle_local_name() == "Pair[str,int]");
+    CHECK(pair->bundle_local_name() == "Pair[int, str]");
+    CHECK(swapped->bundle_local_name() == "Pair[str, int]");
     CHECK(owned(swapped, 1) == pair);
 
     const auto *add = value("add");

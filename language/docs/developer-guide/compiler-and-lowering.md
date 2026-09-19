@@ -771,19 +771,21 @@ bodies, not types. `tests/hgraph_ir/lower_tests.cpp` drives a direct edge, a
 mutual pair, an abstract-family edge and a generic self edge through all of
 them.
 
-What expands fields is type realization. Direct wiring's type bridge realizes
-an edge as `Owned[T]`, one owner pointer, so a value is a finite tree:
+What expands fields is type realization. Both backends realize an edge as
+`Owned[T]`, one owner pointer, so a value is a finite tree. Both register it
+through one hgraph operation, `TypeRegistry::recursive_bundle_closure` (hgraph
+RFC 0041), which gives them the same schemas under the same names:
 
-- a struct with recursive fields is realized by Tarjan's algorithm over the
-  specializations its edges reach; each strongly connected component is one
-  `TypeRegistry::recursive_bundles` batch, whose edges between members are
-  batch indices, registered as soon as the component closes, after every
-  component it reaches;
+- the closure describes each specialization an edge reaches, on demand, and
+  groups them by Tarjan's algorithm; each strongly connected component is one
+  `recursive_bundles` batch, whose edges between members are batch indices,
+  registered as soon as the component closes, after every component it
+  reaches;
 - an edge that leaves its component, such as `lhs: atomic<Expr>` inside
   `struct Add: Expr`, owns an already registered schema, and the struct is an
   ordinary Bundle;
-- a batch already registered under the same names is reused, because
-  `recursive_bundles` does not accept a name twice;
+- a specialization already registered under its name is reused, not
+  described again;
 - the temporal shape is a named TSB whose recursive field is a
   `TS[Owned[T]]` endpoint, so the bundle's value schema is the struct itself.
   hgraph treats the owner as storage (`value_schema_without_storage`), so the
@@ -791,12 +793,20 @@ an edge as `Owned[T]`, one owner pointer, so a value is a finite tree:
   such a port through without a conversion;
 - a constant struct value copies each edge's target into its owner.
 
-The C++ emitter does not realize an edge yet: its static schema has no
-spelling for one, so `emit-cpp` stops at each edge a struct declares with an
-explicit diagnostic. That is a backend-only gap during migration, tracked in
-the roadmap's feature status matrix. The descriptor writer records struct
-layouts by nominal type too, but its format cannot yet say that a field is an
-edge (ADR 0004 format change).
+Direct wiring's type bridge (`wiring/type_bridge`) is the closure's describer:
+it describes a specialization from its struct contract, substituting generic
+arguments, and names each edge's target specialization. Generated C++ spells
+an edge with the static schema's marker: the field is
+`hgraph::Edge<Target>` in `value_type` and `hgraph::TS<hgraph::Edge<Target>>`
+in `time_series`, and a `NominalBundle` with an edge registers through the
+same closure. The emitter defines each struct after every struct it holds
+inline, and declares an edge's target first only when the target is defined
+later; `Edge` needs only the target's name.
+
+A module descriptor records an exported struct's layout, and its format cannot
+yet say that a field is an edge (ADR 0004 format change). An importer would
+read the edge as an ordinary field, so `emit-cpp` refuses to export a struct
+with an edge; the struct is usable inside its module.
 
 ## Generic constraint IR and lowering
 
@@ -1812,7 +1822,8 @@ expression is read from the syntax tree.
 - **Structural types.** An exported source struct becomes a readable C++
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic
-  arguments; `NominalTSB` preserves the recursively temporalized fields.
+  arguments; `NominalTSB` preserves the recursively temporalized fields. A
+  recursive edge is an `Edge<Target>` field ("Recursive struct edges").
   Constructors lower to `to_tsb`; an `atomic<S>` result aggregates the fields
   that have a value, as an `UnNamedTSB`, through `combine_cs`, or is a
   `const_` of the empty struct when none has; and a runtime `delta<S>` builds

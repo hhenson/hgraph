@@ -707,8 +707,8 @@ generic argument, or an abstract family it belongs to; the compiler reports
 each field that closes such a cycle, unless the field is an optional atomic
 boundary such as `next: atomic<Node> = null`. That recursive field is agreed in
 [ADR 0012](../design/decisions/0012-recursive-struct-fields.md) and works in
-compositions run by direct wiring (`hgl test`, `hgl run`); generated C++
-does not support it yet. Runtime type tests, concrete
+compositions run by direct wiring (`hgl test`, `hgl run`) and in generated
+C++; a struct with such a field cannot be exported from its module yet. Runtime type tests, concrete
 downcasts, exhaustive family matching, and the explicit temporal
 base-projection spelling also remain to be defined. Generic parameter defaults
 and partial generic application are deliberately deferred. Structural
