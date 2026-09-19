@@ -332,6 +332,85 @@ namespace
     using DereferencedMappedReferenceBundle =
         UnNamedTSB<Field<"value", REF<TS<Int>>>>;
 
+    using ProjectedLookupBaseKey =
+        NominalBundle<"tests.projected_lookup", "BaseKey", false,
+                      BundleParents<>, BundleArguments<>, Field<"key", Str>>;
+    using ProjectedLookupDerivedKey =
+        NominalBundle<"tests.projected_lookup", "DerivedKey", false,
+                      BundleParents<ProjectedLookupBaseKey>, BundleArguments<>,
+                      Field<"key", Str>, Field<"qualifier", Int>>;
+    using ProjectedLookupFactor =
+        TSB<"ProjectedLookupFactor", Field<"value", TS<Float>>>;
+
+    struct ApplyProjectedPolymorphicFactorG
+    {
+        static constexpr auto name = "apply_projected_polymorphic_factor_g";
+
+        static Port<TS<Float>> compose(
+            Wiring &w, NamedPort<"key", TS<ProjectedLookupBaseKey>> key,
+            Port<TS<Float>> value,
+            Port<TSD<ProjectedLookupBaseKey, TS<Float>>> factors)
+        {
+            using namespace hgraph::stdlib::syntax;
+            auto factor = wire<stdlib::getitem_>(w, factors, key).as<TS<Float>>();
+            factor = wire<stdlib::default_>(w, factor, Float{1.0}).as<TS<Float>>();
+            return (value * factor).as<TS<Float>>();
+        }
+    };
+
+    struct ProjectedPolymorphicKeyLookupG
+    {
+        static constexpr auto name = "projected_polymorphic_key_lookup_g";
+
+        static Port<TS<Float>> compose(
+            Wiring &w,
+            Port<TSD<ProjectedLookupBaseKey, ProjectedLookupFactor>> factors,
+            Port<TSD<ProjectedLookupBaseKey, TS<Float>>> values)
+        {
+            auto projected = wire<stdlib::getattr_>(w, factors, Str{"value"})
+                                 .as<TSD<ProjectedLookupBaseKey, REF<TS<Float>>>>();
+            auto mapped = wire<stdlib::map_>(
+                              w, fn<ApplyProjectedPolymorphicFactorG>(), values,
+                              stdlib::pass_through(projected))
+                              .as<TSD<ProjectedLookupBaseKey, TS<Float>>>();
+            return wire<stdlib::sum_>(w, mapped).as<TS<Float>>();
+        }
+    };
+
+    Value projected_lookup_key()
+    {
+        static_cast<void>(scalar_descriptor<ProjectedLookupDerivedKey>::value_meta());
+        const auto *base = scalar_descriptor<ProjectedLookupBaseKey>::value_meta();
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(base)};
+        builder.set("key", Value{Str{"value"}});
+        return builder.build();
+    }
+
+    Value projected_lookup_dict_delta(const Value &key, const Value &element_delta)
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *key_schema = scalar_descriptor<ProjectedLookupBaseKey>::value_meta();
+        const auto *removed_schema = registry.set(key_schema);
+        const auto *modified_schema = registry.map(key_schema, element_delta.schema());
+        const auto *delta_schema = registry.un_named_bundle(
+            {{"removed", removed_schema}, {"modified", modified_schema}});
+
+        SetBuilder removed{key.binding()};
+        MapBuilder modified{key.binding(), element_delta.binding()};
+        modified.set_item_copy(key.view().data(), element_delta.view().data());
+
+        BundleBuilder delta{ValuePlanFactory::instance().type_for(delta_schema)};
+        delta.set("removed", removed.build());
+        delta.set("modified", modified.build());
+        return delta.build();
+    }
+
+    Value projected_lookup_factor_delta(const Value &key)
+    {
+        return projected_lookup_dict_delta(
+            key, tsb_delta<ProjectedLookupFactor>(Float{0.5}));
+    }
+
     struct DereferenceMappedBundleG
     {
         static constexpr auto name = "dereference_mapped_bundle_g";
@@ -1852,6 +1931,19 @@ TEST_CASE("map_: keyed lookup follows a child that becomes valid after its slot 
             values<Value>(set_delta<Str>({"key"s}, {}), none),
             values<Value>(none, dict_delta<Str, TS<Int>>({{"key"s, 42}}))),
         values<Int>(none, 42));
+}
+
+TEST_CASE("projected TSD lookup finds a concrete polymorphic base key")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const Value key = projected_lookup_key();
+    CHECK_OUTPUT(
+        eval_node<ProjectedPolymorphicKeyLookupG>(
+            values<Value>(projected_lookup_factor_delta(key)),
+            values<Value>(projected_lookup_dict_delta(key, Value{Float{100.0}}))),
+        values<Float>(50.0));
 }
 
 TEST_CASE("map_: a typed graph preserves its keyed REF[TSB] terminal")

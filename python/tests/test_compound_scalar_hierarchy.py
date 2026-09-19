@@ -175,6 +175,44 @@ def test_tsd_base_key_accepts_a_derived_key_port():
     assert eval_node(lookup, [{key: 7}], [key]) == [7]
 
 
+def test_projected_tsd_lookup_accepts_a_polymorphic_compound_scalar_key():
+    @dataclass(frozen=True)
+    class BaseKey(CompoundScalar):
+        key: str
+
+    @dataclass(frozen=True)
+    class DerivedKey(BaseKey):
+        qualifier: int
+
+    class Factor(TimeSeriesSchema):
+        value: TS[float]
+
+    @graph
+    def apply_factor(
+        key: TS[BaseKey],
+        value: TS[float],
+        factors: TSD[BaseKey, TS[float]],
+    ) -> TS[float]:
+        return value * default(factors[key], 1.0)
+
+    @graph
+    def app(
+        values: TSD[BaseKey, TS[float]],
+        factors: TSD[BaseKey, TSB[Factor]],
+    ) -> TSD[BaseKey, TS[float]]:
+        return hg.map_(
+            apply_factor,
+            values,
+            hg.pass_through(factors.value),
+            __key_arg__="key",
+        )
+
+    key = BaseKey("value")
+    assert eval_node(app, [{key: 100.0}], [{key: {"value": 0.5}}]) == [
+        {key: 50.0}
+    ]
+
+
 def test_base_declared_field_binds_to_a_node_declared_on_that_base():
     """A field whose declared type is itself a polymorphic base (issue #556).
 

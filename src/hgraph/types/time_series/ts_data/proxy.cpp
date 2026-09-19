@@ -819,7 +819,7 @@ namespace hgraph
 
             [[nodiscard]] static bool set_contains(const void *context, const void *memory, const ValueView &key)
             {
-                if (key.binding() != ctx(context)->layout.key_binding) { return false; }
+                if (key.binding().schema() != ctx(context)->layout.key_binding.schema()) { return false; }
                 return source_available(memory) && source_dict(memory).contains(key);
             }
 
@@ -833,7 +833,10 @@ namespace hgraph
 
             [[nodiscard]] static std::size_t find_slot(const void *context, const void *memory, const ValueView &key)
             {
-                if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
+                if (key.binding().schema() != ctx(context)->layout.key_binding.schema())
+                {
+                    return TS_DATA_NO_CHILD_ID;
+                }
                 return source_available(memory) ? source_dict(memory).find_slot(key) : TS_DATA_NO_CHILD_ID;
             }
 
