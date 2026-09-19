@@ -365,6 +365,25 @@ documented checkpoint stabilization phase after all observers have completed.
 The implementation may not retain retired children in a side container or
 bypass the existing stop, unsubscribe, and erase protocol.
 
+The implementation normalizes. A keyed image holds no pending-erase slot: a
+removed key is recorded as absent and its slot as free, in the position the
+next ordinary flush would give it (``KeySlotStore::checkpoint_free_slots``).
+That is sound only while every other change to the free pool commutes with the
+flush, because a restored store has flushed where the uninterrupted one may
+not yet have. Allocation cannot precede the flush, by the owner's discipline:
+``TSS``/``TSD`` flush at the first mutation of a new evaluation time and
+``mesh_`` at the start of its evaluation, and a new owner of a checkpointed
+store must do the same. Capacity growth can precede it: a caller may reserve
+ahead of its first mutation (the Python result path does), and ``mesh_``
+mirrors the capacity of its requested key set, which grows before the mesh
+itself evaluates. So
+``KeySlotStore::reserve_to`` adds new capacity UNDERNEATH the pool while the
+flush returns slots to the top, and the pool is the same in either order. The
+rule lives in the store, not in its callers. Before it did, the recovery
+campaign found a restored dictionary iterating ``(3, 0)`` where the
+uninterrupted run gave ``(0, 3)``; the pin is ``test_slot_utils.cpp``,
+"capacity growth commutes with the pending-erase flush".
+
 Mesh dependency edges, reduce topology, child scheduling queues, and similar
 owner state are classified individually as semantic or derived.  The owning
 node operations make the decision once; the checkpoint walker does not switch
@@ -1113,8 +1132,10 @@ Put checkpoint operations on each concrete node through RTTI/downcasts
 Unresolved questions
 --------------------
 
-* Whether the first implementation captures pending-erase slot state exactly
-  or adds a universal post-observer stabilization boundary.
+* *Resolved (2026-09-19):* pending-erase slot state is normalized at capture,
+  not represented exactly, under the commutation rule recorded in `Dynamic
+  nested graphs`_. A universal post-observer stabilization boundary was not
+  needed.
 * Whether recoverable push sources journal raw accepted payloads as well as
   canonical graph-observed emissions, or leave the former entirely to their
   binding delivery contract — and, relatedly, whether the

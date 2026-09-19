@@ -184,15 +184,20 @@ namespace hgraph::detail
 
         void reserve_to(std::size_t capacity)
         {
-            if (capacity <= slot_count_) { return; }
+            // Read once. Re-reading the member after the calls below hides
+            // ``old_count < capacity`` from GCC 14, which then reports the copy
+            // as overrunning ``replacement`` (-Warray-bounds) on a path that
+            // cannot run.
+            const std::size_t old_count = slot_count_;
+            if (capacity <= old_count) { return; }
 
             blocks_.prepare_append();
             auto replacement = std::make_unique<std::byte *[]>(capacity);
-            if (slot_count_ != 0) { std::copy_n(slots_, slot_count_, replacement.get()); }
+            if (old_count != 0) { std::copy_n(slots_, old_count, replacement.get()); }
             SlotBitmap next_constructed = resized_bitmap_copy(constructed_, capacity);
             LiveBitmap next_live = resized_live_bitmap(capacity);
-            StableSlotBlock block = blocks_.allocate_block(slot_count_, capacity - slot_count_);
-            for (std::size_t slot = slot_count_; slot < capacity; ++slot)
+            StableSlotBlock block = blocks_.allocate_block(old_count, capacity - old_count);
+            for (std::size_t slot = old_count; slot < capacity; ++slot)
             {
                 replacement[slot] = block.slot_data(slot);
             }
@@ -374,13 +379,15 @@ namespace hgraph::detail
 
         void reserve_to(std::size_t capacity)
         {
-            if (capacity <= slot_count_) { return; }
+            // Read once: see the bitmap implementation's reserve_to.
+            const std::size_t old_count = slot_count_;
+            if (capacity <= old_count) { return; }
 
             blocks_.prepare_append();
             auto replacement = std::make_unique<SlotPointer[]>(capacity);
-            if (slot_count_ != 0) { std::copy_n(slots_, slot_count_, replacement.get()); }
-            StableSlotBlock block = blocks_.allocate_block(slot_count_, capacity - slot_count_);
-            for (std::size_t slot = slot_count_; slot < capacity; ++slot)
+            if (old_count != 0) { std::copy_n(slots_, old_count, replacement.get()); }
+            StableSlotBlock block = blocks_.allocate_block(old_count, capacity - old_count);
+            for (std::size_t slot = old_count; slot < capacity; ++slot)
             {
                 replacement[slot].set(block.slot_data(slot), TaggedStableSlotState::Free);
             }

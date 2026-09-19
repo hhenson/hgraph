@@ -1407,6 +1407,20 @@ do not use the slot stores.
     slot's last value during the tick of its removal without making the
     utility store track mutation epochs.
 
+    Free slots are handed out last-in first-out, and keys iterate in slot
+    order, so the free order decides what every later consumer observes.
+    Two rules keep it a function of the key history alone. ``erase_pending()``
+    returns its slots to the TOP of the pool. ``reserve_to()`` adds new
+    capacity UNDERNEATH it, so holes are reused before fresh slots. Growth
+    and the flush therefore commute: the pool is the same whether a caller
+    reserved before the flush or after it. A checkpoint depends on this. It
+    records the pool as it will stand after the next flush
+    (``checkpoint_free_slots()``), so a restored store has already flushed
+    where the uninterrupted one may not have; a caller that reserves ahead of
+    its first mutation -- the Python result path does, for the size of the
+    delta -- would otherwise give the two stores different slots for the same
+    key.
+
 ``ValueSlotStore``
     Standalone parallel value memory keyed off externally supplied slot
     ids. As a reusable utility it owns per-slot constructed state

@@ -163,6 +163,59 @@ TEST_CASE("KeySlotStore planned checkpoint import preserves sparse slots and all
         CHECK(keys.insert(Value{static_cast<std::int64_t>(*it + 100)}.view()).slot == *it);
 }
 
+TEST_CASE("KeySlotStore capacity growth commutes with the pending-erase flush", "[slot-utils][checkpoint]")
+{
+    // A checkpoint records the free order as it will stand AFTER the next flush
+    // (checkpoint_free_slots), so a restored store has already flushed where the
+    // uninterrupted one has not. A caller may grow capacity before that flush --
+    // the Python result path reserves for a delta ahead of its first mutation --
+    // so the two must commute, or the stores hand the next key different slots.
+    // Found by the recovery campaign (tools/recovery).
+    using namespace hgraph;
+    const auto key = [](std::int64_t value) { return Value{value}; };
+    const auto history = [&](KeySlotStore &keys) {
+        keys.reserve_to(1);
+        REQUIRE(keys.insert(key(2).view()).slot == 0);
+        keys.reserve_to(2);
+        REQUIRE(keys.remove_slot(0));
+        REQUIRE(keys.insert(key(1).view()).slot == 1);
+    };
+
+    SECTION("either order leaves one free order")
+    {
+        KeySlotStore grow_first{key(0).binding()}, flush_first{key(0).binding()};
+        history(grow_first);
+        history(flush_first);
+        grow_first.reserve_to(5);
+        grow_first.erase_pending();
+        flush_first.erase_pending();
+        flush_first.reserve_to(5);
+        CHECK(grow_first.checkpoint_free_slots() == flush_first.checkpoint_free_slots());
+    }
+
+    SECTION("a restored store allocates as the uninterrupted one does")
+    {
+        KeySlotStore uninterrupted{key(0).binding()};
+        history(uninterrupted);
+        const std::vector<std::size_t> live{1};
+        const auto free = uninterrupted.checkpoint_free_slots();
+        KeySlotStore restored{key(0).binding()};
+        restored.prepare_checkpoint_restore(live, free);
+        restored.restore_key_at_slot(1, key(1).view());
+        restored.restore_free_slots(free);
+
+        // The next cycle: reserve for a three-entry delta, flush, then apply it.
+        for (auto *keys : {&uninterrupted, &restored})
+        {
+            keys->reserve_to(3);
+            keys->erase_pending();
+            REQUIRE(keys->remove_slot(1));
+        }
+        CHECK(uninterrupted.insert(key(0).view()).slot == restored.insert(key(0).view()).slot);
+        CHECK(uninterrupted.insert(key(3).view()).slot == restored.insert(key(3).view()).slot);
+    }
+}
+
 TEST_CASE("KeySlotStore checkpoint plan rejects malformed slot partitions before allocation", "[slot-utils][checkpoint]")
 {
     using namespace hgraph;

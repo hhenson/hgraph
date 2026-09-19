@@ -209,6 +209,52 @@ TEST_CASE("TS checkpoint: dictionaries restore membership slots partial values a
     target.unsubscribe(&root_observer);
 }
 
+TEST_CASE("TS checkpoint: a dictionary reserved ahead of its first mutation keeps its key order", "[checkpoint]")
+{
+    // The recovery campaign's minimal stream (tools/recovery): a slot freed
+    // before the cut is still pending at it, and the first delta after the cut
+    // is larger than the capacity. The Python result path reserves for a delta
+    // before it mutates, so capacity grows BEFORE the lazy flush returns the
+    // freed slot; a restored dictionary had that slot free already. Keys
+    // iterate in slot order, so an order-sensitive consumer saw (3, 0) where
+    // the uninterrupted run gave (0, 3).
+    auto &registry = TypeRegistry::instance();
+    const auto *ts = checkpoint_int_schema();
+    const auto *schema = registry.tsd(ts->value_schema, ts);
+    const Value zero{std::int32_t{0}}, one{std::int32_t{1}}, two{std::int32_t{2}}, three{std::int32_t{3}};
+    const auto t0 = MIN_ST, t1 = t0 + TimeDelta{1}, t2 = t1 + TimeDelta{1};
+
+    TSOutput source{schema};
+    auto source_view = source.data_view();
+    auto source_dict = source_view.as_dict();
+    {
+        auto mutation = source_dict.begin_mutation(t0);
+        mutation.reserve(1);
+        assign(mutation.at(two.view()), 2, t0);
+    }
+    {
+        auto mutation = source_dict.begin_mutation(t1);
+        mutation.reserve(2);
+        REQUIRE(mutation.erase(two.view()));
+        assign(mutation.at(one.view()), 4, t1);
+    }
+    TSOutput target{schema};
+    restore_ts_checkpoint(target.data_view(), capture_ts_checkpoint(source.data_view()));
+    auto target_view = target.data_view();
+    auto target_dict = target_view.as_dict();
+
+    for (auto *dict : {&source_dict, &target_dict})
+    {
+        auto mutation = dict->begin_mutation(t2);
+        mutation.reserve(3);
+        assign(mutation.at(zero.view()), 7, t2);
+        REQUIRE(mutation.erase(one.view()));
+        assign(mutation.at(three.view()), 3, t2);
+    }
+    CHECK(target_dict.find_slot(zero.view()) == source_dict.find_slot(zero.view()));
+    CHECK(target_dict.find_slot(three.view()) == source_dict.find_slot(three.view()));
+}
+
 TEST_CASE("TS checkpoint: keyed preflight rejects a malformed later child before adding membership", "[checkpoint]")
 {
     auto &registry = TypeRegistry::instance();

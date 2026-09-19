@@ -6,14 +6,14 @@ import pickle
 import tempfile
 import time
 import traceback
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import hgraph as hg
 
 from . import graphs
 from .generate import thaw
-from .model import MESH_EMPTY_INPUT, TSD_SLOT_ORDER, Scenario, expected, known_defect
+from .model import MESH_EMPTY_INPUT, Scenario, expected, known_defect
 
 
 @dataclass
@@ -172,13 +172,6 @@ def _confirmed(scenario: Scenario, family, workdir: Path, oracle, actual) -> boo
     member would be filed as known, and an unrelated regression in a reduction, a map_, a
     dmap_ or a pipeline that happened to sit in a member would leave the nightly green.
     """
-    if family is TSD_SLOT_ORDER:
-        # The defect is the ORDER the restored keyed input iterates in. The same scenario
-        # with the reduction swapped for a probe that reports that order has to differ too.
-        probe = replace(scenario, chain=scenario.chain[: -len(scenario.leaf)] + "keyorder")
-        unbroken = _days(probe, workdir, "probe-oracle", recover=False, cuts=())
-        restarted = _days(probe, workdir, "probe-restarted", recover=True, cuts=scenario.cuts)
-        return unbroken != restarted
     if family is MESH_EMPTY_INPUT:
         # The consequence is exactly this: keys holding an EMPTY collection in the unbroken
         # run are absent afterwards. Take the empties out of both and nothing else may differ.

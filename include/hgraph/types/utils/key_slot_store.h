@@ -399,15 +399,29 @@ namespace hgraph
          * Grow capacity to at least ``capacity`` slots. New slots are added
          * to the free-slot pool and the lookup index is reserved
          * accordingly. Notifies registered observers via ``on_capacity``.
+         *
+         * New slots go UNDER the slots already free: holes are reused before
+         * fresh capacity, lowest new slot first. That placement is what makes
+         * growth commute with ``erase_pending()``, which returns slots to the
+         * TOP -- so the free order does not depend on whether a caller reserved
+         * before or after the flush. ``checkpoint_free_slots()`` relies on it:
+         * a restored store has flushed where the uninterrupted one may not yet
+         * have, and both must hand the next key the same slot. Linear in the
+         * free pool, paid only when capacity actually grows.
          */
         void reserve_to(size_t capacity) {
             if (capacity <= slot_capacity()) { return; }
 
             const size_t old_capacity = slot_capacity();
+            // Built aside and swapped in, as prepare_checkpoint_restore does,
+            // so a failed allocation leaves the store as it was.
+            std::vector<size_t> pool;
+            pool.reserve(m_free_slots.size() + capacity - old_capacity);
+            for (size_t slot = capacity; slot > old_capacity; --slot) { pool.push_back(slot - 1); }
+            pool.insert(pool.end(), m_free_slots.begin(), m_free_slots.end());
             key_storage.reserve_to(capacity);
-            m_free_slots.reserve(m_free_slots.size() + capacity - old_capacity);
             m_index->reserve(capacity);
-            for (size_t slot = capacity; slot > old_capacity; --slot) { m_free_slots.push_back(slot - 1); }
+            m_free_slots.swap(pool);
             observers.notify_capacity(old_capacity, capacity);
         }
 
@@ -583,6 +597,13 @@ namespace hgraph
         /** Free-slot order after the next ordinary pending-erase flush.
          * Capturing a completed cycle normalizes removed keys to absent;
          * the returned LIFO order preserves the next insertion's identity.
+         * Normalizing is sound only because every other change to the free
+         * pool commutes with that flush. Growth does by construction:
+         * ``reserve_to`` adds capacity underneath the pool, not on top of it.
+         * Allocation does by the OWNER's discipline, which a new owner must
+         * keep: flush before the first insert of a new evaluation time, as
+         * TSS/TSD do in ``prepare_delta`` and ``mesh_`` does in
+         * ``erase_retired_before``.
          */
         [[nodiscard]] std::vector<size_t> checkpoint_free_slots() const {
             std::vector<size_t> result = m_free_slots;

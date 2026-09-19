@@ -72,19 +72,7 @@ def test_a_mismatch_without_the_familys_signature_is_a_failure(tmp_path, monkeyp
     # scenario would leave the nightly green.
     _campaign(monkeypatch)
     from tools.recovery import run as runner
-    from tools.recovery.model import MESH_EMPTY_INPUT, TSD_SLOT_ORDER, Scenario, known_defect
-
-    # In the slot-order family (a removal on each side of the cut), and restarting invisibly.
-    member = Scenario(chain="folded", placement="outer", host="graph", mode="snapshot",
-                      events=({2: 2, 5: 1}, {2: "REMOVE"}, {1: 4}, {5: "REMOVE"}), cuts=(3,))
-    assert known_defect(member) is TSD_SLOT_ORDER
-    honest = runner.run(member)
-    assert honest.status == "pass", honest.detail
-    # The same scenario with a WRONG answer that key order cannot explain: the probe shows
-    # the restored input iterating as the unbroken one does, so this is something else.
-    judged = runner._classify(member, tmp_path, [1, 2, 3, 4], [1, 2, 3, 99], "", lambda: 0.0)
-    assert judged.status == "fail"
-    assert "does NOT have its signature" in judged.detail
+    from tools.recovery.model import MESH_EMPTY_INPUT, Scenario, known_defect
 
     # The mesh_ family: only keys holding an EMPTY collection may be missing afterwards.
     mesh = Scenario(chain="map__mesh__doubled", placement="outer", host="graph", mode="recover",
@@ -92,4 +80,22 @@ def test_a_mismatch_without_the_familys_signature_is_a_failure(tmp_path, monkeyp
     assert known_defect(mesh) is MESH_EMPTY_INPUT
     unbroken = [((0, ()), (5, ((1, 2),)))]
     assert runner._classify(mesh, tmp_path, unbroken, [((5, ((1, 2),)),)], "", lambda: 0.0).status == "known"
-    assert runner._classify(mesh, tmp_path, unbroken, [((5, ((1, 7),)),)], "", lambda: 0.0).status == "fail"
+    judged = runner._classify(mesh, tmp_path, unbroken, [((5, ((1, 7),)),)], "", lambda: 0.0)
+    assert judged.status == "fail"
+    assert "does NOT have its signature" in judged.detail
+
+
+def test_the_retired_slot_order_family_stays_retired(monkeypatch):
+    # ``tsd-restored-slot-order`` was a family until 2026-09-19: a removal on each side of a
+    # cut left a restored keyed input iterating (3, 0) where the unbroken run gave (0, 3),
+    # because capacity growth and the pending-erase flush did not commute in KeySlotStore.
+    # Its minimal stream now belongs to no family, so a recurrence is a plain failure.
+    _campaign(monkeypatch)
+    from tools.recovery import run as runner
+    from tools.recovery.model import Scenario, known_defect
+
+    minimal = Scenario(chain="folded", placement="outer", host="graph", mode="snapshot",
+                       events=({2: 2}, {2: "REMOVE", 1: 4}, {0: 7, 1: "REMOVE", 3: 3}), cuts=(2,))
+    assert known_defect(minimal) is None
+    result = runner.run(minimal)
+    assert result.status == "pass", result.detail

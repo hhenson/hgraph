@@ -394,11 +394,12 @@ that is there -- with quiet cycles, and keys that leave and return.
   rediscover it. Members that fail are ``known``, reported and not a failure;
   a failure outside every family is. When a large family stops failing
   altogether the campaign reports ``RETIRED`` and fails, so the fix deletes the
-  family. Two exist today. ``tsd-restored-slot-order`` is a defect: a restored
-  keyed input iterates its keys in another order when there is a removal on
-  each side of a cut. It is pinned also as a strict ``xfail`` with its minimal
-  stream in
-  ``extensions/persistence/python/tests/test_reduce_recovery_scenarios.py``.
+  family. One exists today. (The first, ``tsd-restored-slot-order``, went that
+  way on 2026-09-19: a restored keyed input iterated its keys in another order
+  when there was a removal on each side of a cut, because capacity growth and
+  the pending-erase flush did not commute in ``KeySlotStore``. Its minimal
+  stream stays as an ordinary test in
+  ``extensions/persistence/python/tests/test_reduce_recovery_scenarios.py``.)
   ``mesh-empty-input-no-tick`` is **not** a defect but the consequence of a
   ruling (:doc:`parity_matrix`, no change means no tick): a ``mesh_`` started
   over an empty key set emits nothing, one emptied later keeps its valid empty
