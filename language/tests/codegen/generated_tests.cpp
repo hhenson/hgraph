@@ -20,6 +20,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -210,4 +211,22 @@ TEST_CASE("generated exports are registered by module-qualified name with their 
     // Through the registry the const default applies, as it would from Python.
     CHECK_OUTPUT(eval_node<parity::operators::scaled_sum>(values<Float>(1.0), values<Float>(2.0)), values<Float>(6.0));
     CHECK_OUTPUT(eval_node<parity::operators::maybe_double>(values<Float>(1.5)), values<Float>(3.0));
+}
+
+TEST_CASE("compiled wiring checks integer overflow before graph execution", "[codegen][parity][arithmetic]") {
+    hgl::wiring::ensure_session();
+    parity::register_operators();
+    const Int lo = std::numeric_limits<Int>::min();
+    const Int hi = std::numeric_limits<Int>::max();
+    CHECK_OUTPUT(eval_node<parity::operators::checked_add>(values<Int>(0), arg<"x">(hi - 1), arg<"y">(Int{1})), values<Int>(hi));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_sub>(values<Int>(0), arg<"x">(lo + 1), arg<"y">(Int{1})), values<Int>(lo));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_mul>(values<Int>(0), arg<"x">(lo / 2), arg<"y">(Int{2})), values<Int>(lo));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_floor>(values<Int>(0), arg<"x">(Int{-7}), arg<"y">(Int{3})), values<Int>(-3));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_rem>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})), values<Int>(0));
+    CHECK_THROWS(eval_node<parity::operators::checked_add>(values<Int>(0), arg<"x">(hi), arg<"y">(Int{1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_sub>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_mul>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_neg>(values<Int>(0), arg<"x">(lo)));
+    CHECK_THROWS(eval_node<parity::operators::checked_floor>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_rem>(values<Int>(0), arg<"x">(Int{1}), arg<"y">(Int{0})));
 }

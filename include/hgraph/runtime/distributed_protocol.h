@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -154,6 +155,60 @@ namespace hgraph::distributed
     [[nodiscard]] HGRAPH_EXPORT bool read_frame(std::string_view buffer, std::string_view &payload,
                                                 std::size_t &consumed,
                                                 std::size_t max_size = DEFAULT_MAX_FRAME_SIZE);
+
+    /**
+     * Control frames for recovery (RFC 0039). Neither is a ``CycleRequest``.
+     *
+     * A request opens with its evaluation time as eight little-endian bytes.
+     * Read that way ``@hgraph-`` is a time far beyond ``MAX_ET``, so a marker
+     * can never be a request (pinned by the protocol tests).
+     *
+     * A checkpoint frame is ``checkpoint_frame`` followed by the id of the
+     * component the image is to cover, or by nothing for the whole graph.
+     * Caller to worker, between cycles. The reply is a status byte and then
+     * the graph image (0) or the rendered error (1).
+     *
+     * A restore frame is ``restore_frame_prefix``, the same component id
+     * length-prefixed, and the image. It is legal only before a worker's
+     * first cycle; the reply is a ``CycleReply``.
+     */
+    inline constexpr std::string_view checkpoint_frame{"@hgraph-checkpoint:1"};
+    inline constexpr std::string_view restore_frame_prefix{"@hgraph-restore:1"};
+    /** A ``spawn_`` stage answers its start before any cycle, so it cannot
+     * wait to see whether its first frame is a restore: the owner says which,
+     * with this frame or a restore frame, straight after the boundary identity. */
+    inline constexpr std::string_view start_frame{"@hgraph-start:1"};
+
+    struct HGRAPH_CLASS_EXPORT RestoreFrame
+    {
+        std::string_view component{};
+        std::string_view image{};
+    };
+    [[nodiscard]] HGRAPH_EXPORT std::string encode_checkpoint_frame(std::string_view component = {});
+    /** The component a checkpoint frame names, or nullopt when ``frame`` is not one. */
+    [[nodiscard]] HGRAPH_EXPORT std::optional<std::string_view> checkpoint_frame_component(std::string_view frame) noexcept;
+    [[nodiscard]] HGRAPH_EXPORT std::string encode_restore_frame(std::string_view image, std::string_view component = {});
+    /** What a restore frame carries, or nullopt when ``frame`` is not one. A
+     * restore frame that is malformed throws. */
+    [[nodiscard]] HGRAPH_EXPORT std::optional<RestoreFrame> decode_restore_frame(std::string_view frame);
+    /** A checkpoint reply is marked as one, then a status byte. It has to be
+     * unmistakable: a worker that fails on the way out answers with an ordinary
+     * ``CycleReply``, whose first byte is the low byte of a time -- zero for any
+     * whole-day time, which a bare status byte would read as "here is an image". */
+    inline constexpr std::string_view checkpoint_reply_prefix{"@hgraph-image:1"};
+    [[nodiscard]] HGRAPH_EXPORT std::string encode_checkpoint_reply(std::string_view image);
+    [[nodiscard]] HGRAPH_EXPORT std::string encode_checkpoint_error(std::string_view error);
+
+    /** The worker ANSWERED, and the answer was no. Its graph is intact and it
+     * is still serving, so the caller must not treat this as a transport
+     * failure: it fails the capture, not the worker (RFC 0039, "Failure"). */
+    struct HGRAPH_CLASS_EXPORT CheckpointRefused : std::runtime_error
+    {
+        using std::runtime_error::runtime_error;
+    };
+    /** The image; ``CheckpointRefused`` with what the worker reported; or
+     * ``std::runtime_error`` when the frame is not a checkpoint reply at all. */
+    [[nodiscard]] HGRAPH_EXPORT std::string decode_checkpoint_reply(std::string_view frame);
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_PROTOCOL_H

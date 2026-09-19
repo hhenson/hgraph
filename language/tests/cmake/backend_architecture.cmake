@@ -56,3 +56,13 @@ endfunction()
 foreach(_source IN LISTS _backend_sources)
     hgl_check_backend_source("${_source}")
 endforeach()
+
+# The emitter consumes semantic plans. Extents and admission must never be
+# recovered from generated C++ spellings or independently re-analysed here.
+file(READ "${HGL_LANGUAGE_SOURCE_DIR}/codegen/cpp_emitter.cpp" _emitter)
+foreach(_forbidden IN ITEMS "std::stoll" "check_runtime_expr" "check_runtime_selector" "recursive functions are not supported")
+    string(FIND "${_emitter}" "${_forbidden}" _position)
+    if(NOT _position EQUAL -1)
+        message(FATAL_ERROR "Emitter contains semantic analysis: ${_forbidden}")
+    endif()
+endforeach()

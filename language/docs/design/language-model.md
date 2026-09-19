@@ -668,8 +668,8 @@ loopback state. Reconstructible node-local data has the separate agreed
 not require recordability, but rebuilding it must preserve observable
 computation; arbitrary resources still need a native ownership/lifecycle
 contract. `cache name[: T] = init` is the declaration
-([ADR 0011](decisions/0011-cache-declarations.md)): one scalar cache per
-runtime function, re-initialized on every start, not yet beside `state`.
+([ADR 0011](decisions/0011-cache-declarations.md)): scalar cache fields share one generated native struct, re-initialized on
+every start, not yet beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
@@ -946,7 +946,7 @@ Later decisions must define:
 - collection delta literals and the native encoding for explicit optional-field
   clearing;
 - remaining phase/effect and modifier rules for value-level `const fn`,
-  cache declaration/initializer syntax, native type/target mappings, lifecycle
+  non-scalar cache storage and mixed state/cache support, native type/target mappings, lifecycle
   output access, and sinks; the agreed direction is in
   [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md).
 

@@ -145,7 +145,10 @@ cmake.source-dir = "."
 minimum-version = "build-system.requires"
 wheel.py-api = "cp312"
 wheel.packages = ["python/hgraph"]
+sdist.include = ["cmake/**"]
 sdist.exclude = [
+    ".venv",
+    ".venv/**",
     "reports/**",
     "ext/**",
     "extensions/**",

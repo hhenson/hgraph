@@ -155,7 +155,7 @@ add_library(hgl_ir STATIC
 )
 add_library(hgl::ir ALIAS hgl_ir)
 target_compile_features(hgl_ir PUBLIC cxx_std_23)
-target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(hgl_ir PUBLIC hgl::semantics)
 hgl_apply_warnings(hgl_ir)
 
@@ -165,6 +165,7 @@ hgl_apply_warnings(hgl_ir)
 add_library(hgl_graph_ir STATIC
     src/hgraph_ir/complete.cpp
     src/hgraph_ir/control_flow.cpp
+    src/hgraph_ir/plan.cpp
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
     src/hgraph_ir/uses.cpp

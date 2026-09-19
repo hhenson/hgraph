@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
@@ -1199,15 +1200,8 @@ namespace hgraph
             }
             signature.varint(spec.multiplexed_inputs.size());
             for (auto index : spec.multiplexed_inputs) { signature.varint(index); }
-            signature.varint(spec.child.input_bindings.size());
-            for (const auto &binding : spec.child.input_bindings)
-            {
-                signature.varint(binding.source_path.size());
-                for (auto part : binding.source_path) { signature.varint(part); }
-                signature.varint(binding.target.node);
-                signature.varint(binding.target.path.size());
-                for (auto part : binding.target.path) { signature.varint(part); }
-            }
+            node_checkpoint_detail::append_input_bindings(
+                signature, spec.child.graph_builder, spec.child.input_bindings);
             const auto &bytes = signature.bytes();
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
@@ -1435,10 +1429,18 @@ namespace hgraph
             {
                 auto *entry = storage.entries.entry_at(slot);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
+                // ``>=``: a child restored only in part (RFC 0039) starts its
+                // other nodes fresh, and one of those may be due at the start.
                 const auto next = entry->graph.view().next_scheduled_time();
-                if (next != MAX_DT && next > time)
+                if (next != MAX_DT && next >= time)
                     storage.push_pulled_child_schedule(next, entry->schedule_context);
             }
+        }
+
+        [[nodiscard]] DateTime live_map_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
         }
 
         void visit_map_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
@@ -1454,10 +1456,12 @@ namespace hgraph
             static const NodeCheckpointOps ops{
                 .supported = true,
                 .captures_output = true,
+                .schedules_children = true,
                 .capture_impl = &capture_map_checkpoint,
                 .prepare_restore_impl = &prepare_map_checkpoint,
                 .restore_impl = &restore_map_checkpoint,
                 .start_restored_impl = &start_restored_map,
+                .live_schedule_impl = &live_map_schedule,
                 .visit_endpoints_impl = &visit_map_checkpoint_endpoints,
                 .signature_impl = &map_checkpoint_signature,
             };

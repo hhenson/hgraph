@@ -1,5 +1,6 @@
 #include <hgraph/runtime/distributed_protocol.h>
 
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/value_view.h>
@@ -260,6 +261,70 @@ namespace hgraph::distributed
         return true;
     }
 
+    std::string encode_checkpoint_frame(std::string_view component)
+    {
+        std::string out{checkpoint_frame};
+        out.append(component);
+        return out;
+    }
+
+    std::optional<std::string_view> checkpoint_frame_component(std::string_view frame) noexcept
+    {
+        if (!frame.starts_with(checkpoint_frame)) { return std::nullopt; }
+        return frame.substr(checkpoint_frame.size());
+    }
+
+    std::string encode_restore_frame(std::string_view image, std::string_view component)
+    {
+        std::string out;
+        out.reserve(restore_frame_prefix.size() + 10 + component.size() + image.size());
+        out.append(restore_frame_prefix);
+        write_varint(component.size(), out);
+        out.append(component).append(image);
+        return out;
+    }
+
+    std::optional<RestoreFrame> decode_restore_frame(std::string_view frame)
+    {
+        if (!frame.starts_with(restore_frame_prefix)) { return std::nullopt; }
+        BinaryReader reader{frame, restore_frame_prefix.size()};
+        const auto length = read_varint(reader);
+        if (length > frame.size() - reader.offset)
+            throw std::runtime_error("distributed protocol: malformed restore frame");
+        const auto begin = reader.offset;
+        return RestoreFrame{frame.substr(begin, static_cast<std::size_t>(length)),
+                            frame.substr(begin + static_cast<std::size_t>(length))};
+    }
+
+    namespace
+    {
+        std::string checkpoint_answer(char status, std::string_view body)
+        {
+            std::string out;
+            out.reserve(checkpoint_reply_prefix.size() + 1 + body.size());
+            out.append(checkpoint_reply_prefix).push_back(status);
+            out.append(body);
+            return out;
+        }
+    }
+
+    std::string encode_checkpoint_reply(std::string_view image) { return checkpoint_answer('\0', image); }
+
+    std::string encode_checkpoint_error(std::string_view error) { return checkpoint_answer('\1', error); }
+
+    std::string decode_checkpoint_reply(std::string_view frame)
+    {
+        if (!frame.starts_with(checkpoint_reply_prefix) || frame.size() == checkpoint_reply_prefix.size())
+        {
+            throw std::runtime_error("distributed protocol: the worker did not answer the checkpoint request");
+        }
+        const char status = frame[checkpoint_reply_prefix.size()];
+        const auto body   = frame.substr(checkpoint_reply_prefix.size() + 1);
+        if (status == '\1') { throw CheckpointRefused(std::string{body}); }
+        if (status != '\0') { throw std::runtime_error("distributed protocol: malformed checkpoint reply"); }
+        return std::string{body};
+    }
+
 }  // namespace hgraph::distributed
 
 // --- the worker's behaviour ------------------------------------------------
@@ -267,10 +332,71 @@ namespace hgraph::distributed
 // is what a worker IS, and keeping it here means it is exercised by the core
 // test suite rather than only by whatever spawns a process.
 
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/runtime/distributed_child.h>
 
 namespace hgraph::distributed
 {
+    namespace
+    {
+        std::string boundary_checkpoint_signature(const NodeBuilder &builder)
+        {
+            manifest::CanonicalWriter writer;
+            writer.varint(1);
+            // The prepared output sink is a native node with a fixed slot and
+            // no scalars; every other boundary node names its slot.
+            const auto scalars = builder.scalars().view();
+            const bool named   = scalars.valid() && scalars.as_bundle().has_field("slot");
+            writer.string_field(named ? scalars.as_bundle().at("slot").checked_as<Str>() : Str{});
+            const auto &bytes = writer.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+    }
+
+    const NodeCheckpointOps &boundary_source_checkpoint_ops() noexcept
+    {
+        static const NodeCheckpointOps ops{.supported = true, .signature_impl = &boundary_checkpoint_signature};
+        return ops;
+    }
+
+    const NodeCheckpointOps &boundary_sink_checkpoint_ops() noexcept
+    {
+        static const NodeCheckpointOps ops{
+            .supported = true, .captures_output = false, .signature_impl = &boundary_checkpoint_signature};
+        return ops;
+    }
+
+    std::string capture_worker_image(const DistributedChildHost &host, std::string_view component)
+    {
+        std::string bytes;
+        encode_graph_checkpoint(host.capture(GraphCheckpointSelection::hosted(component)), bytes,
+                                host.graph().evaluation_time());
+        return bytes;
+    }
+
+    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component)
+    {
+        try
+        {
+            auto reply = encode_checkpoint_reply(capture_worker_image(host, component));
+            if (reply.size() <= DEFAULT_MAX_FRAME_SIZE) { return reply; }
+            return encode_checkpoint_error(fmt::format(
+                "distributed worker: the image is {} bytes and a frame carries at most {}; "
+                "spread the state over more workers", reply.size(), DEFAULT_MAX_FRAME_SIZE));
+        }
+        catch (const std::exception &error)
+        {
+            return encode_checkpoint_error(fmt::format("distributed worker: {}", error.what()));
+        }
+    }
+
+    DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time, std::string_view image,
+                                   std::string_view component)
+    {
+        host.start_restored(start_time, decode_graph_checkpoint(image), GraphCheckpointSelection::hosted(component));
+        return host.next_scheduled_time();
+    }
+
     CycleReply serve_cycle(const DistributedChildHost &host, const BoundarySlots &slots,
                            const CycleRequest &request)
     {

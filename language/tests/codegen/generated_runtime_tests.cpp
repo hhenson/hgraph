@@ -184,3 +184,18 @@ TEST_CASE("a generated composition can wire a private generated runtime node", "
     CHECK_OUTPUT(eval_node<runtime::operators::private_total_graph>(values<Float>(1.0, 2.0, 3.0)),
                  values<Float>(1.0, 3.0, 6.0));
 }
+
+TEST_CASE("generated cache fields share one native slot and reinitialize on a new run", "[codegen][runtime][cache]") {
+    session();
+    for (int run = 0; run != 2; ++run) {
+        CHECK_OUTPUT(eval_node<runtime::operators::cache_bundle>(values<Int>(2, 4, 9)), values<Float>(2.0, 3.0, 5.0));
+    }
+}
+
+TEST_CASE("generated fixed-list scalar reads use guarded child validity", "[codegen][runtime]") {
+    session();
+    CHECK_OUTPUT((eval_node<runtime::operators::first_scalar, TSL<TS<Int>, 2>>(
+                     values<Value>(list_delta<TS<Int>>({{1, 9}}), list_delta<TS<Int>>({{0, 3}}), list_delta<TS<Int>>({{1, 10}}),
+                                   list_delta<TS<Int>>({{0, 7}})))),
+                 values<Int>(none, 3, 3, 7));
+}

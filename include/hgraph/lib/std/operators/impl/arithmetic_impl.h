@@ -3,24 +3,25 @@
 
 #include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/arithmetic.h>
-#include <hgraph/lib/std/operators/container.h>
-#include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/lib/std/operators/collection.h>
-#include <hgraph/lib/std/value_util.h>  // ResolvedBindings (start-resolved)
-#include <hgraph/types/value/value_builder.h>
-#include <hgraph/types/value_callable.h>
-#include <hgraph/lib/std/operators/impl/higher_order_impl.h>   // add_ / sub_ / mul_ / div_ / DivideByZero
+#include <hgraph/lib/std/operators/container.h>
+#include <hgraph/lib/std/operators/impl/higher_order_impl.h>  // add_ / sub_ / mul_ / div_ / DivideByZero
 #include <hgraph/lib/std/operators/impl/tsb_itemwise_impl.h>
 #include <hgraph/lib/std/operators/impl/tsl_itemwise_impl.h>
+#include <hgraph/lib/std/operators/logical.h>
+#include <hgraph/lib/std/scalar_round.h>
+#include <hgraph/lib/std/value_util.h>  // ResolvedBindings (start-resolved)
 #include <hgraph/runtime/global_state.h>
+#include <hgraph/types/lift.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
-#include <hgraph/types/lift.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/visitor.h>
+#include <hgraph/types/value_callable.h>
 
 #include <algorithm>
 #include <chrono>
@@ -68,18 +69,12 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``round_(ts, n_digits)`` — round to decimal places with python's
-        correctly-rounded semantics (the printf round-trip renders the
-        correctly-rounded decimal, exactly what CPython's round does for
-        non-tie doubles). */
+    /** Round to a decimal quantum with ties to even, including negative digits. */
     struct round_float_impl
     {
         static void eval(In<"ts", TS<Float>> ts, In<"n_digits", TS<Int>> n_digits, Out<TS<Float>> out)
         {
-            char buffer[64];
-            const int digits = static_cast<int>(std::clamp<Int>(n_digits.value(), Int{0}, Int{40}));
-            std::snprintf(buffer, sizeof buffer, "%.*f", digits, ts.value());
-            out.set(std::strtod(buffer, nullptr));
+            out.set(scalar_round_decimal(ts.value(), n_digits.value()));
         }
     };
 

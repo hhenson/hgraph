@@ -188,7 +188,7 @@ Implemented means the recorded domain is authored and tested; it does not promis
 | `route_by_index` | blocked | — | Reference selection/reselection or structural merge/race semantics. [B4](#b4) |
 | `rshift_` | implemented | hgl-runtime | i64 body through the checked `shift_right` native binding; negative and too-large counts raise the native kernel's exception (ADR 0009). Itemwise TSL/TSB candidates remain (B4). [B4](#b4) |
 | `sample` | implemented-slice | hgl-runtime | bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies. Remaining: open value, structural delta and reference domains. [B3](#b3), [B4](#b4) |
-| `schedule` | implemented-slice | hgl-runtime | Constant-delay source through `inject scheduler`, `start { scheduler.schedule(...) }`, `when scheduled()` and a `cache` tick counter that stays outside record/replay like the native State<Int> (ADR 0010/0011); initial_delay, max_ticks and use_wall_clock covered. Remaining: the time-series delay and start-time overloads (clock arithmetic in a runtime body) and the positive-delay validation in start. [B3](#b3) |
+| `schedule` | implemented-slice | hgl-runtime | Constant-delay source with initial_delay, max_ticks, use_wall_clock and positive-delay validation implemented. Ordinary-run native parity only: its non-recordable counter and pending native schedules do not meet the recovery contract. Remaining: authoritative schedule/progress state, rebuildable indices and recovery traces (ADR 0011), time-series delay and start-time overloads. [B2](#b2), [B3](#b3) |
 | `second` | implemented | hgl-runtime | Time/DateTime clock fields.  |
 | `seconds` | implemented | hgl-runtime | Duration components, including normalized negative values.  |
 | `setattr_` | blocked | — | Generic structural/reference field and item access semantics. [B4](#b4) |
@@ -243,7 +243,7 @@ Evidence: [0009-native-errors-and-the-node-error-model.md](../../../language/doc
 
 ### B2
 
-Priority 1. Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and a single scalar cache outside record/replay (ADR 0011) are admitted. Still missing: several cache fields, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.
+Priority 1. Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and scalar cache fields aggregated into one native State slot (ADR 0011) are admitted. Still missing: recoverable pending schedules and finite progress, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.
 
 Evidence: [0010-lifecycle-capabilities.md](../../../language/docs/design/decisions/0010-lifecycle-capabilities.md), [0011-cache-declarations.md](../../../language/docs/design/decisions/0011-cache-declarations.md), [stream_impl.h](../../../include/hgraph/lib/std/operators/impl/stream_impl.h)
 

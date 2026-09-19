@@ -42,11 +42,38 @@ namespace hgraph
         std::vector<ChildGraphCheckpoint> children{};
     };
 
+    /** The identity scopes of a worker-hosted graph (RFC 0039). Every node
+     * of one is wired under ``@hgraph.worker``; the runtime's own nodes -- a stage's
+     * sources and output sink, and in a ``dmap_`` worker the key partition and
+     * the ``map_`` itself -- under ``@hgraph.worker.boundary``, so an image selected by
+     * component still takes the input baselines, and the membership that leads
+     * to the component, with it. A child template wired from a boundary node
+     * is the user's again, and a component inside the graph keeps its own id.
+     */
+    inline constexpr std::string_view worker_checkpoint_scope{"@hgraph.worker"};
+    inline constexpr std::string_view worker_boundary_checkpoint_scope{"@hgraph.worker.boundary"};
+    /** Internal scopes cannot be claimed or selected as user components. */
+    [[nodiscard]] inline bool reserved_checkpoint_scope(std::string_view component) noexcept
+    {
+        return component == "@hgraph" || component.starts_with("@hgraph.");
+    }
+
     struct HGRAPH_CLASS_EXPORT NodeCheckpointIdentity
     {
         std::string component{};
         std::string id{};
         std::string signature{};
+        /** Why this node cannot be checkpointed, recorded by a worker-graph
+         * scope where a component scope would have refused to wire it. */
+        std::string refusal{};
+        /** A sink with no recordable state (``checkpoint_transient``): inside
+         * the scope, outside the image and the contract. It has no id, so it
+         * can be added, removed or changed without disturbing anyone else's. */
+        bool transient{false};
+        /** Producer scopes outside this component, checked against the actual
+         * image selection. A parent component's image may include both ends
+         * of a dependency that an inner-only image must refuse. */
+        std::vector<std::string> input_components{};
     };
 
     struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint
@@ -98,6 +125,7 @@ namespace hgraph
         {}
 
         inline void start_none(const NodeView &, DateTime) {}
+        [[nodiscard]] inline DateTime no_live_schedule(const NodeView &) { return MAX_DT; }
         inline void visit_endpoints_none(const NodeView &, const VisitCheckpointEndpoint &) {}
 
         inline std::string signature_none(const NodeBuilder &) { return {}; }
@@ -116,6 +144,11 @@ namespace hgraph
         bool captures_output{true};
         /** This node owns a component input boundary, including source baseline. */
         bool boundary_input{false};
+        /** All pending wakeups belong to children. capture_impl must capture
+         * those children (thereby validating their schedules) and reject any
+         * incomplete owner work. A transient child's alarm is not a pending
+         * event in the recovered state merely because it wakes this owner. */
+        bool schedules_children{false};
         NodeCheckpointState (*capture_impl)(
             const NodeView &, const CaptureGraphCheckpoint &){&node_checkpoint_detail::capture_none};
         /** Create saved topology and import child-owned endpoints before REF
@@ -132,6 +165,16 @@ namespace hgraph
          * is restored. Starts prepared children in the owner's dependency order.
          */
         void (*start_restored_impl)(const NodeView &, DateTime){&node_checkpoint_detail::start_none};
+        /** After the restored start: the earliest time this node still has to
+         * run for work that is LIVE rather than historical, or ``MAX_DT``.
+         *
+         * The coordinator discards a restored node's bootstrap schedule. When
+         * an image covers only part of what an owner hosts (RFC 0039, a
+         * component inside a worker's child), the rest starts fresh beside
+         * it, and a fresh node's start-time schedule is real work the owner
+         * has to run. Discarding it would skip scheduled work silently.
+         */
+        DateTime (*live_schedule_impl)(const NodeView &){&node_checkpoint_detail::no_live_schedule};
         /** Stable ordinals for borrowed synthetic endpoints owned by this node. */
         void (*visit_endpoints_impl)(const NodeView &, const VisitCheckpointEndpoint &){&node_checkpoint_detail::visit_endpoints_none};
         std::string (*signature_impl)(const NodeBuilder &){&node_checkpoint_detail::signature_none};

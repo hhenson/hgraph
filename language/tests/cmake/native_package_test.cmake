@@ -112,6 +112,8 @@ get_filename_component(_native_source_dir "${_native_anchor}" DIRECTORY)
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
         "-DCMAKE_CXX_COMPILER=${CXX}"
+        "-DHGRAPH_USE_PYARROW_ARROW=${USE_PYARROW}"
+        "-DPython_EXECUTABLE=${PYTHON}"
         -DCMAKE_BUILD_TYPE=Release
         "-DSDK_LIBDIR=${INSTALL_LIBDIR}"
         "-DCMAKE_PREFIX_PATH=${OUT}/sdk;${DEPENDENCY_PREFIX_PATH}"

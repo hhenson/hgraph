@@ -1,3 +1,4 @@
+#include "../runtime/checkpoint_signature.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/manifest/schema_descriptor.h>
@@ -1302,6 +1303,7 @@ struct Wiring::Impl {
 
   std::deque<WiringInstance> instances{};
   std::string checkpoint_component{};
+  bool checkpoint_records_refusals{false};
   std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
@@ -1456,7 +1458,11 @@ Wiring Wiring::child_wiring() const {
   // owner's detach reaches it too; it never copies the raw pointer out.
   child.impl_->seed = impl_->seed;
   child.impl_->owns_seed = false;
-  child.impl_->checkpoint_component = impl_->checkpoint_component;
+  // The boundary scope is for the runtime's own nodes. What one of them
+  // contains -- the child template of a worker's map_ -- is the user's.
+  child.impl_->checkpoint_component = impl_->checkpoint_component == worker_boundary_checkpoint_scope
+      ? std::string{worker_checkpoint_scope} : impl_->checkpoint_component;
+  child.impl_->checkpoint_records_refusals = impl_->checkpoint_records_refusals;
   return child;
 }
 
@@ -1469,8 +1475,35 @@ std::string Wiring::checkpoint_component(std::string component_id) {
   return std::exchange(impl_->checkpoint_component, std::move(component_id));
 }
 
+bool Wiring::checkpoint_records_refusals() const noexcept { return impl_->checkpoint_records_refusals; }
+
+void Wiring::refuse_checkpoint_component(std::string_view reason) {
+  const auto &component = impl_->checkpoint_component;
+  if (component.empty()) { return; }
+  const auto start = impl_->checkpoint_component_starts.find(component);
+  const auto begin = impl_->instances.begin() +
+      (start != impl_->checkpoint_component_starts.end() ? start->second : 0);
+  for (auto instance = begin; instance != impl_->instances.end(); ++instance) {
+    auto identity = instance->builder.checkpoint_identity();
+    const bool member = identity.component == component ||
+        (identity.component.starts_with(component) && identity.component.size() > component.size() &&
+         identity.component[component.size()] == '.');
+    if (!member || !identity.refusal.empty()) { continue; }
+    identity.refusal = reason;
+    instance->builder.checkpoint_identity(std::move(identity));
+  }
+}
+
 std::string_view Wiring::checkpoint_component() const noexcept {
   return impl_->checkpoint_component;
+}
+
+void Wiring::checkpoint_worker_graph() {
+  if (!impl_->instances.empty() || !impl_->checkpoint_component.empty()) {
+    throw std::logic_error("component checkpoint: a worker graph scope covers the whole graph");
+  }
+  impl_->checkpoint_component = worker_checkpoint_scope;
+  impl_->checkpoint_records_refusals = true;
 }
 
 void Wiring::checkpoint_component_output(const WiringPortRef &output) {
@@ -1528,9 +1561,31 @@ void Wiring::checkpoint_component_output(const WiringPortRef &output) {
 
 void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   if (impl_->checkpoint_component.empty()) { return; }
+  if (!impl_->checkpoint_records_refusals) {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+    return;
+  }
+  // A worker graph: what a component scope refuses is recorded, so the graph
+  // still wires and whoever tries to capture it is told why it cannot.
+  try {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+  } catch (const std::exception &error) {
+    builder.checkpoint_identity({.component = impl_->checkpoint_component,
+        .id = std::to_string(impl_->checkpoint_node_counts[impl_->checkpoint_component]++),
+        .refusal = error.what()});
+  }
+}
+
+NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   manifest::CanonicalWriter signature;
+  std::vector<std::string> input_components;
   const auto *schema = builder.type().schema();
   const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
+  // A transient sink is inside the scope and outside the contract: no id to
+  // consume an ordinal, nothing signed, nothing about it that can refuse.
+  if (!checkpoint_ops.supported && schema->checkpoint_transient()) {
+    return {.component = impl_->checkpoint_component, .transient = true};
+  }
   if (schema->captures_errors) {
     throw std::invalid_argument("component checkpoint: error capture is unsupported; failed evaluations must abort the completed day");
   }
@@ -1539,10 +1594,9 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
        (!inputs.front().source.is_peered_source() && !inputs.front().source.is_boundary_source()))) {
     throw std::invalid_argument("component checkpoint: component inputs require direct endpoints");
   }
-  if (!checkpoint_ops.supported && (schema->node_kind != NodeKind::Compute ||
-      schema->state_schema != nullptr || schema->uses_scheduler ||
-      schema->uses_global_state || schema->uses_evaluation_clock)) {
-    throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} + "'");
+  if (!checkpoint_ops.supported && !schema->checkpoints_without_ops()) {
+    throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} +
+        "': it holds local state, a scheduler, a source cursor or a runtime service and declares no checkpoint support");
   }
   // Validate even dormant mapped child templates. No lifecycle callback runs
   // when constructing this short-lived probe; endpoint strategy selection is
@@ -1594,24 +1648,38 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
   builder.visit_child_graphs(&signature, [](void *context, ChildGraphInspectionView child) {
     auto &writer = *static_cast<manifest::CanonicalWriter *>(context);
     if (child.graph == nullptr) { throw std::invalid_argument("component checkpoint: missing child plan"); }
-    writer.varint(child.graph->node_count());
+    // Transient sinks are no part of the contract, not even by their number.
+    std::size_t signed_nodes = 0;
+    for (const auto &node : child.graph->nodes()) { signed_nodes += !node.checkpoint_identity().transient; }
+    writer.varint(signed_nodes);
     for (const auto &node : child.graph->nodes()) {
       const auto &identity = node.checkpoint_identity();
+      if (identity.transient) { continue; }
       if (identity.component.empty()) { throw std::invalid_argument("component checkpoint: child outside managed ownership"); }
       writer.string_field(identity.component);
       writer.string_field(identity.id);
       writer.string_field(identity.signature);
     }
     if (child.output_binding == nullptr) { throw std::invalid_argument("component checkpoint: sink child is unsupported"); }
-    writer.varint(static_cast<std::uint8_t>(child.output_binding->kind));
-    writer.varint(child.output_binding->source.node);
-    writer.varint(child.output_binding->source.path.size());
-    for (auto part : child.output_binding->source.path) { writer.varint(part); }
+    node_checkpoint_detail::append_output_binding(writer, *child.graph, *child.output_binding);
   });
   const auto append_source = [&](const auto &self, const WiringPortRef &source) -> void {
     signature.varint(static_cast<std::uint8_t>(source.source_kind()));
     if (const auto *producer = source.peered_node_or_null()) {
       const auto &identity = producer->builder.checkpoint_identity();
+      // Preserve cross-scope producers: a selected ancestor can restore both
+      // ends, while an inner-only selection cannot. Runtime boundary scopes
+      // are included by a hosted selection, rather than exempted here.
+      const auto &scope = impl_->checkpoint_component;
+      const bool in_component = impl_->checkpoint_records_refusals && scope != worker_checkpoint_scope &&
+          scope != worker_boundary_checkpoint_scope;
+      const bool inside = identity.component == scope ||
+          (identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
+           identity.component[scope.size()] == '.');
+      if (in_component && !inside &&
+          std::find(input_components.begin(), input_components.end(), identity.component) == input_components.end()) {
+        input_components.push_back(identity.component);
+      }
       signature.varint(identity.component.empty());
       if (identity.component.empty()) {
         if (!checkpoint_ops.boundary_input) {
@@ -1665,9 +1733,10 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
   if (!impl_->checkpoint_node_ids[impl_->checkpoint_component].insert(id).second) {
     throw std::invalid_argument("component checkpoint: duplicate node id '" + id + "'");
   }
-  builder.checkpoint_identity({impl_->checkpoint_component,
-      std::move(id),
-      std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()}});
+  return {.component = impl_->checkpoint_component,
+      .id = std::move(id),
+      .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()},
+      .input_components = std::move(input_components)};
 }
 
 GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }
@@ -1753,6 +1822,9 @@ void Wiring::notify_overload_resolution(
 }
 
 void Wiring::claim_component_id(std::string_view fq_recordable_id) {
+  if (reserved_checkpoint_scope(fq_recordable_id)) {
+    throw std::invalid_argument("component: recordable id uses the reserved @hgraph. namespace");
+  }
   if (!impl_->component_ids.emplace(std::string{fq_recordable_id}).second) {
     throw std::invalid_argument("component: duplicate recordable id '" +
                                 std::string{fq_recordable_id} +

@@ -43,16 +43,21 @@ namespace hgraph
     HGRAPH_EXPORT void clear_component_recovery(GlobalStateView state);
     [[nodiscard]] HGRAPH_EXPORT bool component_recovery_selected(
         GlobalStateView state, std::string_view component_id);
+    /** The component recovery is configured for, if any. An owner of
+     * worker-hosted graphs asks, to find out whether it is hosting it. */
+    [[nodiscard]] HGRAPH_EXPORT std::optional<std::string> configured_recovery_component(GlobalStateView state);
 
-    /** Executor-owned coordinator. All operations are cold lifecycle paths;
-     * an unconfigured run installs no observer and captures no endpoint.
+    /** Executor-owned completed-day policy over a ``GraphCheckpointCoordinator``
+     * (``graph_checkpoint_coordinator.h``), which owns the image mechanics. All
+     * operations are cold lifecycle paths; an unconfigured run installs no
+     * observer and captures no endpoint.
      */
-    class HGRAPH_CLASS_EXPORT ComponentRecoverySession final : public LifecycleObserver
+    class HGRAPH_CLASS_EXPORT ComponentRecoverySession final
     {
       public:
         ComponentRecoverySession(const GraphView &graph, DateTime start, DateTime end,
                                  bool simulation);
-        ~ComponentRecoverySession() override;
+        ~ComponentRecoverySession();
         ComponentRecoverySession(const ComponentRecoverySession &) = delete;
         ComponentRecoverySession &operator=(const ComponentRecoverySession &) = delete;
         [[nodiscard]] bool active() const noexcept;
@@ -61,9 +66,8 @@ namespace hgraph
         void complete_start() noexcept;
         void capture(const GraphView &graph);
         void commit();
-        void on_after_start_node(const NodeView &node) override;
-        void on_start_node_failed(const NodeView &node) override;
-        void on_start_graph_failed(const GraphView &graph) override;
+        /** The coordinator to register for the start phase; null when inactive. */
+        [[nodiscard]] LifecycleObserver *observer() const noexcept;
       private:
         struct Impl;
         std::unique_ptr<Impl> impl_;

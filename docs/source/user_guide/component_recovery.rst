@@ -185,6 +185,94 @@ and key-set subscriptions bind to the reconstructed instances without historical
 notifications. This remains an owner-specific topology contract; ordinary
 internal references use the locator contract below.
 
+``dmap_`` recovers a component placed *inside* its child, in both hosting modes:
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered, per key
+
+   prices = dmap_(pricing, ticks_by_symbol)
+
+Configure recovery for ``pricing`` as you would if it were in the main graph; the
+``dmap_`` itself need not be in any component. Each completed day saves the
+component's state for every key from the workers that host it, and a restarted
+run raises those workers with it restored. The child may hold more than the
+component -- ``dmap_(lambda t: publish_ready(pricing(t)), ...)`` -- and whatever
+is outside the component is *processed*, not recovered: it starts afresh with
+each run, so keep state that has to survive inside the component.
+
+* The ``dmap_``'s inputs are held to a component's input rules, because for
+  recovery they *are* the component's inputs: each has to come straight from a
+  source, and that source may feed nothing else. A computed input is refused
+  when the graph is wired. If that is what you have, wrap the ``dmap_`` and
+  whatever computes its inputs in a component instead, which also recovers: the
+  workers are then saved whole, so everything in the child has to be
+  recoverable.
+* The worker count and hosting mode are part of the saved contract. Keys are
+  placed by ``hash % workers`` and the placement is not stored, so a different
+  count is an incompatible checkpoint, not a silent re-partition.
+* A worker that cannot capture fails the completed day, and one that refuses its
+  image fails the start. Neither falls back to a fresh worker.
+* Wrapping the child in a component costs nothing when nothing is being
+  recovered: it adds no node.
+
+``spawn_`` recovers a component placed *inside* a stage. A stage is a graph you
+wrote, and the recoverable unit inside it is the same one as anywhere else:
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered
+
+   @graph
+   def stage(ticks: TS[float]) -> None:
+       publish(pricing(ticks))                          # publish: processed
+
+   spawn_(stage, ticks)
+
+Configure recovery for ``pricing`` as you would if it were in the main graph.
+Each completed day saves the component's state from the worker that hosts it,
+and a restarted run raises that worker with the component restored and does not
+re-send the input baselines it already holds. The component can share a stage
+with the sink, as above, or sit in an earlier stage of a ``pipeline_``.
+
+The pipeline's inputs are held to a component's input rules, because for
+recovery they *are* the component's inputs: each has to come straight from a
+source, and that source may feed nothing else. A computed input is refused when
+the graph is wired. If that is what you have, wrap ``spawn_`` and whatever
+computes its inputs in a component instead (below).
+
+Everything outside the component is *processed*, not recovered -- above all the
+sink the pipeline ends in. It acts in a worker process, recovery restores what
+the component knew and cannot replay what the sink did, and the sink declares
+nothing. Nodes outside the component start afresh on each run, so keep state
+that has to survive a restart inside the component. Inside the stage the
+component takes its inputs straight from the stage's inputs: if a node in the
+stage computes one of them, move that node inside the component, or the graph is
+refused when it is wired. A component nested under a ``map_`` in the stage is
+not reached. Wrapping part of a stage in a component costs nothing when nothing
+is being recovered: it adds no node.
+
+If ``spawn_`` is itself wired inside a recoverable component, the whole pipeline
+is that component's and every stage is saved whole, so every stage node has to
+be recoverable.
+
+A sink may sit inside a component. If it has recordable state it is recovered
+through that state; if it has none it is *transient*: recovery leaves it alone,
+it starts again on every run, and it can be added, removed or changed without
+invalidating a checkpoint. A sink has no output, so nothing in the recovered
+component can see what it forgot -- put whatever must survive a restart in
+``RECORDABLE_STATE`` and the rest is free. Either way its schedule is its own: a
+timer it set is neither saved nor discarded, so a periodic sink re-arms when it
+starts. Recovery never replays what a sink did.
+
+Two limits are ``map_``'s rather than ``dmap_``'s, and reach through it: a
+``dmap_`` child has to end in a node that writes its own output, not in a
+``reduce`` (the forwarding-terminal form ``map_`` cannot checkpoint yet), and a
+child that holds ``STATE`` instead of ``RECORDABLE_STATE`` has nothing a
+checkpoint can see. Both are refused at wiring with the node's name.
+
 Count and duration ``TSW`` endpoints store one typed sequence of live samples
 and a parallel sequence of original timestamps. Storage and loading are linear
 in live samples; unused ring capacity and per-sample schemas are not serialized.
@@ -250,9 +338,9 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State``, scheduler-driven nodes, external sources or sinks
+Ordinary semantic ``State`` and schedulers in compute nodes, external sources
 inside the boundary, and dynamic owners without checkpoint operations are
-refused. A stateless compute node's declarative ``schedule_on_start`` bootstrap
+refused. Sinks are not: see above. A stateless compute node's declarative ``schedule_on_start`` bootstrap
 is allowed; recovery discards that historical bootstrap instead of evaluating
 the saved inputs again. This does not add recovery of pending scheduler events.
 

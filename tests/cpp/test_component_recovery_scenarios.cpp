@@ -3,6 +3,7 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/time_series_reference.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -129,6 +130,60 @@ template<bool Duration> struct WholeWindowComponent {
     static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> pick, Port<TS<Int>> left,
                                  Port<TS<Int>> right, Port<SIGNAL> reset) {
         return stdlib::component<WholeWindowBody<Duration>>(w, "schema-scenario", pick, left, right, reset);
+    }
+};
+
+// Sinks inside a component (RFC 0039, ruling 2026-09-19). A sink has no output,
+// so nothing in the recovered graph can observe what it forgot: one with no
+// recordable state is TRANSIENT -- outside the image and the contract, fresh on
+// every run -- and one with recordable state is recovered through it.
+std::vector<Int> published;
+struct Publish {
+    static void eval(In<"ts", TS<Int>> ts) { published.push_back(ts.value()); }
+};
+// Everything a transient sink may hold: ordinary state, a scheduler, a
+// start-time alarm. It flushes what it has counted one tick after each start.
+std::vector<std::pair<DateTime, Int>> flushed;
+struct CountingFlusher {
+    static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD); }
+    static void eval(In<"ts", TS<Int>, InputValidity::Unchecked> ts, State<Int> seen, NodeScheduler scheduler, DateTime now) {
+        if (ts.modified()) { ++seen.modify(); }
+        if (scheduler.is_scheduled_now()) { flushed.emplace_back(now, seen.get()); }
+    }
+};
+// What has to survive is in recordable state, so it does.
+using Sequence = TSB<"RecoveryScenarioSequence", Field<"count", TS<Int>>>;
+std::vector<std::pair<Int, Int>> sequenced;
+struct SequencedPublish {
+    static void eval(In<"ts", TS<Int>> ts, RecordableState<Sequence> state) {
+        auto count = state.field<"count">();
+        const Int next = (count.valid() ? count.value().checked_as<Int>() : 0) + 1;
+        count.set(next);
+        sequenced.emplace_back(next, ts.value());
+    }
+};
+// Recoverable AND scheduled: recordable state puts it in the image, so the
+// coordinator sees its schedule -- and has to leave it alone.
+std::vector<std::pair<DateTime, Int>> sequence_flushed;
+struct SequencedFlusher {
+    static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD); }
+    static void eval(In<"ts", TS<Int>, InputValidity::Unchecked> ts, RecordableState<Sequence> state,
+                     NodeScheduler scheduler, DateTime now) {
+        auto count = state.field<"count">();
+        if (ts.modified()) { count.set((count.valid() ? count.value().checked_as<Int>() : 0) + 1); }
+        if (scheduler.is_scheduled_now()) { sequence_flushed.emplace_back(now, count.valid() ? count.value().checked_as<Int>() : 0); }
+    }
+};
+template<typename... Sinks> struct PublishingBody {
+    static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts) {
+        auto total = wire<Accumulate>(w, ts);
+        (wire<Sinks>(w, total), ...);
+        return total;
+    }
+};
+template<typename... Sinks> struct PublishingComponent {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts) {
+        return stdlib::component<PublishingBody<Sinks...>>(w, "schema-scenario", ts);
     }
 };
 
@@ -288,4 +343,108 @@ TEST_CASE("whole window references recover warmup reset and retargeting", "[chec
     const auto reset = values<Bool>(none, none, none, true, none, none, none, none);
     composite_cuts<WholeWindowComponent<false>>(pick, left, right, reset);
     composite_cuts<WholeWindowComponent<true>>(pick, left, right, reset);
+}
+
+TEST_CASE("a sink with no recordable state is transient: in the component, outside recovery",
+          "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    published.clear();
+    every_cut<PublishingComponent<Publish>, Int>(values<Int>(1, 2, none, 3));
+    // every_cut runs the four ticks once uninterrupted and then once per
+    // restart campaign. Each campaign published each running total exactly
+    // once: a restart restores the total and re-publishes nothing.
+    REQUIRE(published.size() % 3 == 0);
+    for (std::size_t run = 0; run < published.size(); run += 3) {
+        CHECK(std::vector<Int>{published.begin() + run, published.begin() + run + 3} == std::vector<Int>{1, 3, 6});
+    }
+}
+
+TEST_CASE("a transient sink may hold state and a scheduler, and its schedule is its own",
+          "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    // Refused outright before the ruling: ordinary State and a scheduler. Its
+    // alarm is still pending at the first cut, which would block a capture if
+    // it were anyone else's; and after the restart its start hook has to
+    // re-arm, which discarding a restored node's bootstrap would prevent.
+    std::optional<ComponentCheckpoint> completed;
+    const auto day = [&](std::size_t begin, std::size_t end, const std::vector<std::optional<Int>> &ticks) {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = "schema-scenario", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; }});
+        return eval_node_with_options<PublishingComponent<CountingFlusher>>(interval(begin, end), ticks);
+    };
+    flushed.clear();
+    auto first = day(0, 1, values<Int>(1));
+    REQUIRE(completed);
+    REQUIRE(flushed.empty());                       // its alarm was pending at the cut, and the day still completed
+    auto second = day(1, 4, values<Int>(2, none, 3));
+    first.insert(first.end(), second.begin(), second.end());
+    first.resize(4);
+    CHECK_OUTPUT(first, values<Int>(1, 3, none, 6));   // the component recovered
+    // The sink started again: it re-armed, and counted only what it saw this run.
+    REQUIRE(flushed.size() == 1);
+    CHECK(flushed.front() == std::pair<DateTime, Int>{MIN_ST + MIN_TD * 2, 1});
+}
+
+TEST_CASE("a sink with recordable state is recovered through it", "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    sequenced.clear();
+    every_cut<PublishingComponent<SequencedPublish>, Int>(values<Int>(1, 2, none, 3));
+    // In every campaign the sequence runs 1, 2, 3 across the restarts: the
+    // count came back from the image rather than starting again.
+    REQUIRE(sequenced.size() % 3 == 0);
+    for (std::size_t run = 0; run < sequenced.size(); run += 3) {
+        CHECK(std::vector<std::pair<Int, Int>>{sequenced.begin() + run, sequenced.begin() + run + 3} ==
+              std::vector<std::pair<Int, Int>>{{1, 1}, {2, 3}, {3, 6}});
+    }
+}
+
+TEST_CASE("a transient sink is no part of the contract: adding one does not refuse a checkpoint",
+          "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    std::optional<ComponentCheckpoint> completed;
+    const auto configure = [&](GlobalContext &context) {
+        configure_component_recovery(context.state().view(), {
+            .component_id = "schema-scenario", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; }});
+    };
+    {
+        GlobalContext context;
+        configure(context);
+        (void)eval_node_with_options<PublishingComponent<>>(interval(0, 2), values<Int>(1, 2));
+        REQUIRE(completed);
+    }
+    // The next run has grown two sinks. Neither has an id, so the nodes that
+    // do keep theirs, and the saved image still fits.
+    published.clear();
+    GlobalContext context;
+    configure(context);
+    auto resumed = eval_node_with_options<PublishingComponent<Publish, CountingFlusher>>(interval(2, 3), values<Int>(3));
+    resumed.resize(1);
+    CHECK_OUTPUT(resumed, values<Int>(6));
+    CHECK(published == std::vector<Int>{6});
+}
+
+TEST_CASE("a recoverable sink keeps its own schedule too: pending at the cut, re-armed after it",
+          "[checkpoint][scenario][sink]") {
+    stdlib::register_standard_operators();
+    std::optional<ComponentCheckpoint> completed;
+    const auto day = [&](std::size_t begin, std::size_t end, const std::vector<std::optional<Int>> &ticks) {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = "schema-scenario", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; }});
+        (void)eval_node_with_options<PublishingComponent<SequencedFlusher>>(interval(begin, end), ticks);
+    };
+    sequence_flushed.clear();
+    day(0, 1, values<Int>(1));          // its alarm is pending at the cut; anyone else's would block the capture
+    REQUIRE(completed);
+    REQUIRE(sequence_flushed.empty());
+    day(1, 4, values<Int>(2, none, 3));
+    // It re-armed after the restart -- discarding a restored node's bootstrap
+    // would have silenced it for good -- and the count it flushed is the
+    // recovered one: 1 from the first day, 2 by the time the alarm fires.
+    REQUIRE(sequence_flushed.size() == 1);
+    CHECK(sequence_flushed.front() == std::pair<DateTime, Int>{MIN_ST + MIN_TD * 2, 2});
 }

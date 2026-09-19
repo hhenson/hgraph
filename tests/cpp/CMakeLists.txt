@@ -254,11 +254,13 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_distributed_child.cpp
     test_distributed_map.cpp
     test_distributed_map_shapes.cpp
+    test_distributed_map_checkpoint.cpp
     test_distributed_protocol.cpp
     test_distributed_transport.cpp
     test_distributed_worker.cpp
     test_partitioned_delta.cpp
     test_externally_driven_executor.cpp
+    test_worker_graph_checkpoint.cpp
     test_const_eval.cpp
     test_data_frame_operators.cpp
     test_cs_field_projection.cpp
@@ -266,6 +268,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_engine_control.cpp
     test_executor_activity.cpp
     test_spawn.cpp
+    test_spawn_checkpoint.cpp
     test_lower.cpp
     test_map.cpp
     test_dynamic_map_checkpoint.cpp

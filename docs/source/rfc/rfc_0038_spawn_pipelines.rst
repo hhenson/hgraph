@@ -331,6 +331,16 @@ checkpoint recovery across in-flight channels. Durable restart requires a
 consistent frontier fence, graph checkpoints and channel cursor recovery; it
 is a separate capability. External effects are not automatically exactly-once.
 
+RFC 0039 adds the one case that needs none of that machinery: recovery at a
+*completed-day* boundary. There the executor has already settled every stage,
+so the frontier fence holds and every channel is empty; the owner asserts that
+and saves one image per stage. What those images hold is a ``component`` wired
+inside a stage -- the recoverable unit is the usual one -- and everything else
+in the stage, the terminal sink first of all, is processed rather than
+recovered. A checkpoint taken *during* a run -- with
+frames in flight -- still needs a real fence and channel cursors, and is still
+out of scope.
+
 Historical and scheduled pull sources inside a stage run against its authorized
 logical time. Independent live push sources have no parent-clock closure
 contract and are rejected in this first version. Captured outer ports,
@@ -534,7 +544,7 @@ timers, exclusive end times, lifecycle failures, early child stop and failed
 owner cycles. The installed-SDK consumer builds and executes a native pipeline.
 
 Nested spawn, independent live child sources, arbitrary joins, feedback,
-restart and asynchronous checkpoint recovery remain outside v1. Separate Python
+mid-run restart and asynchronous checkpoint recovery remain outside v1 (completed-day recovery is RFC 0039's). Separate Python
 interpreters allow parallel Python bytecode execution. Normal completion drains
 authorized work and reaps all workers. Tests assert distinct process identities
 and cover worker crashes, blocked callbacks, deadline failure and reaping.

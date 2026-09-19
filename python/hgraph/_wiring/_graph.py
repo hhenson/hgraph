@@ -430,6 +430,11 @@ def _as_wired(func):
         return _hgraph.wired_op(func._registry_name, output_handle)
     if isinstance(func, (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)):
         return _wrap_graph_fn(func)
+    if isinstance(func, _Component):
+        # A component is a graph with a boundary, so it goes wherever a graph
+        # does: map_(pricing, ...), and dmap_(pricing, ...), which is where a
+        # recoverable component is expected to live (RFC 0039).
+        return _wrap_graph_fn(func, signature=func._graph._wiring_signature)
     if callable(func) and not isinstance(func, str):
         name = getattr(func, "__name__", None)
         if name is not None and name in _hgraph.operator_names():

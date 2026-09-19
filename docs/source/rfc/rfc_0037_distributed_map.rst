@@ -621,9 +621,11 @@ v1: a worker that crashes, times out or reports a node error fails the
 the existing per-node capture path (``developer_guide/error_handling.rst``), so
 ``try_except_`` behaves as it does for any other node.
 
-Worker restart and resumption are deferred. When they land, RFC 0023's
-checkpointing is the mechanism — a restarted worker must recover its children's
-state, and that is precisely a checkpoint restore.
+Recovery at a completed day is RFC 0039's: the owner's checkpoint state is one
+graph image per worker, and a restarted run raises its workers from them.
+Restarting a worker that fails *during* a run is still deferred. The mechanism
+is the same restore, but it needs the inputs the worker has consumed since its
+image, which nothing records.
 
 Python contract
 ---------------

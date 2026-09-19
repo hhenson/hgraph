@@ -29,6 +29,7 @@
 #include <hgraph/runtime/distributed_boundary.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/global_state.h>
+#include <hgraph/runtime/graph_checkpoint_coordinator.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -53,6 +54,22 @@ namespace hgraph::distributed
     inline constexpr const char *boundary_sink_name   = "distributed_boundary_sink";
 
     /**
+     * Checkpoint support for the boundary nodes (RFC 0039, "Whole-graph
+     * coordinator").
+     *
+     * A source's owned output is its whole state, and it IS the ingress
+     * baseline: a later removal has to reach a source that already holds the
+     * key. A sink holds nothing. Neither keeps anything in ``GlobalState``
+     * across a cycle boundary -- a stage is consumed on apply and a result is
+     * collected by the driver -- so the slots are not part of an image.
+     *
+     * The contract signature is the slot name. The schema is already in the
+     * identity's endpoint descriptors, and a transfer is derived from it.
+     */
+    [[nodiscard]] HGRAPH_EXPORT const NodeCheckpointOps &boundary_source_checkpoint_ops() noexcept;
+    [[nodiscard]] HGRAPH_EXPORT const NodeCheckpointOps &boundary_sink_checkpoint_ops() noexcept;
+
+    /**
      * One boundary input: applies whatever the driver staged for this cycle.
      *
      * The stage is CONSUMED on apply. A source is scheduled on every prepared
@@ -63,6 +80,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_source_impl
     {
         static constexpr auto name = boundary_source_name;
+        static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_source_checkpoint_ops(); }
 
         static void eval(Scalar<"slot", Str> slot, TypeArg<"tp", TsVar<"S">, AutoResolve>,
                          GlobalStateView gs, Out<TsVar<"S">> out)
@@ -84,6 +102,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_sink_impl
     {
         static constexpr auto name = boundary_sink_name;
+        static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_sink_checkpoint_ops(); }
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"slot", Str> slot, GlobalStateView gs)
         {
@@ -98,6 +117,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_transfer_source_impl
     {
         static constexpr auto name = boundary_source_name;
+        static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_source_checkpoint_ops(); }
         static void eval(Scalar<"slot", Str> slot, Scalar<"transfer", BoundaryTransferPtr> transfer,
                          TypeArg<"tp", TsVar<"S">, AutoResolve>, GlobalStateView gs, Out<TsVar<"S">> out)
         {
@@ -111,6 +131,7 @@ namespace hgraph::distributed
     struct HGRAPH_CLASS_EXPORT boundary_transfer_sink_impl
     {
         static constexpr auto name = boundary_sink_name;
+        static const NodeCheckpointOps &checkpoint_ops() noexcept { return boundary_sink_checkpoint_ops(); }
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Scalar<"slot", Str> slot,
                          Scalar<"transfer", BoundaryTransferPtr> transfer,
                          Scalar<"group", Int> group, Scalar<"groups", Int> groups,
@@ -150,20 +171,26 @@ namespace hgraph::distributed
         void start(DateTime start_time)
         {
             executor_.view().start_external(start_time);
-            // Boundary sources are located once, by node name. The driver does
-            // not need to know which slot each one serves: a source with
-            // nothing staged returns without ticking, so scheduling all of them
-            // is both correct and cheaper than maintaining a slot map.
-            auto graph = executor_.view().graph();
-            const std::size_t count = graph.node_count();
-            for (std::size_t index = 0; index < count; ++index)
-            {
-                const auto *schema = graph.node_at(index).schema();
-                if (schema != nullptr && schema->name() == boundary_source_name)
-                {
-                    boundary_sources_.push_back(index);
-                }
-            }
+            locate_boundary_sources();
+        }
+
+        /**
+         * Start from ``image`` instead of from nothing (RFC 0039). The sources
+         * already hold their baselines, so the first cycle stages deltas, not
+         * a full image.
+         */
+        void start_restored(DateTime start_time, const GraphCheckpointImage &image,
+                            const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph())
+        {
+            executor_.view().start_external_restored(start_time, image, selection);
+            locate_boundary_sources();
+        }
+
+        /** The image of ``selection`` -- by default the whole graph -- at the last completed cycle. */
+        [[nodiscard]] GraphCheckpointImage capture(
+            const GraphCheckpointSelection &selection = GraphCheckpointSelection::whole_graph()) const
+        {
+            return executor_.view().capture_external(selection);
         }
 
         /** Stage one boundary input for the next prepared cycle. */
@@ -211,6 +238,24 @@ namespace hgraph::distributed
         [[nodiscard]] GraphView graph() const { return executor_.view().graph(); }
 
       private:
+        void locate_boundary_sources()
+        {
+            // Boundary sources are located once, by node name. The driver does
+            // not need to know which slot each one serves: a source with
+            // nothing staged returns without ticking, so scheduling all of them
+            // is both correct and cheaper than maintaining a slot map.
+            auto graph = executor_.view().graph();
+            const std::size_t count = graph.node_count();
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                const auto *schema = graph.node_at(index).schema();
+                if (schema != nullptr && schema->name() == boundary_source_name)
+                {
+                    boundary_sources_.push_back(index);
+                }
+            }
+        }
+
         GraphExecutorValue       executor_{};
         std::vector<std::size_t> boundary_sources_{};
     };
@@ -231,6 +276,33 @@ namespace hgraph::distributed
     [[nodiscard]] HGRAPH_EXPORT CycleReply serve_cycle(const DistributedChildHost &host,
                                                        const BoundarySlots &slots,
                                                        const CycleRequest &request);
+
+    /**
+     * The worker's graph as the bytes a channel carries (RFC 0039).
+     *
+     * Both hosting modes hold exactly these bytes, so an owner's checkpoint
+     * state does not depend on how its workers were hosted -- which keeps
+     * RFC 0037's attribution property: if the two modes disagree after a
+     * restore, the fault is in the transport.
+     */
+    /** ``component`` names the component the image covers
+     * (``GraphCheckpointSelection::hosted``); empty is the whole graph. */
+    [[nodiscard]] HGRAPH_EXPORT std::string capture_worker_image(const DistributedChildHost &host,
+                                                                 std::string_view component = {});
+    /**
+     * A worker's whole answer to a checkpoint frame: the image, or why not.
+     *
+     * An image travels as ONE frame, so one larger than the transport's frame
+     * limit cannot be sent. That is answered as a refusal that names the limit
+     * -- the worker would otherwise die in ``send`` and its owner would learn
+     * only that the channel closed.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string answer_checkpoint(const DistributedChildHost &host,
+                                                              std::string_view component);
+    /** Start ``host`` from ``image`` and report what the restored graph wants next. */
+    [[nodiscard]] HGRAPH_EXPORT DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time,
+                                                               std::string_view image,
+                                                               std::string_view component = {});
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_CHILD_H

@@ -85,3 +85,18 @@ export fn choose_embedded(condition: bool, x: i64, y: i64) -> i64 =>
 test choose_embedded_ticks {
     assert eval(choose_embedded, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 21]
 }
+
+export fn checked_add(value: i64, const x: i64, const y: i64) -> i64 => value + (x + y)
+export fn checked_sub(value: i64, const x: i64, const y: i64) -> i64 => value + (x - y)
+export fn checked_mul(value: i64, const x: i64, const y: i64) -> i64 => value + (x * y)
+export fn checked_neg(value: i64, const x: i64) -> i64 => value + (-x)
+export fn checked_floor(value: i64, const x: i64, const y: i64) -> i64 => value + (x // y)
+export fn checked_rem(value: i64, const x: i64, const y: i64) -> i64 => value + (x % y)
+
+test checked_arithmetic {
+    assert eval(checked_add, value: [0], x: 9223372036854775806, y: 1) == [9223372036854775807]
+    assert eval(checked_sub, value: [0], x: -9223372036854775807, y: 1) == [-9223372036854775807 - 1]
+    assert eval(checked_mul, value: [0], x: -4611686018427387904, y: 2) == [-9223372036854775807 - 1]
+    assert eval(checked_floor, value: [0], x: -7, y: 3) == [-3]
+    assert eval(checked_rem, value: [0], x: -9223372036854775807 - 1, y: -1) == [0]
+}

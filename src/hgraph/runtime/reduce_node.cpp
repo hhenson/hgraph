@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
 #include <hgraph/runtime/reduce_node.h>
@@ -1423,24 +1424,10 @@ namespace hgraph
                 signature.varint(kernel->associative);
                 signature.varint(kernel->commutative);
             }
-            signature.varint(context.spec.child.input_bindings.size());
-            for (const auto &binding : context.spec.child.input_bindings)
-            {
-                signature.varint(binding.source_path.size());
-                for (auto part : binding.source_path) { signature.varint(part); }
-                signature.varint(binding.target.node);
-                signature.varint(binding.target.path.size());
-                for (auto part : binding.target.path) { signature.varint(part); }
-            }
-            const auto &output = *context.spec.child.output_binding;
-            signature.varint(static_cast<unsigned>(output.kind));
-            signature.varint(output.source.node);
-            signature.varint(output.source.path.size());
-            for (auto part : output.source.path) { signature.varint(part); }
-            signature.varint(output.parent_source_path.size());
-            for (auto part : output.parent_source_path) { signature.varint(part); }
-            signature.varint(output.target_path.size());
-            for (auto part : output.target_path) { signature.varint(part); }
+            node_checkpoint_detail::append_input_bindings(
+                signature, context.spec.child.graph_builder, context.spec.child.input_bindings);
+            node_checkpoint_detail::append_output_binding(signature, context.spec.child.graph_builder,
+                                                           *context.spec.child.output_binding);
             const auto &bytes = signature.bytes();
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
@@ -1730,6 +1717,21 @@ namespace hgraph
                 if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
         }
 
+        // A combiner graph may hold a transient sink, which starts fresh. With no
+        // input event and no rebuild the node scans every combiner for due work,
+        // so being woken is all it needs.
+        [[nodiscard]] DateTime live_reduce_schedule(const NodeView &view)
+        {
+            const auto typed = view.as<ReduceNodeView>();
+            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
+            if (context.spec.lifted_kernel != nullptr) { return MAX_DT; }
+            const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(typed.internal_storage());
+            DateTime next = MAX_DT;
+            for (const auto *entry : storage.combiners)
+                if (entry != nullptr && entry->graph.has_value()) { next = std::min(next, entry->graph.view().next_scheduled_time()); }
+            return next;
+        }
+
         void visit_reduce_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
         {
             const auto typed = view.as<ReduceNodeView>();
@@ -1753,6 +1755,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_reduce_checkpoint,
                 .restore_impl = &restore_reduce_checkpoint,
                 .start_restored_impl = &start_restored_reduce,
+                .live_schedule_impl = &live_reduce_schedule,
                 .visit_endpoints_impl = &visit_reduce_checkpoint_endpoints,
                 .signature_impl = &reduce_checkpoint_signature,
             };

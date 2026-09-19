@@ -72,7 +72,32 @@ state is rejected while wiring where possible, with runtime validation before
 import as a second guard. The application revision covers semantic code changes
 that structural signatures cannot detect.
 
-The executor owns a `ComponentRecoverySession`. Recovery uses these phases:
+The graph-image mechanics live in `GraphCheckpointCoordinator`
+(`hgraph/runtime/graph_checkpoint_coordinator.h`, RFC 0039): capture, static
+validation, the prepare / fix-up / finalise restore, reference locators and the
+restored-start observer. It has two clients. `ComponentRecoverySession` is the
+completed-day client the executor owns: it selects one component
+(`GraphCheckpointSelection::owned_by`), reads its configuration from
+`GlobalState`, requires simulation with a finite end, wraps the image in a
+`ComponentCheckpoint` envelope and publishes only after a successful stop. An
+externally driven executor is the other: `start_external_restored` and
+`capture_external` select the whole graph and carry no policy, which is what a
+worker-hosted graph needs. Those verbs also take a selection: `dmap_` saves its
+workers whole, while `spawn_` saves the component a stage hosts
+(`GraphCheckpointSelection::hosted`) and stands in for it in the owner graph
+(`worker_checkpoint::HostedComponentScope`): wired inside the component's scope,
+so the session finds a member where it looks for one, with its inputs entering
+through component input boundaries so their source baselines are restored.
+
+A node needs no checkpoint operations when it is a compute node that holds
+nothing beyond its endpoints, or a sink with recordable state
+(`NodeTypeMetaData::checkpoints_without_ops`). A sink *without* recordable state
+is transient (`checkpoint_transient`, `NodeCheckpointIdentity::transient`): wired
+inside the scope with no id, selected by no image, signed into no contract. The
+coordinator also leaves every such sink its schedule. The reason it is safe for
+sinks alone is that a sink has no output (RFC 0039, ruling 2026-09-19).
+
+Recovery uses these phases:
 
 1. Load the explicitly selected predecessor and validate version, component,
    revision, static graph contracts, and interval bounds.

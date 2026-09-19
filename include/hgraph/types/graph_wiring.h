@@ -1285,6 +1285,21 @@ namespace hgraph
         [[nodiscard]] std::string_view checkpoint_component() const noexcept;
         /** Include the component's complete returned binding in its compatibility identity. */
         void checkpoint_component_output(const WiringPortRef &output);
+        /** Wire this whole graph as a worker-hosted graph (RFC 0039): every
+            node receives an identity, and one that cannot be checkpointed
+            RECORDS why (``NodeCheckpointIdentity::refusal``) instead of
+            refusing to wire. Most worker graphs are never captured and must
+            still wire; the caller and the worker process must still arrive at
+            the same identities without being told to. Call before adding a
+            node. */
+        void checkpoint_worker_graph();
+        /** True inside a worker graph: a component wired here is an identity
+            scope whether or not recovery is configured, and what it would
+            refuse is recorded (``refuse_checkpoint_component``). */
+        [[nodiscard]] bool checkpoint_records_refusals() const noexcept;
+        /** Record ``reason`` on every node of the current component scope that
+            has none. The worker-graph form of a component refusing to wire. */
+        void refuse_checkpoint_component(std::string_view reason);
 
       private:
         friend class WiringObservationScope;
@@ -1298,6 +1313,7 @@ namespace hgraph
         void apply_service_rank_dependencies();
         void finalize_extensions();
         void assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs);
+        [[nodiscard]] NodeCheckpointIdentity checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs);
         /** Shared body of finish()/snapshot(): validate + rank + build; the
             wiring GlobalState is moved when consuming, copied otherwise. */
         [[nodiscard]] GraphBuilder finish_top_level(bool consume_state);

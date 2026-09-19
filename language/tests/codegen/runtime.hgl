@@ -327,3 +327,17 @@ test scripted_signal_input {
     assert eval(count_ticks, pulse: [true, false, true]) == [1, 2, 3]
     assert eval(count_ticks, pulse: [1.0, 2.0, 3.0]) == [1, 2, 3]
 }
+
+export fn cache_bundle(value: i64) -> f64 {
+    cache count: i64 = 0
+    cache total: f64 = 0.0
+    when modified(value) && valid(value) {
+        count += 1
+        total += value
+        return total / count
+    }
+}
+
+export fn first_scalar(values: list<i64, 2>) -> i64 {
+    when modified(values) && valid(values[0]) { return values[0] }
+}

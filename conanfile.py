@@ -66,12 +66,16 @@ class HgraphConan(ConanFile):
 
     exports_sources = (
         "CMakeLists.txt",
+        "cmake/*",
         "include/*",
         "src/*",
         "tools/debugger/*",
         "language/CMakeLists.txt",
         "language/cmake/*",
         "language/src/*",
+        "language/include/*",
+        "language/stdlib/*",
+        "language/generated/*",
     )
 
     def set_version(self):
@@ -171,6 +175,7 @@ class HgraphConan(ConanFile):
         tc.cache_variables["HGRAPH_ENABLE_PYTHON_USER_NODES"] = False
         tc.cache_variables["HGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS"] = False
         tc.cache_variables["BUILD_TESTING"] = False
+        tc.cache_variables["HGRAPH_FETCH_MISSING_DEPENDENCIES"] = False
         tc.cache_variables["HGRAPH_FETCH_SIMDJSON"] = False
         tc.cache_variables["HGRAPH_FETCH_DATE"] = False
         # Deterministic named-zone backend across platforms: the packaged

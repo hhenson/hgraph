@@ -1268,8 +1268,10 @@ namespace hgraph::python_bridge
     }, nb::arg("fn"), nb::arg("recordable_id") = "");
 
     m.def("component_checkpoint_active", [](PyWiring &wiring) {
-        return component_recovery_selected(wiring.wiring_ref().global_state(),
-                                           record_replay::current_scope().recordable_id);
+        const auto &scope = record_replay::current_scope().recordable_id;
+        // A worker graph wires every component as an identity scope (RFC 0039).
+        if (wiring.wiring_ref().checkpoint_records_refusals() && !scope.empty()) { return true; }
+        return component_recovery_selected(wiring.wiring_ref().global_state(), scope);
     });
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,

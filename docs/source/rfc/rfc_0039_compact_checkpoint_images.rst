@@ -316,13 +316,77 @@ executor verbs on the externally driven mode, beside ``start_external`` /
 
 ``capture_external`` is legal only at a completed step boundary, which is the
 RFC 0023 consistency cut: the externally driven executor has no in-flight
-cycle between calls by construction.
+cycle between calls by construction. "Nothing in flight" is not "nothing due":
+a fresh start leaves its start-scheduled nodes waiting for a first step, the
+image would hold them unevaluated, and a restored start discards bootstrap
+schedules -- so they would never run. Capture therefore refuses while
+``next_scheduled_time() <= evaluation_time()``. A completed cycle always leaves
+the next scheduled time after it, and a restored start leaves no bootstrap, so
+a worker that sat out a quiet day is still captured without a step. A graph
+whose last cycle failed has no completed cut and is refused too.
+
+The coordinator (``hgraph/runtime/graph_checkpoint_coordinator.h``) is one class
+with one selection rule and four operations:
+
+``GraphCheckpointSelection``
+   ``owned_by(component)`` selects the nodes a component, or a component nested
+   in it, owns; ``whole_graph()`` selects every node. A whole-graph selection
+   refuses a node that carries no checkpoint identity, because an image whose
+   nodes are all named ``""`` would validate against any graph.
+
+``shape(graph)``
+   Identities and contract signatures only: what an image must match. It is
+   what a client hashes into its own signature (``signature(image, revision)``).
+
+``capture(graph)``
+   The owned image at ``graph.evaluation_time()``. A pending schedule beyond
+   that time is refused, as RFC 0023 requires.
+
+``restore(graph, image, start, cut)``
+   Validates the whole static graph, imports endpoints, resolves reference
+   locators and adapter clocks, then finalises owners -- all before the graph
+   starts. Every restored timestamp must be at or before ``cut``. A failure
+   detaches the whole preparation before it propagates. The image is borrowed
+   and must outlive the start phase.
+
+``complete_start()``
+   Releases the preparation inventory once the root start has succeeded.
+
+The coordinator is the ``LifecycleObserver`` that restores saved input activity
+after each node's start hook. A client registers it for the start phase only.
+
+``start_external_restored`` carries no cut of its own. The rule it needs is that
+restored state lies strictly in the past of the first evaluation, so it
+validates against ``start_time - MIN_TD``. A ``dmap_`` owner could not supply
+anything stronger: ``NodeCheckpointOps::restore_impl`` is handed the start time
+and nothing else. ``ComponentRecoverySession`` keeps the stronger check against
+the cut its envelope records.
+
+Configured component recovery stays refused on the externally driven mode: it
+is a completed-day policy, and a stepped run has no completed-interval
+publication boundary. The two verbs are the mechanism without the policy.
 
 Worker graphs are wired inside a checkpoint scope so their nodes receive
 identities and signatures through the same ``assign_checkpoint_identity`` path
 as component members. The recipe's boundary source and sink nodes declare
 checkpoint support: a source's output is an ingress baseline (a later removal
 must reach a source that already holds the key); a sink is stateless.
+
+*Every* worker graph is wired that way, whether or not anything will ever
+capture it, because the caller and the worker process each wire the graph for
+themselves and must arrive at the same identities without being told to. A
+component scope refuses a node it cannot checkpoint, and that rule cannot apply
+here: most ``dmap_`` children are not recoverable and must still wire. So the
+worker scope (``Wiring::checkpoint_worker_graph``) *records* the refusal
+instead -- ``NodeCheckpointIdentity::refusal`` holds the wiring diagnostic --
+and the two places that need it read it:
+
+* the coordinator refuses to capture or restore a node that carries one, with
+  the recorded reason, so an unrecoverable worker fails the owner's capture;
+* a ``dmap_`` owner wired inside a *component* scope walks its worker plans,
+  nested child templates included, and refuses at wiring. A recoverable
+  component therefore still learns at wiring that a child cannot be recovered,
+  which is where a component learns everything else.
 
 Protocol
 ~~~~~~~~
@@ -331,14 +395,51 @@ Two control frames join the existing bootstrap frame and ``"stop"`` sentinel.
 Neither is a ``CycleRequest``:
 
 ``@hgraph-checkpoint:1``
-   Caller to worker, between cycles. The worker replies with one frame holding
-   ``encode_graph_checkpoint`` of its graph, or a ``CycleReply`` error.
+   Caller to worker, between cycles. The worker replies with one frame:
+   ``@hgraph-image:1``, a status byte, then ``encode_graph_checkpoint`` of its
+   graph (``0``) or the rendered error (``1``).
 
-``@hgraph-restore:1`` followed by image bytes
+   The reply is marked because a worker that *fails* answers the same slot
+   with a ``CycleReply``, and a failure's first byte is zero: unmarked, that
+   read as "here is the image". A frame without the marker is "the worker did
+   not answer the checkpoint request" and is a broken exchange.
+
+   A marked refusal is the opposite case and is typed as one,
+   ``CheckpointRefused``: the worker considered the request, said no, and is
+   still serving. The owner reads **every** worker's reply (an unread one
+   would answer the next exchange), fails the capture with the first refusal,
+   and leaves the workers running, so the day ends as any failed day does and
+   every worker's stop hooks run. Only a broken channel takes workers down.
+
+   An image travels as one frame. One larger than the transport's frame limit
+   (``DEFAULT_MAX_FRAME_SIZE``, 64 MiB) is answered as a refusal that names the
+   size and the limit -- the worker would otherwise die in ``send`` and the
+   owner would learn only that a channel closed. The limit is per worker, so
+   the remedy is more workers; chunked images are future work.
+
+``@hgraph-restore:1`` followed by image bytes, in the same frame
    Caller to worker, after bootstrap and before the first cycle. The worker
    decodes, validates against its freshly wired graph and starts through
-   ``start_external_restored``. A worker started this way reports
-   ``next_scheduled_time`` from the restored schedule.
+   ``start_external_restored``. It answers with an ordinary ``CycleReply``:
+   ``next_scheduled_time`` from the restored schedule, or the error.
+
+   Every worker is sent its image before any reply is read, so when one
+   refuses, its siblings have already restored and started. They are healthy
+   running graphs and are stopped as such before the refusal propagates; a
+   pool raised in process does the same for the hosts it had already raised
+   (``WorkerPool::abandon``). A pool that fails to come up never reaches its
+   node, so nothing else would stop them.
+
+A worker therefore reads its first frame *before* it starts its graph, which
+is the only change to the ordinary path: a first frame that is not a restore
+starts the graph fresh and is then served as the cycle it is, and a channel
+that closes without a frame still starts and stops the graph, so start and stop
+hooks run exactly when they did.
+
+A request opens with its evaluation time as eight little-endian bytes. Read
+that way, ``@hgraph-`` is a time about a hundred thousand years after
+``MAX_ET``, so a marker cannot be a request. The protocol test pins that
+rather than leaving it to arithmetic in a comment.
 
 After a restore the caller's ``BoundaryTransfer`` must not send its first-cycle
 full image: the worker already holds the baseline, and a full image would tick
@@ -348,8 +449,70 @@ the owner's restored state.
 ``dmap_``
 ~~~~~~~~~
 
+**The expected nesting is a component inside the** ``dmap_`` **child** (ruling
+2026-09-19), the same way round as ``spawn_`` below, and for the same reason:
+the recoverable unit is a ``component``, and a ``dmap_`` is a way of running
+one per key somewhere else.
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered, per key
+
+   prices = dmap_(pricing, ticks_by_symbol)            # in no component itself
+
+The mechanism is the one ``spawn_`` uses. The ``dmap_`` node finds the configured
+component in its worker plans and stands in for it in the owner graph
+(``worker_checkpoint::HostedComponentScope``): wired inside the component's
+scope, with its inputs entering through component input boundaries. The worker
+images are selected, ``GraphCheckpointSelection::hosted``: the component plus
+the runtime's own nodes.
+
+Two things are particular to ``dmap_``.
+
+*The component is one level down.* Everything at the top of a ``dmap_`` worker is
+the runtime's own -- the sources, the key partition, the ``map_``, the sink -- so
+all of it is wired under ``@hgraph.worker.boundary`` and travels with the image,
+including the ``map_``'s membership, slots and children, which is what leads to
+the per-key component instances. A child template wired *from* a boundary node
+is the user's again, so its nodes fall back to ``@hgraph.worker`` and only the component
+inside it is selected. (The coordinator descends into a dynamic owner's children
+only when the owner is selected. Here it is. A ``map_`` the *user* wrote, in a
+``spawn_`` stage, is not, and a component under one is not reached -- nor
+reported as hosted, so that case still fails loudly as "not wired".)
+
+*A restored child can hold fresh nodes with work due.* What the child holds
+outside the component starts fresh when its restored child graph starts, and a
+fresh node may schedule itself at that moment -- a constant does. That is live
+work, not history. But the coordinator discards a restored node's bootstrap
+schedule, the ``map_`` that owns the child is a restored node, and so is the
+``dmap_`` owner above it: left alone, the work would have been skipped
+silently, against the engine's first invariant. ``NodeCheckpointOps`` therefore
+gains ``live_schedule_impl``: after the restored start an owner reports the
+earliest time it still has to run for live work, and the coordinator discards
+the bootstrap and then honours that. ``map_`` answers from its children, the
+list ``map_`` likewise, a ``dmap_`` owner from what its restored workers asked
+for. This also applies to whole-worker recovery: transient sinks are excluded
+from even a whole-worker image and may schedule fresh startup work.
+
+Owners whose wakeups come entirely from children declare
+``NodeCheckpointOps::schedules_children``. Their capture validates each child's
+work rather than rejecting the aggregate deadline: a transient sink's pending
+flush is allowed, while a selected compute node's pending event still refuses
+the image. The owner must still reject incomplete local work.
+
+**A** ``dmap_`` **wired inside a component keeps working** as stage 4 built it:
+the owner is a member, and its workers are saved whole, with the empty
+selection. Both nestings share every mechanism above; they differ in the
+selection and in nothing else.
+
 The owner's checkpoint state is the ordered list of per-worker image blobs
-plus its output extents. Its owned output ``TSD`` is captured as an ordinary
+plus its output extents. Capture asks every worker before it waits for any, as
+a cycle does. Restore happens before the owner starts, and the workers are
+raised *in* its start, so the restored state is parked in the graph's
+``GlobalState`` under the owner node's own address and consumed by the start
+that follows. ``GlobalState`` owns it: a preparation that never reaches start
+leaves nothing to free. Its owned output ``TSD`` is captured as an ordinary
 output. Key placement is ``hash % workers`` and is not stored; the worker count
 and hosting mode are part of the owner's contract signature, so a changed
 worker count is an incompatible image rather than a silent re-partition.
@@ -364,6 +527,134 @@ child graphs.
 ``spawn``
 ~~~~~~~~~
 
+**What recovers is a component inside a stage, not the stage** (ruling
+2026-09-18). A stage is a graph the user wrote; the recoverable unit inside it is
+the same one as anywhere else, a ``component``. Everything else in the stage is
+*processed*, not recovered -- above all the sink the pipeline ends in, which acts
+in a worker process and whose effect no checkpoint could replay. An earlier
+draft of this section, and the first implementation, took the whole stage graph
+as the unit. That dragged the sink into the contract, demanded that it declare
+itself recoverable, and left a Python pipeline unrecoverable because a Python
+sink had no way to say so. The unit was wrong, not the sink.
+
+So the recovery configuration names a component, and that component is wired
+*inside* a stage:
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered
+
+   @graph
+   def stage(ticks: TS[float]):
+       publish(pricing(ticks))                          # publish: processed
+
+   spawn_(stage, ticks)
+
+Three things make that work.
+
+*A worker graph names the nodes of every component in it, always.* It already
+carries identities always, for the same reason: the owner and the stage's
+process each wire the graph for themselves and have to agree without being told.
+Naming is *all* a hosted component does. It adds no node and changes no binding,
+because it has to be invisible in a graph nobody will ever capture; and it
+needs no input boundary of its own, because the runtime's boundary nodes already
+hold the baselines. (An earlier cut gave it the forwarding input boundary a
+configured component has. Inside a ``map_`` child created mid-cycle that lost
+the creation-cycle tick and the removals, with no recovery configured at all;
+a test now pins that wrapping a child or a stage in a component changes
+nothing.) Where a configured component would refuse to wire -- a reference in
+an input, a reference escaping the output -- a hosted one records the refusal on
+its nodes, as a worker scope does for a single node.
+
+One thing a boundary used to guarantee is now checked instead. Producer scopes
+outside a member's own component are recorded at wiring
+(``NodeCheckpointIdentity::input_components``) and checked against the actual
+selection. Selecting an enclosing component includes both it and its nested
+components; selecting only an inner component does not include its parent's
+producers. A dependency omitted from the selected image is refused at the
+owner's wiring, naming the node and the remedy: include what computes its input
+in the recovered component.
+
+*The* ``spawn_`` *node stands in for the component in the owner graph.* At wiring
+it looks for the configured component among its stages' nodes. If a stage hosts
+it, the ``spawn_`` node is wired inside that component's scope, so the
+completed-day session finds a member exactly where it looks for one, and
+nothing else about the session changes.
+
+Its inputs enter through component input boundaries, as any component's do, and
+for the same reason. The owner graph is not recovered, so without a restored
+source baseline its side of a keyed input would be empty after a restart, and
+the removal of a key it never saw again could not be expressed: the worker would
+hold that key for good. (The first cut of this wired the owner in a separate
+"host scope" that took its inputs as they came; a keyed input with a removal
+after a restart showed the hole, and the host scope is gone.) The usual rules
+follow. An input has to be a direct source output, and that source may feed
+nothing else; a computed input is refused at wiring. The usual remedy follows
+too: wrap ``spawn_``, and whatever computes its inputs, in a component, which is
+the other nesting below. The caller's contract is the component's: a run
+supplies only future events.
+
+*A stage's image is selected, not whole.* It covers the component and the
+runtime's own boundary nodes -- the stage's sources and its output sink, wired
+under ``@hgraph.worker.boundary``. Those hold the input baselines and the output's
+observation state, they are not the user's, and restoring them is what lets a
+restored pipeline skip the first-capture baselines. The checkpoint and restore
+frames carry the component id; an empty id is the whole graph, which is what
+``dmap_`` sends. A node outside the component starts fresh on every run,
+bootstrap schedule and all.
+
+What this does not reach: a component nested under a ``map_`` inside the stage.
+The coordinator descends into a dynamic owner's children only when the owner is
+selected, and that ``map_`` is not.
+
+If ``spawn_`` is itself wired inside a recoverable component, the user has said
+the pipeline is part of that component, and every stage is captured whole as a
+member's children are. The same mechanism, with the empty selection.
+
+*Sinks* (ruling 2026-09-19). A sink may sit inside a component, and what
+recovery does with it depends on one thing:
+
+* **With recordable state it is recovered**, through that state: it is a member,
+  and its recordable state and input observation state are in the image.
+* **Without, it is transient**: inside the scope, outside the image *and* the
+  contract. It starts fresh on every run; it has no id, so adding, removing or
+  changing one never refuses a checkpoint; and whatever it holds -- ordinary
+  state, a scheduler, the clock -- is its own business.
+
+This is safe for a sink and for nothing else, because a sink has no output:
+nothing inside the recovered graph can observe what it forgot. A compute node
+that lost its ``State`` would change values downstream. Recordable state is how
+a sink's author marks what must survive, and no other declaration exists or is
+needed -- which is also why no Python API for one was added. RFC 0023 refused a
+sink outright, to make its author acknowledge that recovery does not replay an
+effect; that acknowledgement is now implicit in the rule.
+
+*A sink's schedule is its own, in both cases.* A pending alarm does not block a
+capture, and a restored sink keeps the schedule its start hook set. Both are
+things the coordinator does to every other restored node, and either would
+break a periodic flush: it would never re-arm. A sink re-evaluating cannot
+disturb the graph, so there is nothing to protect.
+
+One exception to "free to change" is known and fails closed. A reference
+adapter lives on the *producer's* output and is made for whichever consumer's
+input schema differs from it (``REF`` against non-``REF``), so one made for a
+transient sink is part of that output's adapter inventory. Adding or removing
+such a sink between runs is therefore refused ("reference adapter inventory
+mismatch") rather than ignored. Accepting every unsaved adapter is not the fix:
+it would also accept an image that had lost a *restored* consumer's clocks.
+Telling the two apart needs a walk of the selected nodes' input bindings.
+
+The start-time work of a transient sink is live work wherever the sink sits:
+``map_``, the list ``map_``, ``mesh_``, ``reduce``, ordered ``reduce`` and the
+worker owners all report it through ``live_schedule_impl``, and the coordinator
+asks for it whichever way its bootstrap decision went.
+
+A sink that declares ``NodeCheckpointOps`` -- a boundary sink, or an owner of
+worker graphs, which is a sink by kind -- is what its operations say.
+
+The mechanics below are unchanged by any of this.
+
 RFC 0038 requires "a consistent frontier fence, graph checkpoints and channel
 cursor recovery". At the completed-day boundary the first is already true and
 the third is vacuous: the executor settles every stage (``next_time(true)``)
@@ -371,9 +662,42 @@ before it concludes, so at capture every stage has completed the frontier and
 every channel is empty. The owner's capture therefore *asserts* quiescence
 (every stage ready, idle and at the frontier; no pending or queued frame) and
 refuses the image otherwise, then collects one image per stage in pipeline
-order. Its restored state is the per-stage blobs plus each stage's requested
-next time. An online (mid-run) spawn checkpoint needs a real fence and channel
+order. An online (mid-run) spawn checkpoint needs a real fence and channel
 cursors and stays out of scope, as RFC 0023's online snapshot does.
+
+Three details the implementation settled:
+
+* **Who asks.** A stage's transport thread owns its channel, so the owner does
+  not talk to a worker itself. It marks each stage, and the stage's thread --
+  idle, because the owner asserted quiescence first -- sends
+  ``@hgraph-checkpoint:1`` and hands the image back. A stage that cannot
+  capture reports why and carries on; the refusal fails the owner's capture.
+  The stage thread records the refusal as that stage's *answer*, beside the
+  image it would otherwise have recorded. It is not a stage failure: that
+  would cancel the pipeline and kill the other stages' processes before their
+  stop hooks, over a stage that is intact. The owner waits for every stage's
+  answer and then throws, naming the stage.
+* **How long an image is held.** Each stage's restored image is released as
+  soon as its restore frame is sent. Images are the largest thing a recovery
+  holds, and the pipeline lives for the whole run.
+* **How a stage starts.** A ``spawn_`` stage answers its start before any cycle,
+  so unlike a ``dmap_`` worker it cannot wait to see whether its first frame is
+  a restore. The owner says which, straight after the boundary identity:
+  ``@hgraph-start:1`` or a restore frame.
+* **What else is restored.** Not the stages' requested next times, which an
+  earlier draft listed. An image never holds a pending schedule (RFC 0023), so
+  each is "nothing", and the stage reports its own in its start reply anyway.
+  What *is* restored beside the images is the fact of restoration: a fresh
+  pipeline sends every input in full on its first capture, and a restored one
+  already holds those baselines. Re-sending them would tick inputs that did
+  not tick. This is the "first" state the protocol section refers to; for
+  ``spawn_`` it is real, and a test with a once-ticking side input pins it.
+
+The contract signature is the selected nodes of every stage, in order: the
+hosted component's, or all of them when ``spawn_`` is a member. Stage bootstraps
+are left out on purpose -- they carry configuration, such as paths, that a
+restart is free to change -- and so, in the hosted form, is everything outside
+the component, which a restart is equally free to change.
 
 A spawned pipeline ends in a sink that acts in a worker process. RFC 0023's
 external-effect rule applies unchanged: the effect is outside the recoverable
@@ -446,8 +770,23 @@ Stages
    (``developer_guide/data_structures/plans_and_ops/time_series.rst``) and is
    independent of checkpointing. Columnar leaf images remain open.
 3. **Whole-graph coordinator** and the two externally driven executor verbs.
-4. **``dmap_`` recovery**, in-process then process hosting.
-5. **``spawn`` recovery** at the completed boundary.
+   *Implemented.*
+4. **``dmap_`` recovery**, in-process then process hosting. *Implemented*, for
+   both the prepared and the typed ``dmap_`` forms. Building it found one
+   defect in the coordinator that predates it: a restored node's bootstrap
+   schedule was discarded from the graph's slot but not from the node's own
+   ``NodeScheduler`` state, so after a quiet first cycle the alarm was re-armed
+   in the past. ``dmap_`` was simply the first recoverable node to use a
+   ``NodeScheduler``. The "first-cycle full image" concern above did not
+   materialise. A transfer has no "first" state of its own: it sends a full
+   image when its input reports a sampled rebind, and a restored owner's input
+   does not. The acceptance tests would show it if it did -- every child
+   accumulates, so a baseline re-ticked into a worker changes the totals of
+   keys the cycle never touched.
+5. **``spawn`` recovery** at the completed boundary. *Implemented.*
+6. **A component inside the worker**, for both owners: hosted selection, the
+   owner standing in for the component, transient sinks, live schedules.
+   *Implemented.*
 
 Acceptance
 ----------
@@ -516,3 +855,18 @@ References
 * :doc:`rfc_0037_distributed_map`
 * :doc:`rfc_0038_spawn_pipelines`
 * :doc:`../user_guide/component_recovery`
+
+Recovery review corrections
+---------------------------
+
+Internal worker scopes use the reserved ``@hgraph.`` namespace. A user component
+cannot claim that namespace, and recovery configuration cannot select it.
+Ordinary names such as ``worker`` and ``worker.boundary`` remain valid user
+component names, but must refer to a component that was actually wired.
+
+Child input and output binding signatures name checkpoint identities rather
+than physical node positions. Input bindings to transient sinks are excluded,
+so inserting one cannot renumber the recoverable contract. The same encoding
+is used by dictionary and list maps, meshes, and both reduction strategies.
+These signature corrections fail closed against images with the previous
+encoding; an incompatible image must be regenerated rather than imported.

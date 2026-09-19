@@ -1,53 +1,53 @@
 # ADR 0011: `cache` declarations
 
-Status: accepted. Implemented for one scalar `cache` declaration per runtime
-function, lowered to the native `State<T>` selector; the limits below are the
-native contract's, not the language's.
-
-## Context
-
-[ADR 0008](0008-temporal-contracts-and-target-mappings.md) agreed the concept:
-`state` is semantic history and is recorded and restored; `cache<T>` is
-node-local data that can be rebuilt without missing history, is excluded from
-record/replay, and maps to the native `State<T>` slot rather than
-`RecordableState<TSchema>`. It deliberately left the declaration syntax open.
-
-The migration catalogue then held `schedule` native-only for exactly this
-reason: its tick counter lives in a non-recordable `State<Int>`, and HGL
-`state` would have recorded it, changing behaviour after a restore. The same
-gap (MIG-005) is the first of the contracts behind `throttle`, `batch`,
-`gate`, `lag` and `window`.
+Status: accepted. Scalar cache declarations and aggregation are implemented.
+Mixed recordable state/cache storage and scheduler checkpoint recovery remain
+implementation gaps, not exceptions to the recovery contract.
 
 ## Decision
 
-1. **Syntax.** `cache name[: T] = init` is a function-level declaration of a
-   runtime function, placed like `state`, before the executable blocks.
-   `cache` is a reserved word.
+`cache name[: T] = init` declares reconstructible, function-level runtime data.
+The initializer runs on every start. Initialization and any rebuilding must
+finish before evaluation uses the cache. Given restored inputs and recordable
+state, rebuilding must preserve values, validity, ticks, deltas and effects
+([ADR 0008](0008-temporal-contracts-and-target-mappings.md)). A historical counter
+or pending event cannot be made a cache merely to match existing native storage.
 
-2. **Semantics.** A cache is read and written exactly like state inside
-   hooks. Its initializer runs on **every** start, restored or not: a cache
-   holds nothing the engine promises to bring back. Its type follows state's
-   typing rules; this slice admits the scalar types state admits.
+A single scalar cache lowers to `hgraph::State<T>`. Multiple scalar cache
+variables lower to fields of a generated C++ struct in one `State<Struct>`.
+Reads use the corresponding field and writes mutate it in place. The native
+one-`State<>` constraint is a storage-slot constraint, not a one-variable limit.
+All cache fields are constructed before `start` and initialized on every start.
+The current native restriction against combining `State<>` and
+`RecordableState<>` is separate; shared graph-IR validation diagnoses that
+unsupported combination before backend dispatch. Non-scalar caches and generic
+recordable state without an initializer remain future work.
 
-3. **Lowering.** One `cache` declaration lowers to `hgraph::State<T>` bound
-   as `hgl_cache`; reads are `hgl_cache.get()`, writes `hgl_cache.set(...)`,
-   and `start` seeds it unconditionally.
+## Scheduler recovery contract
 
-4. **Native limits, reported as such.** hgraph's static node has one
-   `State<T>` slot and rejects it beside `RecordableState`. A second `cache`
-   declaration, or `cache` together with `state` in one function, is a
-   diagnostic that names the native contract. Lifting either needs backend
-   work: a bundle or opaque value schema for several cache fields, and the
-   static-node change ADR 0008 already records as the agreed direction.
+Pending scheduled tasks must be recoverable. Authoritative recordable state
+holds the raw schedule records: deadlines and their clock domain, stable task
+identity and tie order, cancellation/replacement status, and progress needed to
+preserve a finite schedule's remaining work. A heap, lookup table or other
+ordering/index structure may be a cache of indices into that state. Process
+pointers, native handles and container iterators are not durable records.
 
-## Consequences
+Recovery restores the records quietly, rebuilds derived indices, and re-arms the
+native scheduler before any dependent evaluation. It must not schedule duplicate
+tasks, reset finite progress, emit extra startup ticks, resurrect cancellations,
+or change same-deadline ordering. Wall-clock and overdue-task behavior must follow
+the native recovery contract rather than invent a second scheduler in HGL.
 
-- `schedule` is authorable with native parity: `cache ticks: i64 = 0`.
-- A cache is function-level data, not a local: the unread-local rule does
-  not apply, and a cache the body never reads is still seeded on start. The
-  emitter names the `hgl_cache` selector only in hooks that use it, as for
-  every other name.
-- What MIG-005 still lacks after this slice: several cache fields, a cache
-  beside recordable state, non-scalar caches (queues, windows, indexes), and
-  generic recordable state without a default. Those are separate decisions;
-  a cache must not be used to hide semantic history from record/replay.
+Required trace: after a three-tick schedule has emitted once, restoring with an
+empty cache must leave exactly two emissions at the same pending deadlines as an
+uninterrupted run. Also exercise cancelled/replaced tasks, equal deadlines,
+repeated checkpoints, and wall-clock deadlines. Restarting a fresh graph twice
+is not checkpoint-recovery evidence.
+
+The current native and HGL `schedule` implementations keep their counter in
+non-recordable storage, so full checkpoint recovery for these schedule
+implementations is not implemented. Their ordinary-run parity tests establish
+only that supported execution slice. This
+is a correctness gap to repair through the native scheduler/state contract
+before production migration or claims of recovery equivalence. It is not an
+accepted exception allowing semantic history in a cache.

@@ -1,4 +1,5 @@
 #include "hgraph_ir/lower.h"
+#include "hgraph_ir/plan.h"
 
 #include "hgraph_ir/control_flow.h"
 
@@ -1181,5 +1182,9 @@ namespace hgl::hgraph_ir
         };
     }  // namespace
 
-    Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) { return Lowerer{source, diagnostics}.run(); }
+    Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) {
+        auto result = Lowerer{source, diagnostics}.run();
+        plan(result, diagnostics);
+        return result;
+    }
 }  // namespace hgl::hgraph_ir

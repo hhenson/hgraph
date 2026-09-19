@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/mesh_node.h>
 
 #include <hgraph/runtime/nested_bindings.h>
@@ -1604,14 +1605,7 @@ void validate_mesh_checkpoint_mode(const MeshNodeContext &context) {
   }
   writer.varint(spec.multiplexed_inputs.size());
   for (auto index : spec.multiplexed_inputs) { writer.varint(index); }
-  writer.varint(spec.child.input_bindings.size());
-  for (const auto &binding : spec.child.input_bindings) {
-    writer.varint(binding.source_path.size());
-    for (auto index : binding.source_path) { writer.varint(index); }
-    writer.varint(binding.target.node);
-    writer.varint(binding.target.path.size());
-    for (auto index : binding.target.path) { writer.varint(index); }
-  }
+  node_checkpoint_detail::append_input_bindings(writer, spec.child.graph_builder, spec.child.input_bindings);
   const auto &bytes = writer.bytes();
   return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
 }
@@ -1872,6 +1866,15 @@ void start_restored_mesh(const NodeView &view, DateTime time) {
   }
 }
 
+// What the restored start found still to do: a child with work due now, or the
+// earliest one queued. A transient sink is outside even a whole image, so it
+// starts fresh in a restored child and its start-time alarm is live work.
+[[nodiscard]] DateTime live_mesh_schedule(const NodeView &view) {
+  const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  if (storage.evaluation_candidates.any()) { return MIN_DT; }
+  return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
+}
+
 void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit) {
   const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
   for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
@@ -1882,10 +1885,12 @@ void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpoint
 [[nodiscard]] const NodeCheckpointOps &mesh_checkpoint_ops() noexcept {
   static const NodeCheckpointOps ops{
       .supported = true,
+      .schedules_children = true,
       .capture_impl = &capture_mesh_checkpoint,
       .prepare_restore_impl = &prepare_mesh_checkpoint,
       .restore_impl = &restore_mesh_checkpoint,
       .start_restored_impl = &start_restored_mesh,
+      .live_schedule_impl = &live_mesh_schedule,
       .visit_endpoints_impl = &visit_mesh_checkpoint_endpoints,
       .signature_impl = &mesh_checkpoint_signature,
   };
@@ -2015,6 +2020,11 @@ void mesh_node_stop(const NodeView &view, DateTime evaluation_time) {
   auto mesh_view = view.as<MeshNodeView>();
   auto &storage = storage_of(view, *static_cast<const MeshNodeContext *>(
                                        mesh_view.internal_context()));
+
+  // Release the upstream subscription while its source is still alive. The
+  // owning map can retain this stopped graph until a later slot erase, after
+  // the source has already been detached or replaced.
+  storage.unsubscribe_requested_keys_noexcept();
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();

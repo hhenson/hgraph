@@ -1,6 +1,9 @@
 #include <hgraph/runtime/spawn.h>
 #include <hgraph/runtime/distributed_child.h>
+#include <hgraph/runtime/distributed_map.h>
+#include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/runtime/distributed_process.h>
+#include <hgraph/types/record_replay.h>
 #include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/runtime/executor_activity.h>
 #include <hgraph/util/scope.h>
@@ -24,6 +27,8 @@ namespace hgraph::spawn_detail
         std::string boundary_identity;
         std::size_t flow_slot{static_cast<std::size_t>(-1)};
         bool output{false};
+        /** The stage's graph as the owner wired it: what its contract signs. */
+        GraphBuilder graph;
     };
     struct ExternalInput
     {
@@ -38,6 +43,10 @@ namespace hgraph::spawn_detail
         const TSValueTypeMetaData *input_schema{};
         SpawnConfig config;
         SpawnWaitRunner wait_runner;
+        /** The component the stage images cover (RFC 0039): the recoverable
+            component a stage hosts, or empty for whole stages, which is what a
+            spawn_ that is itself a component member saves. */
+        std::string hosted_component;
     };
     using PlanPtr = std::shared_ptr<const Plan>;
 
@@ -70,6 +79,11 @@ namespace hgraph::spawn_detail
         DateTime next{MAX_DT};
         bool ready{false};
         bool busy{true};
+        /** Owner asks, the stage's transport thread answers: it owns the channel.
+            Exactly one of ``image`` and ``refusal`` is the answer. */
+        bool checkpoint_requested{false};
+        std::optional<std::string> image;
+        std::optional<std::string> refusal;
     };
 
     /** Graphs execute only in worker processes. Transport threads own channels,
@@ -77,9 +91,16 @@ namespace hgraph::spawn_detail
     class Runtime
     {
       public:
-        Runtime(PlanPtr plan, DateTime start, DateTime end)
-            : plan_(std::move(plan)), start_(start), end_(end), frontier_(start - MIN_TD)
+        /** ``restored`` is empty, or one image per stage in pipeline order. A
+            restored pipeline already holds its input baselines, so its first
+            capture sends deltas: the "first" state is part of what is restored. */
+        Runtime(PlanPtr plan, DateTime start, DateTime end, std::vector<std::string> restored = {})
+            : plan_(std::move(plan)), start_(start), end_(end), frontier_(start - MIN_TD),
+              restored_(std::move(restored)), first_(restored_.empty())
         {
+            if (!restored_.empty() && restored_.size() != plan_->stages.size())
+                throw std::invalid_argument("spawn_: the checkpoint holds " + std::to_string(restored_.size()) +
+                    " stage images and the pipeline has " + std::to_string(plan_->stages.size()) + " stages");
             stages_.reserve(plan_->stages.size());
             pending_.resize(plan_->stages.size());
             for (const auto &stage : plan_->stages)
@@ -143,6 +164,52 @@ namespace hgraph::spawn_detail
                 frame->deltas.push_back({binding.slot, std::move(payload)});
             }
             first_ = false;
+        }
+        /**
+         * One image per stage, in pipeline order (RFC 0039).
+         *
+         * Legal only at the completed boundary, where RFC 0038's frontier
+         * fence is already true and its channel cursors are vacuous: the
+         * executor settled every stage before it concluded. That is ASSERTED
+         * here rather than assumed -- an image taken with a frame in flight
+         * would lose it.
+         */
+        [[nodiscard]] std::vector<std::string> checkpoint()
+        {
+            std::vector<std::string> images;
+            wait_call([&] {
+                std::unique_lock lock{mutex_};
+                check_error();
+                for (std::size_t index = 0; index < stages_.size(); ++index)
+                {
+                    const auto &stage = *stages_[index];
+                    if (pending_[index] || !stage.ready || stage.busy || stage.completed < frontier_ ||
+                        !stage.side.frames.empty() || !stage.flow.frames.empty())
+                        throw std::runtime_error("spawn_: stage " + std::to_string(index) +
+                            " is not quiescent at the completed boundary");
+                }
+                for (auto &stage : stages_)
+                {
+                    stage->image.reset();
+                    stage->refusal.reset();
+                    stage->checkpoint_requested = true;
+                    stage->work.notify_one();
+                }
+                condition_.wait(lock, [&] {
+                    return !error_.empty() || std::all_of(stages_.begin(), stages_.end(),
+                        [](const auto &stage) { return stage->image.has_value() || stage->refusal.has_value(); });
+                });
+                check_error();
+                // A stage that answered "no" is intact and still serving: the
+                // refusal fails this capture, and the pipeline is left to be
+                // drained and stopped properly, so its stop hooks run.
+                for (std::size_t index = 0; index < stages_.size(); ++index)
+                    if (stages_[index]->refusal)
+                        throw std::runtime_error("spawn_: stage " + std::to_string(index) +
+                            " cannot be checkpointed: " + *stages_[index]->refusal);
+                for (auto &stage : stages_) images.push_back(std::move(*stage->image));
+            });
+            return images;
         }
         void finish()
         {
@@ -272,6 +339,12 @@ namespace hgraph::spawn_detail
                 const auto startup_deadline = deadline();
                 channel.send(plan.bootstrap, startup_deadline);
                 channel.send(plan.boundary_identity, startup_deadline);
+                channel.send(restored_.empty() ? std::string{distributed::start_frame}
+                                               : distributed::encode_restore_frame(restored_[index], plan_->hosted_component),
+                             startup_deadline);
+                // Sent, and never read again. Each stage thread touches only
+                // its own element, so the release needs no lock.
+                if (!restored_.empty()) { std::string{}.swap(restored_[index]); }
                 const auto initial = receive(startup_deadline);
                 {
                     std::lock_guard lock{mutex_};
@@ -285,11 +358,13 @@ namespace hgraph::spawn_detail
                     std::vector<Delta> deltas;
                     DateTime time;
                     std::optional<std::size_t> side_bytes, flow_bytes;
+                    bool checkpoint = false;
                     {
                         std::unique_lock lock{mutex_};
                         for (;;)
                         {
                             if (cancelled_) break;
+                            if (state.checkpoint_requested) { checkpoint = true; break; }
                             const auto allowed = index == 0 ? frontier_ : std::min(frontier_, stages_[index - 1]->completed);
                             time = std::min({state.next, first_time(state.side), first_time(state.flow)});
                             if (time <= allowed && time < end_) break;
@@ -314,11 +389,36 @@ namespace hgraph::spawn_detail
                                 throw std::runtime_error("worker process exited while idle (" +
                                                          std::to_string(*code) + ")");
                         }
-                        if (cancelled_ || (sealed_ && state.completed >= frontier_ &&
-                            std::min({state.next, first_time(state.side), first_time(state.flow)}) > frontier_)) break;
-                        state.busy = true;
-                        side_bytes = pop(state.side, time, deltas);
-                        flow_bytes = pop(state.flow, time, deltas);
+                        if (cancelled_) break;
+                        if (!checkpoint)
+                        {
+                            if (sealed_ && state.completed >= frontier_ &&
+                                std::min({state.next, first_time(state.side), first_time(state.flow)}) > frontier_) break;
+                            state.busy = true;
+                            side_bytes = pop(state.side, time, deltas);
+                            flow_bytes = pop(state.flow, time, deltas);
+                        }
+                    }
+                    if (checkpoint)
+                    {
+                        // The owner asserted quiescence before asking, so no
+                        // cycle is outstanding on this channel.
+                        const auto checkpoint_deadline = deadline();
+                        channel.send(distributed::encode_checkpoint_frame(plan_->hosted_component), checkpoint_deadline);
+                        std::string payload;
+                        if (!channel.receive(payload, checkpoint_deadline))
+                            throw std::runtime_error("worker process exited before replying");
+                        std::optional<std::string> image, refusal;
+                        try { image = distributed::decode_checkpoint_reply(payload); }
+                        catch (const distributed::CheckpointRefused &error) { refusal = error.what(); }
+                        {
+                            std::lock_guard lock{mutex_};
+                            state.image = std::move(image);
+                            state.refusal = std::move(refusal);
+                            state.checkpoint_requested = false;
+                        }
+                        condition_.notify_all();
+                        continue;
                     }
                     distributed::CycleRequest request{time, {}};
                     for (auto &delta : deltas)
@@ -382,7 +482,8 @@ namespace hgraph::spawn_detail
         std::condition_variable condition_;
         ExecutorActivityWake wake_;
         std::string error_;
-        bool first_{true};
+        std::vector<std::string> restored_;
+        bool first_;
         bool sealed_{false};
         bool cancelled_{false};
     };
@@ -408,10 +509,44 @@ namespace hgraph::spawn_detail
     struct SpawnNode
     {
         static constexpr auto name = "spawn_";
-        static void start(Scalar<"plan", PlanPtr> plan, EngineControlView engine,
+        // A dynamic-graph owner whose children are its stages (RFC 0039). Its
+        // contract is what it saves of each stage, in order: the component a
+        // stage hosts, or every node when spawn_ is itself a member. Bootstraps
+        // are left out on purpose -- they carry configuration such as paths
+        // that a restart is free to change -- and so is everything a hosted
+        // selection leaves out, the terminal sink first of all.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .capture_impl = +[](const NodeView &node, const CaptureGraphCheckpoint &) {
+                    auto *runtime = node.state().checked_as<StateData>().runtime;
+                    if (runtime == nullptr) { throw std::logic_error("component checkpoint: spawn_ has no pipeline to capture"); }
+                    return distributed::worker_checkpoint::state_of(runtime->checkpoint(), {});
+                },
+                .restore_impl = &distributed::worker_checkpoint::restore,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    const auto &plan = *builder.scalars().view().as_bundle().at("plan").checked_as<PlanPtr>();
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    writer.varint(plan.stages.size());
+                    writer.string_field(plan.hosted_component);
+                    const auto selection = GraphCheckpointSelection::hosted(plan.hosted_component);
+                    for (std::size_t index = 0; index < plan.stages.size(); ++index)
+                        distributed::worker_checkpoint::sign_worker_graph(writer, plan.stages[index].graph, "spawn_",
+                                                                          index, selection);
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
+        static void start(Scalar<"plan", PlanPtr> plan, NodeView node, EngineControlView engine,
                           State<StateData> state, NodeScheduler scheduler, DateTime now)
         {
-            auto runtime = std::make_unique<Runtime>(plan.value(), now, engine.end_time());
+            auto restored = distributed::worker_checkpoint::claim(node);
+            auto runtime = std::make_unique<Runtime>(plan.value(), now, engine.end_time(),
+                restored ? std::move(restored->images) : std::vector<std::string>{});
             auto activity = runtime->activity();
             auto wake = engine.attach_activity(activity);
             annotate_on_exception([&] {
@@ -456,6 +591,20 @@ namespace hgraph
         SpawnWorkerPlan plan;
         GlobalState state;
         Wiring child{state, WiringOptions{.allow_push_sources = false, .inherit_global_context = false}};
+        // Every worker graph carries checkpoint identities (RFC 0039): the
+        // owner and the stage's process each wire this for themselves. The
+        // owner may be wiring from inside a component of its own, and the
+        // process never is, so the ambient component id is cleared: a
+        // component inside the stage has to get the same id on both sides.
+        child.checkpoint_worker_graph();
+        const record_replay::scope isolated{record_replay::Mode::None, {}};
+        // The runtime's own boundary nodes hold the input baselines, so a
+        // stage image selected by component takes them along.
+        const auto boundary = [&child](auto &&wire_boundary) {
+            const auto scope = child.checkpoint_component(std::string{worker_boundary_checkpoint_scope});
+            auto restore = make_scope_exit([&] { (void)child.checkpoint_component(scope); });
+            return wire_boundary();
+        };
         std::vector<WiringPortRef> inputs;
         const auto append_identity = [&](const TSValueTypeMetaData *schema) {
             const auto bytes = manifest::ts_descriptor(schema);
@@ -470,7 +619,9 @@ namespace hgraph
                 std::make_shared<const distributed::BoundaryTransfer>(schemas[i], "spawn_ input " + std::to_string(i));
             const Str slot = "__spawn_input_" + std::to_string(i);
             plan.slots.add(slot, distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Input);
-            inputs.push_back(wire<distributed::boundary_transfer_source_impl>(child, slot, transfer, schemas[i]).erased());
+            inputs.push_back(boundary([&] {
+                return wire<distributed::boundary_transfer_source_impl>(child, slot, transfer, schemas[i]).erased();
+            }));
         }
         const auto result = function.wire(child, inputs);
         if ((result.schema != nullptr) != function.has_output)
@@ -494,9 +645,15 @@ namespace hgraph
                 const auto input = bundle[0];
                 if (input.modified()) node.global_state().set("__spawn_output", transfer->capture(input));
             };
-            auto sink = NodeBuilder::native(std::move(meta), std::move(callbacks));
+            NodeTypeDescriptor descriptor;
+            descriptor.schema = std::move(meta);
+            descriptor.callbacks = std::move(callbacks);
+            descriptor.ops.checkpoint_ops = &distributed::boundary_sink_checkpoint_ops();
+            auto sink = NodeBuilder::from_descriptor(std::move(descriptor));
             sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(sink_schema, {&result, 1}));
-            static_cast<void>(child.add_node(std::type_index(typeid(SpawnWorkerPlan)), std::move(sink), {&result, 1}, Value{}));
+            boundary([&] {
+                return child.add_node(std::type_index(typeid(SpawnWorkerPlan)), std::move(sink), {&result, 1}, Value{});
+            });
         }
         else plan.boundary_identity += "sink";
         plan.graph = std::move(child).finish();
@@ -604,6 +761,7 @@ namespace hgraph
             prepared.output = worker.output != nullptr;
             prepared.slots = std::move(worker.slots);
             prepared.boundary_identity = std::move(worker.boundary_identity);
+            prepared.graph = std::move(worker.graph);
             if (stage.recipe.empty())
                 throw std::invalid_argument("spawn_: process stage requires a registered worker recipe");
             prepared.recipe = stage.recipe;
@@ -611,6 +769,30 @@ namespace hgraph
             plan->stages.push_back(std::move(prepared));
         }
         plan->input_schema = TypeRegistry::instance().un_named_tsb(fields);
+        // What recovers is a component inside a stage (RFC 0039). If a stage
+        // hosts the component recovery is configured for, this node stands in
+        // for it in the owner graph: wired in its scope, so the completed-day
+        // session finds a member where it looks for one, with the pipeline's
+        // inputs entering through component input boundaries. Wired inside a
+        // component of the owner's instead, the pipeline is that component's,
+        // whole, and its inputs already are.
+        std::optional<std::string> hosted;
+        if (wiring.checkpoint_component().empty())
+        {
+            if (auto configured = configured_recovery_component(wiring.operator_state()))
+            {
+                if (std::any_of(plan->stages.begin(), plan->stages.end(), [&](const StagePlan &stage) {
+                        return distributed::worker_checkpoint::hosts_component(stage.graph, *configured);
+                    }))
+                {
+                    hosted = std::move(configured);
+                }
+            }
+        }
+        distributed::worker_checkpoint::HostedComponentScope standing_in{wiring, hosted};
+        plan->hosted_component = standing_in.component();
+        for (std::size_t index = 0; index < external.size(); ++index)
+            external[index] = standing_in.input(std::move(external[index]), fields[index].first);
         const auto source = WiringPortRef::structural_source(plan->input_schema, std::move(external));
         // A freshly owned immutable plan gives every spawn distinct identity,
         // including two identical sink calls with observable side effects.

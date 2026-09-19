@@ -1,4 +1,5 @@
 #include "wiring/backend.h"
+#include <hgl/constant_arithmetic.h>
 
 #include "hgraph_ir/control_flow.h"
 #include "syntax/temporal.h"
@@ -208,32 +209,9 @@ namespace hgl::wiring
             return "?";
         }
 
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_add(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
-            return lhs + rhs;
-        }
-
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_subtract(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
-            return lhs - rhs;
-        }
-
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_multiply(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if (lhs == 0 || rhs == 0) { return 0; }
-            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
-            if (lhs > 0) {
-                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
-            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
-                return std::nullopt;
-            }
-            return lhs * rhs;
-        }
+        using constant_arithmetic::checked_add;
+        using constant_arithmetic::checked_mul;
+        using constant_arithmetic::checked_sub;
 
         std::string describe_view(const hgraph::ValueView &view) {
             if (view.schema() == standard_types().float_type) {
@@ -285,6 +263,7 @@ namespace hgl::wiring
             [[nodiscard]] std::optional<hgraph::Value> evaluate_constant(gir::ValueId value);
 
           private:
+            std::vector<gir::CallableId> invocations_{};
             [[noreturn]] void fail(Category category, SourceRange range, std::string message) {
                 diagnostics_.report(category, range, std::move(message));
                 throw Abort{};
@@ -606,8 +585,8 @@ namespace hgl::wiring
             switch (op) {
                 case hir::BinaryOp::Add:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_add(lhs.value.view().checked_as<hgraph::Int>(),
-                                                           rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_add(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) + number(rhs)}, range); }
                     if (lhs.meta() == types_.str_type && rhs.meta() == types_.str_type) {
@@ -630,8 +609,8 @@ namespace hgl::wiring
                     return type_error();
                 case hir::BinaryOp::Sub:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_subtract(lhs.value.view().checked_as<hgraph::Int>(),
-                                                                rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_sub(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) - number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs.meta() == types_.timedelta_type) {
@@ -655,8 +634,8 @@ namespace hgl::wiring
                     return type_error();
                 case hir::BinaryOp::Mul:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_multiply(lhs.value.view().checked_as<hgraph::Int>(),
-                                                                rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_mul(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) * number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs_int) {
@@ -1232,6 +1211,11 @@ namespace hgl::wiring
         }
 
         Slot Compiler::invoke(gir::CallableId id, Frame &frame) {
+            if (std::ranges::find(invocations_, id) != invocations_.end() || invocations_.size() >= 512) {
+                backend(callable(id).range, "recursive or excessively deep wiring invocation");
+            }
+            invocations_.push_back(id);
+            auto                 pop_invocation = hgraph::make_scope_exit([&]() noexcept { invocations_.pop_back(); });
             const gir::Callable &target = callable(id);
             Slot                 result =
                 target.concise_body.valid() ? eval_value(target.concise_body, frame) : exec_block(target.block_body, frame);

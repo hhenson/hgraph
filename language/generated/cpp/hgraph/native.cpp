@@ -26,115 +26,112 @@ namespace hgraph_::native
         // native.hgl:45
         hgraph::Bool active(const hgraph::TSInputView &value) noexcept { return value.active(); }
 
-        // scalar_values.hgl:7
+        // scalar_values.hgl:8
         hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // scalar_values.hgl:13
+        // scalar_values.hgl:14
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }
 
-        // scalar_values.hgl:19
+        // scalar_values.hgl:20
         hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept { return value.contains(needle); }
 
-        // scalar_values.hgl:25
+        // scalar_values.hgl:26
         hgraph::Bool starts_with(const hgraph::Str &value, const hgraph::Str &prefix) noexcept { return value.starts_with(prefix); }
 
-        // scalar_values.hgl:31
+        // scalar_values.hgl:32
         hgraph::Bool ends_with(const hgraph::Str &value, const hgraph::Str &suffix) noexcept { return value.ends_with(suffix); }
 
-        // scalar_values.hgl:44
+        // scalar_values.hgl:45
         hgraph::Bool truthy(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Bool>(value); }
 
-        // scalar_values.hgl:50
+        // scalar_values.hgl:51
         hgraph::Bool truthy__candidate_2(const hgraph::Int &value) noexcept { return static_cast<hgraph::Bool>(value); }
 
-        // scalar_values.hgl:56
+        // scalar_values.hgl:57
         hgraph::Bool truthy__candidate_3(const hgraph::Float &value) noexcept { return static_cast<hgraph::Bool>(value); }
 
-        // scalar_values.hgl:62
+        // scalar_values.hgl:63
         hgraph::Bool truthy__candidate_4(const hgraph::Str &value) noexcept { return !value.empty(); }
 
-        // scalar_values.hgl:68
+        // scalar_values.hgl:69
         hgraph::Int absolute(const hgraph::Int &value) noexcept { return std::abs(value); }
 
-        // scalar_values.hgl:74
+        // scalar_values.hgl:75
         hgraph::Float absolute__candidate_2(const hgraph::Float &value) noexcept { return std::abs(value); }
 
-        // scalar_values.hgl:80
+        // scalar_values.hgl:81
         hgraph::Float logarithm(const hgraph::Float &value) noexcept { return std::log(value); }
 
-        // scalar_values.hgl:86
-        hgraph::Float round_decimal(const hgraph::Float &value, const hgraph::Int &digits) noexcept {
-            char      buffer[64];
-            const int places = static_cast<int>(std::clamp<hgraph::Int>(digits, 0, 40));
-            std::snprintf(buffer, sizeof buffer, "%.*f", places, value);
-            return std::strtod(buffer, nullptr);
+        // scalar_values.hgl:87
+        hgraph::Float round_decimal(const hgraph::Float &value, const hgraph::Int &digits) {
+            return hgraph::stdlib::scalar_round_decimal(value, digits);
         }
 
-        // scalar_values.hgl:95
+        // scalar_values.hgl:93
         hgraph::Int invert(const hgraph::Bool &value) noexcept { return ~static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:101
+        // scalar_values.hgl:99
         hgraph::Bool bit_and(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
             return static_cast<hgraph::Bool>(lhs & rhs);
         }
 
-        // scalar_values.hgl:107
+        // scalar_values.hgl:105
         hgraph::Bool bit_or(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
             return static_cast<hgraph::Bool>(lhs | rhs);
         }
 
-        // scalar_values.hgl:113
+        // scalar_values.hgl:111
         hgraph::Bool bit_xor(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
             return static_cast<hgraph::Bool>(lhs ^ rhs);
         }
 
-        // scalar_values.hgl:119
+        // scalar_values.hgl:117
         hgraph::Int invert__candidate_2(const hgraph::Int &value) noexcept { return ~static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:125
+        // scalar_values.hgl:123
         hgraph::Int bit_and__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
             return static_cast<hgraph::Int>(lhs & rhs);
         }
 
-        // scalar_values.hgl:131
+        // scalar_values.hgl:129
         hgraph::Int bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
             return static_cast<hgraph::Int>(lhs | rhs);
         }
 
-        // scalar_values.hgl:137
+        // scalar_values.hgl:135
         hgraph::Int bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
             return static_cast<hgraph::Int>(lhs ^ rhs);
         }
 
-        // scalar_values.hgl:195
+        // scalar_values.hgl:193
         hgraph::Int as_int(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:211
+        // scalar_values.hgl:209
         void require_positive_delay(const hgraph::TimeDelta &delay) {
             if (delay <= hgraph::TimeDelta{}) { throw std::invalid_argument("delay must be positive"); }
         }
 
-        // scalar_values.hgl:217
+        // scalar_values.hgl:215
         hgraph::Int power(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
         }
 
-        // scalar_values.hgl:223
+        // scalar_values.hgl:221
         hgraph::Float power__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
             return hgraph::stdlib::scalar_pow<hgraph::Float>::apply(lhs, rhs);
         }
 
-        // scalar_values.hgl:229
+        // scalar_values.hgl:227
         hgraph::Int shift_left(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgraph::stdlib::scalar_lshift::apply(lhs, rhs);
         }
 
-        // scalar_values.hgl:235
+        // scalar_values.hgl:233
         hgraph::Int shift_right(const hgraph::Int &lhs, const hgraph::Int &rhs) {
             return hgraph::stdlib::scalar_rshift::apply(lhs, rhs);
         }
 
-        // scalar_values.hgl:243
+        // scalar_values.hgl:241
         hgraph::Str slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) noexcept {
             const auto size      = static_cast<hgraph::Int>(value.size());
             const auto normalize = [size](hgraph::Int index) {
@@ -145,13 +142,13 @@ namespace hgraph_::native
             return value.substr(first, finish - first);
         }
 
-        // scalar_values.hgl:278
+        // scalar_values.hgl:276
         hgraph::Int as_int__candidate_2(const hgraph::Float &value) noexcept { return static_cast<hgraph::Int>(value); }
 
-        // scalar_values.hgl:282
+        // scalar_values.hgl:280
         hgraph::Float as_float(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Float>(value); }
 
-        // scalar_values.hgl:286
+        // scalar_values.hgl:284
         hgraph::Float as_float__candidate_2(const hgraph::Int &value) noexcept { return static_cast<hgraph::Float>(value); }
 
         // sequences.hgl:6

@@ -1,11 +1,32 @@
 #include <hgraph/runtime/distributed_map_wiring.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
+#include <hgraph/manifest/canonical.h>
+#include <hgraph/types/record_replay.h>
 
 namespace hgraph::distributed
 {
     struct distributed_keys_impl
     {
+        // Stateless: its owned key set is its whole state. The transfer is
+        // derived from the schema already in the identity, so the partition
+        // is what is left of the contract.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    const auto scalars = builder.scalars().view().as_bundle();
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    writer.varint(static_cast<std::uint64_t>(scalars.at("group").checked_as<Int>()));
+                    writer.varint(static_cast<std::uint64_t>(scalars.at("groups").checked_as<Int>()));
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
         static void eval(In<"keys", TSS<ScalarVar<"K">>> keys,
                          Scalar<"group", Int> group, Scalar<"groups", Int> groups,
                          Scalar<"transfer", BoundaryTransferPtr> transfer,
@@ -31,6 +52,16 @@ namespace hgraph::distributed
         if (groups == 0 || group >= groups) throw std::invalid_argument("dmap_: invalid worker partition");
         GlobalState worker_state;
         Wiring worker{worker_state, WiringOptions{.allow_push_sources = false, .inherit_global_context = false}};
+        // Every worker graph carries checkpoint identities (RFC 0039). At this
+        // level a dmap_ worker is all the runtime's own -- sources, the key
+        // partition, the map_, the sink -- so it is all boundary; the child
+        // template the map_ wires is the user's. The caller may be wiring
+        // from inside a component and the worker process never is, so the
+        // ambient component id is cleared: a component in the child has to get
+        // the same id on both sides.
+        worker.checkpoint_worker_graph();
+        (void)worker.checkpoint_component(std::string{worker_boundary_checkpoint_scope});
+        const record_replay::scope isolated{record_replay::Mode::None, {}};
         DistributedMapPlan plan;
         std::vector<WiringPortRef> positional;
         std::vector<std::pair<std::string, WiringPortRef>> named;
@@ -113,7 +144,11 @@ namespace hgraph::distributed
                 const auto input = inputs[0];
                 if (input.modified()) node.global_state().set("__hgraph_distributed_output", transfer->capture(input, false, group, filtered_groups));
             };
-            auto sink = NodeBuilder::native(std::move(meta), std::move(callbacks));
+            NodeTypeDescriptor descriptor;
+            descriptor.schema = std::move(meta);
+            descriptor.callbacks = std::move(callbacks);
+            descriptor.ops.checkpoint_ops = &boundary_sink_checkpoint_ops();
+            auto sink = NodeBuilder::from_descriptor(std::move(descriptor));
             sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(sink_input, {&result, 1}));
             static_cast<void>(worker.add_node(std::type_index(typeid(boundary_transfer_sink_impl)), std::move(sink), {&result, 1}, Value{}));
             plan.slots.add("__hgraph_distributed_output", BoundaryTransfer::payload_schema(), SlotDirection::Output);
@@ -168,14 +203,34 @@ namespace hgraph::distributed
 {
     struct prepared_dmap_lifecycle
     {
-        static void start(Scalar<"plan", DistributedMapPlanPtr> plan,
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .schedules_children = true,
+                .capture_impl = &worker_checkpoint::capture,
+                .restore_impl = &worker_checkpoint::restore,
+                .live_schedule_impl = &worker_checkpoint::live_schedule,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    const auto &plan = *builder.scalars().view().as_bundle().at("plan").checked_as<DistributedMapPlanPtr>();
+                    return worker_checkpoint::signature(plan.children, plan.config);
+                },
+            };
+            return ops;
+        }
+        static void start(Scalar<"plan", DistributedMapPlanPtr> plan, NodeView node,
                           EngineControlView engine, State<DistributedMapState> state, NodeScheduler scheduler)
         {
             auto config = plan.value()->config;
             config.start_time = engine.start_time();
             config.end_time = engine.end_time();
+            // Workers the coordinator restored start from their images
+            // (RFC 0039); the owner's own output was restored as any other.
+            const auto restored = worker_checkpoint::claim(node);
             auto pool = WorkerPool::build_partitioned(plan.value()->children, plan.value()->slots,
-                plan.value()->recipes, config, plan.value()->phase_runner);
+                plan.value()->recipes, config, plan.value()->phase_runner,
+                restored ? std::span<const std::string>{restored->images} : std::span<const std::string>{});
+            if (restored) { pool->restore_output_extents(restored->extents); }
             state.modify().pool = pool.release();
             scheduler.schedule(engine.start_time());
         }
@@ -231,7 +286,26 @@ namespace hgraph::distributed
     Port<void> wire_distributed_map(Wiring &wiring, std::span<const WiringPortRef> inputs,
                                           DistributedMapPlanPtr plan)
     {
-        auto root = WiringPortRef::structural_source(plan->input_schema, {inputs.begin(), inputs.end()});
+        // What recovers is a component inside the child (RFC 0039). If the
+        // children host the component recovery is configured for, this node
+        // stands in for it in the owner graph: wired in its scope, so the
+        // completed-day session finds a member where it looks for one, with
+        // its inputs entering through component input boundaries, and the
+        // worker images cover that component. Wired inside a component of the
+        // owner's instead, the workers are that component's, whole.
+        worker_checkpoint::HostedComponentScope standing_in{
+            wiring, worker_checkpoint::hosted_component(wiring, plan->children)};
+        if (standing_in.hosting())
+        {
+            auto hosting = std::make_shared<DistributedMapPlan>(*plan);
+            hosting->config.hosted_component = standing_in.component();
+            plan = std::move(hosting);
+        }
+        std::vector<WiringPortRef> entering;
+        entering.reserve(inputs.size());
+        for (std::size_t index = 0; index < inputs.size(); ++index)
+            entering.push_back(standing_in.input(inputs[index], "input_" + std::to_string(index)));
+        auto root = WiringPortRef::structural_source(plan->input_schema, std::move(entering));
         if (plan->output == nullptr)
         {
             wire<prepared_dmap_sink_impl>(wiring, Port<void>{wiring, root}, plan);

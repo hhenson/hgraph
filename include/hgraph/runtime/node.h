@@ -106,6 +106,35 @@ namespace hgraph
         bool     uses_scheduler{false};
         bool     uses_global_state{false};
         bool     uses_evaluation_clock{false};
+        /**
+         * A sink with no recordable state is TRANSIENT (ruling 2026-09-19,
+         * RFC 0039): it may sit inside a component, and recovery leaves it
+         * alone. It is in neither the image nor the contract, it starts fresh
+         * on every run, and whatever it holds -- ordinary state, a scheduler,
+         * the clock -- is its own business.
+         *
+         * That is safe for a sink and for nothing else, because a sink has no
+         * output: nothing inside the recovered graph can observe what it
+         * forgot. Recordable state is how its author marks what must survive.
+         * Applies to a sink that declares no ``NodeCheckpointOps``; one that
+         * does (a boundary sink, a worker owner) is what its operations say.
+         */
+        [[nodiscard]] bool checkpoint_transient() const noexcept
+        {
+            return node_kind == NodeKind::Sink && recordable_state_schema == nullptr;
+        }
+        /**
+         * True when the node needs no ``NodeCheckpointOps`` to be a component
+         * member (RFC 0023): a compute node that holds nothing beyond its
+         * endpoints, or a sink with recordable state, which is recovered
+         * through that state alone. Sources need operations: they hold cursors.
+         */
+        [[nodiscard]] bool checkpoints_without_ops() const noexcept
+        {
+            if (node_kind == NodeKind::Sink) { return recordable_state_schema != nullptr; }
+            return node_kind == NodeKind::Compute && state_schema == nullptr && !uses_scheduler &&
+                   !uses_global_state && !uses_evaluation_clock;
+        }
         // True when this node consumes and/or produces time-series values
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.

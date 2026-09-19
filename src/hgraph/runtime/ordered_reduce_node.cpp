@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
 #include <hgraph/runtime/ordered_reduce_node.h>
@@ -650,24 +651,10 @@ namespace hgraph
                 builder.type().ops_ref().extended_view_context);
             manifest::CanonicalWriter signature;
             signature.varint(1);
-            signature.varint(context.spec.child.input_bindings.size());
-            for (const auto &binding : context.spec.child.input_bindings)
-            {
-                signature.varint(binding.source_path.size());
-                for (auto part : binding.source_path) { signature.varint(part); }
-                signature.varint(binding.target.node);
-                signature.varint(binding.target.path.size());
-                for (auto part : binding.target.path) { signature.varint(part); }
-            }
-            const auto &output = *context.spec.child.output_binding;
-            signature.varint(static_cast<unsigned>(output.kind));
-            signature.varint(output.source.node);
-            signature.varint(output.source.path.size());
-            for (auto part : output.source.path) { signature.varint(part); }
-            signature.varint(output.parent_source_path.size());
-            for (auto part : output.parent_source_path) { signature.varint(part); }
-            signature.varint(output.target_path.size());
-            for (auto part : output.target_path) { signature.varint(part); }
+            node_checkpoint_detail::append_input_bindings(
+                signature, context.spec.child.graph_builder, context.spec.child.input_bindings);
+            node_checkpoint_detail::append_output_binding(signature, context.spec.child.graph_builder,
+                                                           *context.spec.child.output_binding);
             const auto &bytes = signature.bytes();
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
@@ -824,6 +811,18 @@ namespace hgraph
             }
         }
 
+        // The restored start schedules the node for each link with work left, and
+        // the coordinator then discards a restored node's schedule; this is how
+        // that live work comes back.
+        [[nodiscard]] DateTime live_ordered_reduce_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<const OrderedReduceStorage>(view.as<OrderedReduceNodeView>().internal_storage());
+            DateTime next = MAX_DT;
+            for (std::size_t index = 0; index < storage.live_count; ++index)
+                next = std::min(next, storage.entries.entry_at(index)->graph.view().next_scheduled_time());
+            return next;
+        }
+
         [[nodiscard]] const NodeCheckpointOps &ordered_reduce_checkpoint_ops() noexcept
         {
             static const NodeCheckpointOps ops{
@@ -833,6 +832,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_ordered_reduce_checkpoint,
                 .restore_impl = &restore_ordered_reduce_checkpoint,
                 .start_restored_impl = &start_restored_ordered_reduce,
+                .live_schedule_impl = &live_ordered_reduce_schedule,
                 .signature_impl = &ordered_reduce_checkpoint_signature,
             };
             return ops;

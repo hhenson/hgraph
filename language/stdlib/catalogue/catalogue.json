@@ -14,7 +14,7 @@
     },
     "B2": {
       "priority": 1,
-      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and a single scalar cache outside record/replay (ADR 0011) are admitted. Still missing: several cache fields, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
+      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and scalar cache fields aggregated into one native State slot (ADR 0011) are admitted. Still missing: recoverable pending schedules and finite progress, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
       "evidence": [
         "language/docs/design/decisions/0010-lifecycle-capabilities.md",
         "language/docs/design/decisions/0011-cache-declarations.md",
@@ -784,7 +784,7 @@
           "marker": "tick_count",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/impl/stream_impl.h",
-          "line": 796
+          "line": 794
         }
       ],
       "registration_sites": [
@@ -5783,7 +5783,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1855
+          "line": 1913
         }
       ],
       "registry_candidates": [
@@ -6903,7 +6903,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1840
+          "line": 1898
         },
         {
           "operator": "concat",
@@ -6911,7 +6911,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1841
+          "line": 1899
         }
       ],
       "registry_candidates": [
@@ -8181,7 +8181,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1852
+          "line": 1910
         },
         {
           "operator": "convert",
@@ -8189,7 +8189,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1853
+          "line": 1911
         },
         {
           "operator": "convert",
@@ -8197,7 +8197,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1854
+          "line": 1912
         }
       ],
       "registry_candidates": [
@@ -13518,7 +13518,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1845
+          "line": 1903
         },
         {
           "operator": "data_frame::filter_cs",
@@ -13526,7 +13526,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1846
+          "line": 1904
         }
       ],
       "registry_candidates": [
@@ -13628,7 +13628,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1843
+          "line": 1901
         },
         {
           "operator": "data_frame::filter_frame",
@@ -13636,7 +13636,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1844
+          "line": 1902
         }
       ],
       "registry_candidates": [
@@ -14866,7 +14866,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1832
+          "line": 1890
         }
       ],
       "registry_candidates": [
@@ -14957,7 +14957,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1833
+          "line": 1891
         }
       ],
       "registry_candidates": [
@@ -17128,7 +17128,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1837
+          "line": 1895
         }
       ],
       "registry_candidates": [
@@ -18886,7 +18886,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1842
+          "line": 1900
         },
         {
           "operator": "join",
@@ -20679,7 +20679,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1831
+          "line": 1889
         }
       ],
       "registry_candidates": [
@@ -22373,7 +22373,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1259
+          "line": 1254
         },
         {
           "operator": "max_",
@@ -22381,7 +22381,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1260
+          "line": 1255
         },
         {
           "operator": "max_",
@@ -23747,7 +23747,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1268
+          "line": 1263
         },
         {
           "operator": "mean",
@@ -23755,7 +23755,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1269
+          "line": 1264
         },
         {
           "operator": "mean",
@@ -25472,7 +25472,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1257
+          "line": 1252
         },
         {
           "operator": "min_",
@@ -25480,7 +25480,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1258
+          "line": 1253
         },
         {
           "operator": "min_",
@@ -33832,7 +33832,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1834
+          "line": 1892
         }
       ],
       "registry_candidates": [
@@ -34961,11 +34961,12 @@
       "review": {
         "status": "implemented-slice",
         "priority": 1,
-        "reason": "Constant-delay source through `inject scheduler`, `start { scheduler.schedule(...) }`, `when scheduled()` and a `cache` tick counter that stays outside record/replay like the native State<Int> (ADR 0010/0011); initial_delay, max_ticks and use_wall_clock covered. Remaining: the time-series delay and start-time overloads (clock arithmetic in a runtime body) and the positive-delay validation in start.",
+        "reason": "Constant-delay source with initial_delay, max_ticks, use_wall_clock and positive-delay validation implemented. Ordinary-run native parity only: its non-recordable counter and pending native schedules do not meet the recovery contract. Remaining: authoritative schedule/progress state, rebuildable indices and recovery traces (ADR 0011), time-series delay and start-time overloads.",
         "completed_domains": [
-          "Constant-delay source with initial_delay, max_ticks and use_wall_clock; cache-backed tick counter."
+          "Constant-delay ordinary execution with initial_delay, max_ticks, use_wall_clock and positive-delay validation; checkpoint recovery is not implemented."
         ],
         "blockers": [
+          "B2",
           "B3"
         ],
         "evidence": [
@@ -35701,7 +35702,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1838
+          "line": 1896
         },
         {
           "operator": "sorted_",
@@ -35709,7 +35710,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1839
+          "line": 1897
         }
       ],
       "registry_candidates": [
@@ -37653,7 +37654,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1266
+          "line": 1261
         },
         {
           "operator": "sum_",
@@ -37661,7 +37662,7 @@
           "scope": "core",
           "kind": "node",
           "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-          "line": 1267
+          "line": 1262
         },
         {
           "operator": "sum_",
@@ -39910,7 +39911,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1835
+          "line": 1893
         },
         {
           "operator": "to_data_frame",
@@ -39918,7 +39919,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1836
+          "line": 1894
         }
       ],
       "registry_candidates": [
@@ -40854,7 +40855,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1847
+          "line": 1905
         },
         {
           "operator": "data_frame::ungroup_with_keys",
@@ -40862,7 +40863,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1848
+          "line": 1906
         },
         {
           "operator": "data_frame::ungroup",
@@ -40870,7 +40871,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1849
+          "line": 1907
         }
       ],
       "registry_candidates": [
@@ -41755,7 +41756,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1850
+          "line": 1908
         },
         {
           "operator": "data_frame::with_columns",
@@ -41763,7 +41764,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-          "line": 1851
+          "line": 1909
         }
       ],
       "registry_candidates": [
@@ -42147,7 +42148,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 7,
+      "line": 8,
       "declaration": "native fn len(value: str) -> i64"
     },
     {
@@ -42156,7 +42157,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 13,
+      "line": 14,
       "declaration": "native fn is_empty(value: str) -> bool"
     },
     {
@@ -42165,7 +42166,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 19,
+      "line": 20,
       "declaration": "native fn contains(value: str, needle: str) -> bool"
     },
     {
@@ -42174,7 +42175,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 25,
+      "line": 26,
       "declaration": "native fn starts_with(value: str, prefix: str) -> bool"
     },
     {
@@ -42183,7 +42184,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 31,
+      "line": 32,
       "declaration": "native fn ends_with(value: str, suffix: str) -> bool"
     },
     {
@@ -42192,7 +42193,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 44,
+      "line": 45,
       "declaration": "native fn truthy(value: bool) -> bool"
     },
     {
@@ -42201,7 +42202,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 50,
+      "line": 51,
       "declaration": "native fn truthy(value: i64) -> bool"
     },
     {
@@ -42210,7 +42211,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 56,
+      "line": 57,
       "declaration": "native fn truthy(value: f64) -> bool"
     },
     {
@@ -42219,7 +42220,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 62,
+      "line": 63,
       "declaration": "native fn truthy(value: str) -> bool"
     },
     {
@@ -42228,7 +42229,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 68,
+      "line": 69,
       "declaration": "native fn absolute(value: i64) -> i64"
     },
     {
@@ -42237,7 +42238,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 74,
+      "line": 75,
       "declaration": "native fn absolute(value: f64) -> f64"
     },
     {
@@ -42246,7 +42247,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 80,
+      "line": 81,
       "declaration": "native fn logarithm(value: f64) -> f64"
     },
     {
@@ -42255,8 +42256,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 86,
-      "declaration": "native fn round_decimal(value: f64, digits: i64) -> f64"
+      "line": 87,
+      "declaration": "native fn round_decimal(value: f64, digits: i64) -> f64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42264,7 +42265,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 95,
+      "line": 93,
       "declaration": "native fn invert(value: bool) -> i64"
     },
     {
@@ -42273,7 +42274,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 101,
+      "line": 99,
       "declaration": "native fn bit_and(lhs: bool, rhs: bool) -> bool"
     },
     {
@@ -42282,7 +42283,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 107,
+      "line": 105,
       "declaration": "native fn bit_or(lhs: bool, rhs: bool) -> bool"
     },
     {
@@ -42291,7 +42292,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 113,
+      "line": 111,
       "declaration": "native fn bit_xor(lhs: bool, rhs: bool) -> bool"
     },
     {
@@ -42300,7 +42301,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 119,
+      "line": 117,
       "declaration": "native fn invert(value: i64) -> i64"
     },
     {
@@ -42309,7 +42310,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 125,
+      "line": 123,
       "declaration": "native fn bit_and(lhs: i64, rhs: i64) -> i64"
     },
     {
@@ -42318,7 +42319,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 131,
+      "line": 129,
       "declaration": "native fn bit_or(lhs: i64, rhs: i64) -> i64"
     },
     {
@@ -42327,7 +42328,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 137,
+      "line": 135,
       "declaration": "native fn bit_xor(lhs: i64, rhs: i64) -> i64"
     },
     {
@@ -42336,7 +42337,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 195,
+      "line": 193,
       "declaration": "native fn as_int(value: bool) -> i64"
     },
     {
@@ -42345,7 +42346,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 211,
+      "line": 209,
       "declaration": "native fn require_positive_delay(delay: duration) throws"
     },
     {
@@ -42354,7 +42355,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 217,
+      "line": 215,
       "declaration": "native fn power(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
@@ -42363,7 +42364,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 223,
+      "line": 221,
       "declaration": "native fn power(lhs: f64, rhs: f64) -> f64 throws"
     },
     {
@@ -42372,7 +42373,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 229,
+      "line": 227,
       "declaration": "native fn shift_left(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
@@ -42381,7 +42382,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 235,
+      "line": 233,
       "declaration": "native fn shift_right(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
@@ -42390,7 +42391,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 243,
+      "line": 241,
       "declaration": "native fn slice(value: str, begin: i64, end: i64) -> str"
     },
     {
@@ -42399,7 +42400,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 278,
+      "line": 276,
       "declaration": "native fn as_int(value: f64) -> i64"
     },
     {
@@ -42408,7 +42409,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 282,
+      "line": 280,
       "declaration": "native fn as_float(value: bool) -> f64"
     },
     {
@@ -42417,7 +42418,7 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 286,
+      "line": 284,
       "declaration": "native fn as_float(value: i64) -> f64"
     },
     {
@@ -43528,7 +43529,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1257
+      "line": 1252
     },
     {
       "operator": "min_",
@@ -43536,7 +43537,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1258
+      "line": 1253
     },
     {
       "operator": "max_",
@@ -43544,7 +43545,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1259
+      "line": 1254
     },
     {
       "operator": "max_",
@@ -43552,7 +43553,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1260
+      "line": 1255
     },
     {
       "operator": "sum_",
@@ -43560,7 +43561,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1266
+      "line": 1261
     },
     {
       "operator": "sum_",
@@ -43568,7 +43569,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1267
+      "line": 1262
     },
     {
       "operator": "mean",
@@ -43576,7 +43577,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1268
+      "line": 1263
     },
     {
       "operator": "mean",
@@ -43584,7 +43585,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/arithmetic_impl.h",
-      "line": 1269
+      "line": 1264
     },
     {
       "operator": "Operator",
@@ -43592,7 +43593,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4039
+      "line": 4107
     },
     {
       "operator": "Operator",
@@ -43600,7 +43601,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4040
+      "line": 4108
     },
     {
       "operator": "Operator",
@@ -43608,7 +43609,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4041
+      "line": 4109
     },
     {
       "operator": "Operator",
@@ -43616,7 +43617,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4042
+      "line": 4110
     },
     {
       "operator": "Operator",
@@ -43624,7 +43625,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4049
+      "line": 4117
     },
     {
       "operator": "Operator",
@@ -43632,7 +43633,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4050
+      "line": 4118
     },
     {
       "operator": "Operator",
@@ -43640,7 +43641,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4051
+      "line": 4119
     },
     {
       "operator": "Operator",
@@ -43648,7 +43649,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4052
+      "line": 4120
     },
     {
       "operator": "Operator",
@@ -47360,7 +47361,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1831
+      "line": 1889
     },
     {
       "operator": "from_data_frame",
@@ -47368,7 +47369,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1832
+      "line": 1890
     },
     {
       "operator": "from_data_frame_batches",
@@ -47376,7 +47377,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1833
+      "line": 1891
     },
     {
       "operator": "replay_data_frame",
@@ -47384,7 +47385,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1834
+      "line": 1892
     },
     {
       "operator": "to_data_frame",
@@ -47392,7 +47393,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1835
+      "line": 1893
     },
     {
       "operator": "to_data_frame",
@@ -47400,7 +47401,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1836
+      "line": 1894
     },
     {
       "operator": "group_by",
@@ -47408,7 +47409,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1837
+      "line": 1895
     },
     {
       "operator": "sorted_",
@@ -47416,7 +47417,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1838
+      "line": 1896
     },
     {
       "operator": "sorted_",
@@ -47424,7 +47425,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1839
+      "line": 1897
     },
     {
       "operator": "concat",
@@ -47432,7 +47433,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1840
+      "line": 1898
     },
     {
       "operator": "concat",
@@ -47440,7 +47441,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1841
+      "line": 1899
     },
     {
       "operator": "data_frame::join",
@@ -47448,7 +47449,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1842
+      "line": 1900
     },
     {
       "operator": "data_frame::filter_frame",
@@ -47456,7 +47457,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1843
+      "line": 1901
     },
     {
       "operator": "data_frame::filter_frame",
@@ -47464,7 +47465,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1844
+      "line": 1902
     },
     {
       "operator": "data_frame::filter_cs",
@@ -47472,7 +47473,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1845
+      "line": 1903
     },
     {
       "operator": "data_frame::filter_cs",
@@ -47480,7 +47481,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1846
+      "line": 1904
     },
     {
       "operator": "data_frame::ungroup",
@@ -47488,7 +47489,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1847
+      "line": 1905
     },
     {
       "operator": "data_frame::ungroup_with_keys",
@@ -47496,7 +47497,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1848
+      "line": 1906
     },
     {
       "operator": "data_frame::ungroup",
@@ -47504,7 +47505,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1849
+      "line": 1907
     },
     {
       "operator": "data_frame::with_columns",
@@ -47512,7 +47513,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1850
+      "line": 1908
     },
     {
       "operator": "data_frame::with_columns",
@@ -47520,7 +47521,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1851
+      "line": 1909
     },
     {
       "operator": "convert",
@@ -47528,7 +47529,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1852
+      "line": 1910
     },
     {
       "operator": "convert",
@@ -47536,7 +47537,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1853
+      "line": 1911
     },
     {
       "operator": "convert",
@@ -47544,7 +47545,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1854
+      "line": 1912
     },
     {
       "operator": "combine",
@@ -47552,7 +47553,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/data_frame_impl.cpp",
-      "line": 1855
+      "line": 1913
     },
     {
       "operator": "reduce_",

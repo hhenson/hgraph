@@ -2211,11 +2211,12 @@
     "schedule": {
       "status": "implemented-slice",
       "priority": 1,
-      "reason": "Constant-delay source through `inject scheduler`, `start { scheduler.schedule(...) }`, `when scheduled()` and a `cache` tick counter that stays outside record/replay like the native State<Int> (ADR 0010/0011); initial_delay, max_ticks and use_wall_clock covered. Remaining: the time-series delay and start-time overloads (clock arithmetic in a runtime body) and the positive-delay validation in start.",
+      "reason": "Constant-delay source with initial_delay, max_ticks, use_wall_clock and positive-delay validation implemented. Ordinary-run native parity only: its non-recordable counter and pending native schedules do not meet the recovery contract. Remaining: authoritative schedule/progress state, rebuildable indices and recovery traces (ADR 0011), time-series delay and start-time overloads.",
       "completed_domains": [
-        "Constant-delay source with initial_delay, max_ticks and use_wall_clock; cache-backed tick counter."
+        "Constant-delay ordinary execution with initial_delay, max_ticks, use_wall_clock and positive-delay validation; checkpoint recovery is not implemented."
       ],
       "blockers": [
+        "B2",
         "B3"
       ],
       "evidence": [
@@ -2781,7 +2782,7 @@
     },
     "B2": {
       "priority": 1,
-      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and a single scalar cache outside record/replay (ADR 0011) are admitted. Still missing: several cache fields, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
+      "summary": "Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and scalar cache fields aggregated into one native State slot (ADR 0011) are admitted. Still missing: recoverable pending schedules and finite progress, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.",
       "evidence": [
         "language/docs/design/decisions/0010-lifecycle-capabilities.md",
         "language/docs/design/decisions/0011-cache-declarations.md",

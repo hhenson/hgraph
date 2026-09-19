@@ -1,5 +1,6 @@
 #pragma once
 // Public native behavior for parent-clocked asynchronous sink graphs.
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/spawn.h>
@@ -127,6 +128,185 @@ namespace
         static void compose(Wiring &w, Port<S> value, Scalar<"trace", Trace *> trace)
         { wire<Capture<S>>(w, value, arg<"trace">(trace.value())); }
     };
+    // --- recovery (RFC 0039) -------------------------------------------------
+    // What recovers is a component inside a stage. Everything else in the
+    // stage is processed, the pipeline's sink first of all: it acts in a worker
+    // process, and no checkpoint could replay that. The sinks in these tests
+    // are the plain ``Capture`` above. It has no recordable state, so it is
+    // transient wherever it sits -- outside the component, or inside one.
+    using SpawnRunningState = TSB<"SpawnRunningState", Field<"total", TS<Int>>>;
+    /** State that a lost, repeated or re-ticked frame changes. */
+    struct SpawnAccumulate
+    {
+        static void eval(In<"value", TS<Int>> value, RecordableState<SpawnRunningState> state, Out<TS<Int>> out)
+        {
+            auto      total = state.field<"total">();
+            const Int next  = (total.valid() ? total.value().checked_as<Int>() : 0) + value.value();
+            total.set(next);
+            out.set(next);
+        }
+    };
+    struct AccumulateStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnAccumulate>(w, value).as<TS<Int>>(); }
+    };
+    /**
+     * Counts every tick of a side input. A restored pipeline already holds its
+     * input baselines; re-sending one would tick ``offset`` again and show here.
+     */
+    struct SpawnSideAccumulate
+    {
+        static void eval(In<"value", TS<Int>, InputValidity::Unchecked> value, In<"offset", TS<Int>, InputValidity::Unchecked> offset,
+                         RecordableState<SpawnRunningState> state, Out<TS<Int>> out)
+        {
+            auto total = state.field<"total">();
+            Int  next  = total.valid() ? total.value().checked_as<Int>() : 0;
+            if (offset.modified()) { next += offset.value(); }
+            total.set(next);
+            if (value.modified()) { out.set(next * 1000 + value.value()); }
+        }
+    };
+    struct SideStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value, NamedPort<"offset", TS<Int>> offset)
+        { return wire<SpawnSideAccumulate>(w, value, offset).as<TS<Int>>(); }
+    };
+    /** The recoverable unit: a component, wired inside a stage. */
+    inline constexpr const char *spawn_component_id = "spawn-accumulate";
+    struct AccumulateBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnAccumulate>(w, value).as<TS<Int>>(); }
+    };
+    /** A stage that is nothing but the component; the sink is the next stage. */
+    struct ComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<AccumulateBody>(w, spawn_component_id, value); }
+    };
+    /** One stage holding both: the component, and beside it the plain sink
+        every other spawn test uses, which declares nothing. */
+    struct ComponentAndSinkStage
+    {
+        static void compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            auto total = stdlib::component<AccumulateBody>(w, spawn_component_id, value);
+            wire<Capture<TS<Int>>>(w, total, arg<"trace">(trace.value()));
+        }
+    };
+    struct SideBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value, NamedPort<"offset", TS<Int>> offset)
+        { return wire<SpawnSideAccumulate>(w, value, offset).as<TS<Int>>(); }
+    };
+    struct SideComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value, NamedPort<"offset", TS<Int>> offset)
+        { return stdlib::component<SideBody>(w, spawn_component_id, value, offset); }
+    };
+    /** A hosted component over a KEYED input: per-key totals, folded to one number. */
+    using SpawnKeyed = TSD<Str, TS<Int>>;
+    struct SpawnKeyedDigest
+    {
+        static void eval(In<"d", SpawnKeyed> d, Out<TS<Int>> out)
+        {
+            Int total = 0;
+            for (auto &&[key, child] : d.valid_items()) { total += child.value(); }
+            out.set(total);
+        }
+    };
+    struct KeyedBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        {
+            auto totals = wire<stdlib::map_>(w, fn<SpawnAccumulate>(), value).as<SpawnKeyed>();
+            return wire<SpawnKeyedDigest>(w, totals).as<TS<Int>>();
+        }
+    };
+    struct KeyedComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        { return stdlib::component<KeyedBody>(w, spawn_component_id, value); }
+    };
+    /** The component under a map_ the USER wrote: an image selected by
+        component does not take that map_, so its children are never reached. */
+    struct ComponentPerKey
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        { return stdlib::component<AccumulateBody>(w, spawn_component_id, value); }
+    };
+    struct UserMapStage
+    {
+        static Port<SpawnKeyed> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        { return wire<stdlib::map_>(w, fn<ComponentPerKey>(), value).as<SpawnKeyed>(); }
+    };
+    /** Inside the stage, something computes the component's input OUTSIDE it. */
+    struct SpawnDoubled
+    {
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value() * 2); }
+    };
+    struct PreprocessedComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<AccumulateBody>(w, spawn_component_id, wire<SpawnDoubled>(w, value).as<TS<Int>>()); }
+    };
+    /** The same component id over another body: another contract. */
+    struct OtherBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnAccumulate>(w, wire<SpawnAccumulate>(w, value)).as<TS<Int>>(); }
+    };
+    struct OtherComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<OtherBody>(w, spawn_component_id, value); }
+    };
+    /** Recoverable, and always has an event pending: a capture of it is refused. */
+    struct SpawnPendingCompute
+    {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        { static const NodeCheckpointOps ops{.supported = true}; return ops; }
+        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD * 1000); }
+        static void eval(In<"value", TS<Int>> value, NodeScheduler, Out<TS<Int>> out) { out.set(value.value()); }
+    };
+    struct PendingBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnPendingCompute>(w, value).as<TS<Int>>(); }
+    };
+    struct PendingComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<PendingBody>(w, spawn_component_id, value); }
+    };
+    struct ForgetfulBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value);
+    };
+    /** Holds its total in ordinary ``State``, which no checkpoint can see. */
+    struct SpawnForgetful
+    {
+        static void eval(In<"value", TS<Int>> value, State<Int> total, Out<TS<Int>> out)
+        {
+            total.modify() += value.value();
+            out.set(total.get());
+        }
+    };
+    struct ForgetfulStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnForgetful>(w, value).as<TS<Int>>(); }
+    };
+    inline Port<TS<Int>> ForgetfulBody::compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+    { return wire<SpawnForgetful>(w, value).as<TS<Int>>(); }
+    /** A component that cannot be recovered, hosted in a stage. */
+    struct ForgetfulComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<ForgetfulBody>(w, spawn_component_id, value); }
+    };
+
     template <typename S>
     struct Identity
     {

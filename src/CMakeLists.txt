@@ -18,6 +18,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/executor.cpp
     hgraph/runtime/checkpoint_codec.cpp
     hgraph/runtime/component_checkpoint.cpp
+    hgraph/runtime/graph_checkpoint_coordinator.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
     hgraph/runtime/graph.cpp
@@ -137,6 +138,7 @@ set(HGRAPH_WIRING_SOURCES
 
 set(HGRAPH_STDLIB_SOURCES
     hgraph/runtime/distributed_map_wiring.cpp
+    hgraph/runtime/distributed_map_checkpoint.cpp
     hgraph/runtime/spawn.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp

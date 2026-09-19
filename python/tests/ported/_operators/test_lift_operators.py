@@ -97,3 +97,20 @@ def test_apply_preserves_keyword_named_like_an_internal_positional_field():
         return apply(read_keyword, _0=value)
 
     assert eval_node(g, [7]) == [7]
+
+
+def test_round_decimal_extremes():
+    import math
+
+    inputs = [1e100, 149.0, 125.0, 135.0, 145.00000000000003,
+              144.99999999999997, 2.675, -2.5, 995.0, -0.0, -1.0, 1.25,
+              float("inf"), float("nan")]
+    digits = [0, -1, -1, -1, -1, -1, 2, 0, -1, 0, -(2**63), 2**63 - 1, 0, 0]
+    actual = eval_node(round_, inputs, digits)
+    for value, places, result in zip(inputs, digits, actual):
+        expected = round(value, places)
+        if math.isnan(expected):
+            assert math.isnan(result)
+        else:
+            assert result == expected
+            assert math.copysign(1.0, result) == math.copysign(1.0, expected)
