@@ -1853,7 +1853,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSS[K]``, ``TIME_SERIES_TYPE``
    Collection-valued time series to expand.
 
 ``**kwargs`` : Python argument; ``object``
@@ -1875,6 +1875,7 @@ Accepted native overloads
 
 .. code-block:: text
 
+   emit(ts: TSS[K]) -> TS[K]
    emit(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-eq_:

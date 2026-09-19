@@ -362,6 +362,16 @@ namespace
         }
     };
 
+    struct TypedTssEmitGraph
+    {
+        static constexpr auto name = "typed_tss_emit_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSS<Int>> values)
+        {
+            return wire<stdlib::emit, TS<Int>>(w, values);
+        }
+    };
+
     struct PolymorphicEventSingletonTupleGraph
     {
         static Port<PolymorphicEventTuple> compose(
@@ -2319,6 +2329,26 @@ TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
         (eval_node<stdlib::emit, TS<HomogeneousTuple<PolymorphicEvent>>>(
             values<Value>(events))),
         values<Value>(created));
+}
+
+TEST_CASE("std operators: a TSS emit resolves its scalar output from the signature")
+{
+    stdlib::register_standard_operators();
+
+    WiringArg input;
+    input.kind = WiringArg::Kind::TimeSeries;
+    input.port.schema = ts_type<TSS<Int>>();
+    const std::array args{input};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "emit", std::span<const WiringArg>{args}, true, ts_type<TS<Int>>());
+    REQUIRE(resolved.impl != nullptr);
+    CHECK_FALSE(resolved.impl->default_resolver);
+
+    CHECK_OUTPUT(
+        eval_node<TypedTssEmitGraph>(
+            values<Value>(set_delta<Int>({1, 2, 3}, {}), none,
+                          set_delta<Int>({4}, {}))),
+        values<Int>(1, 2, 3, 4));
 }
 
 TEST_CASE("std operators: TSB conversion preserves a nested concrete Bundle leaf")

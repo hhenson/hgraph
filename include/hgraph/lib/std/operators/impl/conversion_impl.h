@@ -3059,6 +3059,34 @@ namespace hgraph::stdlib
         }
     };
 
+    struct emit_tss_impl
+    {
+        static constexpr auto name = "emit_tss";
+
+        static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
+                         NodeScheduler scheduler,
+                         State<convert_detail::EmitQueueState> state,
+                         Out<TS<ScalarVar<"K">>> out)
+        {
+            auto &current = state.modify();
+            if (ts.modified())
+            {
+                const TSSInputView in_set{ts.base().borrowed_ref()};
+                auto data = in_set.data_view();
+                for (const ValueView &element : data.added()) { current.buffer.emplace_back(element); }
+            }
+            if (!current.buffer.empty())
+            {
+                const auto &erased = static_cast<const TSOutputView &>(out);
+                Value       next   = std::move(current.buffer.front());
+                current.buffer.pop_front();
+                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+                static_cast<void>(mutation.move_value_from(std::move(next)));
+                if (!current.buffer.empty()) { scheduler.schedule(MIN_TD); }
+            }
+        }
+    };
+
     struct emit_collection_impl
     {
         static constexpr auto name = "emit_collection";
@@ -3067,10 +3095,6 @@ namespace hgraph::stdlib
         {
             const auto *surface = time_series_schema_at(context, 0);
             if (surface == nullptr) { return nullptr; }
-            if (const auto *tss = time_series_schema_as<AnyTSS>(surface))
-            {
-                return tss->value_schema->element_type;
-            }
             const auto *ts    = time_series_schema_as<AnyTS>(surface);
             const auto *value = ts != nullptr ? ts->value_schema : nullptr;
             return collection_element_schema(value);
@@ -3097,19 +3121,10 @@ namespace hgraph::stdlib
             auto &current = state.modify();
             if (ts.modified())
             {
-                if (ts.base().schema()->kind == TSTypeKind::TSS)
+                auto items = ts.base().value().as_indexed_view();
+                for (std::size_t index = 0; index < items.size(); ++index)
                 {
-                    const TSSInputView in_set{ts.base().borrowed_ref()};
-                    auto data = in_set.data_view();
-                    for (const ValueView &element : data.added()) { current.buffer.emplace_back(element); }
-                }
-                else
-                {
-                    auto items = ts.base().value().as_indexed_view();
-                    for (std::size_t index = 0; index < items.size(); ++index)
-                    {
-                        current.buffer.emplace_back(items.at(index));
-                    }
+                    current.buffer.emplace_back(items.at(index));
                 }
             }
             if (!current.buffer.empty())

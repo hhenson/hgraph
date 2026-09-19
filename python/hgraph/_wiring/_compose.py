@@ -719,9 +719,12 @@ class _Emit:
 
         if self._value_ts is None or not isinstance(self._value_ts, _TsExpr):
             return wire("emit", ts, **kwargs)
+        source = _unwrap(ts)
+        if source.ts_type.dereference.is_tss:
+            return wire("emit", ts, output_type=self._value_ts, **kwargs)
         # The hinted KeyValue output resolves in C++ (the target-resolution
         # home): {key: TS[K], value: <value_ts>} with K from the dict input.
-        out = _TsExprFor(_hgraph.resolve_emit_target(self._value_ts.handle, (_unwrap(ts),)))
+        out = _TsExprFor(_hgraph.resolve_emit_target(self._value_ts.handle, (source,)))
         return wire("emit", ts, output_type=out, **kwargs)
 
 

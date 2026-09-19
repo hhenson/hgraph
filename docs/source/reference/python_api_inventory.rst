@@ -381,8 +381,8 @@ whose curated signatures remain authoritative.
      - ``3 overloads``
      - 3 native overloads; lazy operator
    * - :ref:`emit <python-operator-emit>`
-     - ``emit(ts: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; explicit helper
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - :ref:`eq_ <python-operator-eq_>`
      - ``15 overloads``
      - 15 native overloads; lazy operator
