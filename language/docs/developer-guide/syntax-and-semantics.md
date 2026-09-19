@@ -344,9 +344,11 @@ immutable, and ordered metadata, with newline separators and no semicolons.
 Only an `abstract struct` may be named as a parent. Abstract structs are not
 constructible and may inherit abstract parents; concrete structs may inherit
 one or more abstract parents and are implicitly final. An empty concrete body
-is valid. There are no methods, behavior inheritance, or visibility modifiers
-in the first slice, and no recursive fields: a value of a struct may not
-contain another value of the same struct by any path. A field reaches every
+is valid. There are no methods, behavior inheritance, or visibility modifiers.
+Recursive fields are agreed, and not yet implemented, in
+[ADR 0012](../design/decisions/0012-recursive-struct-fields.md). Until then
+the first slice rejects a field through which a value of a struct could
+contain another value of the same struct, by any path. A field reaches every
 struct its type names, through collection elements and generic arguments, and
 a field typed by a struct with descendants also reaches that closed family.
 For a generic family the edge is followed only to descendants that can be the
@@ -2280,7 +2282,9 @@ observation rather than rule, is collected under
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- recursive fields, destructuring, and copy-with-update syntax;
+- destructuring and copy-with-update syntax; recursive struct fields are
+  agreed in [ADR 0012](../design/decisions/0012-recursive-struct-fields.md)
+  and not yet implemented;
 - explicit generic arguments on function and operator calls, generic parameter
   defaults, partial generic type application, and specialization relationships
   beyond invariant applied types and the defined pattern ranking and ambiguity
