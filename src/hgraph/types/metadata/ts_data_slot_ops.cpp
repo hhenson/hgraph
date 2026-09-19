@@ -660,6 +660,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.reset(slot);
                     if (slot_added(slot)) { added_.reset(slot); }
                     else { removed_.set(slot); }
+                    (void)key_set_tracking_.record_modified(modified_time);
                     return;
                 }
 
@@ -668,6 +669,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.set(slot);
                     if (slot_removed(slot)) { removed_.reset(slot); }
                     else { added_.set(slot); }
+                    (void)key_set_tracking_.record_modified(modified_time);
                 }
                 modified_.set(slot);
             }

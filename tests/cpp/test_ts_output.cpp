@@ -1812,6 +1812,45 @@ TEST_CASE("TSD delta window survives a stale child record within the cycle")
     REQUIRE(data.modified(t2));
 }
 
+TEST_CASE("TSD key set records a child becoming published after slot creation")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value key{std::int32_t{1}};
+    Value value{std::int32_t{42}};
+
+    TSOutput output{*dict_schema};
+    {
+        auto view = output.view(t1);
+        auto mutation = view.as_dict().begin_mutation(t1);
+        static_cast<void>(mutation.at(key.view()));
+    }
+
+    auto before_view = output.data_view();
+    auto before = before_view.as_dict();
+    const auto slot = before.find_slot(key.view());
+    REQUIRE(slot != TS_DATA_NO_CHILD_ID);
+    REQUIRE_FALSE(before.slot_added(slot));
+
+    {
+        auto view = output.view(t2);
+        auto child = view.as_dict().at(key.view());
+        auto mutation = child.begin_mutation(t2);
+        REQUIRE(mutation.copy_value_from(value.view()));
+    }
+
+    auto after_view = output.data_view();
+    auto after = after_view.as_dict();
+    REQUIRE(after.slot_added(slot));
+    REQUIRE(after.key_set().base().modified(t2));
+}
+
 TEST_CASE("TSD structural ranges ignore stale bits when only the root reticks")
 {
     using namespace hgraph;

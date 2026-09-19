@@ -51,6 +51,8 @@ from hgraph import (
     reference_service,
     register_service,
     rekey,
+    sample,
+    schedule,
     service_impl,
     set_delta,
     str_,
@@ -731,6 +733,24 @@ def test_partition_with_reduce():
     for result in results:
         for key in result:
             assert key is not None
+
+
+def test_partition_receives_mapped_key_when_child_becomes_valid_late():
+    @graph
+    def late(value: TS[float]) -> TS[float]:
+        return sample(schedule(MIN_TD, max_ticks=1), value)
+
+    @graph
+    def g(ts: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
+        delayed = map_(late, ts)
+        partitions = map_(lambda key: key, __keys__=delayed.key_set, __key_arg__="key")
+        return map_(lambda bucket: bucket.reduce(add_), partition(delayed, partitions))
+
+    assert eval_node(
+        g,
+        [{"a": 1.0}, {"b": 2.0}, None, None, None],
+        __elide__=True,
+    ) == [{"a": 1.0}, {"b": 2.0}]
 
 
 def test_tsd_unpartition():
