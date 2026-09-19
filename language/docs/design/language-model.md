@@ -933,7 +933,7 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- self-recursive fields, destructuring, and copy-with-update syntax;
+- recursive fields, destructuring, and copy-with-update syntax;
 - runtime type tests, concrete downcasts, exhaustive abstract-family matching,
   the temporal base-projection spelling, and multiple-parent field ordering;
 - explicit generic arguments on function and operator calls, generic parameter

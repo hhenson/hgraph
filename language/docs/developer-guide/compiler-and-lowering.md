@@ -112,8 +112,10 @@ The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
 the syntax guide ("Scopes and name lookup"), checks `use` declarations against
 the interim kernel table (below, "Interim kernel table"), resolves nominal
-struct hierarchies and effective fields, validates construction and closed
-generic-struct requirements, classifies every function by the rule of
+struct hierarchies and effective fields, rejects a field through which a
+struct can contain itself (one strongly-connected-components pass over the
+module's struct references and abstract families), validates construction and
+closed generic-struct requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
 bindings, constraint identities, struct metadata, and function kinds.

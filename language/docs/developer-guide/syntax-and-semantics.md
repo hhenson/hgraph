@@ -344,8 +344,15 @@ immutable, and ordered metadata, with newline separators and no semicolons.
 Only an `abstract struct` may be named as a parent. Abstract structs are not
 constructible and may inherit abstract parents; concrete structs may inherit
 one or more abstract parents and are implicitly final. An empty concrete body
-is valid. There are no methods, behavior inheritance, visibility modifiers, or
-self-recursive fields in the first slice.
+is valid. There are no methods, behavior inheritance, or visibility modifiers
+in the first slice, and no recursive fields: a value of a struct may not
+contain another value of the same struct by any path. A field reaches every
+struct its type names, through collection elements and generic arguments, and
+a field typed by a struct with descendants also reaches that closed family.
+For a generic family the edge is followed only to children whose parent
+application can equal the field's, so `inner: Event<f64>` inside
+`struct IntEvent: Event<i64>` does not lead back to `IntEvent`. The resolver
+reports every field that closes such a cycle.
 
 Struct generic parameters use the common `generic_parameters` production, and
 their trailing `requires` clause uses the same constraint grammar as a function
@@ -2269,7 +2276,7 @@ observation rather than rule, is collected under
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- self-recursive fields, destructuring, and copy-with-update syntax;
+- recursive fields, destructuring, and copy-with-update syntax;
 - explicit generic arguments on function and operator calls, generic parameter
   defaults, partial generic type application, and specialization relationships
   beyond invariant applied types and the defined pattern ranking and ambiguity
