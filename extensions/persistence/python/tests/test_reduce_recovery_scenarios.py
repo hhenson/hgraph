@@ -116,20 +116,17 @@ def _own_output(ts: hg.TS[int]) -> hg.TS[int]:
     return ts.value
 
 
-# KNOWN DEFECT, found by the recovery campaign (tools/recovery, family
-# ``tsd-restored-slot-order``). strict: the day this passes, the xfail comes off and the
-# campaign's known-defect family is deleted with it.
-@pytest.mark.xfail(strict=True, reason=(
-    "A restored keyed input iterates its keys in a different order from the unbroken run when "
-    "a slot freed before the cut is still free at it and another removal follows: "
-    "(0, 3) unbroken, (3, 0) restored. An order-sensitive reduction shows it as 76 vs 40. "
-    "The keys are native ints. The C++ counterpart with the same stream passes "
-    "(tests/cpp/test_reduce_checkpoint.cpp, 'reduce checkpoint keeps leaf order when one "
-    "cycle both removes and adds keys'); why the two paths differ is not established. Ruled "
-    "out: the order of adds and removals inside one delta -- all three orderings fail alike."))
+# Found by the recovery campaign (tools/recovery), once the family ``tsd-restored-slot-order``:
+# the restored input iterated (3, 0) where the unbroken run gave (0, 3), and this
+# order-sensitive reduction showed it as 40 against 76. A Python node reserves room for its
+# result before it mutates, so with a delta larger than the capacity the dictionary GREW
+# before its lazy flush returned the slot freed ahead of the cut -- and a restored dictionary
+# had that slot free already. Growth and the flush now commute (KeySlotStore::reserve_to).
+# The C++ replay source never reserves, which is why the same stream passed from C++.
 def test_a_restored_input_keeps_its_key_order_with_a_removal_on_each_side_of_the_cut(tmp_path):
     # The minimal stream, reduced from eight nightly failures that shared this shape and
-    # nothing else -- one of them with no dmap_ or spawn_ in it at all.
+    # nothing else -- one of them with no dmap_ or spawn_ in it at all. The second removal
+    # matters only for making the delta three entries against a capacity of two.
     schema = hg.TSD[int, hg.TS[int]]
     events = [{2: 2}, {2: hg.REMOVE, 1: 4}, {0: 7, 1: hg.REMOVE, 3: 3}]
 
@@ -141,8 +138,9 @@ def test_a_restored_input_keeps_its_key_order_with_a_removal_on_each_side_of_the
 
 
 def test_the_same_stream_with_one_removal_restarts_invisibly(tmp_path):
-    # The control for the pin above: take away either removal and the restart is invisible,
-    # so what fails there is the pair of removals, not the reduction or the cut.
+    # The control for the test above: take away either removal and the restart was invisible
+    # even with the defect, so what failed there was the pair of removals, not the reduction
+    # or the cut.
     schema = hg.TSD[int, hg.TS[int]]
 
     @hg.component

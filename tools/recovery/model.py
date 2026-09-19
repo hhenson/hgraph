@@ -85,24 +85,10 @@ class KnownDefect:
     summary: str
 
 
-def _removes(event) -> bool:
-    if event == "REMOVE":
-        return True
-    return isinstance(event, dict) and any(_removes(item) for item in event.values())
-
-
-#: A FAMILY, not a list of recipes: every scenario the defect can reach, by the relation that
-#: makes it reachable. A pin on one recipe would cover that recipe only and leave the next
-#: seed to rediscover the defect as a new failure.
-TSD_SLOT_ORDER = KnownDefect(
-    "tsd-restored-slot-order",
-    "A removal before a cut and another after it leave the RESTORED keyed input iterating its "
-    "keys in a different order from the unbroken run: (0, 3) unbroken, (3, 0) restored. Only an "
-    "order-sensitive reduction shows it. Reproduced from Python, with native int keys; the C++ "
-    "counterpart with the same stream passes, and why the two differ is NOT established. Ruled "
-    "out: the order of adds and removals inside one delta.")
-
-
+#: A FAMILY, not a list of recipes: every scenario the divergence can reach, by the relation
+#: that makes it reachable. A pin on one recipe would cover that recipe only and leave the next
+#: seed to rediscover it as a new failure.
+#:
 #: NOT a defect: the consequence of a RULING. "No change means no tick" (2026-07-17; parity
 #: matrix, "already accepted for mesh_ over an initially empty key set") means a mesh_ that
 #: STARTS over an empty key set emits nothing, while one whose keys are all removed later keeps
@@ -158,23 +144,12 @@ def _mesh_over_empty_input(scenario: Scenario) -> bool:
 
 def known_defect(scenario: Scenario):
     """The known-defect family ``scenario`` belongs to, if any. Membership says a failure is
-    EXPECTED to be possible, not that it will happen: most members of the first family pass.
-    The campaign reports members and failures separately, so a fix shows up as failures
-    dropping to none -- at which point the family is deleted, not left to rot."""
+    EXPECTED to be possible, not that it will happen. The campaign reports members and
+    failures separately, so a fix shows up as failures dropping to none -- at which point the
+    family is deleted, not left to rot. (``tsd-restored-slot-order`` went that way: capacity
+    growth and the pending-erase flush did not commute in ``KeySlotStore``.)"""
     if scenario.mode == "recover":
         return MESH_EMPTY_INPUT if _mesh_over_empty_input(scenario) else None
-    if scenario.mode != "snapshot" or scenario.leaf != "folded":
-        return None
-    # A removal on EACH side of some cut. The first relation asked for them in the two cycles
-    # either side of it, and the next seed walked straight past: removal, an ordinary tick,
-    # then the cut and another removal. What the defect needs is a freed slot still free at
-    # the cut, which outlives the cycle that freed it. Measured on nightly seed 2: 125 of the
-    # 168 ``folded`` snapshot scenarios are members, all 6 failures are among them, 119 members
-    # pass, and the 43 outside pass -- so this is a relation, not a blanket over the leaf.
-    events = scenario.events
-    for cut in scenario.cuts:
-        if any(map(_removes, events[:cut])) and any(map(_removes, events[cut:])):
-            return TSD_SLOT_ORDER
     return None
 
 

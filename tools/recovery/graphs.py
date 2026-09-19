@@ -91,15 +91,6 @@ def summed(ts: hg.TSD[int, hg.TS[int]]) -> hg.TS[int]:
     return _settle(hg.reduce(lambda lhs, rhs: lhs + rhs, ts, 0))
 
 
-@hg.compute_node
-def keyorder(ts: hg.TSD[int, hg.TS[int]]) -> hg.TS[tuple[int, ...]]:
-    """A PROBE, not a leaf the campaign generates: the order a keyed input iterates in. It is
-    how a mismatch is checked against the ``tsd-restored-slot-order`` signature -- the same
-    scenario with this in place of the reduction has to differ too, or the mismatch is
-    something else (``run._confirmed``)."""
-    return tuple(int(key) for key in ts.keys())
-
-
 def canonical(value):
     """A delta as plain, ordered, comparable data."""
     if value is hg.REMOVE or value is getattr(hg, "REMOVE_IF_EXISTS", None):
@@ -145,12 +136,7 @@ LAYERS = {
     "dmapp": lambda child, ts: hg.dmap_(child, ts, __workers__=2),
 }
 
-#: Resolvable, so a worker process can find ``dmapp__keyorder`` by name, and never generated.
-PROBES = {
-    "keyorder": Entry("keyorder", keyorder, hg.TSD[int, hg.TS[int]], hg.TS[tuple[int, ...]], 1, False),
-}
-
-_CATALOGUE: dict[str, Entry] = {**LEAVES, **PROBES}
+_CATALOGUE: dict[str, Entry] = dict(LEAVES)
 
 
 def resolve(name: str) -> Entry:
