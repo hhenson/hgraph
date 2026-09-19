@@ -535,6 +535,15 @@ namespace hgraph
                 storage.entries.entry_at(slot)->graph.view().start(time);
         }
 
+        [[nodiscard]] DateTime live_tsl_map_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(view.as<TslMapNodeView>().internal_storage());
+            DateTime next = MAX_DT;
+            for (std::size_t slot = 0; slot < storage.live_count; ++slot)
+                next = std::min(next, storage.entries.entry_at(slot)->graph.view().next_scheduled_time());
+            return next;
+        }
+
         void visit_tsl_map_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
         {
             const auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(view.as<TslMapNodeView>().internal_storage());
@@ -552,6 +561,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_tsl_map_checkpoint,
                 .restore_impl = &restore_tsl_map_checkpoint,
                 .start_restored_impl = &start_restored_tsl_map,
+                .live_schedule_impl = &live_tsl_map_schedule,
                 .visit_endpoints_impl = &visit_tsl_map_checkpoint_endpoints,
                 .signature_impl = &tsl_map_checkpoint_signature,
             };

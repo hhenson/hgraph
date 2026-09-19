@@ -3,11 +3,13 @@
 #include <hgraph/lib/std/component.h>
 #include <hgraph/manifest/canonical.h>
 #include <hgraph/runtime/child_graph_inspection.h>
+#include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <limits>
 
 namespace hgraph::distributed::worker_checkpoint
@@ -121,15 +123,60 @@ namespace hgraph::distributed::worker_checkpoint
         return stdlib::component_detail::checkpoint_boundary(wiring_, std::move(source), name);
     }
 
+    namespace
+    {
+        struct HostSearch
+        {
+            const GraphCheckpointSelection *selection;
+            bool                            found{false};
+        };
+        void search_for_component(const GraphBuilder &graph, HostSearch &search)
+        {
+            for (const NodeBuilder &node : graph.nodes())
+            {
+                if (search.found) { return; }
+                const auto &identity = node.checkpoint_identity();
+                if (!identity.transient && search.selection->selects(identity.component)) { search.found = true; return; }
+                // A dmap_ worker's component is one level down, in the child
+                // template its map_ wires.
+                node.visit_child_graphs(&search, [](void *context, ChildGraphInspectionView child) {
+                    if (child.graph != nullptr) { search_for_component(*child.graph, *static_cast<HostSearch *>(context)); }
+                });
+            }
+        }
+    }
+
+    DateTime live_schedule(const NodeView &node)
+    {
+        const auto *pool = node.state().checked_as<DistributedMapState>().pool;
+        return pool == nullptr ? MAX_DT : pool->restored_next();
+    }
+
+    std::optional<std::string> hosted_component(
+        Wiring &wiring, const std::function<bool(std::string_view component)> &any_worker_hosts)
+    {
+        // Wired inside a component, the owner is that component's member and
+        // its workers are saved whole; there is nothing to stand in for.
+        if (!wiring.checkpoint_component().empty()) { return std::nullopt; }
+        auto configured = configured_recovery_component(wiring.operator_state());
+        if (!configured || !any_worker_hosts(*configured)) { return std::nullopt; }
+        return configured;
+    }
+
+    std::optional<std::string> hosted_component(Wiring &wiring, std::span<const GraphBuilder> children)
+    {
+        return hosted_component(wiring, [&](std::string_view component) {
+            return std::any_of(children.begin(), children.end(),
+                               [&](const GraphBuilder &child) { return hosts_component(child, component); });
+        });
+    }
+
     bool hosts_component(const GraphBuilder &graph, std::string_view component)
     {
         const auto selection = GraphCheckpointSelection::owned_by(std::string{component});
-        for (const NodeBuilder &node : graph.nodes())
-        {
-            const auto &identity = node.checkpoint_identity();
-            if (!identity.transient && selection.selects(identity.component)) { return true; }
-        }
-        return false;
+        HostSearch search{&selection};
+        search_for_component(graph, search);
+        return search.found;
     }
 
     void restore(const NodeView &node, const NodeCheckpointState &image, DateTime, const RestoreGraphCheckpoint &)
@@ -181,10 +228,12 @@ namespace hgraph::distributed::worker_checkpoint
         // another contract; the hosting mode is part of it by RFC 0039.
         writer.varint(config.workers);
         writer.varint(static_cast<std::uint8_t>(config.hosting));
+        writer.string_field(config.hosted_component);
+        const auto selection = GraphCheckpointSelection::hosted(config.hosted_component);
         writer.varint(children.size());
         for (std::size_t group = 0; group < children.size(); ++group)
         {
-            sign_worker_graph(writer, children[group], "dmap_", group);
+            sign_worker_graph(writer, children[group], "dmap_", group, selection);
         }
         const auto &bytes = writer.bytes();
         return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};

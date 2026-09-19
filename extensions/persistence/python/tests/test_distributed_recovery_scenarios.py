@@ -5,6 +5,11 @@ graph image per worker (RFC 0039). The contract is the one every recoverable
 owner has: a run restarted at any completed day is indistinguishable from one
 that was never interrupted.
 
+What recovers is a component, and the expected place for it is INSIDE the
+``dmap_`` child or the ``spawn_`` stage -- the ``dmap_`` itself in no component at
+all. A ``dmap_`` wired inside a component works too, and its workers are then
+saved whole.
+
 For ``spawn_`` what recovers is a component INSIDE a stage. Everything else in
 the stage is processed, the pipeline's sink first of all: it acts in a worker
 process, no checkpoint could replay that, and it declares nothing.
@@ -74,6 +79,65 @@ def test_dmap_state_and_membership_survive_restarts_across_processes(tmp_path, c
     assert actual[6] == {1: 16, 3: 101}
 
 
+@hg.component
+def running(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@hg.compute_node
+def scaled(ts: hg.TS[int]) -> hg.TS[int]:
+    return ts.value * 10
+
+
+@hg.graph
+def running_then_scaled(ts: hg.TS[int]) -> hg.TS[int]:
+    # The component is what recovers. What follows it in the child is processed.
+    return scaled(running(ts))
+
+
+class _Hosting:
+    """A plain graph whose ``dmap_`` hosts ``inner``: recovery is configured for
+    ``inner``, and the ``dmap_`` that carries it is in no component of its own."""
+
+    def __init__(self, graph, inner):
+        self.graph, self.recordable_id = graph, inner.recordable_id
+
+    def __call__(self, *args):
+        return self.graph(*args)
+
+
+@pytest.mark.parametrize("cuts", CUTS)
+def test_dmap_component_inside_the_child_survives_every_restart_boundary_in_process(tmp_path, cuts):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running, values, __workers__=3, in_process=True)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    assert actual[6] == {1: 16, 3: 101}
+
+
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+@pytest.mark.parametrize("child", [running, running_then_scaled], ids=["component-alone", "component-then-more"])
+def test_dmap_component_inside_the_child_survives_restarts_across_processes(tmp_path, cuts, child):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(child, values, __workers__=3)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    scale = 10 if child is running_then_scaled else 1
+    assert actual[6] == {1: 16 * scale, 3: 101 * scale}
+
+
+def test_dmap_restarts_without_recovery_lose_the_hosted_component(tmp_path):
+    # The control for the tests above: the same restart with nothing configured.
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running, values, __workers__=3, in_process=True)
+
+    days = _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:3],), 0) + _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[3:],), 3)
+    assert days[6] == {1: 11, 3: 1}
+
+
 NESTED = hg.TSD[str, hg.TSD[str, hg.TS[int]]]
 NESTED_RESULT = hg.TSD[str, hg.TS[int]]
 NESTED_EVENTS = [None, {"x": {"a": 1, "b": 2}, "y": {"c": 10}}, {"x": {"a": 3}}, None,
@@ -134,11 +198,6 @@ def record(value: hg.TS[int], path: str, clock: hg.CLOCK = None):
     # worker of each day stay apart until they are read back in time order.
     with open(f"{path}.{os.getpid()}", "ab") as stream:
         pickle.dump((clock.evaluation_time, value.value), stream)
-
-
-@hg.component
-def running(ts: hg.TS[int]) -> hg.TS[int]:
-    return running_total(ts)
 
 
 @hg.graph

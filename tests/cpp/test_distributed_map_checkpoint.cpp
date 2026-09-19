@@ -65,6 +65,73 @@ namespace
     using NestedComponent = PreparedComponent<NestedDict, Dict, hgraph_test::PreparedNestedOwners,
                                               "prepared nested owners: recoverable", Hosting>;
 
+    EvalNodeRunOptions interval(std::size_t begin, std::size_t end)
+    {
+        return {.start_time = MIN_ST + MIN_TD * static_cast<Int>(begin),
+                .end_time   = MIN_ST + MIN_TD * static_cast<Int>(end)};
+    }
+
+    // --- a component INSIDE the dmap_ child -----------------------------------
+    // The dmap_ is in no component. Recovery is configured for the component
+    // its child hosts, and the dmap_ node stands in for it in this graph.
+    template <typename Child, fixed_string Recipe, WorkerHosting Hosting> struct HostingGraph
+    {
+        static Port<Dict> compose(Wiring &w, Port<Dict> ts)
+        {
+            const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+            WorkerPoolConfig config;
+            config.workers = 3;
+            config.hosting = Hosting;
+            if (Hosting == WorkerHosting::Process) { config.program = HGRAPH_TEST_WORKER_PROGRAM; }
+            auto plan = prepare_distributed_map_pool(fn<Child>(), inputs, {}, config);
+            if (Hosting == WorkerHosting::Process) { bind_distributed_map_recipe(plan, Recipe.sv()); }
+            return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+                .template as<Dict>();
+        }
+    };
+    template <WorkerHosting Hosting>
+    using HostedGraph = HostingGraph<hgraph_test::PreparedHostedChild, "prepared hosted component", Hosting>;
+    template <WorkerHosting Hosting>
+    using HostedThenForgetfulGraph =
+        HostingGraph<hgraph_test::PreparedHostedThenForgetful, "prepared hosted component, then forgetful", Hosting>;
+    template <WorkerHosting Hosting>
+    using HostedWithConstantGraph =
+        HostingGraph<hgraph_test::PreparedHostedWithConstant, "prepared hosted component, with constant", Hosting>;
+
+    template <WorkerHosting Hosting> struct TypedHostedGraph
+    {
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> ts);
+    };
+
+    /** Days of ``Graph``, cut where ``cuts`` say, recovering ``component`` when one is named. */
+    template <typename Graph>
+    std::vector<std::optional<Value>> days(const std::vector<std::optional<Value>> &input,
+                                           std::initializer_list<std::size_t> cuts, const char *component)
+    {
+        std::optional<ComponentCheckpoint> completed;
+        std::vector<std::optional<Value>>  actual;
+        std::size_t                        begin = 0;
+        std::vector<std::size_t>           ends{cuts};
+        ends.push_back(input.size());
+        for (const auto end : ends)
+        {
+            GlobalContext context;
+            if (component != nullptr)
+            {
+                configure_component_recovery(context.state().view(), {
+                    .component_id = component, .load = [&] { return completed; },
+                    .commit = [&](const auto &image) { completed = image; }});
+            }
+            auto result = eval_node_with_options<Graph>(
+                interval(begin, end), std::vector<std::optional<Value>>{input.begin() + begin, input.begin() + end});
+            REQUIRE(result.size() <= end - begin);
+            result.resize(end - begin);
+            actual.insert(actual.end(), result.begin(), result.end());
+            begin = end;
+        }
+        return actual;
+    }
+
     // The typed form builds its worker graph in ``start`` from the child
     // function, so it signs and restores through a different route than the
     // prepared form while sharing the one owner contract.
@@ -86,6 +153,13 @@ namespace
             return stdlib::component<TypedBody<Hosting>>(w, "distributed-map", ts);
         }
     };
+
+    template <WorkerHosting Hosting>
+    Port<TSD<Int, TS<Int>>> TypedHostedGraph<Hosting>::compose(Wiring &w, Port<TSD<Int, TS<Int>>> ts)
+    {
+        return wire_dmap<Int, Int, Int>(w, ts, fn<hgraph_test::PreparedHostedChild>(), Int{3},
+                                        Bool{Hosting == WorkerHosting::InProcess}, Str{HGRAPH_TEST_WORKER_PROGRAM});
+    }
 
     std::vector<std::optional<Value>> typed_events()
     {
@@ -156,12 +230,6 @@ namespace
         }
     };
 
-    EvalNodeRunOptions interval(std::size_t begin, std::size_t end)
-    {
-        return {.start_time = MIN_ST + MIN_TD * static_cast<Int>(begin),
-                .end_time   = MIN_ST + MIN_TD * static_cast<Int>(end)};
-    }
-
     // Keys spread over three workers; "a" accumulates across every boundary,
     // "b" leaves and returns (its state must NOT survive its removal), and the
     // quiet cycles leave a boundary with nothing in flight.
@@ -193,7 +261,8 @@ namespace
             dict_delta<Str, Dict>({{"x", inner({{"a", 6}})}, {"y", inner({{"c", 4}})}, {"z", inner({{"d", 300}})}}));
     }
 
-    template <typename Graph> void every_cut(const std::vector<std::optional<Value>> &input)
+    template <typename Graph>
+    void every_cut(const std::vector<std::optional<Value>> &input, const char *component = "distributed-map")
     {
         std::vector<std::optional<Value>> expected;
         {
@@ -220,7 +289,7 @@ namespace
                 const auto end = split == input.size() ? begin + 1 : (begin == 0 ? split : input.size());
                 GlobalContext context;
                 configure_component_recovery(context.state().view(), {
-                    .component_id = "distributed-map", .load = [&] { return completed; },
+                    .component_id = component, .load = [&] { return completed; },
                     .commit = [&](const auto &image) { completed = image; }});
                 const std::vector<std::optional<Value>> day{input.begin() + begin, input.begin() + end};
                 auto result = eval_node_with_options<Graph>(interval(begin, end), day);
@@ -253,6 +322,115 @@ TEST_CASE("dmap_ recovery: map_, mesh_ and reduce nested in the worker restart i
     hgraph_test::register_distributed_test_recipes();
     every_cut<NestedComponent<WorkerHosting::InProcess>>(nested_events());
     every_cut<NestedComponent<WorkerHosting::Process>>(nested_events());
+}
+
+TEST_CASE("dmap_ recovery: a component inside the child restarts invisibly, in both hosting modes",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // The same churn as the member form: keys arrive, accumulate, leave and
+    // return -- including a removal AFTER a restart, which only reaches the
+    // worker because the dmap_'s input enters through a component boundary.
+    every_cut<HostedGraph<WorkerHosting::InProcess>>(events(), hgraph_test::dmap_component_id);
+    every_cut<HostedGraph<WorkerHosting::Process>>(events(), hgraph_test::dmap_component_id);
+    // The control: the same restarts with nothing configured lose every total.
+    const auto expected = days<HostedGraph<WorkerHosting::InProcess>>(events(), {}, nullptr);
+    CHECK(days<HostedGraph<WorkerHosting::InProcess>>(events(), {3}, nullptr) != expected);
+    CHECK(days<HostedGraph<WorkerHosting::InProcess>>(events(), {3}, hgraph_test::dmap_component_id) == expected);
+}
+
+TEST_CASE("dmap_ recovery: the typed form hosts a component too", "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    every_cut<TypedHostedGraph<WorkerHosting::InProcess>>(typed_events(), hgraph_test::dmap_component_id);
+    every_cut<TypedHostedGraph<WorkerHosting::Process>>(typed_events(), hgraph_test::dmap_component_id);
+}
+
+TEST_CASE("dmap_ recovery: what the child holds outside the component is processed, recoverable or not",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // After the component comes a node keeping ordinary State. It is outside
+    // the component: no part of the contract, not restored. The dmap_ wires,
+    // every day completes, and that node starts again -- so the trace differs
+    // from an unbroken run exactly where its forgotten total shows.
+    const auto input = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}),
+                                     dict_delta<Str, TS<Int>>({{"a", 3}}));
+    for (const auto hosting : {WorkerHosting::InProcess, WorkerHosting::Process})
+    {
+        CAPTURE(static_cast<int>(hosting));
+        const auto run = [&](std::initializer_list<std::size_t> cuts, const char *component) {
+            return hosting == WorkerHosting::InProcess
+                ? days<HostedThenForgetfulGraph<WorkerHosting::InProcess>>(input, cuts, component)
+                : days<HostedThenForgetfulGraph<WorkerHosting::Process>>(input, cuts, component);
+        };
+        // Component totals 1, 3, 6; the node after it sums those: 1, 4, 10.
+        CHECK_OUTPUT(run({}, nullptr), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 4}}),
+                                                     dict_delta<Str, TS<Int>>({{"a", 10}})));
+        // Restarted after two days the component resumes at 6, and the node
+        // after it, having forgotten 1 + 3, reports 6.
+        CHECK_OUTPUT(run({2}, hgraph_test::dmap_component_id),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 4}}),
+                                   dict_delta<Str, TS<Int>>({{"a", 6}})));
+    }
+}
+
+TEST_CASE("dmap_ recovery: a fresh node beside a restored component still gets its start-time work",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // Beside the component sits a constant, which schedules itself on start.
+    // In a restored child it is fresh, so that schedule is LIVE work: the
+    // worker's map_ has to keep it through the restored start, the worker has
+    // to report it, and the owner -- whose own bootstrap is discarded -- has to
+    // be woken for it. The engine never skips scheduled work; dropping this
+    // would have done so silently. The day after the restart opens quiet, so
+    // nothing else would have evaluated the child.
+    const auto input = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}), none,
+                                     dict_delta<Str, TS<Int>>({{"a", 3}}));
+    for (const auto hosting : {WorkerHosting::InProcess, WorkerHosting::Process})
+    {
+        CAPTURE(static_cast<int>(hosting));
+        const auto run = [&](std::initializer_list<std::size_t> cuts, const char *component) {
+            return hosting == WorkerHosting::InProcess
+                ? days<HostedWithConstantGraph<WorkerHosting::InProcess>>(input, cuts, component)
+                : days<HostedWithConstantGraph<WorkerHosting::Process>>(input, cuts, component);
+        };
+        CHECK_OUTPUT(run({}, nullptr), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1001}}), dict_delta<Str, TS<Int>>({{"a", 1003}}),
+                                                     none, dict_delta<Str, TS<Int>>({{"a", 1006}})));
+        // The restart shows as one extra tick: the fresh constant ticks again
+        // beside the restored total of 3. That it is 1003 proves both halves --
+        // the total was restored, and the constant's start-time work ran.
+        CHECK_OUTPUT(run({2}, hgraph_test::dmap_component_id),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1001}}), dict_delta<Str, TS<Int>>({{"a", 1003}}),
+                                   dict_delta<Str, TS<Int>>({{"a", 1003}}), dict_delta<Str, TS<Int>>({{"a", 1006}})));
+    }
+}
+
+TEST_CASE("dmap_ recovery: an unrecoverable node INSIDE the hosted component is refused at wiring",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    using Graph = HostingGraph<hgraph_test::PreparedHostedForgetful, "unused", WorkerHosting::InProcess>;
+    const auto day = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}));
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = hgraph_test::dmap_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        REQUIRE_THROWS_WITH((eval_node_with_options<Graph>(interval(0, 1), day)),
+                            Catch::Matchers::ContainsSubstring("dmap_running_total") &&
+                                Catch::Matchers::ContainsSubstring("cannot be recovered"));
+    }
+    // Recovery not configured: the same child wires and runs.
+    GlobalContext context;
+    const auto    result = eval_node_with_options<Graph>(interval(0, 1), day);
+    REQUIRE(result.size() == 1);
+    CHECK(result.front().has_value());
 }
 
 TEST_CASE("dmap_ recovery: the typed form restarts invisibly in both hosting modes", "[checkpoint][dmap]")

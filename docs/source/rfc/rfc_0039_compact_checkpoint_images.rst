@@ -424,6 +424,56 @@ the owner's restored state.
 ``dmap_``
 ~~~~~~~~~
 
+**The expected nesting is a component inside the** ``dmap_`` **child** (ruling
+2026-09-19), the same way round as ``spawn_`` below, and for the same reason:
+the recoverable unit is a ``component``, and a ``dmap_`` is a way of running
+one per key somewhere else.
+
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered, per key
+
+   prices = dmap_(pricing, ticks_by_symbol)            # in no component itself
+
+The mechanism is the one ``spawn_`` uses. The ``dmap_`` node finds the configured
+component in its worker plans and stands in for it in the owner graph
+(``worker_checkpoint::HostedComponentScope``): wired inside the component's
+scope, with its inputs entering through component input boundaries. The worker
+images are selected, ``GraphCheckpointSelection::hosted``: the component plus
+the runtime's own nodes.
+
+Two things are particular to ``dmap_``.
+
+*The component is one level down.* Everything at the top of a ``dmap_`` worker is
+the runtime's own -- the sources, the key partition, the ``map_``, the sink -- so
+all of it is wired under ``worker.boundary`` and travels with the image,
+including the ``map_``'s membership, slots and children, which is what leads to
+the per-key component instances. A child template wired *from* a boundary node
+is the user's again, so its nodes fall back to ``worker`` and only the component
+inside it is selected. (The coordinator descends into a dynamic owner's children
+only when the owner is selected. Here it is. A ``map_`` the *user* wrote, in a
+``spawn_`` stage, is not, and a component under one is not reached -- nor
+reported as hosted, so that case still fails loudly as "not wired".)
+
+*A restored child can hold fresh nodes with work due.* What the child holds
+outside the component starts fresh when its restored child graph starts, and a
+fresh node may schedule itself at that moment -- a constant does. That is live
+work, not history. But the coordinator discards a restored node's bootstrap
+schedule, the ``map_`` that owns the child is a restored node, and so is the
+``dmap_`` owner above it: left alone, the work would have been skipped
+silently, against the engine's first invariant. ``NodeCheckpointOps`` therefore
+gains ``live_schedule_impl``: after the restored start an owner reports the
+earliest time it still has to run for live work, and the coordinator discards
+the bootstrap and then honours that. ``map_`` answers from its children, the
+list ``map_`` likewise, a ``dmap_`` owner from what its restored workers asked
+for. A worker restored *whole* still may not report a pending schedule.
+
+**A** ``dmap_`` **wired inside a component keeps working** as stage 4 built it:
+the owner is a member, and its workers are saved whole, with the empty
+selection. Both nestings share every mechanism above; they differ in the
+selection and in nothing else.
+
 The owner's checkpoint state is the ordered list of per-worker image blobs
 plus its output extents. Capture asks every worker before it waits for any, as
 a cycle does. Restore happens before the owner starts, and the workers are
@@ -679,6 +729,9 @@ Stages
    accumulates, so a baseline re-ticked into a worker changes the totals of
    keys the cycle never touched.
 5. **``spawn`` recovery** at the completed boundary. *Implemented.*
+6. **A component inside the worker**, for both owners: hosted selection, the
+   owner standing in for the component, transient sinks, live schedules.
+   *Implemented.*
 
 Acceptance
 ----------

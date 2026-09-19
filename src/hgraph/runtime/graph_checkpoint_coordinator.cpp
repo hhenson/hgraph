@@ -869,6 +869,9 @@ namespace hgraph
                 scheduler.events.clear();
                 scheduler.tags.clear();
             }
+            // What the restored start found still to do is not historical.
+            const auto live = node.checkpoint_ops().live_schedule_impl(node);
+            if (live != MAX_DT) { node.graph().schedule_node(node.node_index(), std::max(live, impl_->start)); }
         }
     }
 }

@@ -185,21 +185,37 @@ and key-set subscriptions bind to the reconstructed instances without historical
 notifications. This remains an owner-specific topology contract; ordinary
 internal references use the locator contract below.
 
-``dmap_`` recovers too, in both hosting modes. Its children live in workers, so
-its state is one graph image per worker: each worker captures its whole graph at
-the completed day, and a restarted run raises its workers from those images
-before the first cycle. Whatever the worker hosts recovers by its own rules --
-a nested ``map_``, ``mesh_`` or ``reduce`` included. Three things follow:
+``dmap_`` recovers a component placed *inside* its child, in both hosting modes:
 
-* The child has to be recoverable like any other component member. State held
-  in ``State`` rather than ``RecordableState`` is invisible to a checkpoint, and
-  a ``dmap_`` over such a child is refused when the component is wired, naming
-  the node. Outside a recoverable component the same child wires and runs.
+.. code-block:: python
+
+   @component
+   def pricing(ticks: TS[float]) -> TS[float]: ...      # recovered, per key
+
+   prices = dmap_(pricing, ticks_by_symbol)
+
+Configure recovery for ``pricing`` as you would if it were in the main graph; the
+``dmap_`` itself need not be in any component. Each completed day saves the
+component's state for every key from the workers that host it, and a restarted
+run raises those workers with it restored. The child may hold more than the
+component -- ``dmap_(lambda t: publish_ready(pricing(t)), ...)`` -- and whatever
+is outside the component is *processed*, not recovered: it starts afresh with
+each run, so keep state that has to survive inside the component.
+
+* The ``dmap_``'s inputs are held to a component's input rules, because for
+  recovery they *are* the component's inputs: each has to come straight from a
+  source, and that source may feed nothing else. A computed input is refused
+  when the graph is wired. If that is what you have, wrap the ``dmap_`` and
+  whatever computes its inputs in a component instead, which also recovers: the
+  workers are then saved whole, so everything in the child has to be
+  recoverable.
 * The worker count and hosting mode are part of the saved contract. Keys are
   placed by ``hash % workers`` and the placement is not stored, so a different
   count is an incompatible checkpoint, not a silent re-partition.
 * A worker that cannot capture fails the completed day, and one that refuses its
   image fails the start. Neither falls back to a fresh worker.
+* Wrapping the child in a component costs nothing when nothing is being
+  recovered: it adds no node.
 
 ``spawn_`` recovers a component placed *inside* a stage. A stage is a graph you
 wrote, and the recoverable unit inside it is the same one as anywhere else:

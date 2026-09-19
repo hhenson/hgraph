@@ -1457,7 +1457,10 @@ Wiring Wiring::child_wiring() const {
   // owner's detach reaches it too; it never copies the raw pointer out.
   child.impl_->seed = impl_->seed;
   child.impl_->owns_seed = false;
-  child.impl_->checkpoint_component = impl_->checkpoint_component;
+  // The boundary scope is for the runtime's own nodes. What one of them
+  // contains -- the child template of a worker's map_ -- is the user's.
+  child.impl_->checkpoint_component = impl_->checkpoint_component == worker_boundary_checkpoint_scope
+      ? std::string{worker_checkpoint_scope} : impl_->checkpoint_component;
   child.impl_->checkpoint_records_refusals = impl_->checkpoint_records_refusals;
   return child;
 }

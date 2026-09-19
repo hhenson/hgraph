@@ -1435,10 +1435,18 @@ namespace hgraph
             {
                 auto *entry = storage.entries.entry_at(slot);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
+                // ``>=``: a child restored only in part (RFC 0039) starts its
+                // other nodes fresh, and one of those may be due at the start.
                 const auto next = entry->graph.view().next_scheduled_time();
-                if (next != MAX_DT && next > time)
+                if (next != MAX_DT && next >= time)
                     storage.push_pulled_child_schedule(next, entry->schedule_context);
             }
+        }
+
+        [[nodiscard]] DateTime live_map_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
         }
 
         void visit_map_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
@@ -1458,6 +1466,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_map_checkpoint,
                 .restore_impl = &restore_map_checkpoint,
                 .start_restored_impl = &start_restored_map,
+                .live_schedule_impl = &live_map_schedule,
                 .visit_endpoints_impl = &visit_map_checkpoint_endpoints,
                 .signature_impl = &map_checkpoint_signature,
             };

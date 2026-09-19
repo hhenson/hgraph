@@ -26,6 +26,7 @@
 #include <hgraph/runtime/distributed_worker.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -37,6 +38,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -65,7 +67,11 @@ namespace hgraph::distributed
         {
             // Every worker graph carries checkpoint identities (RFC 0039): the
             // caller and the worker process each wire this for themselves.
+            // At this level everything is the runtime's own, so it is all
+            // boundary; the child template the map_ wires is the user's.
             w.checkpoint_worker_graph();
+            (void)w.checkpoint_component(std::string{worker_boundary_checkpoint_scope});
+            const record_replay::scope isolated{record_replay::Mode::None, {}};
             auto in  = wire<boundary_source_impl, TSD<TKey, TS<TValue>>>(w, Str{"in"});
             auto out = wire<stdlib::map_>(w, func.value(), in)
                            .template as<TSD<TKey, TS<TResult>>>();
@@ -159,6 +165,10 @@ namespace hgraph::distributed
          * The worker receives the fixed marker @hgraph-channel-bootstrap:1.
          */
         bool recipe_over_channel{false};
+        /** The component the worker images cover (RFC 0039): the recoverable
+         * component the children host, or empty for whole workers, which is
+         * what a ``dmap_`` that is itself a component member saves. */
+        std::string hosted_component{};
     };
 
     /**
@@ -217,16 +227,19 @@ namespace hgraph::distributed
          * in-process worker is restored as it is raised. Both hosting modes
          * hand back the same image bytes.
          */
-        void dispatch_restore(std::string_view image) { send(encode_restore_frame(image)); }
-
-        void dispatch_checkpoint()
+        void dispatch_restore(std::string_view image, std::string_view component)
         {
-            if (host_ == nullptr) { send(encode_checkpoint_frame()); }
+            send(encode_restore_frame(image, component));
         }
 
-        [[nodiscard]] std::string collect_checkpoint()
+        void dispatch_checkpoint(std::string_view component)
         {
-            if (host_ != nullptr) { return capture_worker_image(*host_); }
+            if (host_ == nullptr) { send(encode_checkpoint_frame(component)); }
+        }
+
+        [[nodiscard]] std::string collect_checkpoint(std::string_view component)
+        {
+            if (host_ != nullptr) { return capture_worker_image(*host_, component); }
             auto failed = make_scope_exit([this] { process_.terminate(); });
             auto image  = decode_checkpoint_reply(receive());
             failed.release();
@@ -333,6 +346,7 @@ namespace hgraph::distributed
             auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
             UnwindCleanupGuard failed{[&pool] { pool->terminate(); }};
             pool->groups_ = config.workers;
+            pool->component_ = config.hosted_component;
             pool->workers_.reserve(config.workers);
             pool->slots_ = std::move(slots);
             pool->in_slot_ = pool->slots_.index_of("in");
@@ -341,7 +355,7 @@ namespace hgraph::distributed
                 if (config.hosting == WorkerHosting::InProcess)
                 {
                     pool->workers_.emplace_back(
-                        raise_host(child, config, phase_runner, restored.empty() ? nullptr : &restored[i], i));
+                        pool->raise_host(child, config, phase_runner, restored.empty() ? nullptr : &restored[i], i));
                 }
                 else
                 {
@@ -440,6 +454,7 @@ namespace hgraph::distributed
             auto pool = std::unique_ptr<WorkerPool>{new WorkerPool{}};
             UnwindCleanupGuard failed_pool{[&pool] { pool->terminate(); }};
             pool->groups_ = children.size();
+            pool->component_ = config.hosted_component;
             pool->slots_ = std::move(slots);
             pool->workers_.reserve(children.size());
             pool->output_extents_.resize(children.size());
@@ -448,8 +463,8 @@ namespace hgraph::distributed
                 reject_push_sources(children[group]);
                 if (config.hosting == WorkerHosting::InProcess)
                 {
-                    pool->workers_.emplace_back(raise_host(children[group], config, phase_runner,
-                                                           restored.empty() ? nullptr : &restored[group], group));
+                    pool->workers_.emplace_back(pool->raise_host(children[group], config, phase_runner,
+                                                                 restored.empty() ? nullptr : &restored[group], group));
                 }
                 else
                 {
@@ -476,12 +491,12 @@ namespace hgraph::distributed
         [[nodiscard]] std::vector<std::string> capture()
         {
             UnwindCleanupGuard failed{[this] { terminate(); }};
-            for (auto &worker : workers_) { worker.dispatch_checkpoint(); }
+            for (auto &worker : workers_) { worker.dispatch_checkpoint(component_); }
             std::vector<std::string> images;
             images.reserve(workers_.size());
             for (std::size_t group = 0; group < workers_.size(); ++group)
             {
-                try { images.push_back(workers_[group].collect_checkpoint()); }
+                try { images.push_back(workers_[group].collect_checkpoint(component_)); }
                 catch (const std::exception &error)
                 {
                     throw std::runtime_error(
@@ -492,6 +507,10 @@ namespace hgraph::distributed
         }
 
         [[nodiscard]] std::size_t worker_count() const noexcept { return workers_.size(); }
+        /** The earliest time a restored worker still wants, or ``MAX_DT``.
+         * Whole workers want nothing; a worker restored only in part started
+         * its other nodes fresh, and their start-time work is live. */
+        [[nodiscard]] DateTime restored_next() const noexcept { return restored_next_; }
         [[nodiscard]] std::span<const std::size_t> output_extents() const noexcept { return output_extents_; }
         void restore_output_extents(std::span<const std::size_t> extents)
         {
@@ -540,17 +559,20 @@ namespace hgraph::distributed
                     restored.size(), workers));
         }
 
-        // A restored worker wants nothing: an image never holds a pending
-        // schedule. One that reports otherwise has a wake-up its owner cannot
-        // honour, because the owner's own bootstrap schedule is discarded.
-        static void require_idle(DateTime next, std::size_t group)
+        // A worker restored WHOLE wants nothing: an image never holds a
+        // pending schedule, so one that reports otherwise is broken. A worker
+        // restored in part started its other nodes fresh, and what they want
+        // is live work the owner has to run (``restored_next``).
+        void admit_restored(DateTime next, std::size_t group)
         {
-            if (next != MAX_DT)
+            if (next == MAX_DT) { return; }
+            if (component_.empty())
                 throw std::runtime_error(fmt::format(
                     "dmap_: restored partition {} reports a pending schedule", group));
+            restored_next_ = std::min(restored_next_, next);
         }
 
-        static std::unique_ptr<DistributedChildHost> raise_host(
+        std::unique_ptr<DistributedChildHost> raise_host(
             const GraphBuilder &child, const WorkerPoolConfig &config,
             const GraphExecutorPhaseRunner &phase_runner, const std::string *image, std::size_t group)
         {
@@ -558,7 +580,7 @@ namespace hgraph::distributed
             if (image == nullptr) { host->start(config.start_time); }
             else
             {
-                try { require_idle(start_worker_restored(*host, config.start_time, *image), group); }
+                try { admit_restored(start_worker_restored(*host, config.start_time, *image, component_), group); }
                 catch (const std::exception &error)
                 {
                     throw std::runtime_error(
@@ -572,14 +594,14 @@ namespace hgraph::distributed
         void restore_processes(std::span<const std::string> restored)
         {
             if (restored.empty()) { return; }
-            for (std::size_t group = 0; group < workers_.size(); ++group) { workers_[group].dispatch_restore(restored[group]); }
+            for (std::size_t group = 0; group < workers_.size(); ++group) { workers_[group].dispatch_restore(restored[group], component_); }
             for (std::size_t group = 0; group < workers_.size(); ++group)
             {
                 const auto reply = workers_[group].collect(slots_);
                 if (!reply.error.empty())
                     throw std::runtime_error(
                         fmt::format("dmap_: partition {} refused its image: {}", group, reply.error));
-                require_idle(reply.next_scheduled_time, group);
+                admit_restored(reply.next_scheduled_time, group);
             }
         }
 
@@ -666,6 +688,8 @@ namespace hgraph::distributed
         }
 
         std::vector<DistributedWorker> workers_{};
+        std::string                     component_{};
+        DateTime                        restored_next_{MAX_DT};
         std::vector<std::size_t>        output_extents_{};
         std::vector<GroupSelector>     selectors_{};
         BoundarySlots                  slots_{};
@@ -755,6 +779,16 @@ namespace hgraph::distributed
         [[nodiscard]] HGRAPH_EXPORT std::optional<Restored> claim(const NodeView &node);
         [[nodiscard]] HGRAPH_EXPORT std::string signature(std::span<const GraphBuilder> children,
                                                           const WorkerPoolConfig &config);
+        /** The restored workers' live schedule, for ``NodeCheckpointOps::live_schedule_impl``. */
+        [[nodiscard]] HGRAPH_EXPORT DateTime live_schedule(const NodeView &node);
+        /** The component recovery is configured for, when ``children`` host it
+         * and the owner is not itself inside a component -- in which case the
+         * owner stands in for that component in its own graph. */
+        [[nodiscard]] HGRAPH_EXPORT std::optional<std::string> hosted_component(
+            Wiring &wiring, std::span<const GraphBuilder> children);
+        /** The same question for an owner whose worker graphs are not held in one span. */
+        [[nodiscard]] HGRAPH_EXPORT std::optional<std::string> hosted_component(
+            Wiring &wiring, const std::function<bool(std::string_view component)> &any_worker_hosts);
     }
 
     /**
@@ -780,7 +814,7 @@ namespace hgraph::distributed
         static auto defaults()
         {
             return std::tuple{arg<"workers">(Int{2}), arg<"in_process">(Bool{false}),
-                              arg<"program">(Str{})};
+                              arg<"program">(Str{}), arg<"component">(Str{})};
         }
 
         // Every worker hosts the same graph, so one stands for them all in
@@ -791,6 +825,7 @@ namespace hgraph::distributed
                 .supported = true,
                 .capture_impl = &worker_checkpoint::capture,
                 .restore_impl = &worker_checkpoint::restore,
+                .live_schedule_impl = &worker_checkpoint::live_schedule,
                 .signature_impl = +[](const NodeBuilder &builder) {
                     const auto scalars = builder.scalars().view().as_bundle();
                     const Int  workers = scalars.at("workers").template checked_as<Int>();
@@ -799,6 +834,7 @@ namespace hgraph::distributed
                     config.workers = static_cast<std::size_t>(workers);
                     config.hosting = scalars.at("in_process").template checked_as<Bool>() ? WorkerHosting::InProcess
                                                                                           : WorkerHosting::Process;
+                    config.hosted_component = scalars.at("component").template checked_as<Str>();
                     const GraphBuilder child = WorkerPool::worker_graph<TKey, TValue, TResult>(
                         scalars.at("func").template checked_as<WiredFn>());
                     return worker_checkpoint::signature({&child, 1}, config);
@@ -809,7 +845,8 @@ namespace hgraph::distributed
 
         static void start(Scalar<"func", WiredFn> func, Scalar<"workers", Int> workers,
                           Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program,
-                          NodeView node, EngineControlView engine, State<DistributedMapState> state)
+                          Scalar<"component", Str> component, NodeView node, EngineControlView engine,
+                          State<DistributedMapState> state)
         {
             if (workers.value() <= 0)
                 throw std::invalid_argument("dmap_ needs at least one worker");
@@ -820,6 +857,7 @@ namespace hgraph::distributed
             config.hosting =
                 in_process.value() ? WorkerHosting::InProcess : WorkerHosting::Process;
             config.program = program.value();
+            config.hosted_component = component.value();
 
             // Workers the coordinator restored start from their images (RFC 0039).
             const auto restored = worker_checkpoint::claim(node);
@@ -830,6 +868,7 @@ namespace hgraph::distributed
 
         static void eval(In<"ts", TSD<TKey, TS<TValue>>> ts, Scalar<"func", WiredFn>,
                          Scalar<"workers", Int>, Scalar<"in_process", Bool>, Scalar<"program", Str>,
+                         Scalar<"component", Str>,
                          State<DistributedMapState> state, NodeScheduler scheduler, DateTime now,
                          Out<TSD<TKey, TS<TResult>>> out)
         {
@@ -852,6 +891,30 @@ namespace hgraph::distributed
             pool->stop();
         }
     };
+    /**
+     * Wire the typed ``dmap_``, standing in for the component its child hosts.
+     *
+     * ``wire<dmap_impl<...>>`` is enough when ``dmap_`` is itself inside a
+     * recoverable component, or when nothing is to be recovered. What recovers
+     * is more often a component INSIDE the child (RFC 0039), and then this
+     * node has to be wired as that component's stand-in in the owner graph.
+     * The worker graph is only built to look for it when recovery is
+     * configured at all.
+     */
+    template <typename TKey, typename TValue, typename TResult>
+    [[nodiscard]] Port<TSD<TKey, TS<TResult>>> wire_dmap(Wiring &w, Port<TSD<TKey, TS<TValue>>> ts, const WiredFn &func,
+                                                          Int workers = 2, Bool in_process = false, Str program = {})
+    {
+        const auto hosted = worker_checkpoint::hosted_component(w, [&](std::string_view component) {
+            const GraphBuilder child = WorkerPool::worker_graph<TKey, TValue, TResult>(func);
+            return worker_checkpoint::hosts_component(child, component);
+        });
+        worker_checkpoint::HostedComponentScope standing_in{w, hosted};
+        const auto entering = standing_in.input(ts.erased(), "ts");
+        return wire<dmap_impl<TKey, TValue, TResult>>(w, Port<void>{w, entering}.template as<TSD<TKey, TS<TValue>>>(),
+                                                     func, workers, in_process, program, Str{standing_in.component()})
+            .template as<TSD<TKey, TS<TResult>>>();
+    }
 }  // namespace hgraph::distributed
 
 namespace hgraph::static_schema_detail

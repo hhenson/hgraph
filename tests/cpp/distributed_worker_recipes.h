@@ -10,6 +10,7 @@
 // the two programs, and the recipe key is a mangled name, so the two sides
 // would fail to agree on exactly the thing they exist to agree on.
 
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/graph_wiring.h>
@@ -169,6 +170,57 @@ namespace hgraph_test
         }
     };
     inline constexpr const char *prepared_nested_name = "prepared nested owners: recoverable";
+
+    // --- a component INSIDE the dmap_ child (RFC 0039) -----------------------
+    // The recoverable unit is the component. What else the child holds is
+    // processed: it starts again with every run.
+    inline constexpr const char *dmap_component_id = "dmap-accumulate";
+    struct PreparedAccumulateBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts)
+        { return wire<PreparedAccumulate>(w, ts).as<TS<Int>>(); }
+    };
+    /** The child is the component and nothing else. */
+    struct PreparedHostedChild
+    {
+        static constexpr auto name = "prepared_hosted_child";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<PreparedAccumulateBody>(w, dmap_component_id, ts); }
+    };
+    /** After the component, a node that keeps ordinary ``State``: outside the
+        component, so neither recoverable nor required to be. */
+    struct PreparedHostedThenForgetful
+    {
+        static constexpr auto name = "prepared_hosted_then_forgetful";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        { return wire<RunningTotalNode>(w, stdlib::component<PreparedAccumulateBody>(w, dmap_component_id, ts)).as<TS<Int>>(); }
+    };
+    /** Beside the component, a constant: a fresh node with start-time work,
+        which a restored child has to run and the owner has to be woken for. */
+    struct PreparedHostedWithConstant
+    {
+        static constexpr auto name = "prepared_hosted_with_constant";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto total = stdlib::component<PreparedAccumulateBody>(w, dmap_component_id, ts);
+            return wire<PreparedAddPair>(w, total, wire<stdlib::const_>(w, Int{1000}).as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+    /** A component that cannot be recovered, hosted in the child. */
+    struct PreparedForgetfulBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts)
+        { return wire<RunningTotalNode>(w, ts).as<TS<Int>>(); }
+    };
+    struct PreparedHostedForgetful
+    {
+        static constexpr auto name = "prepared_hosted_forgetful";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<PreparedForgetfulBody>(w, dmap_component_id, ts); }
+    };
+    inline constexpr const char *prepared_hosted_name           = "prepared hosted component";
+    inline constexpr const char *prepared_hosted_forgetful_name = "prepared hosted component, then forgetful";
+    inline constexpr const char *prepared_hosted_constant_name  = "prepared hosted component, with constant";
 
     /** The same recoverable child over integer keys, for the typed ``dmap_`` form. */
     struct AccumulateG
