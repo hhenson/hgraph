@@ -222,3 +222,42 @@ def test_seeded_key_churn_across_many_completed_days(tmp_path, seed):
 
     cuts = tuple(sorted(randomizer.sample(range(1, 48), 15)))
     compare_restarts(tmp_path, scenario, (hg.TSD[str, hg.TS[int]],), hg.TSD[str, hg.TS[int]], (events,), cuts)
+
+
+KEYED = hg.TSD[str, hg.TS[int]]
+KEYED_EVENTS = [None, {"a": 1, "b": 2}, {"a": 3}, None, {"b": hg.REMOVE}, {"a": 4, "c": 5}, {"b": 6}, None]
+
+
+def test_a_recordable_id_is_honoured_inside_a_mapped_child(tmp_path):
+    # A map_ child is wired on a wiring of its own, whose own state is empty;
+    # the recovery configuration is the root's. The binding asked the child's
+    # state, so a ``__recordable_id__`` was honoured at the top of a component
+    # and silently dropped one level down (found by adversarial review). A
+    # duplicate is the difference that shows: honoured ids collide.
+    @hg.graph
+    def clashing(ts: hg.TS[int]) -> hg.TS[int]:
+        first = running_total(ts, __recordable_id__="total")
+        return running_total(first, __recordable_id__="total")
+
+    @hg.component
+    def scenario(ts: KEYED) -> KEYED:
+        return hg.map_(clashing, ts)
+
+    with pytest.raises(Exception, match="duplicate node id 'total'"):
+        _run(scenario, (KEYED,), KEYED, (KEYED_EVENTS,), 0, persistence.ComponentCheckpointStore(tmp_path))
+    # With nothing to recover there is no id to honour, here as at the top.
+    assert _run(scenario, (KEYED,), KEYED, (KEYED_EVENTS,), 0)[1] == {"a": 1, "b": 2}
+
+
+@pytest.mark.parametrize("cuts", [(3,), tuple(range(1, 8))])
+def test_named_nodes_inside_a_mapped_child_restart(tmp_path, cuts):
+    @hg.graph
+    def named(ts: hg.TS[int]) -> hg.TS[int]:
+        return running_total(ts, __recordable_id__="total")
+
+    @hg.component
+    def scenario(ts: KEYED) -> KEYED:
+        return hg.map_(named, ts)
+
+    actual = compare_restarts(tmp_path, scenario, (KEYED,), KEYED, (KEYED_EVENTS,), cuts)
+    assert actual[5] == {"a": 8, "c": 5}

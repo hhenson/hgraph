@@ -310,15 +310,22 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_o
     parameters are therefore configuration captured while wiring the child,
     rather than const time-series inputs owned by every child instance.
     """
+    # A component is a graph with a boundary (RFC 0039), so its scalar
+    # parameters are bound exactly as a graph's are. Left to ``_as_wired`` a
+    # scalar reached C++ as one more argument and ``map_(pricing, ticks,
+    # scale=2.0)`` matched no overload, where the same @graph wired.
+    bindable = (_GraphFn, _PyNode, _Component)
     if isinstance(func, (_hgraph.WiredFn, str)) or not isinstance(
-            func, (_GraphFn, _PyNode)) and not callable(func):
+            func, bindable) and not callable(func):
         return _as_wired(func), args, kwargs
-    if (not isinstance(func, (_GraphFn, _PyNode))
+    if (not isinstance(func, bindable)
             and getattr(func, "__name__", None) != "<lambda>"):
         return _as_wired(func), args, kwargs
 
-    user_fn = func.fn if isinstance(func, (_GraphFn, _PyNode)) else func
+    user_fn = func.fn if isinstance(func, bindable) else func
     signature = getattr(func, "_wiring_signature", None)
+    if signature is None and isinstance(func, _Component):
+        signature = func._graph._wiring_signature
     if signature is None:
         signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [

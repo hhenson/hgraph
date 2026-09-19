@@ -1203,6 +1203,10 @@ struct Wiring::Impl {
   const std::uint64_t identity{next_wiring_identity.fetch_add(
       1, std::memory_order_relaxed)};
   std::unordered_set<std::string> component_ids; // claimed recordable ids
+  // Open ``InlineRepeat`` scopes, and the ids first claimed inside them: the
+  // ones a later index may claim again.
+  std::size_t inline_repeats{0};
+  std::unordered_set<std::string> inline_repeat_ids;
 
   explicit Impl(WiringKind wiring_kind,
                 WiringOptions options,
@@ -1567,11 +1571,20 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
   }
   // A worker graph: what a component scope refuses is recorded, so the graph
   // still wires and whoever tries to capture it is told why it cannot.
+  // Only a REFUSAL is recorded, and every refusal is an ``invalid_argument``.
+  // Anything else -- a logic error in a probe, a Python signature callback
+  // that raised, an allocation failure -- is a defect in the wiring, and on a
+  // node no image selects a recorded refusal is never read: it would vanish.
   try {
     builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
-  } catch (const std::exception &error) {
-    builder.checkpoint_identity({.component = impl_->checkpoint_component,
-        .id = std::to_string(impl_->checkpoint_node_counts[impl_->checkpoint_component]++),
+  } catch (const std::invalid_argument &error) {
+    // The id still has to be this node's alone: it names the node in the
+    // message that reports the refusal, beside ids the user chose.
+    auto &count = impl_->checkpoint_node_counts[impl_->checkpoint_component];
+    auto &taken = impl_->checkpoint_node_ids[impl_->checkpoint_component];
+    std::string id = std::to_string(count++);
+    while (!taken.insert(id).second) { id = std::to_string(count++); }
+    builder.checkpoint_identity({.component = impl_->checkpoint_component, .id = std::move(id),
         .refusal = error.what()});
   }
 }
@@ -1717,8 +1730,13 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
     } else if (source.is_structural_source()) {
       signature.varint(source.structural_children().size());
       for (const auto &child : source.structural_children()) { self(self, child); }
+    } else if (source.is_null_source()) {
+      // Statically bound to nothing, for good: the kind signed above is the
+      // whole contract, and there is no endpoint to restore. A partitioned
+      // fixed-size list gives each worker's boundary sink one of these for
+      // every index another worker owns.
     } else {
-      throw std::invalid_argument("component checkpoint: unsupported null or delayed input binding");
+      throw std::invalid_argument("component checkpoint: unsupported delayed input binding");
     }
   };
   signature.varint(inputs.size());
@@ -1821,15 +1839,31 @@ void Wiring::notify_overload_resolution(
   }
 }
 
-void Wiring::claim_component_id(std::string_view fq_recordable_id) {
+bool Wiring::claim_component_id(std::string_view fq_recordable_id) {
   if (reserved_checkpoint_scope(fq_recordable_id)) {
     throw std::invalid_argument("component: recordable id uses the reserved @hgraph. namespace");
   }
-  if (!impl_->component_ids.emplace(std::string{fq_recordable_id}).second) {
-    throw std::invalid_argument("component: duplicate recordable id '" +
-                                std::string{fq_recordable_id} +
-                                "' in one wiring");
+  std::string id{fq_recordable_id};
+  if (impl_->component_ids.emplace(id).second) {
+    if (impl_->inline_repeats != 0) { impl_->inline_repeat_ids.insert(std::move(id)); }
+    return true;
   }
+  if (impl_->inline_repeats != 0 && impl_->inline_repeat_ids.contains(id)) { return false; }
+  throw std::invalid_argument("component: duplicate recordable id '" + id + "' in one wiring");
+}
+
+Wiring::InlineRepeat::InlineRepeat(Wiring &wiring) : wiring_(wiring) {
+  ++wiring_.impl_->inline_repeats;
+  // The mapping ``child_wiring`` applies, for a function that gets no child wiring.
+  if (wiring_.impl_->checkpoint_component == worker_boundary_checkpoint_scope) {
+    scope_ = wiring_.checkpoint_component(std::string{worker_checkpoint_scope});
+    rescoped_ = true;
+  }
+}
+
+Wiring::InlineRepeat::~InlineRepeat() {
+  if (rescoped_) { (void)wiring_.checkpoint_component(std::move(scope_)); }
+  if (--wiring_.impl_->inline_repeats == 0) { wiring_.impl_->inline_repeat_ids.clear(); }
 }
 
 Wiring::~Wiring() = default;

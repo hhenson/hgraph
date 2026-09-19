@@ -836,8 +836,62 @@ Columnar Arrow encoding of the whole image
    of an image, and it would make core's transfer form depend on Arrow layout
    choices. The binary codec already stores homogeneous keys consecutively.
 
+Known limits
+------------
+
+Each of these fails closed: a refusal or a cold start, never a wrong restore.
+
+**A hosted** ``dmap_`` **contract covers the whole child.** What a ``dmap_`` child
+holds outside its component is processed, not recovered, and should be no part
+of the contract -- under ``spawn_`` it is not. Under ``dmap_`` it is. The
+worker's own ``map_`` is a runtime node, selected by
+``GraphCheckpointSelection::hosted``, and a dynamic owner signs **every**
+non-transient node of its child, and the child's output binding, when it is
+wired. No selection exists then: a worker process wires from its recipe and is
+told the component only by the restore frame. So adding, removing or changing a
+merely processed node in a ``dmap_`` child changes the ``map_``'s signature, the
+owner's contract with it, and the next start is refused as "incompatible
+component, revision or graph signature" -- a cold start for an edit that
+touched nothing recoverable.
+
+The remedy is a signature that is a function of the selection rather than a
+string fixed at wiring, which means an identity that keeps its children's
+identities; and it needs a ruling on the child's **output binding**, which
+changes whenever the edit is to the node that produces the child's output.
+That is a structural change and is an unresolved question below, not a patch.
+``test_distributed_map_checkpoint.cpp`` pins the target behaviour as
+``[!shouldfail]``.
+
+**A dynamic list partitioned over several workers is not recoverable**
+(``tsl_map_node``: "partitioned list maps are not recoverable"), so a hosting
+``dmap_`` over an unbounded ``TSL`` recovers with one worker only. A fixed-size
+list is unrolled inline instead and recovers with any worker count.
+
+**A component repeated per index cannot be recorded or recovered apart.**
+``map_`` over a fixed-size list wires its function once per index on one
+wiring (``Wiring::InlineRepeat``), so a component in it is one component with
+several instances. With nothing recorded and nothing recovered that is just a
+graph wired several times, and it wires -- it used to be refused as a duplicate
+recordable id, with no recovery configured at all. A **hosted** component
+recovers too: its nodes share one ordinal sequence, so they are distinct, and
+each worker's image covers its own instances. A component that is itself
+*recorded*, or that is the *configured* one in the owner graph, is refused:
+instances sharing one id share its recordings and its image. Map over a
+``TSD`` or an unbounded list, or put the ``map_`` inside the component.
+
+**One worker's image is one frame**, at most ``DEFAULT_MAX_FRAME_SIZE``
+(64 MiB); see "Protocol".
+
+**The reference adapter inventory counts the adapters of transient
+consumers**; see "Sinks".
+
 Unresolved questions
 --------------------
+
+* Whether a dynamic owner's signature should become a function of the
+  selection (see "Known limits"), and if so whether an image may be restored
+  across a changed child output binding when the producer of that output is
+  outside the selection.
 
 * Whether stage 2 should introduce columnar leaf images now or wait for a
   consumer whose capture time, rather than encode time, dominates.
@@ -870,3 +924,27 @@ so inserting one cannot renumber the recoverable contract. The same encoding
 is used by dictionary and list maps, meshes, and both reduction strategies.
 These signature corrections fail closed against images with the previous
 encoding; an incompatible image must be regenerated rather than imported.
+
+A second adversarial review (2026-09-19) added these:
+
+* A user function unrolled inline in a worker graph is wired in the user's
+  scope (``@hgraph.worker``), not the runtime's. ``map_`` over a fixed-size list
+  makes no child wiring, so the boundary-to-worker mapping ``child_wiring``
+  applies never ran, and the user's nodes were selected, signed and restored as
+  if they were the runtime's: an unrecoverable one refused the capture although
+  it sat outside the component -- the inverse of the keyed behaviour.
+* A null input binding is signed by its kind rather than refused. It is bound
+  to nothing for good, so there is no endpoint to restore; a partitioned
+  fixed-size list gives each worker's boundary sink one for every index another
+  worker owns. A *delayed* binding is still refused.
+* A worker graph records only refusals, which are ``std::invalid_argument``.
+  It used to record every ``std::exception``, so a logic error in a probe or a
+  Python signature callback that raised became a refusal on a node no image
+  selects, where nothing ever reads it.
+* ``component_checkpoint_active`` asks ``Wiring::operator_state``, as
+  ``stdlib::component`` does. It asked ``global_state``, which in a child wiring
+  is an empty store of its own, so a Python ``__recordable_id__`` was honoured at
+  the top of a component and dropped inside a ``map_`` child of it.
+* A Python component's scalar parameters are bound as a graph's are when it is
+  a mapped function. They reached C++ as extra arguments and ``map_(pricing,
+  ticks, scale=2.0)`` matched no overload, for the component only.
