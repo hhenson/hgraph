@@ -161,7 +161,14 @@ would fail the tag part-way through. The PyPI trusted publishers are bound to th
 the GitHub ``release`` environment.
 
 The macOS build uses the current system Clang from the latest Apple Silicon
-runner image while retaining a macOS 15 deployment target.
+runner image with a macOS 26 deployment target (ruling 2026-09-19: support the
+current macOS and its predecessor, nothing earlier). The floor is not
+arbitrary: libc++ marks parts of C++23 unavailable below it -- the
+floating-point ``std::from_chars`` is "introduced in macOS 26.0" -- and a
+machine on 26 or later compiles such code happily, so only the wheel job, which
+pins the target, ever saw the error. With the floor at 26 the wheel is built
+against the same library surface developers and the ``macos-26`` native leg
+already use.
 
 Downstream Native Extensions
 ----------------------------
