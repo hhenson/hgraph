@@ -32,6 +32,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -272,6 +273,102 @@ TEST_CASE("python-user-nodes: a TSD output converts through the registered table
     CHECK(nb::cast<std::string>(modified[nb::int_{2}]) == "two");
 
     CHECK_FALSE(module_loaded("_hgraph"));
+}
+
+TEST_CASE("python-user-nodes: a whole-value import removes exactly the keys it does not list",
+          "[python_user_nodes][rfc0035]")
+{
+    // The removals are decided by one set of the listed keys, not a search of
+    // the list per live key. Pin what that decision has to get right: a key
+    // kept, a key dropped, a key arriving, and the same for a set.
+    ensure_interpreter();
+    auto &registry = TypeRegistry::instance();
+
+    TSOutput       dict{*registry.tsd(int_meta(), registry.ts(int_meta()))};
+    const DateTime t1 = tick(1), t2 = tick(2);
+    nb::dict       first, second;
+    for (int key = 0; key < 64; ++key) { first[nb::int_{key}] = key; }
+    for (int key = 32; key < 96; ++key) { second[nb::int_{key}] = key * 10; }
+    {
+        auto mutation = dict.view(t1).begin_mutation(t1);
+        REQUIRE(from_python(mutation, first));
+    }
+    {
+        auto mutation = dict.view(t2).begin_mutation(t2);
+        REQUIRE(from_python(mutation, second));
+    }
+    nb::object value = value_to_python(dict.view(t2).data_view());
+    REQUIRE(nb::len(value) == 64);
+    for (int key = 0; key < 32; ++key) { CHECK_FALSE(contains(value, nb::int_{key})); }
+    for (int key = 32; key < 96; ++key) { CHECK(nb::cast<std::int64_t>(value[nb::int_{key}]) == key * 10); }
+    const nb::object delta   = delta_value_to_python(dict.view(t2).data_view(), t2);
+    const nb::object removed = delta["removed"];
+    CHECK(nb::len(removed) == 32);
+
+    TSOutput set{*registry.tss(int_meta())};
+    nb::set  members, replacement;
+    for (int key = 0; key < 64; ++key) { members.add(nb::int_{key}); }
+    for (int key = 32; key < 96; ++key) { replacement.add(nb::int_{key}); }
+    {
+        auto mutation = set.view(t1).begin_mutation(t1);
+        REQUIRE(from_python(mutation, members));
+    }
+    {
+        auto mutation = set.view(t2).begin_mutation(t2);
+        REQUIRE(from_python(mutation, replacement));
+    }
+    value = value_to_python(set.view(t2).data_view());
+    REQUIRE(nb::len(value) == 64);
+    CHECK_FALSE(contains(value, nb::int_{31}));
+    CHECK(contains(value, nb::int_{32}));
+    CHECK(contains(value, nb::int_{95}));
+}
+
+TEST_CASE("python-user-nodes: whole-value import scaling", "[.][from-python-scaling]")
+{
+    // The doubling check CLAUDE.md asks for (guardrail iv): replace n live keys
+    // with n others, half of them shared, and print the cost per key. It has to
+    // stay flat from n to 8n; searching the listed keys per live key doubled it
+    // with every doubling of n.
+    ensure_interpreter();
+    auto &registry = TypeRegistry::instance();
+    const auto run = [&](const char *label, bool keyed) {
+        for (const int n : {5'000, 10'000, 20'000, 40'000})
+        {
+            TSOutput output{keyed ? *registry.tsd(int_meta(), registry.ts(int_meta())) : *registry.tss(int_meta())};
+            nb::object first, second;
+            if (keyed)
+            {
+                nb::dict a, b;
+                for (int key = 0; key < n; ++key) { a[nb::int_{key}] = key; }
+                for (int key = n / 2; key < n + n / 2; ++key) { b[nb::int_{key}] = key; }
+                first = std::move(a);
+                second = std::move(b);
+            }
+            else
+            {
+                nb::set a, b;
+                for (int key = 0; key < n; ++key) { a.add(nb::int_{key}); }
+                for (int key = n / 2; key < n + n / 2; ++key) { b.add(nb::int_{key}); }
+                first = std::move(a);
+                second = std::move(b);
+            }
+            const DateTime t1 = tick(1), t2 = tick(2);
+            {
+                auto mutation = output.view(t1).begin_mutation(t1);
+                REQUIRE(from_python(mutation, first));
+            }
+            const auto start = std::chrono::steady_clock::now();
+            {
+                auto mutation = output.view(t2).begin_mutation(t2);
+                REQUIRE(from_python(mutation, second));
+            }
+            const auto micros = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+            std::printf("from_python %s n=%6d  %9.1f ms  %7.3f us/key\n", label, n, micros / 1000.0, micros / n);
+        }
+    };
+    run("TSS", false);
+    run("TSD", true);
 }
 
 TEST_CASE("python-user-nodes: the stdlib enums' conversions stay the module's", "[python_user_nodes][rfc0035]")
