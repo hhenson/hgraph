@@ -168,17 +168,25 @@ namespace
 
     // Flat means the per-key cost at 8n is not a multiple of the per-key cost at n. The bound
     // is loose on purpose -- allocator and cache effects are real -- and still far below the
-    // 8x a quadratic walk shows. Costs too small to measure are not judged.
+    // 8x a quadratic walk shows.
     void require_flat(const std::vector<Row> &rows, const char *label)
     {
         const auto per_key = [](double ms, std::size_t keys) { return ms * 1000.0 / static_cast<double>(keys); };
         const auto &small = rows.front();
         const auto &large = rows.back();
         INFO(label);
-        if (small.save_ms > 2.0)
-            CHECK(per_key(large.save_ms, large.keys) < 3.0 * per_key(small.save_ms, small.keys) + 1.0);
-        if (small.restore_ms > 2.0)
-            CHECK(per_key(large.restore_ms, large.keys) < 3.0 * per_key(small.restore_ms, small.keys) + 1.0);
+        // What is too small to measure is the LARGE run, never the small one: a quadratic
+        // makes the large run measurable while the small one stays in the noise, and a
+        // guard on the small one would have skipped exactly that case. A small measurement
+        // below the floor is known only to be "at most the floor", so that is what it is
+        // taken to be -- the most generous reading the clock allows, and no more.
+        constexpr double noise_floor_ms = 2.0;
+        const auto flat = [&](double small_ms, double large_ms) {
+            if (large_ms <= noise_floor_ms) { return true; }
+            return per_key(large_ms, large.keys) < 3.0 * per_key(std::max(small_ms, noise_floor_ms), small.keys);
+        };
+        CHECK(flat(small.save_ms, large.save_ms));
+        CHECK(flat(small.restore_ms, large.restore_ms));
     }
 }  // namespace
 

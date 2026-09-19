@@ -6,14 +6,14 @@ import pickle
 import tempfile
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import hgraph as hg
 
 from . import graphs
 from .generate import thaw
-from .model import Scenario, expected, known_defect
+from .model import MESH_EMPTY_INPUT, TSD_SLOT_ORDER, Scenario, expected, known_defect
 
 
 @dataclass
@@ -156,18 +156,55 @@ def _values(scenario: Scenario, cuts, recover: bool):
     return held
 
 
-def _run_recover(scenario: Scenario, control: bool, started: float) -> "Result":
+def _without_empties(value):
+    """``value`` with every empty collection, and the key that held it, taken out."""
+    if not isinstance(value, tuple) or not all(isinstance(item, tuple) and len(item) == 2 for item in value):
+        return value
+    kept = tuple((key, _without_empties(item)) for key, item in value)
+    return tuple((key, item) for key, item in kept if item != ())
+
+
+def _confirmed(scenario: Scenario, family, workdir: Path, oracle, actual) -> bool:
+    """Is THIS mismatch the one ``family`` describes?
+
+    Membership is a relation over the recipe -- "this scenario can reach the defect" -- and
+    says nothing about what actually went wrong. Without this check every mismatch in a
+    member would be filed as known, and an unrelated regression in a reduction, a map_, a
+    dmap_ or a pipeline that happened to sit in a member would leave the nightly green.
+    """
+    if family is TSD_SLOT_ORDER:
+        # The defect is the ORDER the restored keyed input iterates in. The same scenario
+        # with the reduction swapped for a probe that reports that order has to differ too.
+        probe = replace(scenario, chain=scenario.chain[: -len(scenario.leaf)] + "keyorder")
+        unbroken = _days(probe, workdir, "probe-oracle", recover=False, cuts=())
+        restarted = _days(probe, workdir, "probe-restarted", recover=True, cuts=scenario.cuts)
+        return unbroken != restarted
+    if family is MESH_EMPTY_INPUT:
+        # The consequence is exactly this: keys holding an EMPTY collection in the unbroken
+        # run are absent afterwards. Take the empties out of both and nothing else may differ.
+        return [_without_empties(row) for row in oracle] == [_without_empties(row) for row in actual]
+    return False
+
+
+def _classify(scenario: Scenario, workdir: Path, oracle, actual, prefix: str, seconds) -> "Result":
+    detail = prefix + _first_difference(oracle, actual)
+    family = known_defect(scenario)
+    if family is None:
+        return Result(scenario, "fail", detail, seconds())
+    if _confirmed(scenario, family, workdir, oracle, actual):
+        return Result(scenario, "known", f"{family.id}: {detail}", seconds())
+    return Result(scenario, "fail", f"in family {family.id}, but the mismatch does NOT have its signature, "
+                                    f"so it is something else: {detail}", seconds())
+
+
+def _run_recover(scenario: Scenario, control: bool, started: float, workdir: Path) -> "Result":
     oracle = _values(scenario, cuts=(), recover=False)
     if not any(row is not None for row in oracle):
         return Result(scenario, "error", "the uninterrupted run produced nothing to compare",
                       time.monotonic() - started)
     actual = _values(scenario, cuts=scenario.cuts, recover=True)
     if actual != oracle:
-        family = known_defect(scenario)
-        detail = "values: " + _first_difference(oracle, actual)
-        if family is not None:
-            return Result(scenario, "known", f"{family.id}: {detail}", time.monotonic() - started)
-        return Result(scenario, "fail", detail, time.monotonic() - started)
+        return _classify(scenario, workdir, oracle, actual, "values: ", lambda: time.monotonic() - started)
     sensitive = None
     if control:
         sensitive = _values(scenario, cuts=scenario.cuts, recover=False) != oracle
@@ -189,7 +226,7 @@ def run(scenario: Scenario, *, control: bool = False) -> Result:
         workdir = Path(directory)
         try:
             if scenario.mode == "recover":
-                return _run_recover(scenario, control, started)
+                return _run_recover(scenario, control, started, workdir)
             oracle = _days(scenario, workdir, "oracle", recover=False, cuts=())
             if not any(row is not None for row in oracle):
                 return Result(scenario, "error", "the uninterrupted run produced nothing to compare",
@@ -210,10 +247,7 @@ def run(scenario: Scenario, *, control: bool = False) -> Result:
                               "expected a refusal (" + expectation.reason + ") and it ran; if a limit was "
                               "lifted, update tools/recovery/model.py:expected", seconds)
             if actual != oracle:
-                family = known_defect(scenario)
-                if family is not None:
-                    return Result(scenario, "known", f"{family.id}: " + _first_difference(oracle, actual), seconds)
-                return Result(scenario, "fail", _first_difference(oracle, actual), seconds)
+                return _classify(scenario, workdir, oracle, actual, "", lambda: time.monotonic() - started)
             sensitive = None
             if control:
                 # The same restarts with nothing configured. Where state crosses a cut this

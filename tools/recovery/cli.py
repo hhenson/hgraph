@@ -15,6 +15,7 @@ from .profiles import PROFILES
 
 BATCH = 20                      # scenarios per child interpreter
 SCENARIO_TIMEOUT = 120.0        # seconds; a hang is a finding, not a reason to lose the night
+STARTUP_ALLOWANCE = 60.0        # importing hgraph and wiring the first graph, on a cold runner
 
 
 def _run_batch(args) -> int:
@@ -35,11 +36,34 @@ def _child(recipes, output: Path, control_every: int, timeout: float):
     recipe_file.write_text(json.dumps(recipes))
     command = [sys.executable, "-m", "tools.recovery", "run-batch", str(recipe_file), str(output),
                "--control-every", str(control_every)]
-    try:
-        completed = subprocess.run(command, timeout=timeout, capture_output=True, text=True)
-        failure = None if completed.returncode == 0 else f"exit {completed.returncode}: {completed.stderr[-600:]}"
-    except subprocess.TimeoutExpired:
-        failure = f"timed out after {timeout:.0f}s"
+    return _supervise(command, output, timeout, STARTUP_ALLOWANCE)
+
+
+def _supervise(command, output: Path, timeout: float, startup: float):
+    """Run ``command``, which rewrites ``output`` after every scenario, and kill it when it
+    goes quiet. Returns what it reported and why it stopped early, if it did."""
+    # The limit is per SCENARIO, not per batch. The child rewrites ``output`` after every
+    # scenario, so silence for longer than one scenario may take is a hang in the scenario
+    # it is on. Waiting out the whole batch's allowance instead let one early hang burn
+    # forty minutes of a ninety-minute job before anything was isolated.
+    with (output.with_suffix(".stderr")).open("w+") as stderr:
+        child = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=stderr, text=True)
+        deadline = time.monotonic() + timeout + startup
+        progress = None
+        failure = None
+        while child.poll() is None:
+            stamp = output.stat().st_mtime_ns if output.exists() else None
+            if stamp != progress:
+                progress, deadline = stamp, time.monotonic() + timeout
+            elif time.monotonic() > deadline:
+                child.kill()
+                child.wait()
+                failure = f"no scenario finished within {timeout:.0f}s: hung"
+                break
+            time.sleep(0.2)
+        if failure is None and child.returncode != 0:
+            stderr.seek(0)
+            failure = f"exit {child.returncode}: {stderr.read()[-600:]}"
     done = json.loads(output.read_text()) if output.exists() else []
     return done, failure
 
@@ -57,8 +81,7 @@ def _campaign(args) -> int:
     results = []
     for start in range(0, len(mine), BATCH):
         batch = [scenario.to_json() for scenario in mine[start:start + BATCH]]
-        done, failure = _child(batch, output / f"batch-{start:05d}.json", args.control_every,
-                               SCENARIO_TIMEOUT * len(batch))
+        done, failure = _child(batch, output / f"batch-{start:05d}.json", args.control_every, SCENARIO_TIMEOUT)
         results.extend(done)
         if failure is None:
             continue
