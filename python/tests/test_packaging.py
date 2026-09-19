@@ -323,7 +323,7 @@ def test_release_workflow_targets_supported_platforms():
 
     assert "macos-15-intel" not in combined_workflow
     assert "      os: macos-26" in workflow
-    assert "CMAKE_OSX_DEPLOYMENT_TARGET=15.0" in combined_workflow
+    assert "CMAKE_OSX_DEPLOYMENT_TARGET=26.0" in combined_workflow
     assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow

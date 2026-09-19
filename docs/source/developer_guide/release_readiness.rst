@@ -37,8 +37,8 @@ Supported platforms
      - ``cp312-abi3`` wheel, glibc 2.28+
      - Official wheel; Ubuntu 24.04/GCC 14 is the native and performance host
    * - macOS arm64
-     - macOS 26 runner, current AppleClang, deployment target 15.0
-     - ``cp312-abi3`` wheel, macOS 15+
+     - macOS 26 runner, current AppleClang, deployment target 26.0
+     - ``cp312-abi3`` wheel, macOS 26+
      - Primary local and CI correctness gate; Intel macOS is not built
    * - Windows x86_64
      - Latest MSVC toolset over Ninja (vcvars via ``msvc-dev-cmd``; the
