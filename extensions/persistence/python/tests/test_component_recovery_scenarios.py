@@ -284,5 +284,5 @@ def test_a_node_whose_scalars_cannot_be_signed_is_refused_by_name(tmp_path):
 
     events = [None, 1, 2]
     assert _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0)[1] == "SELL:1"
-    with pytest.raises(Exception, match="scalar configuration of node .* cannot be signed"):
+    with pytest.raises(Exception, match=r"scalar argument \d+ of Python node '_sided' cannot be signed"):
         _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0, persistence.ComponentCheckpointStore(tmp_path))
