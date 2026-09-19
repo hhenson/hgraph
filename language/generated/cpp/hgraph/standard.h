@@ -3,6 +3,7 @@
 
 #include <native.h>
 
+#include <hgl/constant_arithmetic.h>
 #include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/types/graph_wiring.h>

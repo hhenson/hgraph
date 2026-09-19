@@ -245,6 +245,8 @@ add_test(
         "-DCXX=${CMAKE_CXX_COMPILER}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DDEPENDENCY_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+        "-DUSE_PYARROW=${HGRAPH_USE_PYARROW_ARROW}"
+        "-DPYTHON=${Python_EXECUTABLE}"
         "-DPACKAGER_RPATH=${CMAKE_INSTALL_RPATH}"
         "-DNATIVE_PACKAGE_NAME=$<TARGET_FILE_NAME:hgl_native_package>"
         "-DINSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
@@ -496,7 +498,7 @@ if(UNIX)
     )
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`
@@ -745,3 +747,9 @@ foreach(_target IN LISTS _hgl_test_targets)
     endif()
 endforeach()
 unset(_hgl_test_targets)
+
+add_test(NAME hgraph_language_shared_admission
+    COMMAND ${CMAKE_COMMAND} -DHGL=$<TARGET_FILE:hgl>
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/admission
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/admission_test.cmake)
+set_tests_properties(hgraph_language_shared_admission PROPERTIES TIMEOUT 180)

@@ -34,8 +34,8 @@ Boost dependency to installed consumers.
 ``simdjson`` **requires version 4.5 or newer** — ``json_impl.cpp`` uses
 ``simdjson::dom::element_type::BIGINT``, which first appeared in 4.5. Wheel
 builds (``HGRAPH_BUILD_PYTHON_BINDINGS=ON``) fetch a pinned release (currently
-v4.6.4) and link it statically; the default C++ build resolves a system package
-via ``find_package(simdjson CONFIG REQUIRED)`` followed by an explicit
+v4.6.4) and link it statically. Native builds prefer a system package and fetch it if missing;
+``HGRAPH_FETCH_SIMDJSON=ON`` forces fetching. System discovery uses ``find_package(simdjson CONFIG REQUIRED)`` followed by an explicit
 ``simdjson_VERSION`` check, which rejects older distro packages (Ubuntu 24.04
 ships 3.x) at configure time instead of failing mid compile. The check is
 explicit rather than a ``find_package`` version argument because simdjson's
@@ -340,3 +340,21 @@ Open Design Items
 - Decide whether the shared extension ABI needs an explicit compatibility
   version independent of the Python distribution version; this is assessed in
   :doc:`extension_policy`.
+
+Missing native dependencies
+---------------------------
+
+``HGRAPH_FETCH_MISSING_DEPENDENCIES=ON`` is the default for the producer and
+installed native SDK consumers. Missing supported fmt and spdlog packages use
+the same pinned FetchContent recipes; SDK consumers also fetch missing
+simdjson. ``HGRAPH_FETCH_DATE`` also defaults to ``ON`` for a missing date/tz
+package. The native acceptance preset explicitly fetches simdjson. Keep missing
+package fetching enabled on clean validation hosts. An offline/package-manager build
+can disable fetching after providing compatible CMake packages.
+
+Arrow remains an explicit external dependency. ``HGRAPH_USE_PYARROW_ARROW=ON``
+uses an existing compatible PyArrow installation and the selected
+``Python_EXECUTABLE`` for discovery, without linking the Python runtime.
+Producer and native SDK consumer share this discovery implementation. The
+installed language consumer test passes that explicit choice through, so it
+cannot accidentally rely on a different globally installed Arrow package.

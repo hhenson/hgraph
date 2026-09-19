@@ -43,7 +43,9 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
 
     cmake = (ROOT / "CMakeLists.txt").read_text()
     conan = (ROOT / "conanfile.py").read_text()
-    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in cmake
+    arrow_discovery = (ROOT / "cmake/HgraphArrow.cmake").read_text()
+    assert 'include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")' in cmake
+    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in arrow_discovery
     assert re.search(r'self\.requires\("arrow/25\.0\.0"[,)]', conan) is not None
 
 

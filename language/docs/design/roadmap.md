@@ -220,8 +220,9 @@ wiring target no longer includes syntax AST headers.
 - [x] migrate expression-level type syntax from the temporary
   syntax/`ResolvedModule` adapter to hgraph IR and remove the obsolete AST
   type/expression/call evaluator;
-- [x] remove duplicate expression, type, generic, phase, and classification
-  logic from the emitter;
+- [ ] finish removing duplicate expression/type/phase classification from
+  the emitter; shared admission planning and checked constant arithmetic now
+  own the reviewed validity, recursion, extent and integer-overflow rules;
 - [x] retain typed hgraph-IR handles for structs, operators, callables, and
   tests in one source-order sequence, with source ranges owned by the
   referenced records;
@@ -385,7 +386,7 @@ records the current counts per disposition (the 2026-09-07 review estimated
 | `zoned_time` scalar; `Time` and `CivilDateTime` ordering | blocked | hgraph-side asks recorded under Slice 2 with no RFC in `docs/source/rfc/` yet; both backends fail closed meanwhile. |
 | `tuple`, `list`, `set`, `map` | partial | `list<T, n>`, `set<T>`, and `map<K, V>` map to TSL, TSS, and TSD. `eval` drives scalar and `atomic` parameters only; a structural `tuple` has no time-series schema in direct wiring; time-series tuple and list literals, and compound constant literals in generated defaults, are rejected. A fixed list size must be a non-negative constant (or a `const` generic of type `i64`); zero is a fixed empty list and `unbounded` uses the original hgraph sentinel `-1`. Typed HIR validates the distinction; non-scalar map keys have no language rule yet (#767 item 6). |
 | `atomic<T>` | implemented | Whether `atomic<f64>` is normalized to `f64` is not fixed (types-and-expressions.md). |
-| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Not accepted as a runtime-node parameter; window iteration and an either-kind parameter spelling are undefined; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780). A `const` size generic may be concretely materialized; retained named rolling sizes remain blocked because hgraph has no corresponding named-size marker. Unresolved generic plain functions remain an `emit-cpp` limitation. |
+| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Accepted as runtime-node parameters, with native window element and metadata queries; general window iteration and an either-kind parameter spelling remain open; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780). A `const` size generic may be concretely materialized; retained named rolling sizes remain blocked because hgraph has no corresponding named-size marker. Unresolved generic plain functions remain an `emit-cpp` limitation. |
 | Named TSW size generics | blocked | `emit-cpp` binds a size-generic window to `TSWAny<T>`; hgraph's `TypePattern` carries concrete sizes and an any-window wildcard but no named size variable (Slice 2 ask, no RFC). |
 | `ref<T>` | partial | Explicit contracts, descriptors, guarded fixed-list reference routing, and forwarded conditional captures in both backends. Wiring-time dereference, `map<K, ref<V>>`, and `ref<ref<T>>` are rejected. |
 | `signal` | implemented | Input-only, payload-erased, no default value. |
@@ -394,12 +395,12 @@ records the current counts per disposition (the 2026-09-07 review estimated
 | Typed `const` generic struct metadata (`Vector<T, const size>`) | blocked | hgraph nominal Bundle `generic_arguments` carry type arguments only; both backends report "const generic struct arguments require typed constant Bundle metadata in hgraph". |
 | `const` parameters, `const` generics, `--set` | implemented | |
 | Value-level `const fn` | partial | Local non-generic, fixed-arity declarations with scalar parameter/result types (or a void result), value calls, defaults, temporal-first graph selection, explicit `const(function)` selection, default lifting, shared `eval` adapters, and transitive native-phase checks are implemented. Structural value signatures are diagnosed pending runtime-value/ownership lowering. Generic/pack lowering, operator/native/export modifier combinations, imported value descriptors, and migration of existing `native fn` remain separate work ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md), [guide](../user-guide/value-functions.md)). |
-| Reconstructible node-local `cache` | partial | `cache name[: T] = init`, one scalar cache per runtime function, lowered to native `State<T>` and re-initialized on every start ([ADR 0011](decisions/0011-cache-declarations.md)). Fail closed, naming the native contract: a second cache and `cache` beside `state` (static nodes reject `State` with `RecordableState`). Non-scalar caches and generic recordable-state initialization remain separate gaps ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
+| Reconstructible node-local `cache` | partial | `cache name[: T] = init`, scalar cache fields aggregated into one native `State<T>` and re-initialized on every start ([ADR 0011](decisions/0011-cache-declarations.md)). Fail closed: `cache` beside `state` (static nodes reject `State` with `RecordableState`). Non-scalar caches and generic recordable-state initialization remain separate gaps ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
 | Native type lifecycle and target mappings | provisional | Semantic contracts, requirements, implementations, and target realizations must be distinct. Current C++ descriptor metadata is a starting point, not a generalized mapping implementation. Native type/hook syntax, capability contracts, mapping composition, and alternative target support remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#language-contracts-and-target-mappings)). |
 | `let`, `var`, typed uninitialized `var`, definite assignment | implemented | An assignment cannot change a `var`'s type; a runtime uninitialized local must be scalar. |
 | Graph-phase `for`: `elements`/`items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; maps use `values`/`items` and lists use `elements`/`items`. `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
 | Runtime `for`, `keys`/`values`/`elements`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `values` is the keyed/named value projection and `elements` is list/set traversal; they are not aliases. Runtime `key_set` now supports membership queries and borrowed added/removed ranges; runtime key-set `last_modified` still requires persistent projection tracking. See the [surface completion record](native-surface-proposal.md). |
-| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs, and homogeneous/heterogeneous parameter-pack traversal. Fail closed: calls to other HGL functions, non-scalar state, zero-input functions that do not inject `scheduler`, `key_set`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity-dominance ordering is still checked by `emit-cpp` only. |
+| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs, and homogeneous/heterogeneous parameter-pack traversal. Reusable scalar value-helper calls and runtime `key_set` are supported. Fail closed: temporal HGL calls from runtime bodies, non-scalar state, zero-input functions that do not inject `scheduler`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity dominance, selector bounds and activation planning are shared `hgl check` diagnostics. |
 | `inject clock`, `inject scheduler`, `scheduled()`, `passivate`/`activate` | implemented | [ADR 0010](decisions/0010-lifecycle-capabilities.md): `EvaluationClockView` and `NodeScheduler` selectors on every hook, fixed method surfaces (no tags), the scheduler handler selector with an explicitly empty activation set, scheduler-driven sources, and input activity on direct temporal parameters. An explicitly empty validity set remains open. |
 | Scalar (wiring-time) `if`, including `else if` | implemented | |
 | Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. The documented status of a temporal conditional embedded in another expression is under review (#767 items 4 and 5). |
@@ -419,6 +420,26 @@ their actual requirements are recorded. Compiler work after that point is
 driven by a selected migration and one already-defined semantic contract;
 every `blocked` row stays fail-closed until its design or owning hgraph API
 is agreed.
+
+## Review corrections and next gates (2026-09-19)
+
+Before further language or library expansion, validate the shared admission pass,
+retained-generic diagnostics, recursion rejection across commands, direct versus
+compiled wiring arithmetic, and independent rounding boundary expectations.
+A green language suite alone does not prove full native/Python compatibility.
+Catalogue counts measure authoring disposition, not line/branch coverage.
+
+The next semantic prerequisite is recoverable pending scheduling: authoritative
+schedule records/progress in state with rebuildable cache indices. Native mixed
+state/cache support is separate from multiple source cache variables, which now
+share one generated struct. The existing schedule parity slice is not recovery
+coverage; require the traces in [ADR 0011](decisions/0011-cache-declarations.md).
+
+Then proceed with explicit deferred operator/provider closure planning, remaining
+B1/B2 ownership/lifecycle/validity work, B3/B4 value and structural/reference
+contracts, and B5/B6 domains and higher-order work. Production cutover still
+requires per-domain native/Python parity, installed-SDK and performance evidence,
+and removal or delegation of the old implementation.
 
 ## Corrective programme (2026-09-07)
 
@@ -675,8 +696,9 @@ Candidates, in risk order:
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
 - implement the agreed reconstructible-cache semantics and pre-`start`
-  construction, after settling declaration/initializer syntax and native
-  coexistence with recordable state;
+  construction, using the settled scalar declaration/initializer syntax; next add native
+  coexistence with recordable state, non-scalar storage, and pending-schedule
+  recovery;
 - extend the implemented local `const fn` slice with generic/pack lowering,
   public value descriptors, and phase-eligible HGL/native operator candidates;
 - native type lifecycles and target mappings, staged through the bounded

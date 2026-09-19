@@ -1022,9 +1022,10 @@ record/replay restoration is preserved. They may read scalar `const`
 parameters, which are included in the generated lifecycle signature. Explicit
 source `start` and `stop` blocks become the corresponding static hooks and may
 likewise read state and `const` parameters, but not temporal inputs or output.
-All state variables share one typed state schema. A future ephemeral-cache form
-must lower separately and must not cause one node to mix incompatible state
-selectors.
+All state variables share one typed state schema. Scalar cache variables lower
+separately through one native `State<>`: multiple fields use a generated struct.
+Shared graph-IR planning rejects the currently unsupported combination of
+recordable state and cache selectors.
 
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
@@ -1080,7 +1081,7 @@ eventually resolve to an admitted scalar kernel or another implementation that
 can execute without wiring. The first slice may reject such calls until that
 contract is designed.
 
-Output access during lifecycle hooks, ephemeral caches, and generated sink
+Output access during lifecycle hooks, non-scalar caches, and generated sink
 behavior remain future source-design work.
 
 ## Metadata and collection-view lowering
@@ -1791,7 +1792,8 @@ expression is read from the syntax tree.
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
   block. A `cache` declaration lowers to the native `State<T>` selector
-  (`hgl_cache`, read with `get()`, written with `set()`), and `start` seeds it
+  (`hgl_cache`; multiple fields share a generated struct accessed through
+  `ref()`/`modify()`), and `start` seeds it
   unconditionally because a cache is outside record/replay (ADR 0011). `inject logger` lowers `logger.info(message)` to `LoggerView::log`;
   `inject clock` and `inject scheduler` add `EvaluationClockView` and
   `NodeScheduler` selectors to every hook, `scheduled()` lowers to
@@ -2048,3 +2050,14 @@ selectable or return after reset.
 
 A future JIT must consume the same classified semantic IR and pass backend
 parity before it can replace either backend.
+
+### Shared admission plans
+
+Graph-IR planning owns runtime validity dominance, index bounds, activation
+policy, lifecycle/state capability admission and callable-cycle rejection.
+`check`, direct execution and C++ emission consume that same validated module.
+The emitter selects C++ spellings from typed extent facts; generated type text
+is not a source of semantic decisions. Retained generic list indexing remains
+unsupported and is diagnosed during planning. Wiring-time integer arithmetic
+uses the shared `hgl/constant_arithmetic.h` contract in folding, direct execution
+and generated compositions; runtime node arithmetic remains a distinct phase.

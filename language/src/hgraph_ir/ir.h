@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -278,16 +280,16 @@ namespace hgl::hgraph_ir
         std::vector<ir::hir::NativePhase> phases{};
         /// The call may raise (descriptor policy "translated"); a source
         /// native is then emitted without `noexcept`.
-        bool                              throws{false};
-        std::vector<std::string>          public_headers{};
-        std::vector<std::string>          cmake_packages{};
-        std::vector<std::string>          imported_targets{};
-        std::vector<std::string>          runtime_images{};
-        std::string                       descriptor_fingerprint{};
-        bool                              source_defined{false};
-        std::string                       cpp_parameters{};
-        std::string                       cpp_body{};
-        syntax::SourceRange               range{};
+        bool                     throws{false};
+        std::vector<std::string> public_headers{};
+        std::vector<std::string> cmake_packages{};
+        std::vector<std::string> imported_targets{};
+        std::vector<std::string> runtime_images{};
+        std::string              descriptor_fingerprint{};
+        bool                     source_defined{false};
+        std::string              cpp_parameters{};
+        std::string              cpp_body{};
+        syntax::SourceRange      range{};
         /// Imported dependencies absent from production expression ownership.
         /// Source-defined native declarations remain part of the public package.
         bool test_only{false};
@@ -625,6 +627,42 @@ namespace hgl::hgraph_ir
         friend bool operator==(const ProviderPlan &, const ProviderPlan &) = default;
     };
 
+    struct RuntimeState
+    {
+        BindingId           binding{};
+        std::string         name{};
+        TypeId              type{};
+        ValueId             init{};
+        syntax::SourceRange range{};
+    };
+
+    struct RuntimeActivation
+    {
+        bool explicit_modified{};
+        bool explicit_valid{};
+    };
+
+    struct RuntimeInfo
+    {
+        std::vector<RuntimeState> states{};
+        /// Source cache fields; native lowering may bundle them in one State<T>.
+        std::vector<RuntimeState>                            caches{};
+        std::vector<BlockId>                                 start_blocks{};
+        std::vector<BlockId>                                 stop_blocks{};
+        std::unordered_set<std::size_t>                      active_parameters{};
+        std::unordered_set<std::size_t>                      structural_parameters{};
+        std::unordered_set<std::size_t>                      value_active_parameters{};
+        BindingId                                            out_binding{};
+        BindingId                                            logger_binding{};
+        BindingId                                            clock_binding{};
+        BindingId                                            scheduler_binding{};
+        std::unordered_map<std::uint32_t, RuntimeActivation> activations{};
+        bool                                                 has_when{false};
+        /// A handler is activated by `scheduled()` (ADR 0010); such a
+        /// handler adds no input to the node's activation set.
+        bool uses_scheduled{false};
+    };
+
     struct Module
     {
         std::string             path{};
@@ -633,17 +671,19 @@ namespace hgl::hgraph_ir
         std::vector<Type>       types{};
         std::vector<Constraint> constraints{};
         /// Local source-native C++ dependencies; never propagated by HGL imports.
-        std::vector<std::string>      cpp_includes{};
-        std::vector<StructContract>   structures{};
-        std::vector<OperatorContract> operators{};
-        std::vector<NativeFunction>   native_functions{};
-        std::vector<Callable>         callables{};
-        std::vector<Materialization>  materializations{};
-        std::vector<Binding>          bindings{};
-        std::vector<Value>            values{};
-        std::vector<Statement>        statements{};
-        std::vector<Block>            blocks{};
-        std::vector<TestPlan>         tests{};
+        std::vector<std::string>                cpp_includes{};
+        std::vector<StructContract>             structures{};
+        std::vector<OperatorContract>           operators{};
+        std::vector<NativeFunction>             native_functions{};
+        std::vector<Callable>                   callables{};
+        std::vector<CallableId>                 callable_order{};
+        std::vector<std::optional<RuntimeInfo>> runtime_plans{};
+        std::vector<Materialization>            materializations{};
+        std::vector<Binding>                    bindings{};
+        std::vector<Value>                      values{};
+        std::vector<Statement>                  statements{};
+        std::vector<Block>                      blocks{};
+        std::vector<TestPlan>                   tests{};
         /// Stable keyed providers selected by concrete native operator calls,
         /// sorted for deterministic execution planning. Deferred calls and
         /// source-defined candidates do not contribute an external provider.

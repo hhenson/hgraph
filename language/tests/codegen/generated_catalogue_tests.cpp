@@ -76,7 +76,8 @@ TEST_CASE("catalogue lifecycle bodies passivate exactly as the native nodes do",
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, none, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
-    // schedule keeps its tick counter in a cache, outside record/replay, as
+    // Ordinary-run parity only; this counter is not recovery-safe (ADR 0011).
+    // schedule currently keeps its tick counter in a cache, as
     // the native node keeps it in State<Int>.
     check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{false}, Int{3}, Bool{false});
     check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{true}, Int{2}, Bool{false});
@@ -328,4 +329,13 @@ TEST_CASE("catalogue accumulators retain memberships and publish native keyed ti
     check_parity<standard::make_tsd_remove, stdlib::make_tsd>(values<Str>("a", none, none, "b"), values<Int>(1, 2, 3, none),
                                                               values<Bool>(true, none, none, none));
     CHECK_OUTPUT(eval_node<standard::tick_count>(ticks), values<Int>(none, 1, 2, 3, 4));
+}
+
+TEST_CASE("catalogue rounding has independent decimal boundary expectations", "[codegen][catalogue]") {
+    register_catalogue();
+    CHECK_OUTPUT(
+        eval_node<scalar::round_>(values<Float>(1e100, 149.0, 125.0, 135.0, 145.00000000000003, 144.99999999999997, 2.675, 995.0),
+                                  values<Int>(0, -1, -1, -1, -1, -1, 2, -1)),
+        values<Float>(1e100, 150.0, 120.0, 140.0, 150.0, 140.0, 2.67, 1000.0));
+    CHECK_THROWS(eval_node<scalar::round_>(values<Float>(1.7e308), values<Int>(-308)));
 }

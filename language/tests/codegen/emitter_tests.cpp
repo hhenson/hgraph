@@ -1,5 +1,6 @@
 #include "codegen/cpp_emitter.h"
 #include "hgraph_ir/lower.h"
+#include "hgraph_ir/plan.h"
 #include "ir/hir_printer.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
@@ -297,8 +298,9 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
-    CHECK(emitted->exports ==
-          std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose", "choose_embedded"});
+    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose",
+                                                       "choose_embedded", "checked_add", "checked_sub", "checked_mul",
+                                                       "checked_neg", "checked_floor", "checked_rem"});
     CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
     CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
     CHECK(contains(emitted->descriptor, "\"signature\": {"));
@@ -335,7 +337,10 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::gt_>(w, x, threshold.value()).as<hgraph::TS<hgraph::Bool>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<scale>(w, hgraph::wire<plus>(w, a, b), k.value())"));
     CHECK(contains(emitted->source, "if (enabled.value())"));
-    CHECK(contains(emitted->source, "const auto shift = (delta.value() * hgraph::Int{2});"));
+    CHECK(contains(
+        emitted->source,
+        "const auto shift = hgl::constant_arithmetic::require_integer(hgl::constant_arithmetic::checked_mul(delta.value(), "
+        "hgraph::Int{2}));"));
     CHECK(contains(emitted->source, "register_installer(\"hgl.codegen.parity\""));
     CHECK(contains(emitted->source, "#include <hgraph/util/scope.h>"));
     CHECK(contains(emitted->source, "auto rollback = hgraph::make_scope_exit<true>([&]"));
@@ -1751,7 +1756,8 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
     CHECK(contains(
         emitted->python,
-        "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\", \"choose_embedded\"]"));
+        "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\", \"choose_embedded\", "
+        "\"checked_add\", \"checked_sub\", \"checked_mul\", \"checked_neg\", \"checked_floor\", \"checked_rem\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {
@@ -1810,8 +1816,12 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(n.value(), hgraph::Int{2})"));
     CHECK(contains(emitted->source, "const auto label = (s.value() + hgraph::Str{\"!\"});"));
-    CHECK(contains(emitted->source, "auto total = (n.value() * hgraph::Int{3});"));
-    CHECK(contains(emitted->source, "total = (total - hgraph::Int{1});"));
+    CHECK(contains(emitted->source,
+                   "auto total = hgl::constant_arithmetic::require_integer(hgl::constant_arithmetic::checked_mul(n.value(), "
+                   "hgraph::Int{3}));"));
+    CHECK(contains(
+        emitted->source,
+        "total = hgl::constant_arithmetic::require_integer(hgl::constant_arithmetic::checked_sub(total, hgraph::Int{1}));"));
     CHECK(contains(emitted->source, "if (((total > hgraph::Int{2}) && (label == hgraph::Str{\"hi!\"})))"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, x, half)"));
 }
@@ -1933,7 +1943,7 @@ TEST_CASE("emit-cpp rejects direct and mutual value recursion", "[codegen][value
                                                                "const fn second(value: f64) -> f64 { return first(value) }"}) {
         Unit unit{std::string{"module t\n"} + body + "\n"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "recursive functions are not supported"));
+        CHECK(unit.has(Category::Type, "recursive functions are not supported"));
     }
 }
 
@@ -1968,6 +1978,7 @@ export fn result(value: f64) -> f64 => first(value)
         auto &callee                   = unit.graph.values[std::get<hgl::hgraph_ir::Call>(dependency->node).callee.value];
         std::get<hgl::hgraph_ir::Reference>(callee.node).callable = third;
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         const auto emitted = unit.emit();
         REQUIRE(emitted);
         const std::size_t second_pos = emitted->source.find("struct second");
@@ -1983,37 +1994,42 @@ export fn result(value: f64) -> f64 => first(value)
     SECTION("an invalid planned dependency fails closed") {
         dependency->operation.callable = hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(unit.graph.callables.size())};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+        CHECK(unit.has(Category::Type, "hgraph IR contains an invalid callable dependency ID"));
     }
 
     SECTION("a missing planned dependency fails closed") {
         dependency->operation.callable = {};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+        CHECK(unit.has(Category::Type, "hgraph IR contains an invalid callable dependency ID"));
     }
 
     SECTION("a missing callable body fails closed") {
         unit.graph.callables[first.value].concise_body = {};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "'first' must have exactly one concise or block body"));
+        CHECK(unit.has(Category::Type, "'planned_dependencies.first' must have exactly one concise or block body"));
     }
 
     SECTION("a missing required value edge fails closed") {
         std::get<hgl::hgraph_ir::Call>(dependency->node).callee = {};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
+        CHECK(unit.has(Category::Type, "invalid graph-IR Value handle in planning"));
     }
 
     SECTION("a missing required block edge fails closed") {
         dependency->operation = {};
         dependency->node      = hgl::hgraph_ir::BlockValue{};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body block ID"));
+        CHECK(unit.has(Category::Type, "invalid graph-IR Block handle in planning"));
     }
 }
 
@@ -2278,6 +2294,7 @@ export fn total(value: f64) -> f64 {
         product->operation.identity      = "add_";
         product->operation.registry_name = "add_";
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         const auto emitted = unit.emit();
         REQUIRE(emitted);
         CHECK(contains(emitted->header, "hgraph::Field<\"planned_total\", hgraph::TS<hgraph::Float>>"));
@@ -2294,8 +2311,9 @@ export fn total(value: f64) -> f64 {
         REQUIRE_FALSE(body.statements.empty());
         body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
 
+        hgl::hgraph_ir::plan(unit.graph, unit.diagnostics);
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+        CHECK(unit.has(Category::Type, "invalid graph-IR Statement handle in planning"));
     }
 }
 
@@ -3083,8 +3101,12 @@ export fn f(value: i64) -> i64 {
     }
 }
 )"};
-    CHECK_FALSE(second.emit());
-    CHECK(contains(second.diagnostics.render(second.file), "this slice admits one 'cache' declaration per runtime function"));
+    const auto emitted = second.emit();
+    INFO(second.diagnostics.render(second.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "struct f_cache_fields"));
+    CHECK(contains(emitted->header, "hgraph::State<hgl_cache_fields>"));
+    CHECK(contains(emitted->header, "hgl_cache.modify().field_"));
 
     Unit mixed{R"(
 module checks.cache_beside_state

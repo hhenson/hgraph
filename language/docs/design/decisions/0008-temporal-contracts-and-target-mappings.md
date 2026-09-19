@@ -197,8 +197,8 @@ The language distinguishes semantic history from reconstructible local data:
 | `state` | Persistent data needed to determine subsequent computation | `RecordableState<TSchema>` | Recorded and restored |
 | `cache<T>` | Node-local data reconstructible independently of missing history | `State<T>` | Excluded; rebuilt after restart |
 
-`cache<T>` names the agreed concept. This record does not choose the complete
-declaration or initializer grammar. It does not rename C++ `State` or introduce
+`cache<T>` names the agreed concept. The scalar declaration and initializer grammar is settled in
+[ADR 0011](0011-cache-declarations.md). It does not rename C++ `State` or introduce
 a native `Cache` selector.
 
 Given the same restored inputs and recordable state, restarting with an empty
@@ -217,6 +217,9 @@ Examples:
 - A cached REF is suitable when current input connections and a current or
   restored selection identify its source. A historical selection known only
   to the cache is semantic state and must instead be recordable.
+- Pending schedules keep their authoritative records and finite progress in
+  recordable state; scheduling indices may be reconstructible cache fields
+  ([recovery contract](0011-cache-declarations.md#scheduler-recovery-contract)).
 - A running total, last-seen value, or queue of unconsumed events is not a
   cache merely because it is stored privately. When missing history is needed
   to reconstruct it, use recordable state or an explicit temporal structure.

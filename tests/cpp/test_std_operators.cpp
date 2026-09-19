@@ -4723,3 +4723,21 @@ TEST_CASE("std operators: request_id uses the native service identifier allocato
     REQUIRE(second[0].has_value());
     CHECK(first[0]->view().checked_as<Int>() != second[0]->view().checked_as<Int>());
 }
+
+TEST_CASE("std operators: decimal rounding preserves magnitude and rounds negative digits to even") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<stdlib::round_>(
+                     values<Float>(1e100, 149.0, 125.0, 135.0, 145.00000000000003, 144.99999999999997, 2.675, -2.5, 995.0),
+                     values<Int>(0, -1, -1, -1, -1, -1, 2, 0, -1)),
+                 values<Float>(1e100, 150.0, 120.0, 140.0, 150.0, 140.0, 2.67, -2.0, 1000.0));
+    const auto special = eval_node<stdlib::round_>(
+        values<Float>(-0.0, -1.0, 1.25, std::numeric_limits<Float>::infinity(), std::numeric_limits<Float>::quiet_NaN()),
+        values<Int>(0, std::numeric_limits<Int>::min(), std::numeric_limits<Int>::max(), 0, 0));
+    REQUIRE(special.size() == 5);
+    CHECK(std::signbit(special[0]->view().checked_as<Float>()));
+    CHECK(std::signbit(special[1]->view().checked_as<Float>()));
+    CHECK(special[2]->view().checked_as<Float>() == 1.25);
+    CHECK(std::isinf(special[3]->view().checked_as<Float>()));
+    CHECK(std::isnan(special[4]->view().checked_as<Float>()));
+    CHECK_THROWS(eval_node<stdlib::round_>(values<Float>(1.7e308), values<Int>(-308)));
+}

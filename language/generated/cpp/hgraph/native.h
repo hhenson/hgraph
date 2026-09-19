@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <hgraph/lib/std/lifted_kernels.h>
+#include <hgraph/lib/std/scalar_round.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_input/base_view.h>
@@ -16,6 +17,7 @@
 #include <hgraph/types/time_series/ts_input/window_view.h>
 #include <stdexcept>
 
+#include <hgl/constant_arithmetic.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -51,7 +53,7 @@ namespace hgraph_::native
         hgraph::Int      absolute(const hgraph::Int &value) noexcept;
         hgraph::Float    absolute__candidate_2(const hgraph::Float &value) noexcept;
         hgraph::Float    logarithm(const hgraph::Float &value) noexcept;
-        hgraph::Float    round_decimal(const hgraph::Float &value, const hgraph::Int &digits) noexcept;
+        hgraph::Float    round_decimal(const hgraph::Float &value, const hgraph::Int &digits);
         hgraph::Int      invert(const hgraph::Bool &value) noexcept;
         hgraph::Bool     bit_and(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept;
         hgraph::Bool     bit_or(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept;

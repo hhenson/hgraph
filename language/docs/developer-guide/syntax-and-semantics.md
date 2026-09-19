@@ -1167,9 +1167,9 @@ assignment_operator
 State, cache, and inject declarations precede executable blocks. The first
 slice requires a state or cache initializer and permits at most one `start`
 and one `stop` block. A `cache` is node-local data outside record/replay,
-re-initialized on every start; this slice admits one scalar cache per runtime
-function and not beside `state`, both limits being hgraph's static-node
-contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
+re-initialized on every start; multiple scalar cache fields share a generated struct in one native
+`State<>` slot. Combining cache with `state` is still unsupported by the
+static-node contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -2281,7 +2281,7 @@ observation rather than rule, is collected under
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
-- declaration/initializer syntax for reconstructible caches, native type
+- non-scalar reconstructible caches and mixed state/cache storage, native type
   lifecycle and mapping contracts, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior;
 - an explicit end bound and approximate comparison for `eval`, delta

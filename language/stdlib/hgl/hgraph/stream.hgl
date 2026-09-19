@@ -53,9 +53,9 @@ impl fn until_true(ts: bool) -> bool {
     }
 }
 
-# A scheduler-driven source. The tick counter is a `cache`, outside
-# record/replay exactly as the native node keeps it (ADR 0011), and start
-# rejects a non-positive delay with the native node's own message.
+# Ordinary-run scheduler parity only. Pending schedules and the historical
+# tick counter still need recordable recovery; this cache is an implementation
+# gap, not an exception to ADR 0011. Start validates a positive delay.
 operator schedule(const delay: duration, const initial_delay: bool = true,
                   const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool
 impl fn schedule(const delay: duration, const initial_delay: bool = true,

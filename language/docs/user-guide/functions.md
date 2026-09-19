@@ -898,41 +898,28 @@ declared and used like `state`, but its initializer runs on every start,
 restored or not:
 
 ```hgl
-fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
-    cache ticks: i64 = 0
-    inject scheduler
-
-    start {
-        scheduler.schedule(0s)
-    }
-
-    when scheduled() {
-        ticks += 1
-        if ticks < max_ticks {
-            scheduler.schedule(delay)
-        }
-        return ticks
+fn scale(value: f64, const factor: f64) -> f64 {
+    cache multiplier: f64 = factor
+    when {
+        return value * multiplier
     }
 }
 ```
 
-Use `cache` for data that can be rebuilt from authoritative current inputs
-and restored state without replaying missing history, or for a counter the
-matching native node deliberately keeps outside record/replay, as `schedule`
-does. Starting with a rebuilt cache must not change subsequent values,
-validity, ticks, deltas, or semantic side effects. A running total or an
-unconsumed event history is history: use `state`.
+Use `cache` for data reconstructible from authoritative current inputs and
+restored state without missing history. Rebuilding must preserve subsequent
+values, validity, ticks, deltas and effects. Historical counters, running totals
+and unconsumed events belong in `state`. In particular, pending schedules and
+finite-schedule progress must survive recovery; current native parity alone
+does not establish that guarantee.
 
-HGL cache maps to native `State<T>`; HGL `state` maps to
-`RecordableState<TSchema>` and keeps its recordability requirement. This slice
-admits one scalar `cache` per runtime function and does not combine it with
-`state`: hgraph's static node has one `State<T>` slot and rejects it beside
-`RecordableState`, and the compiler reports both limits as the native
-contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). Several
-cache fields, caches beside recordable state, and non-scalar caches (queues,
-windows, indexes) remain open, as does generic recordable state without a
-default. See the [cache contract](../design/decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for restart, REF lifetime, and native construction requirements.
+Scalar caches share one native `State<T>` slot: several declarations become
+fields of a generated C++ struct. One native slot does not limit the number of
+source variables. HGL `state` maps to `RecordableState<TSchema>`. Combining
+recordable state and cache still needs native support; non-scalar caches and
+generic recordable-state initialization also remain open. See
+[ADR 0011](../design/decisions/0011-cache-declarations.md) for the implemented
+slice and pending scheduler recovery work.
 
 ## Injectables
 
@@ -1177,7 +1164,7 @@ also using an existing node-only construct. The explicit phase-disambiguation
 syntax, if any, remains to be designed.
 
 The exact conditional-expression spelling, structural metadata aggregation,
-and complete cache declaration syntax remain provisional. Calls to reusable
+and non-scalar cache storage remain provisional. Calls to reusable
 value-level helpers use the `const fn` execution role; they
 must not be confused with calls that would wire a temporal function during
 node evaluation.

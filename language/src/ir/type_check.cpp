@@ -1,4 +1,5 @@
 #include "ir/type_check.h"
+#include <hgl/constant_arithmetic.h>
 
 #include "ir/canonical_types.h"
 #include "ir/constraint_solver.h"
@@ -38,32 +39,9 @@ namespace hgl::ir
             std::unreachable();
         }
 
-        [[nodiscard]] std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
-            return lhs + rhs;
-        }
-
-        [[nodiscard]] std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
-            return lhs - rhs;
-        }
-
-        [[nodiscard]] std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if (lhs == 0 || rhs == 0) { return 0; }
-            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
-            if (lhs > 0) {
-                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
-            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
-                return std::nullopt;
-            }
-            return lhs * rhs;
-        }
+        using constant_arithmetic::checked_add;
+        using constant_arithmetic::checked_mul;
+        using constant_arithmetic::checked_sub;
 
         [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept { return system_operator_name(op); }
 
@@ -1474,12 +1452,7 @@ namespace hgl::ir
                         if (*right == 0.0) {
                             type_error(expression.range, "remainder by zero in a constant expression");
                         } else {
-                            // Match the native scalar_mod kernel without a
-                            // runtime dependency in this frontend layer.
-                            const double remainder = std::fmod(*left, *right);
-                            expression.constant =
-                                Constant{remainder == 0.0 ? std::copysign(0.0, *right)
-                                                          : ((remainder < 0.0) != (*right < 0.0) ? remainder + *right : remainder)};
+                            expression.constant = Constant{constant_arithmetic::modulo(*left, *right)};
                         }
                         break;
                     case BinaryOp::Equal:

@@ -1,6 +1,7 @@
 module hgraph.native part scalar_values
 
 cpp include <hgraph/types/primitive_types.h>
+cpp include <hgraph/lib/std/scalar_round.h>
 
 # Strings follow hgraph::Str (std::string) byte semantics, not Unicode
 # code-point or grapheme semantics. Queries do not allocate or retain inputs.
@@ -83,12 +84,9 @@ native fn logarithm(value: f64) -> f64 {
     }
 }
 
-native fn round_decimal(value: f64, digits: i64) -> f64 {
+native fn round_decimal(value: f64, digits: i64) -> f64 throws {
     cpp(const hgraph::Float &value, const hgraph::Int &digits) {
-        char buffer[64];
-        const int places = static_cast<int>(std::clamp<hgraph::Int>(digits, 0, 40));
-        std::snprintf(buffer, sizeof buffer, "%.*f", places, value);
-        return std::strtod(buffer, nullptr);
+        return hgraph::stdlib::scalar_round_decimal(value, digits);
     }
 }
 
