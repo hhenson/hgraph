@@ -97,11 +97,12 @@ The agreed `const fn` extension is a separate value-level role: no graph
 wiring or independent ticks, but callable on current values inside a node or
 on available wiring-time values when its phase/effect contract permits.
 Function-level `const` means neither compile-time-only nor pure. Execution
-role and native-versus-HGL implementation are independent. This extension is
-not implemented; see the decision for eligibility and lifecycle constraints.
+role and native-versus-HGL implementation are independent. Local fixed-arity scalar value functions and default temporal lifting are
+implemented. Generic/pack lowering, imported value-function descriptors, and
+structural value signatures remain open; see the decision for those boundaries.
 
 The current implementation classifies an ordinary body as composition. A
-`state` or `inject` declaration or a `start`, `when`, or `stop` block classifies
+`state`, `cache`, or `inject` declaration or a `start`, `when`, or `stop` block classifies
 the complete function as runtime evaluation. Collection iteration follows that
 containing phase and does not classify the function by itself. Consequently an
 iterator-only body is a composition function today; a source spelling for an

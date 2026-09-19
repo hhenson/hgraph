@@ -258,7 +258,7 @@ become time series. This differs from an HGL-declared struct, whose temporal
 form is a bundle of fields.
 
 `ref<T>` describes a reference to the temporal shape of `T`. For example,
-`ref<map<i64, str>>` corresponds to `REF[TSD[int, TS[str]]]`. Reference wrappers
+`ref<map<i64, str>>` refers to a time-varying map from integers to strings. Reference wrappers
 are ignored when checking underlying type compatibility, including within
 structures, but their representation and access semantics are preserved.
 Invalid placements remain invalid: `map<ref<i64>, str>` is an error because
@@ -266,17 +266,13 @@ map keys cannot be references.
 
 The user or component designer specifies `ref` to express an intention to
 pass through a time series without observing or interacting with its values.
-It is not the default form of a connection or a general automatic rewrite of
-the author's type declarations. For generated conditional branches, the
-compiler uses a reference input when that branch only forwards an incoming
-binding; an ordinary temporal input is sufficient when processing is assured.
+It is not the default form of a connection. A conditional branch can forward
+an existing connection without copying its values.
 See [forwarding an existing binding](../design/control-flow.md#forwarding-an-existing-binding).
 
 Inside a node, a reference is opaque and ticks only when its binding changes.
 Code in a `when` handler cannot read fields, index elements, or traverse values
-below a reference layer. During wiring, access below that layer is allowed and
-causes dereferencing to obtain the element's connection. It does not read a
-runtime value while wiring.
+below a reference layer. Wiring-time access below a reference layer is not yet supported.
 
 A node may index `list<ref<T>, S>` to select and return an opaque reference:
 the list is outside the reference boundary. It cannot index through
@@ -299,7 +295,7 @@ Status: implemented for function and operator inputs. See
 
 `signal` accepts any concrete time-series input and exposes only `modified`,
 `valid`, and `last_modified`. It has no accessible value or delta payload,
-regardless of what the native representation may store internally. It cannot
+It cannot
 be used to read fields, index data, perform arithmetic, or test a Boolean
 payload.
 
@@ -316,8 +312,7 @@ fn count_ticks(pulse: signal) -> i64 {
 
 `signal` is input-only: there is no `signal` result or signal-emission syntax.
 It must be the complete type of a non-`const` parameter and cannot have a
-default. The spelling is lowercase; `SIGNAL` is not an HGL type. Generated C++
-maps the marker to the native `hgraph::SIGNAL` schema.
+default. Use the lowercase spelling `signal`.
 
 Its observation operations are primarily useful in nodes. Graph functions may
 also accept `signal` inputs and pass them to other components; the graph itself
@@ -328,9 +323,9 @@ still executes only during wiring.
 A temporal list is unbounded unless it carries a size:
 
 ```hgl
-list<f64>              // unbounded
-list<f64, 3>           // exactly three elements
-list<f64, unbounded>   // the same as list<f64>
+list<f64>              # unbounded
+list<f64, 3>           # exactly three elements
+list<f64, unbounded>   # the same as list<f64>
 ```
 
 `unbounded` is the sentinel size. A generic `const` size binds whatever size
@@ -353,7 +348,7 @@ and removed after wiring.
 > abstract-only single inheritance, construction, optional fields, and sparse
 > delta syntax are implemented. Constructor inference, typed `const` generic
 > metadata, explicit optional-field clearing, and the remaining nested/runtime
-> lowering cases fail closed as listed in the developer roadmap.
+> forms are rejected as listed in the roadmap.
 
 A `struct` declares one nominal structured type. It is module-internal unless
 it is exported, and its fields are public and immutable:
@@ -475,7 +470,7 @@ A bare `Box`, an unresolved argument, and partial application such as
 initial design, so explicitly applying a type supplies every argument.
 
 Status: constructor inference is provisional. The rule below is agreed but
-not implemented: both backends reject a generic constructor without its
+not implemented: the compiler rejects a generic constructor without its
 explicit type arguments, so write `Box<f64>(value: 1.5)` today. The snippets
 in the rest of this subsection that omit the arguments are design fixtures,
 not accepted programs.
@@ -484,9 +479,9 @@ Struct constructors are intended to infer the complete argument list from
 their named fields and expected type:
 
 ```hgl
-let inferred = Box(value: 1.5)              // provisional: Box<f64>
-let explicit = Box<f64>(value: 1.5)         // implemented
-let expected: Box<f64> = Box(value: 1.5)    // provisional
+let inferred = Box(value: 1.5)              # provisional: Box<f64>
+let explicit = Box<f64>(value: 1.5)         # implemented
+let expected: Box<f64> = Box(value: 1.5)    # provisional
 ```
 
 Inference unifies every occurrence of a parameter. An expected result and the
@@ -499,9 +494,9 @@ struct Maybe<T> {
     value: T = null
 }
 
-let empty: Maybe<f64> = Maybe()            // provisional
-let also_empty = Maybe<f64>()              // implemented
-let ambiguous = Maybe()                    // error: cannot infer T
+let empty: Maybe<f64> = Maybe()            # provisional
+let also_empty = Maybe<f64>()              # implemented
+let ambiguous = Maybe()                    # error: cannot infer T
 ```
 
 A generic struct may use the existing `requires` language. The requirements
@@ -520,7 +515,7 @@ requires T in {i64, f64}
 equalities, constant predicates, and nominal operator requirements have the
 same meaning here as on a generic function.
 
-> **Staging status:** Typed HIR validates a complete application wherever it
+> **Current support:** The compiler checks a complete application wherever it
 > appears, including signatures, fields, parents, locals, state, constraints,
 > and constructors. A symbolic application is valid only when the containing
 > declaration's `requires` clause proves the struct requirement. Arbitrary
@@ -541,13 +536,10 @@ struct SnapshotBox<T> {
 }
 ```
 
-`LiveBox<atomic<Quote>>` and `LiveBox<rolling<f64, 20>>` are rejected. This
-ensures that one specialization has one canonical Bundle schema and one
-deterministic temporal expansion. Generic functions remain broader: their
+`LiveBox<atomic<Quote>>` and `LiveBox<rolling<f64, 20>>` are rejected. Each specialization therefore has a single value shape and a defined
+temporal expansion. Generic functions remain broader: their
 plain type parameters may still bind complete HGL source shapes, including
-`atomic` and `rolling`. The compiler retains HGL source-type arguments in its
-IR so a later language version can relax the struct restriction without
-redesigning the semantic model.
+`atomic` and `rolling`.
 
 Generic abstract families and final concrete specializations compose directly:
 
@@ -723,10 +715,10 @@ sizes are either tick counts (`i64`) or durations, and the minimum is
 optional at a use site:
 
 ```hgl
-rolling<f64, 20>          // the last 20 values
-rolling<f64, 20, 5>       // the last 20 values, valid from 5
-rolling<f64, 5m>          // everything in the last five minutes
-rolling<f64, 5m, 1m>      // the last five minutes, valid once it spans 1m
+rolling<f64, 20>          # the last 20 values
+rolling<f64, 20, 5>       # the last 20 values, minimum 5
+rolling<f64, 5m>          # everything in the last five minutes
+rolling<f64, 5m, 1m>      # the last five minutes, minimum span 1m
 ```
 
 The square brackets in the descriptive form
@@ -744,14 +736,14 @@ the kind and resolved sizes are part of the type identity, so
 A tick window keeps the newest `max_size` values and drops the oldest when
 full. A duration window keeps every value that ticked within `max_size` of
 the current evaluation time and drops older values as time moves on; it has
-no fixed capacity, so a fast source makes a large window. Until a window
-reaches its minimum it is invalid and its consumers do not evaluate. The
-duration minimum is measured across the values the window holds, not the
-time since the graph started, so `rolling<f64, 5m, 1m>` with a single value
-is still invalid.
+no fixed capacity, so a fast source makes a large window. In the current
+runtime, `valid(window)` becomes true on its first value; `all_valid(window)`
+is the separate minimum-window check. A handler requiring the minimum must
+use that stronger condition. The duration minimum measures the span across
+the values held, not time since graph start, so one value does not satisfy
+the minimum of `rolling<f64, 5m, 1m>`.
 
-`rolling` is itself a temporal type constructor and maps to hgraph's `TSW`
-schema. It is not a canonical scalar container, so it cannot appear beneath
+`rolling` is a temporal type constructor, not a scalar container, so it cannot appear beneath
 `atomic` or as the type of a `const` value. Its element argument is a canonical
 value type.
 
@@ -835,12 +827,10 @@ An initializer may be omitted only from a typed mutable declaration such as
 `var r: i64`. The form supplies no implicit initial value and does not make an
 unassigned variable readable. It supports the agreed
 [conditional-result design](../design/control-flow.md#results-used-after-the-conditional),
-where both branches assign `r` before later statements use its remapped switch
-output. This single explicit-two-branch remapping is implemented in scripted
-and compiled modes. Several escaping results are also implemented through one
-compiler-generated structural bundle. A used expression result may share that
-bundle with the escaping bindings. A branch can also forward an initialized
-binding unchanged through a reference-qualified generated input.
+where both branches assign `r` before later statements use it. Several
+variables may be assigned across the branches, alongside a conditional
+expression result. A branch may also preserve a variable's incoming binding
+without assigning it again.
 
 Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can
@@ -933,19 +923,26 @@ receives the corresponding complete-input default; consequently
 selector calls outside `when` are invalid, and `all_valid` always requires an
 explicit argument.
 
-There is no source spelling yet for an explicitly empty activation or validity
-set. It cannot be `modified()` or `valid()`, because those calls select the
-complete temporal parameter list.
+An explicitly scheduled handler can run without active inputs (see
+[Scheduling](functions.md#scheduling-the-clock-and-input-activity)). There is
+no general source spelling for an explicitly empty validity set. `modified()`
+and `valid()` select the complete temporal parameter list, not an empty set.
 
-For a structural or collection input, `valid(value)` tests the validity of the
-endpoint itself rather than recursively requiring every child to be valid.
-Recursive child validity uses the distinct `all_valid(value)` predicate. The
-compiler uses these metadata predicates to derive node activation and validity
-policies where possible. The shape of `delta(value)` remains open.
+`valid(value)` checks the input itself. For a list, bundle, or temporal map,
+`all_valid(value)` additionally checks that every immediate child is `valid`.
+It is exactly one level deep: a child collection can be valid while some of
+its own children remain invalid. Check those nested children explicitly if
+that is required. A map key with an uninitialized or invalidated child makes
+`all_valid` false; removed keys do not participate. Scalars and sets have no
+temporal children, so their `all_valid` is the same as `valid`. For rolling
+windows, `all_valid` checks the minimum window requirement.
+
+In a `when` condition, these predicates also control when a function may run.
+The result shape of the proposed `delta(value)` operation remains open; use
+the supported `delta_value` operations described below.
 
 In a runtime function, `last_modified(value)` returns the hgraph engine time at
-which the endpoint last changed. It is the source spelling of the endpoint's
-native `last_modified_time` metadata and has type `datetime`.
+which the endpoint last changed. Its type is `datetime`.
 
 The same metadata functions apply to explicitly injected output:
 
@@ -974,8 +971,8 @@ than itself forcing a runtime node. The compiler implements graph-phase
 child connection; `items` also supplies its wiring-time `i64` index. Scalar
 wiring-time iterables and bundles remain future compiler work. Independent
 `values`/`items` bodies over maps and `elements`/`items` bodies over unbounded
-lists run as one native child graph per key or index, with temporal captures
-broadcast to every child.
+lists apply independently to each live key or index. Captured temporal
+inputs are available to every iteration.
 Graph-phase predicates, graph-phase `keys`, and `const` captures remain
 unsupported.
 Loop-carried reductions are initially unsupported; future map reductions are
@@ -1039,14 +1036,13 @@ membership, not child validity. Atomic collection values still require further
 compiler support; this implemented slice uses structural time-series inputs.
 
 The safe counterpart `get(value, key_or_index, default=null)` is accepted but
-not implemented yet. Nullable-result lowering and the handling of a present
+not implemented yet. The nullable result and the treatment of a present
 but invalid child remain outstanding; see the
 [surface completion record](../design/native-surface-proposal.md).
 
-Value operations do not change spelling based on internal representation.
-Ordinary values use ordinary expressions, and `delta_value` is the delta
-accessor for named and unnamed types alike. Broader current/delta-value
-lowering is implementation work, not a separate erased-value language API.
+Use ordinary expressions to read current values and `delta_value` for
+supported delta access. See the [surface completion record](../design/native-surface-proposal.md)
+for the remaining restrictions.
 
 The agreed collection traversal operations are:
 
@@ -1063,8 +1059,7 @@ list element remains a child connection in graph composition and a child view
 in node evaluation, with its metadata and REF boundaries intact. Set members
 are scalar values, not independent time-series children.
 
-This supersedes the earlier design that used `values` for lists and sets and
-excluded `elements`. `values` and `elements` are not aliases: `values` projects
+`values` and `elements` are not aliases: `values` projects
 from keyed or named collections, while `elements` traverses a sequence or
 membership collection. Graph-phase set traversal remains unsupported.
 
@@ -1089,11 +1084,11 @@ The available built-in delta predicates follow the underlying structure:
 
 | Structure | Full traversal | Built-in delta predicates |
 | --- | --- | --- |
-| Bundle (TSB) | `keys`, `values`, `items` | `modified` on values and items |
-| Temporal map (TSD) | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| Fixed temporal list, `list<T, n>` (TSL) | `elements`, `items` | `modified` |
-| Unbounded temporal list, `list<T>` (TSL) | `elements`, `items` | `added`, `modified`, `removed` |
-| Temporal set (TSS) | `elements` | `added`, `removed` |
+| Bundle | `keys`, `values`, `items` | `modified` on values and items |
+| Temporal map | `keys`, `values`, `items` | `added`, `modified`, `removed` |
+| Fixed temporal list, `list<T, n>` | `elements`, `items` | `modified` |
+| Unbounded temporal list, `list<T>` | `elements`, `items` | `added`, `modified`, `removed` |
+| Temporal set | `elements` | `added`, `removed` |
 
 A compatible named function or inline concise function provides a general
 predicate. Its parameters match the traversal result: one parameter for

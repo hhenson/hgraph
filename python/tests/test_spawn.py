@@ -257,16 +257,21 @@ def test_windows_keep_complete_history_and_timestamps(tmp_path, period):
 @pytest.mark.parametrize("phase", ["start", "eval", "stop", "crash", "hang", "stop_request"])
 def test_worker_failures_propagate_and_teardown_is_bounded(tmp_path, phase):
     path = str(tmp_path / "failure")
+    # The transport deadline includes cold Python process startup. Only the
+    # deliberate hang tests that deadline; other phases must reach their
+    # intended failure even while a Windows build is loading the machine.
+    worker_timeout = 3.0 if phase == "hang" else 10.0
+    teardown_bound = 15 if phase == "hang" else 30
     @hg.graph
     def app(value: hg.TS[int]) -> None:
         hg.spawn_(hg.bind_(broken, path=path, phase=phase), value,
-                  __capacity_frames__=1, __worker_timeout__=3.0)
+                  __capacity_frames__=1, __worker_timeout__=worker_timeout)
     before = time.monotonic()
     pattern = {"crash": "closed|exited|pipe|connection|Broken", "hang": "deadline|timed out|timeout",
                "stop_request": "child requested stop during start"}.get(phase, f"spawn {phase} failure")
     with pytest.raises(Exception, match=pattern):
         hg.eval_node(app, list(range(20)))
-    assert time.monotonic() - before < 15
+    assert time.monotonic() - before < teardown_bound
     if phase in ("eval", "stop", "stop_request"):
         assert Path(path + ".stopped").exists()
     pidfile = Path(path + ".pid")

@@ -17,8 +17,9 @@ is accepted.
 `const fn` identifies non-temporal value functions; parameter-level `const`
 retains its wiring-time meaning. Local fixed-arity functions and
 [role selection/lifting](../user-guide/value-functions.md) are implemented.
-Generic/pack value-function lowering is not implemented. Cache declarations, native
-type lifecycle forms, and target-mapping declarations also remain outside
+Generic/pack value-function lowering is not implemented. Scalar `cache`
+declarations are implemented; combining `cache` with `state` is rejected.
+Native type lifecycle forms and target-mapping declarations remain outside
 the implemented grammar. Their agreed semantics and open syntax are recorded
 in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
 
@@ -95,7 +96,7 @@ when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
 duration run. `temporal_literal` and `duration_literal` are defined under
 "Temporal scalar types".
 
-The hard reserved words are exactly these 44, the keyword table of
+The hard reserved words are those in the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
@@ -480,17 +481,17 @@ are constant expressions, and their type selects the kind: `i64` sizes
 describe a tick window and `duration` sizes a duration window.
 
 ```hgl
-rolling<f64, 20>          // the last 20 values, valid once it holds 20
-rolling<f64, 20, 5>       // the last 20 values, valid once it holds 5
-rolling<f64, 5m>          // the last five minutes, valid once it spans 5m
-rolling<f64, 5m, 1m>      // the last five minutes, valid once it spans 1m
+rolling<f64, 20>          # the last 20 values, minimum 20
+rolling<f64, 20, 5>       # the last 20 values, minimum 5
+rolling<f64, 5m>          # the last five minutes, minimum span 5m
+rolling<f64, 5m, 1m>      # the last five minutes, minimum span 1m
 ```
 
 Omitting the third argument normalizes the minimum to the maximum for both
 kinds. Both arguments must be of one kind; `rolling<f64, 5m, 3>` is a `type`
 diagnostic. Tick sizes are positive. A duration maximum is positive and a
-duration minimum may be `0s`, the one spelling of a duration window that is
-valid from its first value. The minimum cannot exceed the maximum. Size
+duration minimum may be `0s`, which satisfies minimum readiness from the
+first value. The minimum cannot exceed the maximum. Size
 arguments must be constant expressions formed from literals or in-scope
 `const` generics and cannot depend on temporal values; a `const` generic in
 a size position has its declared type, `i64` or `duration`, so one generic
@@ -500,10 +501,10 @@ The window semantics are hgraph's. A tick window holds the most recent
 `max_size` values and evicts the oldest when full. A duration window holds
 every value whose tick time lies within `max_size` of the evaluation time
 and evicts older values before each push; it has no element bound, so its
-memory follows the tick rate. A window is invalid, and does not evaluate its
-consumers, until it reaches its minimum: a tick window once it holds
-`min_size` values, a duration window once the span from its oldest to its
-newest value reaches `min_size`. That span is measured over the captured
+memory follows the tick rate. Current native `valid` becomes true on the
+first value. Native `all_valid` separately checks the minimum: a tick window
+must hold `min_size` values, and a duration window must span `min_size`
+from its oldest to its newest value. That span is measured over the captured
 values, not the run's elapsed time, so a positive duration minimum needs at
 least two values. The kind and both resolved sizes participate in type
 identity: `rolling<f64, 5m>` and `rolling<f64, 300s>` are one type,
@@ -514,9 +515,9 @@ no spelling yet and is listed under the open questions.
 A temporal list is unbounded unless it carries a size:
 
 ```hgl
-list<f64>              // unbounded; the same as list<f64, unbounded>
-list<f64, 3>           // exactly three temporal elements
-list<f64, n>           // n is an in-scope const generic
+list<f64>              # unbounded; the same as list<f64, unbounded>
+list<f64, 3>           # exactly three temporal elements
+list<f64, n>           # n is an in-scope const generic
 ```
 
 `unbounded` has the sentinel value `-1`. A `const` generic in a list-size position
@@ -621,23 +622,23 @@ duration_unit    = "d" | "h" | "m" | "s" | "ms" | "us";
 ```
 
 ```hgl
-@2026-09-03                            // date
-@09:30                                 // time; seconds default to zero
-@09:30:15.250                          // time, 250 milliseconds past the second
-@2026-09-03T09:30Z                     // datetime
-@2026-09-03T10:30:00+01:00             // the same datetime, with an offset
-@2026-09-03T10:30+01                   // the same again, both shorthands
-@2026-09-03T10:30                      // civil_datetime: no offset, no zone
-@2026-09-03T10:30+01:00[Europe/London] // zoned_datetime
-@2026-11-01T01:30-04:00[America/New_York] // the first 01:30 of the fold day
-@2026-11-01T01:30-05:00[America/New_York] // the second 01:30 of the fold day
-@09:30[America/New_York]               // zoned_time
-@[Europe/London]                       // timezone
-5m                                     // duration: five minutes
-1h30m                                  // duration: ninety minutes, as one token
-1.5h                                   // the same value
--250ms                                 // unary minus applied to 250ms
-1h + 30m                               // the same value, folded at compile time
+@2026-09-03                            # date
+@09:30                                 # time; seconds default to zero
+@09:30:15.250                          # time, 250 milliseconds past the second
+@2026-09-03T09:30Z                     # datetime
+@2026-09-03T10:30:00+01:00             # the same datetime, with an offset
+@2026-09-03T10:30+01                   # the same again, both shorthands
+@2026-09-03T10:30                      # civil_datetime: no offset, no zone
+@2026-09-03T10:30+01:00[Europe/London] # zoned_datetime
+@2026-11-01T01:30-04:00[America/New_York] # the first 01:30 of the fold day
+@2026-11-01T01:30-05:00[America/New_York] # the second 01:30 of the fold day
+@09:30[America/New_York]               # zoned_time
+@[Europe/London]                       # timezone
+5m                                     # duration: five minutes
+1h30m                                  # duration: ninety minutes, as one token
+1.5h                                   # the same value
+-250ms                                 # unary minus applied to 250ms
+1h + 30m                               # the same value, folded at compile time
 ```
 
 Every literal is validated and normalized when it is lexed:
@@ -1168,8 +1169,8 @@ State, cache, and inject declarations precede executable blocks. The first
 slice requires a state or cache initializer and permits at most one `start`
 and one `stop` block. A `cache` is node-local data outside record/replay,
 re-initialized on every start; multiple scalar cache fields share a generated struct in one native
-`State<>` slot. Combining cache with `state` is still unsupported by the
-static-node contract ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
+`State<>` slot. Combining cache with `state` is still unsupported by HGL lowering, although
+native static nodes support both selectors ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -1661,20 +1662,22 @@ it. Thus `when modified(a) { ... }` implicitly requires `valid()`, and
 `when valid(a) { ... }` implicitly uses `modified()` for activation. A bare
 `when { ... }` supplies both. Calls nested under `||`, `!`, another call, or
 another residual expression do not suppress a missing top-level default. These
-defaults test endpoint validity only; recursive structural validity still
+defaults test endpoint validity only; checking immediate child validity instead
 requires `all_valid(value)`.
 
-The source spelling for an explicitly empty activation or validity selector is
-not yet defined. It cannot reuse `modified()` or `valid()`, because the empty
-argument list means all temporal parameters. The runtime representation must
-nevertheless preserve the difference between a default selector and an
-explicit empty selector.
+A scheduler-driven handler can select an explicitly empty input activation
+set with `scheduled()`. A general empty validity selector remains undefined.
+Neither `modified()` nor `valid()` means an empty selector: an empty argument
+list selects all temporal parameters. Planning preserves that distinction.
 
 The compiler may consume these calls while deriving node input policies, so
 they need not remain as runtime calls in generated C++. `valid(value)` tests
 the top-level endpoint even when the endpoint is structural or a collection;
-recursive child validity is expressed separately as `all_valid(value)`. The
-result shape of `delta` remains open.
+`all_valid(value)` additionally checks each immediate live child of a TSD,
+TSB or TSL for `valid`, not for its own `all_valid`. Removed dictionary keys
+do not participate. The check never recurses into grandchildren. TSW is an
+intentional exception: its `all_valid` checks minimum-window readiness, while
+`valid` becomes true on the first value. The result shape of `delta` remains open.
 
 `last_modified(value)` is a runtime metadata operation returning `datetime`.
 It lowers to the endpoint's public `last_modified_time` view and does not

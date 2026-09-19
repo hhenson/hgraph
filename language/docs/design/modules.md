@@ -49,9 +49,10 @@ validated before native code is loaded; see
 
 Scalar-dependent `requires` predicates are serialized as declarative constraint
 records rather than hidden callbacks. Imported operator checking must pass
-those records to hgraph's shared resolver without approximation. Complete
-imported operator-contract conformance remains compiler work; arbitrary resolver
-helpers running outside the compiler process are not an escape hatch.
+those records to hgraph's shared resolver without approximation. Imported operators with supported signatures can be implemented and
+materialized across modules. Reconstructing imported contract constraints is
+still unsupported and diagnosed by the catalog; arbitrary resolver helpers
+running outside the compiler process are not an escape hatch.
 
 ## Public declaration surface
 
@@ -174,12 +175,12 @@ directly importable as an exact function. The provider module and each
 requested candidate signature are part of the descriptor; the unrestricted
 generic template is not advertised as a runtime candidate.
 
-Explicit materialization currently requires the operator contract to be
-declared in the same module. Supporting `instantiate` for a selectively
-imported contract requires the versioned descriptor to expose the external C++
-contract marker as well as its nominal identity and full signature. Until that
-boundary lands, such a request fails during source checking rather than
-producing an incomplete registration.
+Explicit materialization supports local and selectively imported contracts.
+The descriptor carries the external C++ marker, nominal identity, and signature;
+those identities survive HIR and hgraph IR into generated registration.
+Unsupported imported constraints, properties, generic packs, and type shapes
+fail during checking. `tests/codegen/imported-operators/` covers concrete and
+generic providers compiled separately from their contract module.
 
 The semantic IR records the canonical operator identity on every implementation
 candidate and operator call. It never reconstructs that identity later from a

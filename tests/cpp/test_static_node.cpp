@@ -11,6 +11,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/registry_reset.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/graph_wiring.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -100,8 +101,8 @@ namespace
         }
     };
 
-    // A TSD's ``all_valid`` is its ``valid``: it does not walk its values, so a
-    // partially populated list value does not hold the gate closed.
+    // A TSD checks each immediate child for valid, not all_valid. A partially
+    // populated list child is valid and therefore does not close the gate.
     struct TsdAllValidProbe
     {
         static constexpr auto name = "tsd_all_valid_probe";
@@ -110,6 +111,49 @@ namespace
                          Out<TS<Bool>> out)
         {
             out.set(true);
+        }
+    };
+
+    struct DictionaryMembership
+    {
+        static constexpr auto name = "dictionary_membership";
+        static void eval(In<"event", TS<Int>> event, Out<TSD<Str, TS<Int>>> out)
+        {
+            const Str key{"a"};
+            switch (event.value())
+            {
+                case 1: static_cast<void>(out.at(key)); break;
+                case 2: case 5: out.set(key, event.value()); break;
+                case 3: {
+                    auto child = out.at(key);
+                    static_cast<void>(child.begin_mutation(child.evaluation_time()).invalidate());
+                    break;
+                }
+                default: static_cast<void>(out.erase(key)); break;
+            }
+        }
+    };
+
+    template <bool Gate>
+    struct DictionaryValidityProbe
+    {
+        static constexpr auto name = "dictionary_validity_probe";
+        static void eval(In<"values", TSD<Str, TS<Int>>,
+                            Gate ? InputValidity::AllValid : InputValidity::Unchecked> values,
+                         In<"tick", TS<Int>> tick, Out<TS<Int>> out)
+        {
+            if constexpr (Gate) { out.set(tick.value()); }
+            else { out.set(Int{values.all_valid() ? 1 : 0}); }
+        }
+    };
+
+    template <bool Gate>
+    struct DictionaryValidityGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> event)
+        {
+            const auto values = wire<DictionaryMembership>(w, event);
+            return wire<DictionaryValidityProbe<Gate>>(w, values, event).template as<TS<Int>>();
         }
     };
 
@@ -445,16 +489,24 @@ TEST_CASE("static node: all-valid on a nested list is a one-level check")
     CHECK_OUTPUT(testing::eval_node<NestedAllValidProbe>(input), {std::nullopt, Bool{true}});
 }
 
-TEST_CASE("static node: all-valid on a TSD does not walk its values")
+TEST_CASE("static node: all-valid on a TSD checks immediate children without recursion")
 {
     using namespace hgraph;
 
-    // One key, whose list value holds only its first element. The TSD is valid,
-    // so it is all_valid, and the node evaluates on the first cycle.
+    // One key, whose immediate list child is valid but not all_valid. The
+    // dictionary gate opens without requiring the missing grandchild.
     const std::vector<std::optional<Value>> input{
         dict_delta<Str, TSL<TS<Int>, 2>>({{Str{"a"}, list_delta<TS<Int>>({{0, 1}})}}),
     };
     CHECK_OUTPUT(testing::eval_node<TsdAllValidProbe>(input), {Bool{true}});
+}
+
+TEST_CASE("static node: dictionary all-valid tracks invalidation and removed slots")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(testing::eval_node<DictionaryValidityGraph<false>>({1, 2, 3, 4, 5}), {0, 1, 0, 1, 1});
+    CHECK_OUTPUT(testing::eval_node<DictionaryValidityGraph<true>>({1, 2, 3, 4, 5}),
+                 {std::nullopt, 2, std::nullopt, 4, 5});
 }
 
 TEST_CASE("static node: set_delta construction survives value registry resets")

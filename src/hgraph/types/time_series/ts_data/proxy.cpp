@@ -625,15 +625,21 @@ namespace hgraph
                 return proxy.source_available() && proxy.key_set_tracking().last_modified_time != MIN_DT;
             }
 
-            // A TSD's ``all_valid`` is its ``valid``. A key only exists once it
-            // has a value, so there is no partially populated state for a
-            // deeper walk to detect, and walking into the values would make
-            // this a recursive check. Upstream agrees: ``TSD`` declares no
-            // ``all_valid`` override and inherits
-            // ``PythonTimeSeriesOutput.all_valid``, which returns ``valid``.
-            [[nodiscard]] static bool all_valid(const void *context, const void *memory) noexcept
+            // The projected children, not the source dictionary's values,
+            // determine validity. Never ask a child for its own all_valid.
+            [[nodiscard]] static bool all_valid(const void *context, const void *memory)
             {
-                return has_current_value(context, memory);
+                if (!has_current_value(context, memory)) { return false; }
+                const auto &store = proxy_storage(memory);
+                const auto source = source_dict(memory);
+                const auto &ops = ctx(context)->element_type.ops_ref();
+                for (std::size_t slot = 0; slot < source.slot_capacity(); ++slot)
+                {
+                    if (!source.slot_live(slot)) { continue; }
+                    if (!store.has_child(slot) ||
+                        !ops.has_current_value_impl(ops.context, store.child_at_slot(slot))) { return false; }
+                }
+                return true;
             }
 
             [[nodiscard]] static const void *value_memory(const void *, const void *memory) noexcept

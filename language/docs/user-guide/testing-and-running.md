@@ -86,8 +86,7 @@ context. Nested contexts, test-local types, imports, native declarations, and
 operator implementations are not supported in this first slice.
 
 `hgl test` includes and runs the helpers; `emit-cpp` and `hgl_add_module()` omit
-their C++ definitions, operator registrations, and descriptor entries. A lift
-used only by tests is omitted too. In the REPL, a context adds its helpers to
+test-only helpers and cases from the package. In the REPL, a context adds its helpers to
 the session and runs only its newly declared cases. A helper-only context
 does not rerun earlier tests.
 
@@ -178,7 +177,7 @@ fixes the run's start:
 ```hgl
 use hgraph.std::{mean}
 
-fn recent_mean(price: rolling<f64, 5m>) -> f64 => mean(price)   // not runnable today
+fn recent_mean(price: rolling<f64, 5m>) -> f64 => mean(price)   # not runnable today
 
 test recent_mean_spans_five_minutes {
     assert eval(recent_mean, price: [0s: 1.0, 2m: 3.0, 5m: 5.0, 9m: 7.0])
@@ -313,18 +312,14 @@ is the complete list.
 
 ## What runs where
 
-Programs made only of composition functions, which includes every runnable
-example on this page, are wired straight onto the hgraph runtime in process
-by `hgl test`, `hgl run`, and the REPL; no native toolchain is involved. For
-a file containing a runtime function (`state`, `inject`, `when`, ...) or an
-`impl fn`, `hgl test` and `hgl run` emit the complete module, compile a
-content-addressed native image or reuse a complete cached image, load its
-candidates into the same hgraph registry, and then use the ordinary harness.
-A failed native build reports and retains its artifact directory; incomplete or
-digest-mismatched cache entries are never loaded. The REPL uses the same image
-format and cache. It compiles a complete candidate session before removing the
-old provider, restores that provider if activating the replacement fails, and
-keeps native images mapped for process lifetime so removed callbacks cannot
-dangle. The
-[Architecture](../design/architecture.md#two-backends-one-wiring) record
-describes the split; both backends must produce the same ticks.
+Composition-only programs can run directly. Programs with runtime functions,
+value functions, or operator implementations need a native toolchain for
+scripted execution, which is currently supported on Unix. Windows supports
+building such programs as native packages. The test-context example above
+contains a runtime helper and therefore needs that toolchain.
+
+A failed native build reports a directory containing its diagnostics. The REPL
+keeps the previous working declarations if a replacement fails. See
+[Execution requirements](modules-and-tools.md#execution-requirements) for tool
+and cache settings, and the [developer guide](../developer-guide/native-modules-and-packages.md#one-execution-model)
+for compiler and loader internals.

@@ -65,8 +65,8 @@ arguments retain the existing validity checks. A native call does not itself
 establish HGL flow-sensitive validity for subsequent payload reads.
 
 The `cpp(...)` list states the exact C++ parameter declarations received by the
-body. The compiler supplies the function name, C++ result type, and `noexcept`,
-then emits a plain function in the generated module's `native` namespace.
+body. The compiler supplies the function name and C++ result type, adds
+`noexcept` unless `throws` is declared, then emits a plain function in the generated module's `native` namespace.
 Same-named HGL candidates use distinct generated symbols: the first keeps the
 short name and later candidates use `__candidate_N`. This is necessary because
 two distinct HGL patterns can intentionally project to the same erased C++
@@ -171,7 +171,7 @@ library or consulting a registry. Native declarations now encode exact C++
 symbols, permitted phases, effects, parameter/result ownership and dependent
 lifetimes, exception policy, thread-safety policy, opaque or atomic native type
 associations, runtime images, and lifecycle ABI metadata. The reader enforces
-the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
+the non-blocking evaluation envelope, declared exception policy, explicit mutable state,
 borrow rules, and lifecycle consistency. The compiler can build an explicit
 module catalog from one or more descriptors, resolve a selective or aliased
 `use`, select an exact overload from canonical scalar or collection types,
@@ -290,9 +290,9 @@ shutdown exposes a permitted stop-phase operation in addition to its destructor.
 Opaque storage is not an exemption from the language's persistence contract.
 Reconstructible non-recordable data belongs in HGL cache (native `State<T>`);
 semantic history belongs in HGL `state` (native `RecordableState<TSchema>`) and
-requires recordable types. The cache/state source and lifecycle bridge remain
-implementation work, including the current native restriction against mixing
-the two selectors in one node.
+requires recordable types. Native nodes support both selectors with independent
+storage and restore recordable state before `start` rebuilds the cache. Mixed
+HGL lowering and the opaque-type lifecycle bridge remain implementation work.
 
 Borrowed values are confined to the call or evaluation that produced them.
 They cannot be returned, stored in state or output, captured, placed in a

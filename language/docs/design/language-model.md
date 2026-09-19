@@ -411,10 +411,11 @@ list size, lowered to hgraph's named `SIZE` variable. Generic reification and
 residual constraints are deliberately unresolved rather than simulated by
 runtime schema inspection.
 
-The current compiler implements this rule for a contract declared in the same
-module. Applying it to an implementation of a selectively imported contract
-is part of the descriptor-backed imported-contract work; the source form fails
-closed until that metadata can identify and emit the external C++ contract.
+The compiler implements this rule for local and selectively imported operator
+contracts. Imported contracts retain their external C++ marker and nominal
+identity through both IRs. The import catalog rejects unsupported contract
+constraints, properties, generic packs, and type shapes before registration;
+see `src/descriptor/import_catalog.cpp` and the imported-operator codegen tests.
 
 Two operator contracts with the same short name but different defining modules
 are unrelated. A namespace import such as `use my.module as mm` permits an
@@ -505,23 +506,23 @@ Temporalization proceeds recursively:
 This distinguishes:
 
 ```hgl
-tuple<f64, f64>                   // independently temporal children
-atomic<tuple<f64, f64>>           // one tuple-valued endpoint
+tuple<f64, f64>                   # independently temporal children
+atomic<tuple<f64, f64>>           # one tuple-valued endpoint
 
-list<f64>                         // unbounded temporal list
-list<f64, 3>                      // exactly three temporal elements
+list<f64>                         # unbounded temporal list
+list<f64, 3>                      # exactly three temporal elements
 
-map<str, f64>                     // keyed temporal map
-atomic<map<str, f64>>             // stream of complete map snapshots
-map<str, atomic<tuple<f64, f64>>> // keyed atomic tuple values
+map<str, f64>                     # keyed temporal map
+atomic<map<str, f64>>             # stream of complete map snapshots
+map<str, atomic<tuple<f64, f64>>> # keyed atomic tuple values
 
-set<str>                          // set-valued time series
-atomic<set<str>>                  // stream of complete set snapshots
+set<str>                          # set-valued time series
+atomic<set<str>>                  # stream of complete set snapshots
 
-rolling<f64, 20>                 // maximum and minimum size are both 20
-rolling<f64, 20, 5>              // maximum 20, valid from 5 values
-rolling<f64, 5m>                 // the last five minutes, valid once spanned
-rolling<f64, 5m, 1m>             // the last five minutes, valid from a 1m span
+rolling<f64, 20>                 # maximum and minimum size are both 20
+rolling<f64, 20, 5>              # maximum 20, all-valid from 5 values
+rolling<f64, 5m>                 # the last five minutes, all-valid once spanned
+rolling<f64, 5m, 1m>             # the last five minutes, all-valid from a 1m span
 ```
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
@@ -550,8 +551,8 @@ counts or `duration` spans, omission of `min_size` normalizes it to
 `max_size`, and the kind and both resolved sizes form part of the type
 identity. The semantics are hgraph's: a tick window keeps the newest
 `max_size` values, a duration window keeps every value within `max_size` of
-the evaluation time, and either is invalid until it holds `min_size` values
-or spans `min_size`. Rolling-window iteration and a spelling that accepts
+the evaluation time. Current native `valid` becomes true on the first value;
+`all_valid` separately requires `min_size` values or a `min_size` span. Rolling-window iteration and a spelling that accepts
 either kind remain open.
 
 Every expanded type must map to an existing public hgraph schema. A structural
@@ -673,8 +674,8 @@ every start, not yet beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for the reconstruction contract and the current C++ restriction against
-combining both state selectors.
+for the reconstruction contract. Native nodes support both state selectors;
+mixed HGL lowering remains unimplemented.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special
@@ -816,8 +817,10 @@ are evaluator-local metadata in runtime functions. Empty `modified()` and
 `valid()` have meaning only in a function-level `when` predicate. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
-validity; recursive child validity is a distinct operation named
-`all_valid(value)`. In runtime evaluation, `last_modified(value)` returns the
+validity; `all_valid(value)` additionally checks each immediate live child
+of a TSD, TSB or TSL for `valid`, without recursion. Removed dictionary keys
+do not participate. TSW intentionally uses a separate rule: `all_valid` checks
+the window minimum while `valid` becomes true on the first value. In runtime evaluation, `last_modified(value)` returns the
 endpoint's native `last_modified_time` as `datetime`. The `delta` result shape
 remains open.
 

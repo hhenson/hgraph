@@ -659,7 +659,7 @@ def conditional_output(
 |-----------|-------------|
 | `active` | Tuple of input names that are active by default |
 | `valid` | Tuple of input names that must be valid to evaluate |
-| `all_valid` | Tuple of input names where all nested values must be valid |
+| `all_valid` | Input names requiring one-level child validity for TSD/TSB/TSL, or minimum-window readiness for TSW |
 | `deprecated` | Mark node as deprecated with message |
 | `requires` | List of required optional inputs |
 

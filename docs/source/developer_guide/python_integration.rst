@@ -424,9 +424,11 @@ Recorded divergences / gaps (the morning-summary list):
   applies as the initial tick). ``AUTO_RESOLVE`` materialises resolved
   typevars/SIZE; ``valid=``/``active=``/``all_valid=`` accept name sets or
   wiring-time callables. ``all_valid`` is enforced by the native input view's
-  ``all_valid()`` operation, which is a **one-level** check matching upstream:
-  a TSL/TSB asks each direct child for ``valid``, never for the child's own
-  ``all_valid``, and TSD/TSS/TS define ``all_valid`` as ``valid``. A partially
+  ``all_valid()`` operation, which is a **one-level** check:
+  TSD, TSL and TSB ask each immediate live child for ``valid``, never for the
+  child's own ``all_valid``. TS and TSS use their own ``valid`` flag. A live TSD
+  key may have an uninitialized or invalidated child; this closes the gate.
+  Removed keys do not participate. A partially
   populated collection nested inside another therefore leaves the outer one
   ``all_valid``-true.
   ``node[TYPE_VAR: type]`` pre-resolution seeds the call's ``ResolutionScope``

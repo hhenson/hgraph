@@ -42,7 +42,7 @@ namespace
     using Keyed = TSD<Int, TS<Int>>;
 
     constexpr std::size_t repetitions = 5;
-    constexpr Int         workers     = 4;
+    constexpr Int         benchmark_workers = 4;
 
     /** The bar: the same per-key recordable state under a plain map_, in one process. */
     struct MapBody
@@ -61,7 +61,7 @@ namespace
     {
         static Port<Keyed> compose(Wiring &w, NamedPort<"ts", Keyed> ts)
         {
-            return wire<dmap_impl<Int, Int, Int>>(w, ts, fn<hgraph_test::AccumulateG>(), workers, Bool{InProcess},
+            return wire<dmap_impl<Int, Int, Int>>(w, ts, fn<hgraph_test::AccumulateG>(), benchmark_workers, Bool{InProcess},
                                                  Str{HGRAPH_TEST_WORKER_PROGRAM})
                 .template as<Keyed>();
         }
@@ -79,7 +79,7 @@ namespace
         static constexpr auto component = hgraph_test::dmap_component_id;
         static Port<Keyed>    compose(Wiring &w, Port<Keyed> ts)
         {
-            return wire_dmap<Int, Int, Int>(w, ts, fn<hgraph_test::PreparedHostedChild>(), workers, Bool{InProcess},
+            return wire_dmap<Int, Int, Int>(w, ts, fn<hgraph_test::PreparedHostedChild>(), benchmark_workers, Bool{InProcess},
                                             Str{HGRAPH_TEST_WORKER_PROGRAM});
         }
     };

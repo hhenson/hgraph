@@ -57,7 +57,7 @@ C++ uses a private bundle representation:
 
 ```hgl
 for value in elements(values) { ... }
-for index, value in items(values) { ... } // zero-based i64 index
+for index, value in items(values) { ... } # zero-based i64 index
 ```
 
 The named heterogeneous view preserves names:

@@ -1153,8 +1153,8 @@ subscription.
    check ``valid()`` before reading its value.
 
 ``InputValidity::AllValid``
-   The readiness check requires the input to be recursively valid, for example
-   every child of a collection or bundle must be valid. Omitting a validity flag
+   The readiness check requires the input and each immediate live child of a
+   ``TSD``, ``TSB`` or ``TSL`` to be valid. It does not recurse into grandchildren. Omitting a validity flag
    is ``InputValidity::Valid``.
 
 The flags are order-independent, and at most one activity flag and one validity

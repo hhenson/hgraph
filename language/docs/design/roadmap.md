@@ -128,8 +128,9 @@ syntax. Imported operator-contract conformance and public native nominal-struct
 metadata require the versioned descriptors owned by Stage F. Registry-backed
 completion for deferred nominal calls occurs in hgraph IR once all wiring-time
 values and erased callable shapes exist, and therefore belongs to Stage D.
-Until those owning stages complete, the cases fail closed or remain explicitly
-deferred; the temporary AST backends never silently discard a constraint.
+Imported operator implementations are supported for the catalog's admitted
+contracts. Constraint reconstruction and deferred completion remain incomplete;
+both hgraph-IR backends fail closed rather than discard those requirements.
 
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source
@@ -347,7 +348,12 @@ No new source syntax is needed for these checkpoints. Nullable lookup policy,
 recordable state/cache design, and other unresolved language decisions remain
 separate work.
 
+<a id="feature-status-matrix-2026-09-07"></a>
+
 ## Feature status matrix
+
+Status entries audited against main on 2026-09-19. The dated anchor is
+retained for existing links.
 
 Unnamed `test { ... }` contexts now provide module-wide, cross-part private
 helpers. Production compilation excludes helper code, registrations, and
@@ -403,7 +409,7 @@ records the current counts per disposition (the 2026-09-07 review estimated
 | Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs, and homogeneous/heterogeneous parameter-pack traversal. Reusable scalar value-helper calls and runtime `key_set` are supported. Fail closed: temporal HGL calls from runtime bodies, non-scalar state, zero-input functions that do not inject `scheduler`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity dominance, selector bounds and activation planning are shared `hgl check` diagnostics. |
 | `inject clock`, `inject scheduler`, `scheduled()`, `passivate`/`activate` | implemented | [ADR 0010](decisions/0010-lifecycle-capabilities.md): `EvaluationClockView` and `NodeScheduler` selectors on every hook, fixed method surfaces (no tags), the scheduler handler selector with an explicitly empty activation set, scheduler-driven sources, and input activity on direct temporal parameters. An explicitly empty validity set remains open. |
 | Scalar (wiring-time) `if`, including `else if` | implemented | |
-| Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. The documented status of a temporal conditional embedded in another expression is under review (#767 items 4 and 5). |
+| Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. Embedded temporal conditionals are implemented in both backends and covered by `choose_embedded` in the parity fixture. |
 | `switch` / `case` / `default` | provisional | Agreed 2026-09-06 ([Switch](switch.md)); no keyword, parser, or lowering; the words are not reserved, and a `switch` yields generic parse errors. |
 | `enum`, `Mode::m`, `Mode(...)`, `keys`/`values`/`elements(Mode)` | provisional | Agreed ([Type extensions](type-extensions.md#enum-types)); `enum` is "expected a declaration, found 'enum'"; integer-conversion spelling and the native ABI are open. |
 | `str(value)` | provisional | Agreed spelling; `str` is not an expression start ("expected an expression, found 'str'"). |
@@ -476,7 +482,7 @@ optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
-Generated runtime sources and calls, compound constant literals, runtime-node
+Calls to temporal HGL functions from runtime evaluation, compound constant literals, runtime-node
 `if` used as a value, and runtime constructs outside the supported
 selector/output forms fail closed with a diagnostic that names the construct.
 A temporal conditional embedded inside another expression is implemented in
