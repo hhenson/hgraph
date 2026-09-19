@@ -91,8 +91,9 @@ def _chains(max_depth: int):
 
 def _seeded(seed: int) -> random.Random:
     # A reproducible stream of TEST SCENARIOS: the seed is printed, a failure is replayed from
-    # it, and nothing here is a secret or a token. A cryptographic source would defeat that.
-    return random.Random(seed)  # NOSONAR(python:S2245)
+    # it, and nothing here is a secret or a token. A cryptographic source would defeat that,
+    # which is why the pseudorandom-generator rule (python:S2245) is suppressed on this line.
+    return random.Random(seed)  # NOSONAR
 
 
 def _placements(entry, settings, rng: random.Random):
