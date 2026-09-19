@@ -1,5 +1,10 @@
 # Checkpoint save and restore — scaling, 2026-09-19
 
+> **Read with `../recovery-phases-20260919/`.** The benchmark harness made deep copies of the image
+> inside the clock. The RESTORE figures below are overstated by 18-28% on macOS and 37-48% on Linux, and
+> the Linux SAVE figures by 12-26%; the reading that restore is what rises on Linux does not survive the
+> correction. The comparisons between variants and every flatness verdict stand.
+
 `hgraph_unit_tests '[recovery-benchmark]'` (`tests/cpp/test_recovery_benchmark.cpp`), Release builds,
 commit `c58a1a7aa`. Each row differences a completed day with and without recovery configured, so
 what is timed is the capture at the end of day one and the restore at the start of day two, not the

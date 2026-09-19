@@ -109,11 +109,24 @@ namespace
         return timings[timings.size() / 2];
     }
 
+    /** Where one recovered day spends its time, by the two moments recovery calls out:
+     * ``load`` (the graph is wired and built; a restore, if any, comes next) and ``commit``
+     * (the executor captures, STOPS the graph, then commits -- so what is left is destroying
+     * it). ``run_ms`` is therefore restore + start + evaluation + capture + stop. */
+    struct Phases
+    {
+        double build_ms{}, run_ms{}, destroy_ms{};
+    };
+
     struct Row
     {
         std::size_t keys{};
         double      save_ms{}, restore_ms{};
         std::size_t bytes{};
+        // The differences above cannot say WHICH part of a day grew: the quiet restored day
+        // also starts, stops and destroys N children that the plain quiet day never has.
+        Phases      busy{}, quiet{};
+        double      busy_plain_ms{}, quiet_plain_ms{};
     };
 
     template <typename Graph> Row measure(std::size_t keys)
@@ -121,20 +134,59 @@ namespace
         const std::vector<std::optional<Value>> first{burst(keys)};
         const std::vector<std::optional<Value>> quiet{std::nullopt};
         std::optional<ComponentCheckpoint>      completed;
+        using Clock = std::chrono::steady_clock;
+        std::vector<Phases> *phases = nullptr;
+        bool                 keep = false;
+        // ``previous`` is MOVED into the run, as a store hands over a decoded image. The
+        // harness used to copy it three times inside the clock (a by-value parameter, the
+        // load lambda's capture, its return) and copy every captured image in commit; those
+        // deep copies of an N-child image, and freeing them, were charged to restore and
+        // save. The caller now stages one copy per repetition before the clock starts, and
+        // the image itself comes from one UNTIMED run (``keep``): a copy in one of five timed
+        // repetitions is not reliably dropped by their median.
         const auto day = [&](std::size_t begin, const std::vector<std::optional<Value>> &events, bool recover,
-                             std::optional<ComponentCheckpoint> previous) {
-            GlobalContext context;
-            if (recover)
+                             std::optional<ComponentCheckpoint> *previous) {
+            const auto               started = Clock::now();
+            std::optional<Clock::time_point> loaded, committed;
             {
-                configure_component_recovery(context.state().view(), {
-                    .component_id = Graph::component, .load = [previous] { return previous; },
-                    .commit = [&](const auto &image) { completed = image; }});
+                GlobalContext context;
+                if (recover)
+                {
+                    configure_component_recovery(context.state().view(), {
+                        .component_id = Graph::component,
+                        .load = [&, previous] {
+                            if (!loaded) { loaded = Clock::now(); }
+                            return previous != nullptr ? std::move(*previous) : std::optional<ComponentCheckpoint>{};
+                        },
+                        .commit = [&](const auto &image) {
+                            committed = Clock::now();
+                            if (keep) { completed = image; }
+                        }});
+                }
+                (void)eval_node_with_options<Graph>(interval(begin, begin + 1), events);
             }
-            (void)eval_node_with_options<Graph>(interval(begin, begin + 1), events);
+            if (phases != nullptr && loaded && committed)
+            {
+                const auto ms = [](auto from, auto to) { return std::chrono::duration<double, std::milli>{to - from}.count(); };
+                phases->push_back({ms(started, *loaded), ms(*loaded, *committed), ms(*committed, Clock::now())});
+            }
+        };
+        const auto median_phases = [](std::vector<Phases> samples) {
+            const auto middle = [&](double Phases::*field) {
+                std::sort(samples.begin(), samples.end(), [&](const auto &lhs, const auto &rhs) { return lhs.*field < rhs.*field; });
+                return samples.empty() ? 0.0 : samples[samples.size() / 2].*field;
+            };
+            return Phases{middle(&Phases::build_ms), middle(&Phases::run_ms), middle(&Phases::destroy_ms)};
         };
         Row row{.keys = keys};
-        const double busy_plain = median_ms([&] { day(0, first, false, std::nullopt); });
-        const double busy_saved = median_ms([&] { day(0, first, true, std::nullopt); });
+        std::vector<Phases> busy_phases, quiet_phases;
+        const double busy_plain = median_ms([&] { day(0, first, false, nullptr); });
+        keep = true;
+        day(0, first, true, nullptr);
+        keep = false;
+        phases = &busy_phases;
+        const double busy_saved = median_ms([&] { day(0, first, true, nullptr); });
+        phases = nullptr;
         REQUIRE(completed);
         const auto image = *completed;
         std::string bytes;
@@ -143,9 +195,17 @@ namespace
         row.save_ms = busy_saved - busy_plain;
         // A quiet day: nothing is evaluated, so what recovery adds is the restore, and one
         // more save of the same state at the end of it.
-        const double quiet_plain    = median_ms([&] { day(1, quiet, false, std::nullopt); });
-        const double quiet_restored = median_ms([&] { day(1, quiet, true, image); });
+        const double quiet_plain    = median_ms([&] { day(1, quiet, false, nullptr); });
+        std::vector<std::optional<ComponentCheckpoint>> staged(repetitions, image);
+        std::size_t                                     repetition = 0;
+        phases = &quiet_phases;
+        const double quiet_restored = median_ms([&] { day(1, quiet, true, &staged.at(repetition++)); });
+        phases = nullptr;
         row.restore_ms = (quiet_restored - quiet_plain) - row.save_ms;
+        row.busy = median_phases(busy_phases);
+        row.quiet = median_phases(quiet_phases);
+        row.busy_plain_ms = busy_plain;
+        row.quiet_plain_ms = quiet_plain;
         return row;
     }
 
@@ -160,8 +220,12 @@ namespace
                       << ",\"save_ms\":" << row.save_ms << ",\"restore_ms\":" << row.restore_ms
                       << ",\"save_us_per_key\":" << row.save_ms * 1000.0 / static_cast<double>(row.keys)
                       << ",\"restore_us_per_key\":" << row.restore_ms * 1000.0 / static_cast<double>(row.keys)
-                      << ",\"bytes_per_key\":" << static_cast<double>(row.bytes) / static_cast<double>(row.keys) << "}"
-                      << std::endl;
+                      << ",\"bytes_per_key\":" << static_cast<double>(row.bytes) / static_cast<double>(row.keys)
+                      << ",\"busy_plain_ms\":" << row.busy_plain_ms << ",\"quiet_plain_ms\":" << row.quiet_plain_ms
+                      << ",\"busy\":{\"build_ms\":" << row.busy.build_ms << ",\"run_ms\":" << row.busy.run_ms
+                      << ",\"destroy_ms\":" << row.busy.destroy_ms << "}"
+                      << ",\"quiet\":{\"build_ms\":" << row.quiet.build_ms << ",\"run_ms\":" << row.quiet.run_ms
+                      << ",\"destroy_ms\":" << row.quiet.destroy_ms << "}}" << std::endl;
         }
         return rows;
     }
