@@ -193,6 +193,18 @@ namespace
             return stdlib::component<AlarmStrategy>(w, "strategy", input);
         }
     };
+    struct ImmediateAlarmInput
+    {
+        static void start(Scalar<"value", Int> value, Out<TS<Int>> out) { out.set(value.value()); }
+        static void eval(Scalar<"value", Int>, Out<TS<Int>>) {}
+    };
+    template <Int Value> struct ImmediateAlarmComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return stdlib::component<AlarmStrategy>(w, "strategy", wire<ImmediateAlarmInput>(w, Int{Value}));
+        }
+    };
     struct MappedAlarms
     {
         static Port<TSD<Str, TS<Int>>> compose(Wiring &w, NamedPort<"ts", TSD<Str, TS<Int>>> input)
@@ -444,4 +456,36 @@ TEST_CASE("component checkpoint propagates restored child alarms to the enclosin
         values<Value>(dict_delta<Str, TS<Int>>({{"a", 7}}), none)), values<Value>(dict_delta<Str, TS<Int>>({}), none));
     CHECK_OUTPUT(eval_node_with_options<MappedAlarmComponent>(interval(2, 5), values<Value>(none)),
         values<Value>(dict_delta<Str, TS<Int>>({{"a", 7}}), none, dict_delta<Str, TS<Int>>({{"a", 14}})));
+}
+
+TEST_CASE("restored future alarms preserve fresh input ticks at restart", "[checkpoint][component][scheduler]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    SECTION("input published during start")
+    {
+        CHECK_OUTPUT(eval_node_with_options<ImmediateAlarmComponent<7>>(interval(0, 1), values<Int>(none)), values<Int>(none));
+        CHECK_OUTPUT(eval_node_with_options<ImmediateAlarmComponent<-1>>(interval(1, 6),
+            values<Int>(none, none, none, none, none)), values<Int>(none, -1, none, none, none));
+    }
+    SECTION("root node")
+    {
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(0, 1), values<Int>(7)), values<Int>(none));
+        // The restart tick must cancel the second alarm and replace the first,
+        // even though neither saved alarm is due in this cycle.
+        CHECK_OUTPUT(eval_node_with_options<AlarmComponent>(interval(1, 6), values<Int>(-1, none, none, none, none)),
+                     values<Int>(none, -1, none, none, none));
+    }
+    SECTION("mapped child")
+    {
+        CHECK_OUTPUT(eval_node_with_options<MappedAlarmComponent>(interval(0, 1),
+            values<Value>(dict_delta<Str, TS<Int>>({{"a", 7}}))), values<Value>(dict_delta<Str, TS<Int>>({})));
+        CHECK_OUTPUT(eval_node_with_options<MappedAlarmComponent>(interval(1, 6),
+            values<Value>(dict_delta<Str, TS<Int>>({{"a", -1}}), none, none, none, none)),
+            values<Value>(none, dict_delta<Str, TS<Int>>({{"a", -1}}), none, none, none));
+    }
 }

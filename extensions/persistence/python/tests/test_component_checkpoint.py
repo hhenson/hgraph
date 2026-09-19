@@ -365,3 +365,20 @@ def test_restored_child_scheduler_notifies_parent_graph(tmp_path):
         assert hg.eval_node(mapped_alarm_component, [None],
                             __start_time__=hg.MIN_ST + hg.MIN_TD * 2,
                             __end_time__=hg.MIN_ST + hg.MIN_TD * 5) == [{"a": 7}, None, {"a": 14}]
+
+
+@pytest.mark.parametrize("mapped", [False, True])
+def test_future_alarm_preserves_fresh_restart_tick(tmp_path, mapped):
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    component = mapped_alarm_component if mapped else alarm_component
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "one", global_state=state)
+        result = hg.eval_node(component, [{"a": 7}] if mapped else [7],
+                              __end_time__=hg.MIN_ST + hg.MIN_TD)
+        assert result == ([{}] if mapped else None)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "alarms", "two", "one", global_state=state)
+        result = hg.eval_node(component, ([{"a": -1}] if mapped else [-1]) + [None] * 4,
+                              __start_time__=hg.MIN_ST + hg.MIN_TD,
+                              __end_time__=hg.MIN_ST + hg.MIN_TD * 6)
+        assert result == [None, {"a": -1} if mapped else -1, None, None, None]

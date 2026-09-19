@@ -889,11 +889,13 @@ namespace hgraph
         if (saved->scheduler)
             NodeScheduler{node.scheduler_state(), node.graph_value(), node.node_index(), impl_->start}
                 .restore_checkpoint(*saved->scheduler);
-        // What the restored start found still to do is not historical. Asked
-        // whichever way the branch above went: an input stamped at the start
-        // reads as modified without having scheduled anyone, and scheduling keeps
-        // the earliest time, so asking twice costs nothing.
+        // Owners also report live child work discovered during restored start.
         const auto live = node.checkpoint_ops().live_schedule_impl(node);
         if (live != MAX_DT) { node.graph().schedule_node(node.node_index(), std::max(live, impl_->start)); }
+        // Scheduling a future alarm can replace a slot already marked for the
+        // current cycle. Fresh active inputs must run first; evaluation then
+        // advances/re-arms the restored scheduler through its normal path.
+        if (saved->scheduler && active_input_changed)
+            node.graph().schedule_node(node.node_index(), impl_->start);
     }
 }
