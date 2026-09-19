@@ -121,7 +121,7 @@ def _own_output(ts: hg.TS[int]) -> hg.TS[int]:
 # campaign's known-defect family is deleted with it.
 @pytest.mark.xfail(strict=True, reason=(
     "A restored keyed input iterates its keys in a different order from the unbroken run when "
-    "a removal is pending at the cut and another follows in the first cycle after it: "
+    "a slot freed before the cut is still free at it and another removal follows: "
     "(0, 3) unbroken, (3, 0) restored. An order-sensitive reduction shows it as 76 vs 40. "
     "Python-value keyed storage only; the same stream passes from C++ "
     "(tests/cpp/test_reduce_checkpoint.cpp, 'reduce checkpoint keeps leaf order when one "

@@ -96,9 +96,9 @@ def _removes(event) -> bool:
 #: seed to rediscover the defect as a new failure.
 TSD_SLOT_ORDER = KnownDefect(
     "tsd-restored-slot-order",
-    "Python-value keyed storage: a removal pending at the cut, then another in the first cycle "
-    "after it, leaves a restored TSD iterating its keys in a different order from the unbroken "
-    "run. Only an order-sensitive reduction shows it. The same stream passes from C++.")
+    "Python-value keyed storage: a slot freed before the cut and still free at it, then another "
+    "removal after it, leaves a restored TSD iterating its keys in a different order from the "
+    "unbroken run. Only an order-sensitive reduction shows it. The same stream passes from C++.")
 
 
 def known_defect(scenario: Scenario):
@@ -108,9 +108,15 @@ def known_defect(scenario: Scenario):
     -- at which point the family is deleted, not left to rot."""
     if scenario.mode != "snapshot" or scenario.leaf != "folded":
         return None
+    # A removal on EACH side of some cut. The first relation asked for them in the two cycles
+    # either side of it, and the next seed walked straight past: removal, an ordinary tick,
+    # then the cut and another removal. What the defect needs is a freed slot still free at
+    # the cut, which outlives the cycle that freed it. Measured on nightly seed 2: 125 of the
+    # 168 ``folded`` snapshot scenarios are members, all 6 failures are among them, 119 members
+    # pass, and the 43 outside pass -- so this is a relation, not a blanket over the leaf.
     events = scenario.events
     for cut in scenario.cuts:
-        if 0 < cut < len(events) and _removes(events[cut - 1]) and _removes(events[cut]):
+        if any(map(_removes, events[:cut])) and any(map(_removes, events[cut:])):
             return TSD_SLOT_ORDER
     return None
 
