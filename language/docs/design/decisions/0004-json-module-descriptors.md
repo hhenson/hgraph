@@ -49,6 +49,15 @@ parameter kind. A runtime schema parameter has borrowed immutable ownership
 and cannot be a result. Readers reject version-four descriptors rather than
 mistake this metadata handle for a temporal signal input.
 
+Version 6 adds a required `recursive` Boolean to every struct field. It marks
+a recursive edge ([ADR 0012](0012-recursive-struct-fields.md)): an optional
+`atomic<T>` field whose `T` is a struct of the same module that reaches the
+field's struct again, which a backend realizes as an owner of `T` rather than
+by expanding `T`. The reader checks that a marked field is optional and that
+its type is an `atomic` record over a symbol of the descriptor's module.
+Readers reject version-five descriptors rather than read an edge as an
+ordinary field; a module is rebuilt to regenerate its descriptor.
+
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
 order inside expressions, escapes every JSON control character, and writes one

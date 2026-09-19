@@ -107,6 +107,15 @@ add_test(
 )
 
 add_test(
+    NAME hgraph_language_recursive_descriptor
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/recursive-export.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/recursive-descriptor
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_recursive_descriptor.cmake
+)
+
+add_test(
     NAME hgraph_language_module_parts
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>

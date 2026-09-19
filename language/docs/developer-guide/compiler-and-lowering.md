@@ -803,10 +803,13 @@ same closure. The emitter defines each struct after every struct it holds
 inline, and declares an edge's target first only when the target is defined
 later; `Edge` needs only the target's name.
 
-A module descriptor records an exported struct's layout, and its format cannot
-yet say that a field is an edge (ADR 0004 format change). An importer would
-read the edge as an ordinary field, so `emit-cpp` refuses to export a struct
-with an edge; the struct is usable inside its module.
+A module descriptor records an exported struct's layout. Format 6 (ADR 0004)
+marks each field's `recursive` edge, so no reader takes an edge for an
+ordinary field; the reader checks that an edge is an optional `atomic` record
+over a struct of the same module, and `hgl check <module>.hgl-module.json`
+validates it without loading code. No module can import another module's
+struct type yet, recursive or not, so the mark is recorded for the importer
+that will read it.
 
 ## Generic constraint IR and lowering
 

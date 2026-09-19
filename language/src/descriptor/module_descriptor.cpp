@@ -194,6 +194,7 @@ namespace hgl::descriptor
                     .default_value   = constant(source.default_value),
                     .origin_identity = source.origin_identity,
                     .optional        = source.optional,
+                    .recursive       = source.recursive,
                 };
             }
 

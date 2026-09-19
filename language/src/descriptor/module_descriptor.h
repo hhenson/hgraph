@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 5;
+    inline constexpr std::uint32_t module_descriptor_format_version = 6;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -222,6 +222,9 @@ namespace hgl::descriptor
         SchemaId    default_value{no_schema_id};
         std::string origin_identity{};
         bool        optional{false};
+        /// A recursive edge (HGL ADR 0012): an optional `atomic<T>` field whose
+        /// `T` is a struct of the same module that reaches this one again.
+        bool recursive{false};
 
         friend bool operator==(const StructField &, const StructField &) = default;
     };

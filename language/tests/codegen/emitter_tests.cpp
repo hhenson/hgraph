@@ -1,4 +1,5 @@
 #include "codegen/cpp_emitter.h"
+#include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/plan.h"
 #include "ir/hir_printer.h"
@@ -3164,9 +3165,9 @@ export fn pass(x: atomic<Node>) -> atomic<Node> => x
     CHECK_FALSE(contains(emitted->header, "struct Node;"));
 }
 
-// Until module descriptors record an edge (ADR 0012), an exported struct's
-// layout would reach an importer as an ordinary field, so it is refused.
-TEST_CASE("emit-cpp does not export a struct with a recursive edge", "[codegen][recursive]") {
+// An exported struct's layout marks each recursive edge (descriptor format 6,
+// ADR 0012), so an importer never reads one as an ordinary field.
+TEST_CASE("emit-cpp marks recursive edges in an exported struct's descriptor layout", "[codegen][recursive]") {
     Unit unit{R"(
 module recursive_export
 
@@ -3176,7 +3177,14 @@ export struct Node {
 }
 )"};
     REQUIRE_FALSE(unit.diagnostics.has_errors());
-    CHECK_FALSE(unit.emit());
-    CHECK(contains(unit.diagnostics.render(unit.file),
-                   "exported struct 'Node' has recursive edge 'next' (ADR 0012), which module descriptors cannot record yet"));
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const auto decoded = hgl::descriptor::read_json(emitted->descriptor);
+    INFO((decoded.error ? decoded.error->path + ": " + decoded.error->message : ""));
+    REQUIRE(decoded);
+    REQUIRE(decoded.value->interface.size() == 1U);
+    const auto &fields = decoded.value->interface.front().fields;
+    REQUIRE(fields.size() == 2U);
+    CHECK_FALSE(fields[0].recursive);
+    CHECK(fields[1].recursive);
 }

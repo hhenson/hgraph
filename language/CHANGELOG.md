@@ -9,10 +9,14 @@
   type bridge now uses too, so both register the same schemas under the same
   names and agree tick for tick on the recursive fixture. The emitter defines
   each struct after the structs it holds inline and forward-declares only an
-  edge target defined later. A struct with an edge cannot be exported yet:
-  module descriptors cannot record an edge, so `emit-cpp` reports it rather
-  than hand an importer an ordinary field. Generic specializations are named
+  edge target defined later. Generic specializations are named
   `Pair[int, str]` in both backends.
+- Module descriptor format 6 (ADR 0004) adds a required `recursive` Boolean
+  to every struct field, marking a recursive edge (ADR 0012) in an exported
+  struct's layout. The reader checks that an edge is optional and an `atomic`
+  type over a struct of the same module, and `hgl check` validates it without
+  loading code. Descriptors in format 5 are rejected; rebuild a module to
+  regenerate its descriptor.
 - Realize recursive struct fields (ADR 0012) in direct wiring. An edge is an
   owner of its target, so a value is a finite tree compared, hashed and copied
   through its whole depth; structs that reach one another through edges

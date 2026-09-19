@@ -5536,19 +5536,6 @@ namespace hgl::codegen
                 descriptor_options.source_native_symbols.emplace_back(
                     function.candidate_identity, native_cpp_symbol(gir::NativeFunctionId{static_cast<std::uint32_t>(index)}));
             }
-            // An exported struct's layout is part of the descriptor, whose
-            // format cannot yet mark a field as a recursive edge; an importer
-            // would read the edge as an ordinary field.
-            for (const gir::StructContract &structure : graph_.structures) {
-                if (!structure.exported) { continue; }
-                for (const gir::StructField &field : structure.fields) {
-                    if (!field.recursive) { continue; }
-                    backend(field.range, "exported struct '" + std::string{local_identity(structure.identity)} +
-                                             "' has recursive edge '" + field.name +
-                                             "' (ADR 0012), which module descriptors cannot record yet; the struct can "
-                                             "be used inside its module but not exported");
-                }
-            }
             const descriptor::ModuleDescriptor descriptor = descriptor::describe_module(graph_, std::move(descriptor_options));
             if (const std::optional<descriptor::ReadError> invalid = descriptor::validate(descriptor)) {
                 backend({}, "generated module descriptor is invalid at '" + invalid->path + "': " + invalid->message);

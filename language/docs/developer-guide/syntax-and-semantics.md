@@ -379,9 +379,9 @@ another module's struct, and imports are acyclic, so no cycle crosses a module
 (rule 5). The resolver marks each admitted edge on the struct's effective
 fields, and typed HIR and hgraph IR carry the mark with the edge's target
 named by struct identity (compiler and lowering guide, "Recursive struct
-edges"). Both backends realize an edge as an owner of its target. A module
-descriptor cannot record an edge yet, so `emit-cpp` does not export a struct
-that has one (roadmap, "Feature status matrix").
+edges"). Both backends realize an edge as an owner of its target, and module
+descriptor format 6 marks each edge in an exported struct's layout (roadmap,
+"Feature status matrix").
 
 Struct generic parameters use the common `generic_parameters` production, and
 their trailing `requires` clause uses the same constraint grammar as a function

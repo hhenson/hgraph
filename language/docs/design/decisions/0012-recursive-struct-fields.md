@@ -10,8 +10,11 @@ Both backends realize edges through hgraph's
 `src/wiring/type_bridge.cpp`, and generated C++ through the static schema's
 `hgraph::Edge<T>` field, with the two agreeing tick for tick
 (`tests/wiring/recursive-structs.hgl`,
-`tests/codegen/generated_recursive_tests.cpp`). Module descriptors do not
-record edges yet, so `emit-cpp` does not export a struct that has one.
+`tests/codegen/generated_recursive_tests.cpp`). Module descriptor format 6
+marks each edge in an exported struct's layout, and `hgl check` validates it
+without loading code (`tests/driver/recursive-export.hgl`). No module can
+import another module's struct type yet, so the import in the acceptance list
+waits for struct imports in general.
 
 ## Context
 
