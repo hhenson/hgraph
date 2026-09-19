@@ -161,7 +161,16 @@ the thread-local realization scope has ended.
 C++ code can request an owner with ``TypeRegistry::owned(target)``. A
 self-recursive nominal schema is declared atomically with
 ``TypeRegistry::recursive_bundle(...)``; a null field-schema entry denotes
-``Owned<Self>``. Python recognises direct self references, including
+``Owned<Self>``.
+
+Hashing, equality and ordering of a recursive value run through its owned
+edges, so a batch member's capabilities depend on its own. The registry takes
+the greatest fixed point: a member is hashable, equatable or comparable when
+every field that is not an owned edge into the batch is, and every member it
+owns is. An owned edge never removes a capability by itself, so a
+``Node{value: int, next: Owned<Node>}`` compares, hashes and orders through
+its whole depth, while a member holding a ``set`` loses ordering and so does
+every member that owns it. Python recognises direct self references, including
 ``Optional[Self]``, on a dataclass ``CompoundScalar`` and uses the same native
 owned path. Python-owned dataclasses may also describe direct or mutual
 recursion because their annotations do not imply recursive inline native

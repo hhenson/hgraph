@@ -1129,13 +1129,19 @@ namespace hgraph
             qualified_names.push_back(qualified_name);
         }
 
+        // Hashing, equality and ordering of a member run through its owned
+        // edges into the batch, so a member's capabilities depend on its own.
+        // Seed every member with them, as the greatest fixed point starts, so
+        // an owned edge interned below does not remove one by itself.
+        constexpr ValueTypeFlags capabilities =
+            ValueTypeFlags::Hashable | ValueTypeFlags::Equatable | ValueTypeFlags::Comparable;
         std::vector<ValueTypeMetaData *> named;
         named.reserve(definitions.size());
         for (std::size_t index = 0; index < definitions.size(); ++index)
         {
             const auto &definition = definitions[index];
             auto record = std::make_unique<ValueTypeMetaData>(
-                ValueTypeKind::Bundle, ValueTypeFlags::None,
+                ValueTypeKind::Bundle, capabilities,
                 store_name_interned(qualified_names[index]));
             auto hierarchy = std::make_unique<BundleHierarchyMetaData>();
             hierarchy->namespace_name =
@@ -1179,6 +1185,58 @@ namespace hgraph
             named[index]->fields = un_named->fields;
             named[index]->field_count = un_named->field_count;
             named[index]->wrapped_un_named = un_named;
+        }
+
+        // The fixed point: a member keeps a capability while every field that
+        // is not an owned edge into the batch has it and every member it owns
+        // keeps it. Each loss travels back along owned edges once per
+        // capability, so this is linear in the batch's fields.
+        std::vector<ValueTypeFlags> held(definitions.size(), capabilities);
+        std::vector<std::vector<std::size_t>> owners(definitions.size());
+        std::vector<bool> owns(definitions.size(), false);
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            for (const auto &field : definitions[index].fields)
+            {
+                if (field.owned_target.has_value())
+                {
+                    owners[*field.owned_target].push_back(index);
+                    owns[index] = true;
+                }
+                else
+                {
+                    held[index] = intersect_with(held[index], field.type) & capabilities;
+                }
+            }
+        }
+        std::vector<std::size_t> losses;
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            if (held[index] != capabilities) { losses.push_back(index); }
+        }
+        while (!losses.empty())
+        {
+            const std::size_t member = losses.back();
+            losses.pop_back();
+            for (const std::size_t owner : owners[member])
+            {
+                const ValueTypeFlags reduced = held[owner] & held[member];
+                if (reduced == held[owner]) { continue; }
+                held[owner] = reduced;
+                losses.push_back(owner);
+            }
+        }
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            named[index]->flags = (named[index]->flags & ~capabilities) | held[index];
+            // A member with an owned edge has an un-named shape of its own,
+            // since the edge's owner schema is new; one without keeps the
+            // shared shape, whose capabilities its direct fields already set.
+            if (owns[index])
+            {
+                auto *shape = const_cast<ValueTypeMetaData *>(named[index]->wrapped_un_named);
+                shape->flags = named[index]->flags;
+            }
         }
 
         for (std::size_t index = 0; index < definitions.size(); ++index)
