@@ -1661,7 +1661,19 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   // Concrete nested owners carry runtime-only scalar handles; their child
   // plans and typed custom checkpoint contract validate those independently.
   if (builder.scalars().has_value() && !builder.type().ops_ref().checkpoint_ops->supported) {
-    manifest::encode_manifest_scalar(signature, builder.scalars().view());
+    // What cannot be signed cannot be held to a contract, so it cannot be
+    // recovered: a REFUSAL, with the node named, and the only failure of this
+    // function that is one without already saying so. The signer reports a
+    // value it has no canonical form for as a runtime_error, and the value
+    // layer reports a scalar stored another way than its flags say (a Python
+    // Enum is flagged Enum and is not an Int) as a type mismatch. Left as they
+    // were, a worker graph that nobody will ever capture stopped wiring.
+    annotate_on_exception<std::exception>(
+        [&] { manifest::encode_manifest_scalar(signature, builder.scalars().view()); },
+        [&](const std::exception &error) {
+          throw std::invalid_argument("component checkpoint: the scalar configuration of node '" +
+              std::string{schema->name()} + "' cannot be signed, so the node cannot be recovered: " + error.what());
+        });
   }
   // Empty maps still commit their complete child-plan contract. Otherwise an
   // incompatible strategy could hide behind an empty membership at the cut.

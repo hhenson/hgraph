@@ -3,6 +3,7 @@
 Sources emit future deltas at runtime, so a resumed removal is interpreted
 against the restored source baseline rather than a fresh test conversion cache.
 """
+import enum
 from datetime import date, datetime
 
 import hgraph as hg
@@ -261,3 +262,27 @@ def test_named_nodes_inside_a_mapped_child_restart(tmp_path, cuts):
 
     actual = compare_restarts(tmp_path, scenario, (KEYED,), KEYED, (KEYED_EVENTS,), cuts)
     assert actual[5] == {"a": 8, "c": 5}
+
+
+class _Side(enum.Enum):
+    BUY = 1
+    SELL = 2
+
+
+@hg.compute_node
+def _sided(ts: hg.TS[int], side: _Side) -> hg.TS[str]:
+    return f"{side.name}:{ts.value}"
+
+
+def test_a_node_whose_scalars_cannot_be_signed_is_refused_by_name(tmp_path):
+    # A Python Enum scalar has no canonical signature today. Unrecovered, the node just runs;
+    # as part of a recovered component it is refused when the graph is wired, by name and with
+    # the reason -- it used to surface as a bare "checked_as<T> type mismatch".
+    @hg.component
+    def scenario(ts: hg.TS[int]) -> hg.TS[str]:
+        return _sided(ts, _Side.SELL)
+
+    events = [None, 1, 2]
+    assert _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0)[1] == "SELL:1"
+    with pytest.raises(Exception, match="scalar configuration of node .* cannot be signed"):
+        _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0, persistence.ComponentCheckpointStore(tmp_path))
