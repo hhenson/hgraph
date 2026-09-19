@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <ranges>
 #include <stdexcept>
+#include <limits>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -1264,6 +1266,172 @@ namespace hgraph
             register_value_alias(qualified_names[index], named[index]);
         }
         return {named.begin(), named.end()};
+    }
+
+    const ValueTypeMetaData *TypeRegistry::recursive_bundle_closure(std::string_view root,
+                                                                    const RecursiveBundleDescriber &describe)
+    {
+        if (const ValueTypeMetaData *existing = value_type(root)) { return existing; }
+
+        constexpr std::uint32_t unvisited = std::numeric_limits<std::uint32_t>::max();
+        struct Node
+        {
+            std::string            name{};
+            RecursiveBundleRequest request{};
+            std::uint32_t          order{unvisited};
+            std::uint32_t          low{unvisited};
+            bool                   on_stack{false};
+        };
+        std::vector<Node>                                           nodes;
+        std::unordered_map<std::string, std::uint32_t>              index;
+        std::unordered_map<std::string, const ValueTypeMetaData *>  done;
+        std::vector<std::uint32_t>                                  stack;
+        std::vector<std::pair<std::uint32_t, std::size_t>>          frames;  // node, next edge
+        std::uint32_t                                               next_order = 0;
+
+        // Registered earlier, by another caller, or by a component this call closed.
+        const auto registered = [&](const std::string &name) -> const ValueTypeMetaData * {
+            if (const auto found = done.find(name); found != done.end()) { return found->second; }
+            return value_type(name);
+        };
+        const auto enter = [&](std::string name) {
+            RecursiveBundleRequest request = describe(name);
+            const RecursiveBundleDefinition &definition = request.definition;
+            const std::string qualified = qualified_bundle_name(definition.bundle_namespace, definition.local_name);
+            if (qualified != name)
+            {
+                throw std::invalid_argument("recursive bundle closure asked for '" + name + "' and was described '" +
+                                            qualified + "'");
+            }
+            std::vector<bool> edge(definition.fields.size(), false);
+            for (const auto &[position, target] : request.edges)
+            {
+                if (position >= definition.fields.size() || edge[position] || target.empty())
+                {
+                    throw std::invalid_argument("recursive bundle '" + name + "' names an invalid edge");
+                }
+                edge[position] = true;
+            }
+            for (std::size_t position = 0; position < definition.fields.size(); ++position)
+            {
+                const auto &field = definition.fields[position];
+                if (field.owned_target.has_value() || (field.type == nullptr) != edge[position])
+                {
+                    throw std::invalid_argument("recursive bundle '" + name + "' field '" + field.name +
+                                                "' needs exactly one direct type or edge");
+                }
+            }
+            const auto id = static_cast<std::uint32_t>(nodes.size());
+            index.emplace(name, id);
+            nodes.push_back(Node{.name = std::move(name), .request = std::move(request), .order = next_order,
+                                 .low = next_order, .on_stack = true});
+            ++next_order;
+            stack.push_back(id);
+            frames.emplace_back(id, 0U);
+        };
+        // Registers one closed component, members in discovery order.
+        const auto close = [&](std::vector<std::uint32_t> members) {
+            std::ranges::sort(members);
+            std::unordered_map<std::string_view, std::size_t> position;
+            for (std::size_t member = 0; member < members.size(); ++member)
+            {
+                position.emplace(nodes[members[member]].name, member);
+            }
+            const Node &first  = nodes[members.front()];
+            const bool  cyclic = members.size() > 1U || std::ranges::any_of(first.request.edges, [&](const auto &edge) {
+                                    return edge.second == first.name;
+                                });
+            // A concurrent caller may have registered the component meanwhile.
+            if (const ValueTypeMetaData *existing = value_type(first.name))
+            {
+                for (const std::uint32_t member : members)
+                {
+                    const ValueTypeMetaData *meta = value_type(nodes[member].name);
+                    if (meta == nullptr)
+                    {
+                        throw std::logic_error("recursive bundle '" + nodes[member].name +
+                                               "' was registered without its batch");
+                    }
+                    done.emplace(nodes[member].name, meta);
+                }
+                (void)existing;
+                return;
+            }
+            if (!cyclic)
+            {
+                const RecursiveBundleDefinition &definition = first.request.definition;
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+                fields.reserve(definition.fields.size());
+                for (const auto &field : definition.fields) { fields.emplace_back(field.name, field.type); }
+                for (const auto &[field, target] : first.request.edges) { fields[field].second = owned(registered(target)); }
+                done.emplace(first.name, bundle(definition.bundle_namespace, definition.local_name, fields,
+                                                definition.parents, definition.is_abstract, definition.discriminator,
+                                                definition.generic_arguments, definition.discriminator_value));
+                return;
+            }
+            std::vector<RecursiveBundleDefinition> definitions;
+            definitions.reserve(members.size());
+            for (const std::uint32_t member : members)
+            {
+                RecursiveBundleDefinition definition = nodes[member].request.definition;
+                for (const auto &[field, target] : nodes[member].request.edges)
+                {
+                    if (const auto inside = position.find(target); inside != position.end())
+                    {
+                        definition.fields[field].owned_target = inside->second;
+                    }
+                    else
+                    {
+                        definition.fields[field].type = owned(registered(target));
+                    }
+                }
+                definitions.push_back(std::move(definition));
+            }
+            const std::vector<const ValueTypeMetaData *> metas = recursive_bundles(definitions);
+            for (std::size_t member = 0; member < members.size(); ++member)
+            {
+                done.emplace(nodes[members[member]].name, metas[member]);
+            }
+        };
+
+        enter(std::string{root});
+        while (!frames.empty())
+        {
+            const std::uint32_t node = frames.back().first;
+            if (const std::size_t next = frames.back().second++; next < nodes[node].request.edges.size())
+            {
+                const std::string target = nodes[node].request.edges[next].second;
+                if (const auto found = index.find(target); found != index.end())
+                {
+                    if (nodes[found->second].on_stack)
+                    {
+                        nodes[node].low = std::min(nodes[node].low, nodes[found->second].order);
+                    }
+                    continue;
+                }
+                if (registered(target) != nullptr) { continue; }
+                enter(target);
+                continue;
+            }
+            frames.pop_back();
+            if (!frames.empty())
+            {
+                const std::uint32_t parent = frames.back().first;
+                nodes[parent].low          = std::min(nodes[parent].low, nodes[node].low);
+            }
+            if (nodes[node].low != nodes[node].order) { continue; }
+            std::vector<std::uint32_t> members;
+            std::uint32_t              member = unvisited;
+            while (member != node)
+            {
+                member = stack.back();
+                stack.pop_back();
+                nodes[member].on_stack = false;
+                members.push_back(member);
+            }
+            close(std::move(members));
+        }
+        return registered(std::string{root});
     }
 
     const ValueTypeMetaData *

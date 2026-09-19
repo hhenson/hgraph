@@ -163,6 +163,17 @@ self-recursive nominal schema is declared atomically with
 ``TypeRegistry::recursive_bundle(...)``; a null field-schema entry denotes
 ``Owned<Self>``.
 
+When the members of a batch are not known in advance,
+``TypeRegistry::recursive_bundle_closure(root, describe)`` finds them
+(:doc:`RFC 0041 </rfc/rfc_0041_recursive_bundle_closures>`). The describer
+returns one specialization's definition, naming each recursive edge's target
+by qualified name. The registry walks the targets, registers each strongly
+connected component as one ``recursive_bundles`` batch when it closes, keeps a
+component of one specialization without an edge to itself an ordinary named
+Bundle, and reuses a name already registered. The static schema's ``Edge``
+marker and the HGL compiler's direct-wiring backend both register recursive
+structs this way.
+
 Hashing, equality and ordering of a recursive value run through its owned
 edges, so a batch member's capabilities depend on its own. The registry takes
 the greatest fixed point: a member is hashable, equatable or comparable when
