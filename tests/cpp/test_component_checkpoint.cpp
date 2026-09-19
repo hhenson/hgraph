@@ -735,3 +735,118 @@ TEST_CASE("component checkpoint restores alarms beside rebuilt cache and recorda
     CHECK_OUTPUT(eval_node_with_options<CachedAlarmComponent>(interval(3, 6), values<Int>(none, none, none)), values<Int>(none, none, none));
     CHECK(cache_lifetime.expired());
 }
+
+namespace
+{
+    template <bool InitialDelay, Int Limit = 3, Int Delay = 2> struct ScheduledStrategy
+    {
+        static Port<TS<Bool>> compose(Wiring &w)
+        {
+            return wire<stdlib::schedule>(w, MIN_TD * Delay, Bool{InitialDelay}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+        }
+    };
+    template <bool InitialDelay, Int Limit = 3, Int Delay = 2> struct ScheduledComponent
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return stdlib::component<ScheduledStrategy<InitialDelay, Limit, Delay>>(w, "periodic");
+        }
+    };
+    template <bool WithStart, Int Limit = 3> struct DynamicScheduledStrategy
+    {
+        static Port<TS<Bool>> compose(Wiring &w, NamedPort<"delay", TS<TimeDelta>> delay,
+                                     NamedPort<"start", TS<DateTime>> start)
+        {
+            if constexpr (WithStart)
+                return wire<stdlib::schedule>(w, delay, start, Bool{true}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+            else
+                return wire<stdlib::schedule>(w, delay, Bool{true}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+        }
+    };
+    template <bool WithStart, Int Limit = 3> struct DynamicScheduledComponent
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<TimeDelta>> delay, Port<TS<DateTime>> start)
+        {
+            return stdlib::component<DynamicScheduledStrategy<WithStart, Limit>>(w, "periodic", delay, start);
+        }
+    };
+}
+
+TEST_CASE("schedule recovery preserves the finite emission budget and original deadlines", "[checkpoint][component][schedule]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "periodic", .load = [&] { return completed; },
+        .commit = [&](const auto &image) {
+            std::string bytes;
+            encode_component_checkpoint(image, bytes);
+            completed = decode_component_checkpoint(bytes);
+        }});
+    const auto check = [&]<bool InitialDelay>() {
+        using Graph = ScheduledComponent<InitialDelay>;
+        const Int first = InitialDelay ? 2 : 0;
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, first + 1), values<Int>(none)),
+                     InitialDelay ? values<Bool>(none, none, true) : values<Bool>(true));
+        REQUIRE(completed);
+        // Restarts are between deadlines: do not shift the grid to restart + delay.
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(first + 1, first + 3), values<Int>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(first + 3, first + 5), values<Int>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(first + 5, first + 8), values<Int>(none)), values<Bool>(none));
+        // A fully spent schedule can also restart long after its former deadlines.
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<Int>(none)), values<Bool>(none));
+    };
+    SECTION("delayed first tick") { check.template operator()<true>(); }
+    SECTION("immediate first tick") { check.template operator()<false>(); }
+    SECTION("before first emission and exactly at a deadline")
+    {
+        CHECK_OUTPUT(eval_node_with_options<ScheduledComponent<true>>(interval(0, 2), values<Int>(none)), values<Bool>(none));
+        CHECK_OUTPUT(eval_node_with_options<ScheduledComponent<true>>(interval(2, 7), values<Int>(none)), values<Bool>(true, none, true, none, true));
+    }
+    SECTION("zero emission budget")
+    {
+        CHECK_OUTPUT((eval_node_with_options<ScheduledComponent<false, 0>>(interval(0, 2), values<Int>(none))), values<Bool>(none));
+        CHECK_OUTPUT((eval_node_with_options<ScheduledComponent<false, 0>>(interval(20, 22), values<Int>(none))), values<Bool>(none));
+    }
+    SECTION("changed scalar configuration is incompatible")
+    {
+        CHECK_OUTPUT(eval_node_with_options<ScheduledComponent<true>>(interval(0, 3), values<Int>(none)), values<Bool>(none, none, true));
+        CHECK_THROWS_WITH((eval_node_with_options<ScheduledComponent<true, 4>>(interval(3, 5), values<Int>(none))),
+                          Catch::Matchers::ContainsSubstring("incompatible"));
+        CHECK_THROWS_WITH((eval_node_with_options<ScheduledComponent<true, 3, 3>>(interval(3, 5), values<Int>(none))),
+                          Catch::Matchers::ContainsSubstring("incompatible"));
+    }
+}
+
+TEST_CASE("schedule recovery preserves time-series delay progress and start resets", "[checkpoint][component][schedule]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "periodic", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    const auto check = [&]<bool WithStart>() {
+        using Graph = DynamicScheduledComponent<WithStart>;
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, 3), values<TimeDelta>(MIN_TD * 2), values<DateTime>(MIN_ST)),
+                     values<Bool>(none, none, true));
+        REQUIRE(completed);
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(3, 5), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(5, 7), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none));
+        if constexpr (WithStart)
+        {
+            CHECK_OUTPUT(eval_node_with_options<Graph>(interval(23, 30), values<TimeDelta>(none), values<DateTime>(MIN_ST + MIN_TD * 23)),
+                         values<Bool>(none, none, true, none, true, none, true));
+        }
+    };
+    SECTION("delay only") { check.template operator()<false>(); }
+    SECTION("explicit start") { check.template operator()<true>(); }
+    SECTION("a start tick cannot arm a zero-budget schedule")
+    {
+        using Graph = DynamicScheduledComponent<true, 0>;
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, 1), values<TimeDelta>(MIN_TD * 2), values<DateTime>(MIN_ST)), values<Bool>(none));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none));
+    }
+}

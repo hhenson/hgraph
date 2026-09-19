@@ -1,9 +1,9 @@
 # ADR 0011: `cache` declarations
 
 Status: accepted. Scalar cache declarations and aggregation are implemented.
-Native mixed recordable state/cache storage and pending scheduler recovery are
-implemented. HGL mixed lowering and schedule-operator progress remain
-implementation gaps, not exceptions to the recovery contract.
+Native mixed recordable state/cache storage, pending scheduler recovery, and
+finite `schedule` progress recovery are implemented. Mixed HGL state/cache
+lowering remains an implementation gap, not an exception to the contract.
 
 ## Decision
 
@@ -40,16 +40,22 @@ Component recovery currently supports simulation only.
 recovered; its normal `start` behaviour is unchanged.
 
 Native and Python persistence tests cover pending deadlines, equal deadlines,
-cancelled/replaced tags, empty schedules, and repeated checkpoints. Operator
-progress is a separate contract: a finite schedule's emitted-tick counter is
-semantic history and needs recordable state. Recovering its native alarm does
-not recover that counter. The eventual operator test must show that a three-tick
-schedule checkpointed after one emission resumes with exactly two remaining.
+cancelled/replaced tags, empty schedules, and repeated checkpoints. Native
+`schedule` keeps its emitted-tick count in `RecordableState<TS<Int>>`; the HGL
+constant-delay implementation uses `state ticks`. A three-tick schedule
+checkpointed after one emission resumes with exactly two emissions remaining
+at the original deadlines. Both immediate and delayed first emissions,
+checkpoints before the first emission, and exhausted budgets are covered.
+A completed schedule does not restart when the graph starts again.
 
-The current native and HGL `schedule` implementations keep their counter in
-non-recordable storage, so full checkpoint recovery for these schedule
-implementations is not implemented. Their ordinary-run parity tests establish
-only that supported execution slice. This
-is a correctness gap to repair through the operator recordable-state contract
-before production migration or claims of recovery equivalence. It is not an
-accepted exception allowing semantic history in a cache.
+The native time-series-delay overloads also retain their progress. A fresh
+`start` input still resets their emission budget and re-bases the grid. HGL
+has not yet implemented these overloads. Scalar configuration participates in
+checkpoint compatibility, so changing a delay or budget requires a new run.
+
+Generated HGL scheduler sources receive an explicit checkpoint contract only
+when their runtime state consists of endpoints and pending alarms. Sources
+with caches, clock injection, or logger injection remain refused. This does
+not implement general native-resource recovery. Wall-clock recovery remains
+outside the simulation-only component contract; `SingleShotScheduler` retains
+its best-effort exception.

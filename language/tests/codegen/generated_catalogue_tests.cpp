@@ -5,6 +5,8 @@
 
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/lib/std/std_nodes.h>
+#include <hgraph/lib/std/component.h>
+#include <hgraph/runtime/checkpoint_codec.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 
@@ -76,9 +78,7 @@ TEST_CASE("catalogue lifecycle bodies passivate exactly as the native nodes do",
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, none, 3, 4), Int{2});
     check_parity<standard::take, stdlib::take>(values<Int>(1, 2), Int{0});
-    // Ordinary-run parity only; this counter is not recovery-safe (ADR 0011).
-    // schedule currently keeps its tick counter in a cache, as
-    // the native node keeps it in State<Int>.
+    // Both implementations retain the emitted count in recordable state.
     check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{false}, Int{3}, Bool{false});
     check_parity<standard::schedule, stdlib::schedule>(MIN_TD * 2, Bool{true}, Int{2}, Bool{false});
     check_parity<standard::schedule, stdlib::schedule>(MIN_TD, Bool{true}, Int{0}, Bool{false});
@@ -338,4 +338,67 @@ TEST_CASE("catalogue rounding has independent decimal boundary expectations", "[
                                   values<Int>(0, -1, -1, -1, -1, -1, 2, -1)),
         values<Float>(1e100, 150.0, 120.0, 140.0, 150.0, 140.0, 2.67, 1000.0));
     CHECK_THROWS(eval_node<scalar::round_>(values<Float>(1.7e308), values<Int>(-308)));
+}
+
+namespace
+{
+    template <bool Initial, Int Limit = 3> struct GeneratedSchedule
+    {
+        static Port<TS<Bool>> compose(Wiring &w)
+        {
+            return wire<standard::schedule>(w, MIN_TD * 2, Bool{Initial}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+        }
+    };
+    template <bool Initial, Int Limit = 3> struct GeneratedScheduleComponent
+    {
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return stdlib::component<GeneratedSchedule<Initial, Limit>>(w, "periodic");
+        }
+    };
+}
+
+TEST_CASE("generated schedule recovers its remaining budget without shifting deadlines", "[codegen][catalogue][checkpoint]")
+{
+    register_catalogue();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "periodic", .load = [&] { return completed; },
+        .commit = [&](const auto &image) {
+            std::string bytes;
+            encode_component_checkpoint(image, bytes);
+            completed = decode_component_checkpoint(bytes);
+        }});
+    const auto interval = [](Int begin, Int end) {
+        return EvalNodeRunOptions{.start_time = MIN_ST + MIN_TD * begin, .end_time = MIN_ST + MIN_TD * end};
+    };
+    const auto check = [&]<bool Initial>() {
+        using Graph = GeneratedScheduleComponent<Initial>;
+        const Int first = Initial ? 2 : 0;
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, first + 1), values<Int>(none)),
+                     Initial ? values<Bool>(none, none, true) : values<Bool>(true));
+        REQUIRE(completed);
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(first + 1, first + 3), values<Int>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(first + 3, first + 5), values<Int>(none)), values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<Int>(none)), values<Bool>(none));
+    };
+    SECTION("delayed first tick") { check.template operator()<true>(); }
+    SECTION("immediate first tick") { check.template operator()<false>(); }
+    SECTION("before first emission and at the pending deadline")
+    {
+        CHECK_OUTPUT(eval_node_with_options<GeneratedScheduleComponent<true>>(interval(0, 2), values<Int>(none)), values<Bool>(none));
+        CHECK_OUTPUT(eval_node_with_options<GeneratedScheduleComponent<true>>(interval(2, 7), values<Int>(none)), values<Bool>(true, none, true, none, true));
+    }
+    SECTION("zero emission budget")
+    {
+        CHECK_OUTPUT((eval_node_with_options<GeneratedScheduleComponent<false, 0>>(interval(0, 2), values<Int>(none))), values<Bool>(none));
+        CHECK_OUTPUT((eval_node_with_options<GeneratedScheduleComponent<false, 0>>(interval(20, 22), values<Int>(none))), values<Bool>(none));
+    }
+    SECTION("changed budget invalidates the checkpoint")
+    {
+        CHECK_OUTPUT(eval_node_with_options<GeneratedScheduleComponent<true>>(interval(0, 3), values<Int>(none)), values<Bool>(none, none, true));
+        CHECK_THROWS_WITH((eval_node_with_options<GeneratedScheduleComponent<true, 4>>(interval(3, 5), values<Int>(none))),
+                          Catch::Matchers::ContainsSubstring("incompatible"));
+    }
 }

@@ -2,10 +2,12 @@
 
 #include "wiring/backend.h"
 
+#include <hgraph/lib/std/component.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -198,4 +200,30 @@ TEST_CASE("generated fixed-list scalar reads use guarded child validity", "[code
                      values<Value>(list_delta<TS<Int>>({{1, 9}}), list_delta<TS<Int>>({{0, 3}}), list_delta<TS<Int>>({{1, 10}}),
                                    list_delta<TS<Int>>({{0, 7}})))),
                  values<Int>(none, 3, 3, 7));
+}
+
+namespace
+{
+    template <typename Op> struct RecoverySource
+    {
+        static Port<TS<Int>> compose(Wiring &w) { return wire<Op>(w).template as<TS<Int>>(); }
+    };
+    template <typename Op> struct RecoverySourceComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return stdlib::component<RecoverySource<Op>>(w, "source");
+        }
+    };
+}
+
+TEST_CASE("generated sources with caches or external clocks refuse checkpoint admission", "[codegen][runtime][checkpoint]")
+{
+    session();
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {.component_id = "source", .commit = [](const ComponentCheckpoint &) {}});
+    CHECK_THROWS_WITH(eval_node<RecoverySourceComponent<runtime::operators::cached_source>>(values<Int>(none)),
+                      Catch::Matchers::ContainsSubstring("unsupported node"));
+    CHECK_THROWS_WITH(eval_node<RecoverySourceComponent<runtime::operators::clock_source>>(values<Int>(none)),
+                      Catch::Matchers::ContainsSubstring("unsupported node"));
 }

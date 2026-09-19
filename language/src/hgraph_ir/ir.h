@@ -661,6 +661,9 @@ namespace hgl::hgraph_ir
         /// A handler is activated by `scheduled()` (ADR 0010); such a
         /// handler adds no input to the node's activation set.
         bool uses_scheduled{false};
+        /// A source whose complete runtime state is endpoints and NodeScheduler.
+        /// Cache and external clock/logger capabilities remain fail-closed.
+        bool checkpoint_source{false};
     };
 
     struct Module
