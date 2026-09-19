@@ -374,6 +374,15 @@ bootstrap alarms. A pending deadline at the restart time fires in that cycle;
 a restart after a pending deadline is refused. Wall-clock recovery remains
 outside the simulation-only component contract.
 
+``schedule`` preserves its emitted-tick count as well as its pending deadlines.
+For example, a three-tick schedule checkpointed after one tick resumes with two
+remaining ticks at the original times. This applies to scalar and time-series
+delays, with immediate or delayed first ticks. A completed budget remains
+exhausted after restart; a fresh time-series ``start`` input still resets the
+budget and re-bases the grid, replacing old alarms even when one is due in the
+restart cycle. Changing scalar scheduling configuration makes an
+old checkpoint incompatible. Recovery remains simulation-only.
+
 ``SingleShotScheduler`` is best effort: its schedules are not saved or recovered,
 and its existing startup behaviour is unchanged. Recovering a native scheduler
 does not recover an operator's private counters or buffers; these still require

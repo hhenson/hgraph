@@ -217,8 +217,9 @@ Examples:
 - A cached REF is suitable when current input connections and a current or
   restored selection identify its source. A historical selection known only
   to the cache is semantic state and must instead be recordable.
-- Pending schedules keep their authoritative records and finite progress in
-  recordable state; scheduling indices may be reconstructible cache fields
+- Pending native alarms keep their authoritative deadlines and tags in a
+  dedicated scheduler checkpoint; finite operator progress belongs in recordable
+  state. Scheduling indices are rebuilt after restore
   ([recovery contract](0011-cache-declarations.md#scheduler-recovery-contract)).
 - A running total, last-seen value, or queue of unconsumed events is not a
   cache merely because it is stored privately. When missing history is needed

@@ -53,18 +53,17 @@ impl fn until_true(ts: bool) -> bool {
     }
 }
 
-# Ordinary-run scheduler parity only. Pending schedules and the historical
-# tick counter still need recordable recovery; this cache is an implementation
-# gap, not an exception to ADR 0011. Start validates a positive delay.
+# Pending alarms and the historical emission count are recovered separately.
+# Start validates the delay and never replenishes an exhausted tick budget.
 operator schedule(const delay: duration, const initial_delay: bool = true,
                   const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool
 impl fn schedule(const delay: duration, const initial_delay: bool = true,
                  const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool {
-    cache ticks: i64 = 0
+    state ticks: i64 = 0
     inject scheduler
     start {
         native::require_positive_delay(delay)
-        if max_ticks > 0 {
+        if ticks < max_ticks {
             if initial_delay {
                 scheduler.schedule(delay, use_wall_clock)
             } else {
@@ -73,11 +72,13 @@ impl fn schedule(const delay: duration, const initial_delay: bool = true,
         }
     }
     when scheduled() {
-        ticks += 1
         if ticks < max_ticks {
-            scheduler.schedule(delay, use_wall_clock)
+            ticks += 1
+            if ticks < max_ticks {
+                scheduler.schedule(delay, use_wall_clock)
+            }
+            return true
         }
-        return true
     }
 }
 

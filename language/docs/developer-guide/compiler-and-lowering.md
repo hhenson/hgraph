@@ -1028,6 +1028,14 @@ Shared graph-IR planning rejects mixed HGL state/cache declarations until their
 initialization and recovery lowering is implemented. Native static nodes already
 support both selectors.
 
+The shared runtime plan identifies scheduler sources whose complete runtime
+state is their endpoints and pending alarms. Generated C++ gives these sources
+an explicit `NodeCheckpointOps` contract and signs their scalar configuration.
+State is restored before `start`; saved alarms replace startup scheduling after
+`start`. Cache-bearing sources and sources injecting clock or logger remain
+outside this recovery slice. Generated `schedule` keeps its finite emission
+counter in recordable state, with compiled checkpoint/restart tests.
+
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
 when necessary, while each generated hook requests only the subset it uses.

@@ -19,6 +19,8 @@
 
 #include <hgl/constant_arithmetic.h>
 #include <hgraph/lib/std/operators/operators.h>
+#include <hgraph/manifest/schema_descriptor.h>
+#include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>

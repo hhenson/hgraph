@@ -16,6 +16,8 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/runtime/service_node.h>
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -39,6 +41,31 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
+        /** Stream position counters are LOOPBACK state — they decide which
+            future ticks pass — so they are RecordableState: replay restarting
+            them at zero changed which ticks passed (audit 2026-08-15). */
+        [[nodiscard]] inline Int recorded_index(const RecordableState<TS<Int>> &seen)
+        {
+            return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
+        }
+
+        // Endpoint state and the scheduler image contain the complete progress
+        // of every schedule overload. Scalar configuration is part of identity.
+        inline const NodeCheckpointOps &schedule_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    manifest::encode_manifest_scalar(writer, builder.scalars().view());
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
+
         // ----- TSW: to_window + window aggregates --------------------------
 
         /** to_window(ts, period, min_window_period): push each tick into a
@@ -1305,12 +1332,18 @@ namespace hgraph::stdlib
 
     struct schedule_impl
     {
+        // O(1) work and storage per emission; the counter is semantic history.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void start(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool> initial_delay,
                           Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
-                          NodeScheduler scheduler)
+                          NodeScheduler scheduler, RecordableState<TS<Int>> ticks)
         {
             stream_impl_detail::require_positive(delay.value(), "delay");
-            if (max_ticks.value() <= 0) { return; }
+            if (stream_impl_detail::recorded_index(ticks) >= max_ticks.value()) { return; }
             scheduler.schedule(initial_delay.value() ? delay.value() : TimeDelta{}, std::nullopt,
                                use_wall_clock.value());
         }
@@ -1318,10 +1351,12 @@ namespace hgraph::stdlib
         static void eval(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool>,
                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
                          NodeScheduler scheduler,
-                         State<Int> ticks, Out<TS<Bool>> out)
+                         RecordableState<TS<Int>> ticks, Out<TS<Bool>> out)
         {
+            const Int previous = stream_impl_detail::recorded_index(ticks);
+            if (previous >= max_ticks.value()) { return; }
             out.set(true);
-            const Int emitted = ticks.get() + 1;
+            const Int emitted = previous + 1;
             ticks.set(emitted);
             if (emitted < max_ticks.value())
             {
@@ -1357,11 +1392,13 @@ namespace hgraph::stdlib
         template <typename StartIn>
         inline void schedule_ts_eval(In<"delay", TS<TimeDelta>> &delay, StartIn *start, bool initial_delay,
                                      Int max_ticks, bool use_wall_clock, const NodeScheduler &scheduler,
-                                     State<Int> &ticks, DateTime now, Out<TS<Bool>> &out)
+                                     RecordableState<TS<Int>> &ticks, DateTime now, Out<TS<Bool>> &out)
         {
             const bool start_modified = start != nullptr && start->modified();
-            if (ticks.get() >= max_ticks && !start_modified) { return; }  // budget spent: stop rescheduling
-            const bool scheduled = scheduler.is_scheduled_now();
+            if (max_ticks <= 0 || (recorded_index(ticks) >= max_ticks && !start_modified)) { return; }  // no remaining budget
+            // A fresh start replaces the old grid, including an alarm due now.
+            const bool scheduled = !start_modified && scheduler.is_scheduled_now();
+            if (start_modified) { scheduler.reset(); }
 
             if (start != nullptr && start->valid())
             {
@@ -1382,10 +1419,12 @@ namespace hgraph::stdlib
 
             if ((delay.modified() && !initial_delay) || (scheduled && !delay.modified()))
             {
-                if (ticks.get() < max_ticks)
+                if (recorded_index(ticks) < max_ticks)
                 {
-                    ticks.set(ticks.get() + 1);
+                    ticks.set(recorded_index(ticks) + 1);
                     out.set(true);
+                    // An exhausted budget has no future work to recover.
+                    if (recorded_index(ticks) >= max_ticks) { scheduler.reset(); }
                 }
             }
         }
@@ -1393,9 +1432,14 @@ namespace hgraph::stdlib
 
     struct schedule_ts_impl
     {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void eval(In<"delay", TS<TimeDelta>> delay, Scalar<"initial_delay", Bool> initial_delay,
                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
-                         NodeScheduler scheduler, State<Int> ticks, EvaluationClockView clock,
+                         NodeScheduler scheduler, RecordableState<TS<Int>> ticks, EvaluationClockView clock,
                          Out<TS<Bool>> out)
         {
             const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
@@ -1414,10 +1458,15 @@ namespace hgraph::stdlib
 
     struct schedule_ts_start_impl
     {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void eval(In<"delay", TS<TimeDelta>> delay, In<"start", TS<DateTime>, InputValidity::Unchecked> start,
                          Scalar<"initial_delay", Bool> initial_delay, Scalar<"max_ticks", Int> max_ticks,
                          Scalar<"use_wall_clock", Bool> use_wall_clock, NodeScheduler scheduler,
-                         State<Int> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
+                         RecordableState<TS<Int>> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
         {
             const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
             stream_impl_detail::schedule_ts_eval(delay, &start, initial_delay.value(), max_ticks.value(),
@@ -1801,14 +1850,6 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
-        /** Stream position counters are LOOPBACK state — they decide which
-            future ticks pass — so they are RecordableState: replay restarting
-            them at zero changed which ticks passed (audit 2026-08-15). */
-        [[nodiscard]] inline Int recorded_index(const RecordableState<TS<Int>> &seen)
-        {
-            return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
-        }
-
         /** Shared take lifecycle: passivation is DERIVED from the recordable
             counter — activation is not recorded, so a restored (recovered)
             exhausted take must come up passive rather than forwarding. */

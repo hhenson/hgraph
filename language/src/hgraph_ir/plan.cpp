@@ -714,6 +714,8 @@ namespace hgl::hgraph_ir
             if (temporal_count != 0 && info.has_when && info.active_parameters.empty() && !info.uses_scheduled) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
             }
+            info.checkpoint_source = temporal_count == 0 && info.scheduler_binding.valid() &&
+                                     info.caches.empty() && !info.clock_binding.valid() && !info.logger_binding.valid();
             if (!info.has_when) { add_all_runtime_parameters(decl, info); }
             RuntimeValidSet valid;
             if (!info.has_when) {

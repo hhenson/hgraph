@@ -1,5 +1,7 @@
 """Completed-day component recovery through the native persistence contract."""
 
+from datetime import datetime, timedelta
+
 import hgraph as hg
 import hgraph_persistence as persistence
 import pytest
@@ -476,3 +478,108 @@ def test_pending_alarm_restores_beside_rebuilt_cache_and_recordable_state(tmp_pa
                                 __start_time__=hg.MIN_ST + start * hg.MIN_TD,
                                 __end_time__=hg.MIN_ST + (start + len(values)) * hg.MIN_TD) == expected
         assert store.contains(key)
+
+
+@pytest.mark.parametrize("initial_delay", [False, True])
+@pytest.mark.parametrize("max_ticks", [0, 3])
+def test_schedule_restores_remaining_emissions_at_original_deadlines(tmp_path, initial_delay, max_ticks):
+    @hg.component(recordable_id="periodic")
+    def periodic() -> hg.TS[bool]:
+        return hg.schedule(hg.MIN_TD * 2, initial_delay=initial_delay, max_ticks=max_ticks)
+
+    first = 2 if initial_delay else 0
+    intervals = [(0, first + 1), (first + 1, first + 3), (first + 3, first + 5),
+                 (first + 5, first + 8), (20, 23)]
+    previous = None
+    for index, (start, end) in enumerate(intervals):
+        with hg.GlobalState() as state:
+            store = persistence.ComponentCheckpointStore(tmp_path)
+            key = str(index)
+            persistence.configure_component_recovery(store, "periodic", key, previous, global_state=state)
+            actual = hg.eval_node(periodic, __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                                  __end_time__=hg.MIN_ST + end * hg.MIN_TD)
+            expected = [True if tick in range(first, first + max_ticks * 2, 2) else None
+                        for tick in range(start, end)]
+            assert actual == (expected if any(expected) else None)
+        assert store.contains(key)
+        previous = key
+
+
+@pytest.mark.parametrize("with_start", [False, True])
+@pytest.mark.parametrize("max_ticks", [0, 3])
+def test_schedule_restores_time_series_delay_progress_and_start_reset(tmp_path, with_start, max_ticks):
+    @hg.component(recordable_id="periodic")
+    def periodic(delay: hg.TS[timedelta], start: hg.TS[datetime]) -> hg.TS[bool]:
+        if with_start:
+            return hg.schedule(delay, start=start, max_ticks=max_ticks)
+        return hg.schedule(delay, max_ticks=max_ticks)
+
+    previous = None
+    days = [(0, 3, [hg.MIN_TD * 2], [hg.MIN_ST], [None, None, True]),
+            (3, 5, [None], [None], [None, True]), (5, 7, [None], [None], [None, True]),
+            (20, 23, [None], [None], None)]
+    if max_ticks == 0:
+        days = [(0, 1, [hg.MIN_TD * 2], [hg.MIN_ST], None), (20, 23, [None], [None], None)]
+    if with_start:
+        days.append((23, 30, [None], [hg.MIN_ST + hg.MIN_TD * 23], [None, None, True, None, True, None, True]))
+    for index, (start, end, delays, starts, expected) in enumerate(days):
+        if max_ticks == 0:
+            expected = None
+        with hg.GlobalState() as state:
+            store = persistence.ComponentCheckpointStore(tmp_path)
+            key = str(index)
+            persistence.configure_component_recovery(store, "periodic", key, previous, global_state=state)
+            assert hg.eval_node(periodic, delays, starts,
+                                __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + end * hg.MIN_TD) == expected
+        previous = key
+
+
+def test_schedule_checkpoint_restores_first_deadline_and_checks_configuration(tmp_path):
+    @hg.component(recordable_id="periodic")
+    def periodic(delay: timedelta = hg.MIN_TD * 2, max_ticks: int = 3) -> hg.TS[bool]:
+        return hg.schedule(delay, max_ticks=max_ticks)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "periodic", "one", global_state=state)
+        assert hg.eval_node(periodic, __end_time__=hg.MIN_ST + hg.MIN_TD * 2) is None
+    for kwargs in ({"delay": hg.MIN_TD * 3}, {"max_ticks": 4}):
+        with hg.GlobalState() as state:
+            persistence.configure_component_recovery(store, "periodic", "changed", "one", global_state=state)
+            with pytest.raises(RuntimeError, match="incompatible"):
+                hg.eval_node(periodic, **kwargs, __start_time__=hg.MIN_ST + hg.MIN_TD * 2,
+                             __end_time__=hg.MIN_ST + hg.MIN_TD * 7)
+        assert not store.contains("changed")
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(store, "periodic", "two", "one", global_state=state)
+        assert hg.eval_node(periodic, __start_time__=hg.MIN_ST + hg.MIN_TD * 2,
+                            __end_time__=hg.MIN_ST + hg.MIN_TD * 7) == [True, None, True, None, True]
+
+
+@pytest.mark.parametrize("initial_delay", [False, True])
+@pytest.mark.parametrize("restart", [3, 4])
+def test_fresh_start_replaces_restored_pending_and_due_alarms(tmp_path, initial_delay, restart):
+    @hg.component(recordable_id="periodic")
+    def periodic(delay: hg.TS[timedelta], start: hg.TS[datetime]) -> hg.TS[bool]:
+        return hg.schedule(delay, start=start, initial_delay=initial_delay, max_ticks=3)
+
+    first = 7 if initial_delay else 5
+    new_grid = range(first, first + 6, 2)
+    days = [(0, 3, [hg.MIN_TD * 2], [hg.MIN_ST],
+             [None, None, True] if initial_delay else [True, None, True]),
+            (restart, 8, [None], [hg.MIN_ST + hg.MIN_TD * 5],
+             [True if tick in new_grid else None for tick in range(restart, 8)]),
+            (8, 12, [None], [None], [None, True, None, True] if initial_delay else [None, True]),
+            (20, 23, [None], [None], None)]
+    previous = None
+    for index, (begin, end, delays, starts, expected) in enumerate(days):
+        with hg.GlobalState() as state:
+            store = persistence.ComponentCheckpointStore(tmp_path)
+            key = str(index)
+            persistence.configure_component_recovery(store, "periodic", key, previous, global_state=state)
+            assert hg.eval_node(periodic, delays, starts,
+                                __start_time__=hg.MIN_ST + begin * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + end * hg.MIN_TD) == expected
+        assert store.contains(key)
+        previous = key

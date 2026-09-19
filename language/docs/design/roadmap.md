@@ -437,12 +437,12 @@ Catalogue counts measure authoring disposition, not line/branch coverage.
 
 Native pending scheduling now has a dedicated checkpoint element independent of
 user state: restore rebuilds tags and re-arms graph notifications. Single-shot
-scheduling remains best effort and is excluded. The next schedule-specific task
-is recordable operator progress, including the finite emission counter; native
-alarm recovery alone does not establish schedule-operator recovery. Mixed HGL
-state/cache lowering remains separate from multiple source cache variables,
-which already share one generated struct. Require the operator traces in
-[ADR 0011](decisions/0011-cache-declarations.md).
+scheduling remains best effort and is excluded. Native `schedule` overloads and
+the HGL constant-delay implementation now preserve the finite emission counter
+through repeated checkpoints, including exhausted budgets and unchanged pending
+deadlines ([ADR 0011](decisions/0011-cache-declarations.md)). Next implement mixed
+HGL state/cache lowering with construction and recovery coverage; native
+coexistence and aggregation of multiple source cache fields are already available.
 Then proceed with explicit deferred operator/provider closure planning, remaining
 B1/B2 ownership/lifecycle/validity work, B3/B4 value and structural/reference
 contracts, and B5/B6 domains and higher-order work. Production cutover still
@@ -703,10 +703,9 @@ Candidates, in risk order:
 - add a public native operation or canonical delta encoding for explicitly
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
-- implement the agreed reconstructible-cache semantics and pre-`start`
-  construction, using the settled scalar declaration/initializer syntax; next add native
-  coexistence with recordable state, non-scalar storage, and recordable
-  schedule-operator progress (native pending alarms have their own checkpoint);
+- extend the implemented scalar cache and native state/cache coexistence with
+  mixed HGL lowering and non-scalar storage. Native pending alarms and finite
+  `schedule` progress have separate checkpoint coverage;
 - extend the implemented local `const fn` slice with generic/pack lowering,
   public value descriptors, and phase-eligible HGL/native operator candidates;
 - native type lifecycles and target mappings, staged through the bounded

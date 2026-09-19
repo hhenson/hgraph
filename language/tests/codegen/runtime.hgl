@@ -341,3 +341,20 @@ export fn cache_bundle(value: i64) -> f64 {
 export fn first_scalar(values: list<i64, 2>) -> i64 {
     when modified(values) && valid(values[0]) { return values[0] }
 }
+
+# These sources remain outside the endpoint/scheduler-only recovery contract.
+export fn cached_source() -> i64 {
+    cache count: i64 = 0
+    inject scheduler
+    start { scheduler.schedule(0s) }
+    when scheduled() {
+        count += 1
+        return count
+    }
+}
+
+export fn clock_source() -> i64 {
+    inject scheduler, clock
+    start { scheduler.schedule(0s) }
+    when scheduled() { return 1 }
+}

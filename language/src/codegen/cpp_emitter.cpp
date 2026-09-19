@@ -4624,6 +4624,23 @@ namespace hgl::codegen
             if (info.caches.size() > 1) { out.line("using hgl_cache_fields = " + callable_cpp_name(decl) + "_cache_fields;"); }
             out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
+            if (info.checkpoint_source) {
+                out.open("static const hgraph::NodeCheckpointOps &checkpoint_ops() noexcept");
+                out.line("static const hgraph::NodeCheckpointOps ops{");
+                out.line("    .supported = true,");
+                out.line("    .signature_impl = +[](const hgraph::NodeBuilder &builder) {");
+                out.line("        hgraph::manifest::CanonicalWriter writer;");
+                out.line("        writer.varint(1);");
+                out.line("        if (builder.scalars().has_value()) {");
+                out.line("            hgraph::manifest::encode_manifest_scalar(writer, builder.scalars().view());");
+                out.line("        }");
+                out.line("        const auto &bytes = writer.bytes();");
+                out.line("        return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};");
+                out.line("    },");
+                out.line("};");
+                out.line("return ops;");
+                out.close();
+            }
             if (!info.states.empty()) {
                 std::vector<std::string> fields;
                 for (const RuntimeState &state : info.states) {
@@ -5280,6 +5297,8 @@ namespace hgl::codegen
             emit_include("<hgraph/types/subgraph_wiring.h>");
             emit_include("<hgraph/types/operator_dispatch.h>");
             emit_include("<hgraph/types/static_node.h>");
+            emit_include("<hgraph/runtime/node_checkpoint.h>");
+            emit_include("<hgraph/manifest/schema_descriptor.h>");
             emit_include("<hgraph/types/static_schema.h>");
             if (uses_output_mutations_) { emit_include("<hgraph/types/time_series/output_mutation.h>"); }
             header.line();
