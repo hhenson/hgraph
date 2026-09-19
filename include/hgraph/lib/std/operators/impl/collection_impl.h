@@ -53,6 +53,21 @@ namespace hgraph::stdlib
             ResolvedBindings outer{};
         };
 
+        /** combine_cs's start-resolved bindings, and for each field of its
+            input TSB the target field it sets. The fields are matched by name
+            once, in start; searching the target per input field on every tick
+            cost the square of the field count per tick. */
+        struct CombineCsBindings
+        {
+            /// An input field without a name, which is not part of the value.
+            static constexpr std::size_t unnamed = std::numeric_limits<std::size_t>::max();
+
+            ResolvedBindings resolved{};
+            /// Per input field: its target field, `unnamed`, or the target's
+            /// field count when the target has no field of that name.
+            std::vector<std::size_t> targets{};
+        };
+
         /**
          * Inner map builders grouped by label, in order of first appearance.
          * The label index is what keeps grouping n items linear: finding the
@@ -83,6 +98,12 @@ namespace hgraph::static_schema_detail
     struct scalar_name<stdlib::collection_impl_detail::MapKernelBindings>
     {
         static constexpr std::string_view value{"stdlib.map_kernel_bindings"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::collection_impl_detail::CombineCsBindings>
+    {
+        static constexpr std::string_view value{"stdlib.combine_cs_bindings"};
     };
 }  // namespace hgraph::static_schema_detail
 
@@ -3585,22 +3606,47 @@ namespace hgraph::stdlib
             return ResolvedBindings{.primary = target_binding, .result = assembly_binding};
         }
 
-        template <bool Strict>
-        void combine_cs_from_fields_eval(const TSInputView &fields, const ResolvedBindings &resolved,
-                                         const TSOutputView &erased)
+        inline CombineCsBindings resolve_cs_fields(const TSInputView &fields, const TSOutputView &erased)
         {
+            CombineCsBindings result{.resolved = resolve_cs_bindings(erased)};
             const auto *target = erased.schema()->value_schema;
-            const auto target_binding = resolved.primary;
-            const bool policy_materialization =
-                target_binding.ops_ref().has_source_materialization_policy();
-            const auto assembly_binding = resolved.result;
-            BundleBuilder builder{assembly_binding};
-
+            ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+            by_name.reserve(target->field_count);
+            for (std::size_t index = 0; index < target->field_count; ++index)
+            {
+                if (target->fields[index].name != nullptr) { by_name.try_emplace(target->fields[index].name, index); }
+            }
             const auto *input_schema = fields.schema();
+            result.targets.reserve(input_schema->field_count());
             for (std::size_t index = 0; index < input_schema->field_count(); ++index)
             {
                 const char *field_name = input_schema->fields()[index].name;
-                if (field_name == nullptr) { continue; }
+                if (field_name == nullptr)
+                {
+                    result.targets.push_back(CombineCsBindings::unnamed);
+                    continue;
+                }
+                const auto found = by_name.find(field_name);
+                result.targets.push_back(found != by_name.end() ? found->second : target->field_count);
+            }
+            return result;
+        }
+
+        template <bool Strict>
+        void combine_cs_from_fields_eval(const TSInputView &fields, const CombineCsBindings &bindings,
+                                         const TSOutputView &erased)
+        {
+            const auto *target = erased.schema()->value_schema;
+            const auto target_binding = bindings.resolved.primary;
+            const bool policy_materialization =
+                target_binding.ops_ref().has_source_materialization_policy();
+            const auto assembly_binding = bindings.resolved.result;
+            BundleBuilder builder{assembly_binding};
+
+            for (std::size_t index = 0; index < bindings.targets.size(); ++index)
+            {
+                const std::size_t target_index = bindings.targets[index];
+                if (target_index == CombineCsBindings::unnamed) { continue; }
                 auto child = fields.indexed_child_at(index);
                 if constexpr (Strict)
                 {
@@ -3608,15 +3654,7 @@ namespace hgraph::stdlib
                     if (!child.valid()) { return; }
                 }
                 else if (!child.valid()) { continue; }
-                for (std::size_t target_index = 0; target_index < target->field_count; ++target_index)
-                {
-                    if (target->fields[target_index].name != nullptr &&
-                        std::string_view{target->fields[target_index].name} == field_name)
-                    {
-                        builder.set(target_index, child.value());
-                        break;
-                    }
-                }
+                if (target_index < target->field_count) { builder.set(target_index, child.value()); }
             }
             Value source = builder.build();
             if (policy_materialization &&
@@ -3650,15 +3688,16 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields";
 
-            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
-                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<true>(ts, bindings.get(),
+                combine_cs_from_fields_eval<true>(ts, bindings.ref(),
                                                   static_cast<const TSOutputView &>(out));
             }
         };
@@ -3668,16 +3707,17 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields_lenient";
 
-            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                              Scalar<"__strict__", Bool>,
-                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<false>(ts, bindings.get(),
+                combine_cs_from_fields_eval<false>(ts, bindings.ref(),
                                                    static_cast<const TSOutputView &>(out));
             }
         };
