@@ -240,7 +240,9 @@ state; cache reconstruction must use the restored authoritative data.
 Normal teardown runs semantic `stop` before destroying the constructed
 objects and releasing their storage. Partial initialization must clean up
 whatever was successfully constructed without assuming `start` completed.
-Detailed failure and rollback rules for native hooks remain to be specified.
+Native static nodes destroy constructed slots after a failed `start`, without
+calling that node's `stop`; partial resource acquisition must use RAII or a
+rollback guard. Generic HGL native construction hooks remain future work.
 
 Cache follows state's applicable typing and lifetime rules but does not
 require recordability. It may therefore contain admitted native/non-recordable
@@ -249,12 +251,13 @@ there only if its recordability contract is supplied. Opaque native storage
 does not remove this distinction. Cache is also not a blanket permission to
 own external resources or introduce I/O outside a native lifecycle contract.
 
-A node may need both recordable history and a derived cache. Supporting both
-is the agreed direction. The current
-[C++ static-node API](../../../../include/hgraph/types/static_node.h) explicitly rejects
-combining `State` and `RecordableState`; that restriction, storage planning,
-and their lifecycle integration require implementation work. HGL cache
-declarations and generic native cache construction are not implemented.
+A node may need both recordable history and a derived cache. The
+[C++ static-node API](../../../../include/hgraph/types/static_node.h) supports one
+`State` and one `RecordableState` together, with independent planned storage.
+Checkpoint restoration precedes `start`, which rebuilds the fresh cache. HGL
+scalar cache declarations and aggregation are implemented; HGL mixed state/cache
+lowering and generic native cache construction remain separate implementation
+work. Shared graph-IR admission continues to reject the mixed HGL case.
 
 For **HGL-MIG-005**, this settles the reconstructible-cache distinction, not
 generic recordable-state construction. Non-default-constructible generic

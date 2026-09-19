@@ -1066,9 +1066,23 @@ Recordable state
 time-series output. It is feedback-like state that wraps the node: the node may
 read and update it during evaluation, while system-level record/replay code can
 observe and restore it. It is not part of the normal output contract and it does
-not participate in scheduling or input readiness for the owning node. A node uses
-either ``State<T>`` or ``RecordableState<TSchema>``, not both; recordable state is
-the node's state when record/replay visibility is required.
+not participate in scheduling or input readiness for the owning node. A static
+node may declare one ``State<T>`` and one ``RecordableState<TSchema>`` together.
+Put multiple cache variables in fields of the single ``State<T>`` value.
+
+When combined in a recoverable node, recordable state is authoritative and
+``State<T>`` is a reconstructible cache. Both slots are constructed in planned
+node storage before ``start``. Recovery restores the hidden endpoint quietly
+before ``start``; the hook then rebuilds the fresh cache from restored state and
+inputs, initializing durable fields only when invalid. Cache contents are not
+saved. Rebuilding must preserve subsequent values, validity, ticks, deltas and
+effects. Scheduler and other runtime-service checkpoint restrictions still apply.
+
+``stop`` can access both slots before destruction. Constructed cache objects are
+destroyed even when ``start`` fails; a node whose start failed does not receive
+``stop``, so partially acquired resources need RAII or a local rollback guard.
+Python compute nodes can likewise combine ``STATE`` (including ``STATE[T]``)
+and ``RECORDABLE_STATE`` through this native storage and restoration path.
 
 The selector uses typed field access for structured state. For a bundle-shaped
 state, access fields with ``field<"...">()`` and update scalar fields with

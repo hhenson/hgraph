@@ -370,9 +370,12 @@ deriving from their erased input/output views, plus ``RecordableState<TSchema>``
 ``Scalar<Name, T>``, plus transparent injectables such as ``GlobalStateView``,
 ``EvaluationClockView`` and ``NodeScheduler`` — together with ``StaticNodeSignature`` and
 ``NodeBuilder::implementation<T>()`` (see *Wiring*). ``State<T>`` and
-``RecordableState<TSchema>`` are mutually exclusive for a static node:
-recordable state replaces local state when the state must be exposed through a
-hidden time-series output. That hidden output is for system-level recording and
+``RecordableState<TSchema>`` have independent planned slots and may coexist
+(one of each). In a checkpointed node the former is a reconstructible cache;
+the latter holds all authoritative mutable state. Restore completes before
+``start`` rebuilds the fresh cache. Both remain accessible through ``stop`` and
+are destroyed through the normal constructed-component cleanup path.
+Recordable state uses a hidden time-series output. That hidden output is for system-level recording and
 replay only: it is not a normal output port and must not activate or schedule the
 owning node. C++ system wiring can deliberately extract it with
 ``recordable_state(port)``; this creates a special edge source root rather than a

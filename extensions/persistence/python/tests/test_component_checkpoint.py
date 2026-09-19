@@ -303,3 +303,54 @@ def test_passivated_inputs_remain_passive_after_durable_restart(tmp_path, kind):
                             __start_time__=hg.MIN_ST + 2 * hg.MIN_TD,
                             __end_time__=hg.MIN_ST + 4 * hg.MIN_TD) is None
     assert reopened.contains("two")
+
+
+class DerivedCache:
+    total = None
+
+
+def cached_strategy(typed):
+    cache_type = hg.STATE[DerivedCache] if typed else hg.STATE
+
+    @hg.compute_node
+    def counter(ts: hg.TS[int], cache: cache_type = None,
+                state: hg.RECORDABLE_STATE[RunningState] = None) -> hg.TS[int]:
+        assert cache.total == state.total.value
+        cache.total += ts.value
+        state.total.value = cache.total
+        if ts.value != 5:
+            return cache.total
+
+    @counter.start
+    def start(cache: cache_type = None, state: hg.RECORDABLE_STATE[RunningState] = None):
+        assert getattr(cache, "total", None) is None
+        if not state.total.valid:
+            state.total.value = 0
+        cache.total = state.total.value
+
+    @counter.stop
+    def stop(cache: cache_type = None, state: hg.RECORDABLE_STATE[RunningState] = None):
+        assert cache.total == state.total.value
+
+    @hg.component(recordable_id="cached")
+    def component(ts: hg.TS[int]) -> hg.TS[int]:
+        return counter(ts)
+
+    return component
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_recordable_state_rebuilds_fresh_cache_after_each_restore(tmp_path, typed):
+    strategy = cached_strategy(typed)
+    for key, previous, start, values, expected in [
+        ("one", None, 0, [1, 5], [1, None]),
+        ("two", "one", 2, [None, 2], [None, 8]),
+        ("three", "two", 4, [3], [11]),
+    ]:
+        with hg.GlobalState() as state:
+            store = persistence.ComponentCheckpointStore(tmp_path)
+            persistence.configure_component_recovery(store, "cached", key, previous, global_state=state)
+            assert hg.eval_node(strategy, values,
+                                __start_time__=hg.MIN_ST + start * hg.MIN_TD,
+                                __end_time__=hg.MIN_ST + (start + len(values)) * hg.MIN_TD) == expected
+        assert store.contains(key)

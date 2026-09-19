@@ -6,7 +6,7 @@
 #include <array>
 #include <hgraph/types/metadata/type_registry.h>
 
-#include <cstdlib>
+#include <hgraph/util/environment.h>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -17,11 +17,11 @@ namespace hgraph_test
     {
         // One file per stopped node, named so that neither two nodes of one
         // process nor two worker processes can collide.
-        const char *directory = std::getenv(stop_marker_directory_variable);
-        if (directory == nullptr) { return; }
+        const auto directory = hgraph::environment_variable(stop_marker_directory_variable);
+        if (!directory) { return; }
         std::random_device entropy;
         const auto name = std::to_string((static_cast<std::uint64_t>(entropy()) << 32) | entropy());
-        std::ofstream{std::filesystem::path{directory} / name} << "stopped";
+        std::ofstream{std::filesystem::path{*directory} / name} << "stopped";
     }
 
     void register_distributed_test_recipes()

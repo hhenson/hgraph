@@ -243,7 +243,7 @@ Evidence: [0009-native-errors-and-the-node-error-model.md](../../../language/doc
 
 ### B2
 
-Priority 1. Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and scalar cache fields aggregated into one native State slot (ADR 0011) are admitted. Still missing: recoverable pending schedules and finite progress, cache beside recordable state (native static nodes reject State with RecordableState), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.
+Priority 1. Lifecycle and activation: the clock and scheduler injectables, the scheduled() handler selector, passivate/activate (ADR 0010) and scalar cache fields aggregated into one native State slot (ADR 0011) are admitted. Still missing: recoverable pending schedules and finite progress, cache beside recordable state (native coexistence is available; HGL mixed lowering remains gated), buffered delta queues and window state for throttle/batch/gate/lag/window (generic non-scalar state, MIG-005), passivation from a start block, an explicitly empty validity set for bound-but-invalid inputs (LIB-002), and external resource ownership.
 
 Evidence: [0010-lifecycle-capabilities.md](../../../language/docs/design/decisions/0010-lifecycle-capabilities.md), [0011-cache-declarations.md](../../../language/docs/design/decisions/0011-cache-declarations.md), [stream_impl.h](../../../include/hgraph/lib/std/operators/impl/stream_impl.h)
 
