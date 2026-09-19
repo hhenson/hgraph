@@ -498,7 +498,7 @@ if(UNIX)
     )
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "13 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`

@@ -300,7 +300,8 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(emitted->module_name == "hgl.codegen.parity");
     CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose",
                                                        "choose_embedded", "checked_add", "checked_sub", "checked_mul",
-                                                       "checked_neg", "checked_floor", "checked_rem"});
+                                                       "checked_neg", "checked_floor", "checked_rem", "reading", "cleared_reading",
+                                                       "annotated_reading", "fixed_reading", "empty_tag"});
     CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
     CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
     CHECK(contains(emitted->descriptor, "\"signature\": {"));
@@ -958,8 +959,10 @@ export fn make_outer() -> Outer => Outer()
 
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Inner::time_series>"));
+    // An atomic value combines the fields that have a value, not the struct's TSB.
     CHECK(contains(emitted->source, "hgraph::stdlib::combine_cs, hgraph::TS<typename Inner::value_type>"));
+    CHECK(contains(emitted->source,
+                   "hgraph::stdlib::to_tsb<hgraph::UnNamedTSB<hgraph::Field<\"amount\", hgraph::TS<hgraph::Float>>>>"));
 }
 
 TEST_CASE("emit-cpp projects nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
@@ -1757,7 +1760,8 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     CHECK(contains(
         emitted->python,
         "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\", \"choose_embedded\", "
-        "\"checked_add\", \"checked_sub\", \"checked_mul\", \"checked_neg\", \"checked_floor\", \"checked_rem\"]"));
+        "\"checked_add\", \"checked_sub\", \"checked_mul\", \"checked_neg\", \"checked_floor\", \"checked_rem\", "
+        "\"reading\", \"cleared_reading\", \"annotated_reading\", \"fixed_reading\", \"empty_tag\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {

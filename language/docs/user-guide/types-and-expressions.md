@@ -622,9 +622,11 @@ they do not replace an invalid field on an existing temporal input.
 Context also selects construction behavior. In scalar context the call creates
 a canonical value. In a temporal `Quote` context, temporal arguments retain
 their independent shapes and scalar arguments are lifted. In an
-`atomic<Quote>` context, the compiler aggregates the supplied temporal fields
-and publishes one complete snapshot when any supplied field changes and every
-required field is valid.
+`atomic<Quote>` context, the compiler aggregates the fields that have a value
+and publishes one complete snapshot when any of them changes and all of them
+are valid. A field has a value when it is required, has a default, or is an
+optional field given an argument; an omitted optional field, or one given
+`null`, stays unset and does not hold the snapshot back.
 
 ```hgl
 fn make_quote(bid: f64, ask: f64) -> Quote =>

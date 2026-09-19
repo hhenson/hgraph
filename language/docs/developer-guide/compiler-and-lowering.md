@@ -584,8 +584,13 @@ metadata does not alter native Bundle type identity. Complete construction
 validates the effective metadata and produces the Bundle value or field-wise
 wiring shape selected by context. Scalar arguments in temporal construction
 are lifted; construction expected as `atomic<S>` generates one aggregation
-node that activates on any supplied temporal field and publishes only once all
-non-optional fields are valid.
+node over the fields that have a value: each required field, each default,
+and each optional field given a non-null argument. It activates on any of
+them and publishes once all of them are valid. An omitted optional field, or
+one given `null`, is not an input, so it stays unset and cannot hold the
+value back; an optional field given a port is part of the value the program
+built and is waited for like any other. A construction whose fields all lack
+a value is the empty struct, a constant.
 
 Hierarchy resolution runs before temporal expansion and generic reflection. It
 rejects cycles, concrete parents, abstract construction, inherited type or
@@ -1576,7 +1581,8 @@ walk:
   Bundle without defaults. A constructor containing ports produces a public
   structural `WiringPortRef` at the recursively expanded named TSB schema,
   lifting scalar fields and filling absent optional fields with typed null
-  sources. Type-only generic applications use hgraph's generic Bundle metadata;
+  sources. Expected as `atomic<S>`, the fields that have a value form an
+  un-named TSB that `combine_cs` aggregates into `TS[S]`. Type-only generic applications use hgraph's generic Bundle metadata;
   constructor inference and typed `const` generic arguments are rejected
   explicitly rather than encoded into an unstable name;
 - calling a registry operator builds `WiringArg`s in the source order with
@@ -1749,9 +1755,10 @@ expression is read from the syntax tree.
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic
   arguments; `NominalTSB` preserves the recursively temporalized fields.
-  Constructors lower to `to_tsb`, an `atomic<S>` result aggregates that TSB
-  through `combine_cs`, and a runtime `delta<S>` builds and applies only its
-  supplied fields.
+  Constructors lower to `to_tsb`; an `atomic<S>` result aggregates the fields
+  that have a value, as an `UnNamedTSB`, through `combine_cs`, or is a
+  `const_` of the empty struct when none has; and a runtime `delta<S>` builds
+  and applies only its supplied fields.
 - **Generic and window types.** Source type parameters become hgraph `TsVar`
   patterns at temporal operator boundaries, `ScalarVar` in scalar-only value
   positions, and ordinary C++ template parameters for structural declarations.
