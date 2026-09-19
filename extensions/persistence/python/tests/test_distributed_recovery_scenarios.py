@@ -238,3 +238,37 @@ def test_spawn_with_an_unrecoverable_node_inside_the_hosted_component_is_refused
             "cut-2", None, revision="scenario-v1", global_state=state)
         with pytest.raises(Exception, match=r"spawn_ worker 0 .* cannot be recovered"):
             hg.eval_node(application, __start_time__=hg.MIN_ST, __end_time__=hg.MIN_ST + 2 * hg.MIN_TD)
+
+
+@hg.sink_node
+def audit(value: hg.TS[int], path: str, clock: hg.CLOCK = None, _state: hg.STATE = None):
+    # Everything a transient sink may hold: ordinary state and the clock. It has
+    # no recordable state, so recovery leaves it alone wherever it sits.
+    _state.seen = getattr(_state, "seen", 0) + 1
+    with open(path, "ab") as stream:
+        pickle.dump((clock.evaluation_time, value.value, _state.seen), stream)
+
+
+def test_a_python_sink_inside_a_component_is_transient_and_the_component_around_it_recovers(tmp_path):
+    path = str(tmp_path / "audit")
+
+    @hg.component
+    def scenario(ts: hg.TS[int]) -> hg.TS[int]:
+        total = running_total(ts)
+        audit(total, path=path)
+        return total
+
+    events = [None, 1, 2, None, 3]
+    actual = compare_restarts(tmp_path / "store", scenario, (hg.TS[int],), hg.TS[int], (events,), (2, 4))
+    assert actual == [None, 1, 3, None, 6]
+    rows = []
+    with open(path, "rb") as stream:
+        while True:
+            try:
+                rows.append(pickle.load(stream)[1:])
+            except EOFError:
+                break
+    # The uninterrupted run, then the three days. The totals it was shown are
+    # right every time, because the component recovered; its own counter starts
+    # again with each run, because it did not -- and was never asked to.
+    assert rows == [(1, 1), (3, 2), (6, 3), (1, 1), (3, 1), (6, 1)]
