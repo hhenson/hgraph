@@ -752,22 +752,22 @@ namespace
             return stdlib::component<ScheduledStrategy<InitialDelay, Limit, Delay>>(w, "periodic");
         }
     };
-    template <bool WithStart, Int Limit = 3> struct DynamicScheduledStrategy
+    template <bool WithStart, Int Limit = 3, bool InitialDelay = true> struct DynamicScheduledStrategy
     {
         static Port<TS<Bool>> compose(Wiring &w, NamedPort<"delay", TS<TimeDelta>> delay,
                                      NamedPort<"start", TS<DateTime>> start)
         {
             if constexpr (WithStart)
-                return wire<stdlib::schedule>(w, delay, start, Bool{true}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+                return wire<stdlib::schedule>(w, delay, start, Bool{InitialDelay}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
             else
-                return wire<stdlib::schedule>(w, delay, Bool{true}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
+                return wire<stdlib::schedule>(w, delay, Bool{InitialDelay}, Int{Limit}, Bool{false}).template as<TS<Bool>>();
         }
     };
-    template <bool WithStart, Int Limit = 3> struct DynamicScheduledComponent
+    template <bool WithStart, Int Limit = 3, bool InitialDelay = true> struct DynamicScheduledComponent
     {
         static Port<TS<Bool>> compose(Wiring &w, Port<TS<TimeDelta>> delay, Port<TS<DateTime>> start)
         {
-            return stdlib::component<DynamicScheduledStrategy<WithStart, Limit>>(w, "periodic", delay, start);
+            return stdlib::component<DynamicScheduledStrategy<WithStart, Limit, InitialDelay>>(w, "periodic", delay, start);
         }
     };
 }
@@ -849,4 +849,35 @@ TEST_CASE("schedule recovery preserves time-series delay progress and start rese
         CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, 1), values<TimeDelta>(MIN_TD * 2), values<DateTime>(MIN_ST)), values<Bool>(none));
         CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none));
     }
+}
+
+TEST_CASE("fresh schedule start replaces restored pending and due alarms", "[checkpoint][component][schedule]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "periodic", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    const auto check = [&]<bool InitialDelay>(Int restart) {
+        using Graph = DynamicScheduledComponent<true, 3, InitialDelay>;
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(0, 3), values<TimeDelta>(MIN_TD * 2), values<DateTime>(MIN_ST)),
+                     InitialDelay ? values<Bool>(none, none, true) : values<Bool>(true, none, true));
+        REQUIRE(completed);
+        // The old grid has an alarm at 4; a new start at 5 replaces that grid.
+        const auto resumed = eval_node_with_options<Graph>(interval(restart, 8), values<TimeDelta>(none),
+                                                           values<DateTime>(MIN_ST + MIN_TD * 5));
+        if constexpr (InitialDelay)
+            CHECK_OUTPUT(resumed, restart == 3 ? values<Bool>(none, none, none, none, true) : values<Bool>(none, none, none, true));
+        else
+            CHECK_OUTPUT(resumed, restart == 3 ? values<Bool>(none, none, true, none, true) : values<Bool>(none, true, none, true));
+        // Another checkpoint must retain the complete new three-tick budget.
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(8, 12), values<TimeDelta>(none), values<DateTime>(none)),
+                     InitialDelay ? values<Bool>(none, true, none, true) : values<Bool>(none, true));
+        CHECK_OUTPUT(eval_node_with_options<Graph>(interval(20, 23), values<TimeDelta>(none), values<DateTime>(none)), values<Bool>(none));
+    };
+    SECTION("delayed, before old deadline") { check.template operator()<true>(3); }
+    SECTION("delayed, at old deadline") { check.template operator()<true>(4); }
+    SECTION("immediate, before old deadline") { check.template operator()<false>(3); }
+    SECTION("immediate, at old deadline") { check.template operator()<false>(4); }
 }

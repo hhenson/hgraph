@@ -379,7 +379,8 @@ For example, a three-tick schedule checkpointed after one tick resumes with two
 remaining ticks at the original times. This applies to scalar and time-series
 delays, with immediate or delayed first ticks. A completed budget remains
 exhausted after restart; a fresh time-series ``start`` input still resets the
-budget and re-bases the grid. Changing scalar scheduling configuration makes an
+budget and re-bases the grid, replacing old alarms even when one is due in the
+restart cycle. Changing scalar scheduling configuration makes an
 old checkpoint incompatible. Recovery remains simulation-only.
 
 ``SingleShotScheduler`` is best effort: its schedules are not saved or recovered,

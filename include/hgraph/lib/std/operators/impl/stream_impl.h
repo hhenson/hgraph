@@ -1396,7 +1396,9 @@ namespace hgraph::stdlib
         {
             const bool start_modified = start != nullptr && start->modified();
             if (max_ticks <= 0 || (recorded_index(ticks) >= max_ticks && !start_modified)) { return; }  // no remaining budget
-            const bool scheduled = scheduler.is_scheduled_now();
+            // A fresh start replaces the old grid, including an alarm due now.
+            const bool scheduled = !start_modified && scheduler.is_scheduled_now();
+            if (start_modified) { scheduler.reset(); }
 
             if (start != nullptr && start->valid())
             {
