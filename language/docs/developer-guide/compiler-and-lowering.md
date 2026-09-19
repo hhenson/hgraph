@@ -1024,8 +1024,9 @@ source `start` and `stop` blocks become the corresponding static hooks and may
 likewise read state and `const` parameters, but not temporal inputs or output.
 All state variables share one typed state schema. Scalar cache variables lower
 separately through one native `State<>`: multiple fields use a generated struct.
-Shared graph-IR planning rejects the currently unsupported combination of
-recordable state and cache selectors.
+Shared graph-IR planning rejects mixed HGL state/cache declarations until their
+initialization and recovery lowering is implemented. Native static nodes already
+support both selectors.
 
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
