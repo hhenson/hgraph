@@ -229,6 +229,18 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
         { return stdlib::component<KeyedBody>(w, spawn_component_id, value); }
     };
+    /** The component under a map_ the USER wrote: an image selected by
+        component does not take that map_, so its children are never reached. */
+    struct ComponentPerKey
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        { return stdlib::component<AccumulateBody>(w, spawn_component_id, value); }
+    };
+    struct UserMapStage
+    {
+        static Port<SpawnKeyed> compose(Wiring &w, NamedPort<"value", SpawnKeyed> value)
+        { return wire<stdlib::map_>(w, fn<ComponentPerKey>(), value).as<SpawnKeyed>(); }
+    };
     /** Inside the stage, something computes the component's input OUTSIDE it. */
     struct SpawnDoubled
     {

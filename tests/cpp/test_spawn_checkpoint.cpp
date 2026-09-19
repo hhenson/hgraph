@@ -395,3 +395,40 @@ TEST_CASE("spawn recovery: a component fed from outside itself, inside the stage
     REQUIRE(observed.size() == 2);
     CHECK(std::get<1>(observed.back()) == "6");
 }
+
+TEST_CASE("spawn recovery: a component below a map_ the user wrote is not hosted, and says so",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // An image selected by component takes the component and the runtime's own
+    // nodes. A map_ the user wrote in the stage is neither, so the coordinator
+    // never reaches its children. Reporting that component as hosted would
+    // make recovery quietly do nothing; it has to fail, loudly, at wiring.
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<SpawnKeyed> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<UserMapStage>(), test_stage<Sink<SpawnKeyed>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    const auto day = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}));
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Pipeline>(interval(0, 1), day, arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("configured component was not wired"));
+    }
+    // Recovery not configured: it wires and runs.
+    GlobalContext context;
+    Trace         trace;
+    (void)eval_node_with_options<Pipeline>(interval(0, 1), day, arg<"trace">(&trace));
+    Observed observed;
+    append(observed, trace);
+    CHECK(observed.size() == 1);
+}

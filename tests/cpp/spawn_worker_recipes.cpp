@@ -41,6 +41,7 @@ namespace hgraph_test
         register_plain<SideStage, TS<Int>, TS<Int>>();
         register_plain<ComponentStage, TS<Int>>();
         register_plain<OtherComponentStage, TS<Int>>();
+        register_plain<UserMapStage, SpawnKeyed>();
         register_plain<PreprocessedComponentStage, TS<Int>>();
         register_plain<KeyedComponentStage, SpawnKeyed>();
         register_plain<SideComponentStage, TS<Int>, TS<Int>>();

@@ -127,7 +127,8 @@ namespace hgraph::distributed::worker_checkpoint
     {
         struct HostSearch
         {
-            const GraphCheckpointSelection *selection;
+            const GraphCheckpointSelection *component;   // what is being looked for
+            const GraphCheckpointSelection *image;       // what an image of it would take
             bool                            found{false};
         };
         void search_for_component(const GraphBuilder &graph, HostSearch &search)
@@ -136,9 +137,17 @@ namespace hgraph::distributed::worker_checkpoint
             {
                 if (search.found) { return; }
                 const auto &identity = node.checkpoint_identity();
-                if (!identity.transient && search.selection->selects(identity.component)) { search.found = true; return; }
+                if (identity.transient) { continue; }
+                if (search.component->selects(identity.component)) { search.found = true; return; }
                 // A dmap_ worker's component is one level down, in the child
-                // template its map_ wires.
+                // template its map_ wires -- and that map_ is the runtime's
+                // own, so an image takes it. Descend ONLY through such a node:
+                // the coordinator reaches a dynamic owner's children only when
+                // the owner is selected. A component below a map_ the user
+                // wrote would be found here and then never captured, and
+                // recovery would quietly do nothing; not finding it is what
+                // makes that case fail loudly as "not wired".
+                if (!search.image->selects(identity.component)) { continue; }
                 node.visit_child_graphs(&search, [](void *context, ChildGraphInspectionView child) {
                     if (child.graph != nullptr) { search_for_component(*child.graph, *static_cast<HostSearch *>(context)); }
                 });
@@ -173,8 +182,9 @@ namespace hgraph::distributed::worker_checkpoint
 
     bool hosts_component(const GraphBuilder &graph, std::string_view component)
     {
-        const auto selection = GraphCheckpointSelection::owned_by(std::string{component});
-        HostSearch search{&selection};
+        const auto owned = GraphCheckpointSelection::owned_by(std::string{component});
+        const auto image = GraphCheckpointSelection::hosted(component);
+        HostSearch search{&owned, &image};
         search_for_component(graph, search);
         return search.found;
     }
