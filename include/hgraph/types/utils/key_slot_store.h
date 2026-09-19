@@ -413,12 +413,15 @@ namespace hgraph
             if (capacity <= slot_capacity()) { return; }
 
             const size_t old_capacity = slot_capacity();
+            // Built aside and swapped in, as prepare_checkpoint_restore does,
+            // so a failed allocation leaves the store as it was.
+            std::vector<size_t> pool;
+            pool.reserve(m_free_slots.size() + capacity - old_capacity);
+            for (size_t slot = capacity; slot > old_capacity; --slot) { pool.push_back(slot - 1); }
+            pool.insert(pool.end(), m_free_slots.begin(), m_free_slots.end());
             key_storage.reserve_to(capacity);
-            m_free_slots.reserve(m_free_slots.size() + capacity - old_capacity);
             m_index->reserve(capacity);
-            const auto already_free = static_cast<std::ptrdiff_t>(m_free_slots.size());
-            for (size_t slot = capacity; slot > old_capacity; --slot) { m_free_slots.push_back(slot - 1); }
-            std::rotate(m_free_slots.begin(), m_free_slots.begin() + already_free, m_free_slots.end());
+            m_free_slots.swap(pool);
             observers.notify_capacity(old_capacity, capacity);
         }
 
