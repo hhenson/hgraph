@@ -109,3 +109,45 @@ def test_ordered_fixed_list_reference_lowering_resumes(tmp_path, stateful, cuts)
     events = [None, {0: 1, 1: 2}, {2: 3}, None, {0: 7, 3: 4}, {1: 8}, {3: 9}, None]
     zeros = [10, None, None, None, None, 5, None, None]
     compare_restarts(tmp_path, scenario, (schema, hg.TS[int]), hg.TS[int], (events, zeros), cuts)
+
+
+@hg.compute_node
+def _own_output(ts: hg.TS[int]) -> hg.TS[int]:
+    return ts.value
+
+
+# KNOWN DEFECT, found by the recovery campaign (tools/recovery, family
+# ``tsd-restored-slot-order``). strict: the day this passes, the xfail comes off and the
+# campaign's known-defect family is deleted with it.
+@pytest.mark.xfail(strict=True, reason=(
+    "A restored keyed input iterates its keys in a different order from the unbroken run when "
+    "a removal is pending at the cut and another follows in the first cycle after it: "
+    "(0, 3) unbroken, (3, 0) restored. An order-sensitive reduction shows it as 76 vs 40. "
+    "Python-value keyed storage only; the same stream passes from C++ "
+    "(tests/cpp/test_reduce_checkpoint.cpp, 'reduce checkpoint keeps leaf order when one "
+    "cycle both removes and adds keys')."))
+def test_a_restored_input_keeps_its_key_order_with_a_removal_on_each_side_of_the_cut(tmp_path):
+    # The minimal stream, reduced from eight nightly failures that shared this shape and
+    # nothing else -- one of them with no dmap_ or spawn_ in it at all.
+    schema = hg.TSD[int, hg.TS[int]]
+    events = [{2: 2}, {2: hg.REMOVE, 1: 4}, {0: 7, 1: hg.REMOVE, 3: 3}]
+
+    @hg.component
+    def scenario(ts: schema) -> hg.TS[int]:
+        return _own_output(hg.reduce(historical_combine, ts, 0))
+
+    compare_restarts(tmp_path, scenario, (schema,), hg.TS[int], (events,), (2,))
+
+
+def test_the_same_stream_with_one_removal_restarts_invisibly(tmp_path):
+    # The control for the pin above: take away either removal and the restart is invisible,
+    # so what fails there is the pair of removals, not the reduction or the cut.
+    schema = hg.TSD[int, hg.TS[int]]
+
+    @hg.component
+    def scenario(ts: schema) -> hg.TS[int]:
+        return _own_output(hg.reduce(historical_combine, ts, 0))
+
+    for events in ([{2: 2}, {2: hg.REMOVE, 1: 4}, {0: 7, 3: 3}],
+                   [{2: 2}, {1: 4}, {0: 7, 1: hg.REMOVE, 3: 3}]):
+        compare_restarts(tmp_path / str(len(list(tmp_path.iterdir()))), scenario, (schema,), hg.TS[int], (events,), (2,))

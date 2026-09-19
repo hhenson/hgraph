@@ -230,6 +230,20 @@ TEST_CASE("reduce checkpoint preserves stateful combiner history and dense key s
         values<Int>(7, none, none, none, none, none, 9, none, none));
 }
 
+TEST_CASE("reduce checkpoint keeps leaf order when one cycle both removes and adds keys", "[checkpoint][reduce]")
+{
+    stdlib::register_standard_operators();
+    // Found by the recovery campaign (tools/recovery), which draws event streams
+    // at random; the hand-written streams above never remove and add in one
+    // cycle. The combiner is order-sensitive, so a restored reduction that
+    // places the new keys in another leaf order gives another number.
+    compare_every_cut<ReduceComponent<TSD<Int, TS<Int>>>>(
+        values<Value>(dict_delta<Int, TS<Int>>({{2, 2}}), dict_delta<Int, TS<Int>>({{1, 4}}, {2}),
+                      dict_delta<Int, TS<Int>>({{0, 7}, {3, 3}}, {1}), dict_delta<Int, TS<Int>>({{3, 4}}),
+                      dict_delta<Int, TS<Int>>({{0, 1}, {1, 5}})),
+        values<Int>(0, none, none, none, none));
+}
+
 TEST_CASE("reduce checkpoint supports lifted kernels without starting or replaying combiner graphs", "[checkpoint][reduce]")
 {
     stdlib::register_standard_operators();
