@@ -163,8 +163,11 @@ def _run_recover(scenario: Scenario, control: bool, started: float) -> "Result":
                       time.monotonic() - started)
     actual = _values(scenario, cuts=scenario.cuts, recover=True)
     if actual != oracle:
-        return Result(scenario, "fail", "values: " + _first_difference(oracle, actual),
-                      time.monotonic() - started)
+        family = known_defect(scenario)
+        detail = "values: " + _first_difference(oracle, actual)
+        if family is not None:
+            return Result(scenario, "known", f"{family.id}: {detail}", time.monotonic() - started)
+        return Result(scenario, "fail", detail, time.monotonic() - started)
     sensitive = None
     if control:
         sensitive = _values(scenario, cuts=scenario.cuts, recover=False) != oracle

@@ -146,7 +146,7 @@ def _print(report, problems) -> None:
     for name, mode in sorted(report["modes"].items()):
         print(f"  {name:9} {mode['pass']}/{mode['run']} pass, controls {mode['sensitive']}/{mode['controls']} sensitive")
     for name, family in sorted(report["families"].items()):
-        print(f"  known-defect family {name}: {family['known']} failing of {family['members']} members")
+        print(f"  known family {name}: {family['known']} failing of {family['members']} members")
     for kind, values in report["coverage"].items():
         print(f"  {kind:9} " + ", ".join(f"{key}={count}" for key, count in sorted(values.items())))
     for failure in report["failures"][:20]:

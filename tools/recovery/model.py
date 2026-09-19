@@ -103,11 +103,66 @@ TSD_SLOT_ORDER = KnownDefect(
     "out: the order of adds and removals inside one delta.")
 
 
+#: NOT a defect: the consequence of a RULING. "No change means no tick" (2026-07-17; parity
+#: matrix, "already accepted for mesh_ over an initially empty key set") means a mesh_ that
+#: STARTS over an empty key set emits nothing, while one whose keys are all removed later keeps
+#: the valid, empty output it already had. Its output therefore depends on its history, and
+#: RECOVER mode -- a fresh start with re-seeded inputs -- cannot reproduce that history: the
+#: enclosing key is simply absent. A snapshot restores the output and is unaffected. It is a
+#: family here so the campaign neither fails on it nor hides a NEW recover failure.
+#: (For the record: map_ in the same position emits an empty map, where the 0.5 reference emits
+#: nothing -- the other side of the same ruling. That is a parity question, not this family.)
+MESH_EMPTY_INPUT = KnownDefect(
+    "mesh-empty-input-no-tick",
+    "Accepted, not a defect: by the no-change-means-no-tick ruling a mesh_ started over an EMPTY "
+    "key set emits nothing, while one emptied later keeps its valid empty output. RECOVER is a "
+    "fresh start, so wherever a mesh_ layer's own input is empty at a cut the enclosing key is "
+    "absent afterwards where the unbroken run still holds it, empty.")
+
+
+def _input_at(events, cut):
+    """The keyed input as it stands when the day starting at ``cut`` begins."""
+    def fold(value, delta):
+        if delta is None:
+            return value
+        if not isinstance(delta, dict):
+            return delta
+        merged = dict(value) if isinstance(value, dict) else {}
+        for key, item in delta.items():
+            if item == "REMOVE":
+                merged.pop(key, None)
+            else:
+                merged[key] = fold(merged.get(key), item)
+        return merged
+
+    value = None
+    for event in events[:cut]:
+        value = fold(value, event)
+    return value
+
+
+def _empty_at_depth(value, depth: int) -> bool:
+    if not isinstance(value, dict):
+        return False            # never ticked is not "empty": both runs agree on nothing
+    if depth == 0:
+        return not value
+    return any(_empty_at_depth(item, depth - 1) for item in value.values())
+
+
+def _mesh_over_empty_input(scenario: Scenario) -> bool:
+    # Layer k consumes the collection k levels down: the outermost the whole input.
+    meshes = [depth for depth, layer in enumerate(scenario.layers) if layer == "mesh"]
+    return any(_empty_at_depth(_input_at(scenario.events, cut), depth)
+               for cut in scenario.cuts for depth in meshes)
+
+
 def known_defect(scenario: Scenario):
     """The known-defect family ``scenario`` belongs to, if any. Membership says a failure is
-    EXPECTED to be possible, not that it will happen: most members pass. The campaign
-    reports members and failures separately, so a fix shows up as failures dropping to none
-    -- at which point the family is deleted, not left to rot."""
+    EXPECTED to be possible, not that it will happen: most members of the first family pass.
+    The campaign reports members and failures separately, so a fix shows up as failures
+    dropping to none -- at which point the family is deleted, not left to rot."""
+    if scenario.mode == "recover":
+        return MESH_EMPTY_INPUT if _mesh_over_empty_input(scenario) else None
     if scenario.mode != "snapshot" or scenario.leaf != "folded":
         return None
     # A removal on EACH side of some cut. The first relation asked for them in the two cycles

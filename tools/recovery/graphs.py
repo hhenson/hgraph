@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import pickle
 from dataclasses import dataclass
+from typing import Any, Callable
 
 import hgraph as hg
 
@@ -112,7 +113,7 @@ def record(value: hg.TIME_SERIES_TYPE, path: str, clock: hg.CLOCK = None):
 @dataclass(frozen=True)
 class Entry:
     name: str
-    fn: object
+    fn: Callable[..., Any]     # a wired function: called with wiring ports while a graph is wired
     input: object
     output: object
     depth: int          # how many keyed levels the INPUT has

@@ -14,40 +14,50 @@ from .profiles import PROFILES
 _REMOVE = "REMOVE"          # spelled out in recipes; turned into hg.REMOVE when a day is run
 
 
+class _Stream:
+    """The presence-aware tick generator behind ``_events``: removals only ever name a key
+    that is present, and keys leave and come back."""
+
+    def __init__(self, rng: random.Random, keys: int):
+        self.rng = rng
+        self.keys = keys
+        self.removing = True
+
+    def tick(self, state: dict, level: int):
+        if level == 0:
+            return self.rng.randint(1, 9)
+        delta = {}
+        for key in self.rng.sample(range(self.keys), self.rng.randint(1, self.keys)):
+            self._touch(state, key, level, delta)
+        return delta or None
+
+    def _touch(self, state: dict, key: int, level: int, delta: dict) -> None:
+        present = key in state
+        if present and self.removing and self.rng.random() < 0.2:
+            del state[key]
+            delta[key] = _REMOVE
+            return
+        value = self.tick(state.setdefault(key, {}), level - 1)
+        if value is not None and value != {}:
+            delta[key] = value
+        elif not present:
+            del state[key]
+
+
 def _events(rng: random.Random, depth: int, length: int, keys: int, removals_until=None):
-    """``length`` cycles over a ``depth``-level keyed input. Removals only ever name a key
-    that is present, quiet cycles are common, and keys leave and come back.
+    """``length`` cycles over a ``depth``-level keyed input, with quiet cycles.
 
     ``removals_until`` stops removals from that cycle on. A RECOVER day starts its source
     afresh, outside the component and unrestored, and a source cannot remove a key it never
     held; a snapshot restores that baseline, which is why snapshot scenarios need no limit."""
-    removing = [True]
-
-    def tick(state, level):
-        if level == 0:
-            return rng.randint(1, 9)
-        delta = {}
-        for key in rng.sample(range(keys), rng.randint(1, keys)):
-            present = key in state
-            if present and removing[0] and rng.random() < 0.2:
-                del state[key]
-                delta[key] = _REMOVE
-                continue
-            child = state.setdefault(key, {})
-            value = tick(child, level - 1)
-            if value is not None and value != {}:
-                delta[key] = value
-            elif not present:
-                del state[key]
-        return delta or None
-
+    stream = _Stream(rng, keys)
     state: dict = {}
     events = []
     for cycle in range(length):
-        removing[0] = removals_until is None or cycle < removals_until
-        events.append(None if rng.random() < 0.25 else tick(state, depth))
+        stream.removing = removals_until is None or cycle < removals_until
+        events.append(None if rng.random() < 0.25 else stream.tick(state, depth))
     if all(event is None for event in events):
-        events[0] = tick(state, depth)
+        events[0] = stream.tick(state, depth)
     return tuple(events)
 
 
@@ -79,38 +89,57 @@ def _chains(max_depth: int):
 
 
 
+def _seeded(seed: int) -> random.Random:
+    # A reproducible stream of TEST SCENARIOS: the seed is printed, a failure is replayed from
+    # it, and nothing here is a secret or a token. A cryptographic source would defeat that.
+    return random.Random(seed)  # NOSONAR(python:S2245)
+
+
+def _placements(entry, settings, rng: random.Random):
+    """The (host, placement) pairs ``entry`` is generated for, in a stable order."""
+    hosted_leaf = entry.name.split(graphs.SEPARATOR)[-1] == "hosted"
+    uses_processes = "dmapp" in entry.name
+    for host in ("graph", "spawn"):
+        for placement in ("outer", "inner"):
+            if (placement == "inner") != hosted_leaf:
+                continue        # the inner component IS the "hosted" leaf, and only it
+            if (uses_processes or host == "spawn") and rng.random() > settings["process_share"]:
+                continue
+            yield host, placement
+
+
+def _snapshot(entry, host, placement, settings, rng: random.Random, seed: int):
+    length = rng.randint(*settings["length"])
+    events = _events(rng, entry.depth, length, settings["keys"])
+    plan = rng.choice(("single", "every", "several"))
+    return Scenario(chain=entry.name, placement=placement, host=host, mode="snapshot", events=events,
+                    cuts=_cuts(rng, length, plan), seed=seed, tags=(plan, f"depth{entry.depth}"))
+
+
+def _recover(entry, host, placement, settings, rng: random.Random, seed: int):
+    length = rng.randint(*settings["length"])
+    plan = rng.choice(("single", "every", "several"))
+    cuts = _cuts(rng, length, plan)
+    events = _events(rng, entry.depth, length, settings["keys"], removals_until=cuts[0])
+    return Scenario(chain=entry.name, placement=placement, host=host, mode="recover", events=events,
+                    cuts=cuts, seed=seed, tags=(plan, f"depth{entry.depth}"))
+
+
 def scenarios(profile: str, seed: int):
     """Every scenario of ``profile``, in a stable order that depends only on ``seed``."""
     settings = PROFILES[profile]
-    rng = random.Random(seed)
+    rng = _seeded(seed)
     for chain in sorted(_chains(settings["max_depth"])):
         entry = graphs.resolve(chain)
-        uses_processes = "dmapp" in chain
-        for host in ("graph", "spawn"):
-            for placement in ("outer", "inner"):
-                if (placement == "inner") != (entry.name.split(graphs.SEPARATOR)[-1] == "hosted"):
-                    continue        # the inner component IS the "hosted" leaf, and only it
-                if (uses_processes or host == "spawn") and rng.random() > settings["process_share"]:
-                    continue
-                for _ in range(settings["per_chain"]):
-                    length = rng.randint(*settings["length"])
-                    events = _events(rng, entry.depth, length, settings["keys"])
-                    plan = rng.choice(("single", "every", "several"))
-                    yield Scenario(chain=chain, placement=placement, host=host, mode="snapshot",
-                                   events=events, cuts=_cuts(rng, length, plan), seed=seed,
-                                   tags=(plan, f"depth{entry.depth}"))
-                # RECOVER brings inputs back, not state: stateless graphs, component outermost,
-                # in the main graph (a spawn_ sink is not an output a value can be read from).
-                if entry.stateful or placement != "outer" or host != "graph":
-                    continue
-                for _ in range(settings["per_chain"]):
-                    length = rng.randint(*settings["length"])
-                    plan = rng.choice(("single", "every", "several"))
-                    cuts = _cuts(rng, length, plan)
-                    events = _events(rng, entry.depth, length, settings["keys"], removals_until=cuts[0])
-                    yield Scenario(chain=chain, placement=placement, host=host, mode="recover",
-                                   events=events, cuts=cuts, seed=seed,
-                                   tags=(plan, f"depth{entry.depth}"))
+        for host, placement in _placements(entry, settings, rng):
+            for _ in range(settings["per_chain"]):
+                yield _snapshot(entry, host, placement, settings, rng, seed)
+            # RECOVER brings inputs back, not state: stateless graphs, component outermost, in
+            # the main graph (a spawn_ sink is not an output a value can be read from).
+            if entry.stateful or placement != "outer" or host != "graph":
+                continue
+            for _ in range(settings["per_chain"]):
+                yield _recover(entry, host, placement, settings, rng, seed)
 
 
 def shard(items, index: int, count: int):
