@@ -43,15 +43,20 @@ namespace hgraph
     };
 
     /** The identity scopes of a worker-hosted graph (RFC 0039). Every node
-     * of one is wired under ``worker``; the runtime's own nodes -- a stage's
+     * of one is wired under ``@hgraph.worker``; the runtime's own nodes -- a stage's
      * sources and output sink, and in a ``dmap_`` worker the key partition and
-     * the ``map_`` itself -- under ``worker.boundary``, so an image selected by
+     * the ``map_`` itself -- under ``@hgraph.worker.boundary``, so an image selected by
      * component still takes the input baselines, and the membership that leads
      * to the component, with it. A child template wired from a boundary node
      * is the user's again, and a component inside the graph keeps its own id.
      */
-    inline constexpr std::string_view worker_checkpoint_scope{"worker"};
-    inline constexpr std::string_view worker_boundary_checkpoint_scope{"worker.boundary"};
+    inline constexpr std::string_view worker_checkpoint_scope{"@hgraph.worker"};
+    inline constexpr std::string_view worker_boundary_checkpoint_scope{"@hgraph.worker.boundary"};
+    /** Internal scopes cannot be claimed or selected as user components. */
+    [[nodiscard]] inline bool reserved_checkpoint_scope(std::string_view component) noexcept
+    {
+        return component == "@hgraph" || component.starts_with("@hgraph.");
+    }
 
     struct HGRAPH_CLASS_EXPORT NodeCheckpointIdentity
     {
@@ -65,13 +70,10 @@ namespace hgraph
          * the scope, outside the image and the contract. It has no id, so it
          * can be added, removed or changed without disturbing anyone else's. */
         bool transient{false};
-        /** In a worker graph: a component member with an input from a node
-         * that is neither in its component nor one of the runtime's boundary
-         * nodes. An image of the WHOLE graph restores that producer too, so
-         * it is nothing; an image selected by component does not, and would
-         * restore this node beside an input that was not -- so there it is a
-         * refusal. The fix is the usual one: move the producer inside. */
-        bool fed_from_outside{false};
+        /** Producer scopes outside this component, checked against the actual
+         * image selection. A parent component's image may include both ends
+         * of a dependency that an inner-only image must refuse. */
+        std::vector<std::string> input_components{};
     };
 
     struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint
@@ -142,6 +144,11 @@ namespace hgraph
         bool captures_output{true};
         /** This node owns a component input boundary, including source baseline. */
         bool boundary_input{false};
+        /** All pending wakeups belong to children. capture_impl must capture
+         * those children (thereby validating their schedules) and reject any
+         * incomplete owner work. A transient child's alarm is not a pending
+         * event in the recovered state merely because it wakes this owner. */
+        bool schedules_children{false};
         NodeCheckpointState (*capture_impl)(
             const NodeView &, const CaptureGraphCheckpoint &){&node_checkpoint_detail::capture_none};
         /** Create saved topology and import child-owned endpoints before REF

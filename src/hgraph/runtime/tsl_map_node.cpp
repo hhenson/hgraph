@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/tsl_map_node.h>
 
 #include <hgraph/runtime/nested_graph_storage.h>
@@ -401,15 +402,8 @@ namespace hgraph
             }
             signature.varint(spec.multiplexed_inputs.size());
             for (const auto index : spec.multiplexed_inputs) { signature.varint(index); }
-            signature.varint(spec.child.input_bindings.size());
-            for (const auto &binding : spec.child.input_bindings)
-            {
-                signature.varint(binding.source_path.size());
-                for (const auto part : binding.source_path) { signature.varint(part); }
-                signature.varint(binding.target.node);
-                signature.varint(binding.target.path.size());
-                for (const auto part : binding.target.path) { signature.varint(part); }
-            }
+            node_checkpoint_detail::append_input_bindings(
+                signature, spec.child.graph_builder, spec.child.input_bindings);
             const auto &bytes = signature.bytes();
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
@@ -557,6 +551,7 @@ namespace hgraph
             static const NodeCheckpointOps ops{
                 .supported = true,
                 .captures_output = true,
+                .schedules_children = true,
                 .capture_impl = &capture_tsl_map_checkpoint,
                 .prepare_restore_impl = &prepare_tsl_map_checkpoint,
                 .restore_impl = &restore_tsl_map_checkpoint,

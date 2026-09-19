@@ -1,3 +1,4 @@
+#include "../runtime/checkpoint_signature.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/manifest/schema_descriptor.h>
@@ -1577,7 +1578,7 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
 
 NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
   manifest::CanonicalWriter signature;
-  bool fed_from_outside = false;
+  std::vector<std::string> input_components;
   const auto *schema = builder.type().schema();
   const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
   // A transient sink is inside the scope and outside the contract: no id to
@@ -1660,27 +1661,25 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
       writer.string_field(identity.signature);
     }
     if (child.output_binding == nullptr) { throw std::invalid_argument("component checkpoint: sink child is unsupported"); }
-    writer.varint(static_cast<std::uint8_t>(child.output_binding->kind));
-    writer.varint(child.output_binding->source.node);
-    writer.varint(child.output_binding->source.path.size());
-    for (auto part : child.output_binding->source.path) { writer.varint(part); }
+    node_checkpoint_detail::append_output_binding(writer, *child.graph, *child.output_binding);
   });
   const auto append_source = [&](const auto &self, const WiringPortRef &source) -> void {
     signature.varint(static_cast<std::uint8_t>(source.source_kind()));
     if (const auto *producer = source.peered_node_or_null()) {
       const auto &identity = producer->builder.checkpoint_identity();
-      // In a worker graph everything has an identity, so "outside the
-      // component" is no longer "has none". The runtime's boundary nodes
-      // travel with a component's image; anything else outside it does not,
-      // which matters only to an image selected by component -- so it is
-      // noted here and judged there (``fed_from_outside``).
+      // Preserve cross-scope producers: a selected ancestor can restore both
+      // ends, while an inner-only selection cannot. Runtime boundary scopes
+      // are included by a hosted selection, rather than exempted here.
       const auto &scope = impl_->checkpoint_component;
       const bool in_component = impl_->checkpoint_records_refusals && scope != worker_checkpoint_scope &&
           scope != worker_boundary_checkpoint_scope;
       const bool inside = identity.component == scope ||
           (identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
            identity.component[scope.size()] == '.');
-      if (in_component && !inside && identity.component != worker_boundary_checkpoint_scope) { fed_from_outside = true; }
+      if (in_component && !inside &&
+          std::find(input_components.begin(), input_components.end(), identity.component) == input_components.end()) {
+        input_components.push_back(identity.component);
+      }
       signature.varint(identity.component.empty());
       if (identity.component.empty()) {
         if (!checkpoint_ops.boundary_input) {
@@ -1737,7 +1736,7 @@ NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std
   return {.component = impl_->checkpoint_component,
       .id = std::move(id),
       .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()},
-      .fed_from_outside = fed_from_outside};
+      .input_components = std::move(input_components)};
 }
 
 GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }
@@ -1823,6 +1822,9 @@ void Wiring::notify_overload_resolution(
 }
 
 void Wiring::claim_component_id(std::string_view fq_recordable_id) {
+  if (reserved_checkpoint_scope(fq_recordable_id)) {
+    throw std::invalid_argument("component: recordable id uses the reserved @hgraph. namespace");
+  }
   if (!impl_->component_ids.emplace(std::string{fq_recordable_id}).second) {
     throw std::invalid_argument("component: duplicate recordable id '" +
                                 std::string{fq_recordable_id} +

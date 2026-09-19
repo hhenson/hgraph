@@ -38,7 +38,7 @@ namespace hgraph::distributed::worker_checkpoint
             {
                 const auto &identity = node.checkpoint_identity();
                 if (identity.transient || !hosted.selection->selects(identity.component)) { continue; }
-                const bool stranded = !hosted.selection->whole() && identity.fed_from_outside;
+                const bool stranded = !hosted.selection->contains_dependencies(identity);
                 if (identity.component.empty() || !identity.refusal.empty() || stranded)
                 {
                     throw std::invalid_argument(fmt::format(

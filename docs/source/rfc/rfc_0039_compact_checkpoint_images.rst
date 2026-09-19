@@ -447,10 +447,10 @@ Two things are particular to ``dmap_``.
 
 *The component is one level down.* Everything at the top of a ``dmap_`` worker is
 the runtime's own -- the sources, the key partition, the ``map_``, the sink -- so
-all of it is wired under ``worker.boundary`` and travels with the image,
+all of it is wired under ``@hgraph.worker.boundary`` and travels with the image,
 including the ``map_``'s membership, slots and children, which is what leads to
 the per-key component instances. A child template wired *from* a boundary node
-is the user's again, so its nodes fall back to ``worker`` and only the component
+is the user's again, so its nodes fall back to ``@hgraph.worker`` and only the component
 inside it is selected. (The coordinator descends into a dynamic owner's children
 only when the owner is selected. Here it is. A ``map_`` the *user* wrote, in a
 ``spawn_`` stage, is not, and a component under one is not reached -- nor
@@ -467,7 +467,14 @@ gains ``live_schedule_impl``: after the restored start an owner reports the
 earliest time it still has to run for live work, and the coordinator discards
 the bootstrap and then honours that. ``map_`` answers from its children, the
 list ``map_`` likewise, a ``dmap_`` owner from what its restored workers asked
-for. A worker restored *whole* still may not report a pending schedule.
+for. This also applies to whole-worker recovery: transient sinks are excluded
+from even a whole-worker image and may schedule fresh startup work.
+
+Owners whose wakeups come entirely from children declare
+``NodeCheckpointOps::schedules_children``. Their capture validates each child's
+work rather than rejecting the aggregate deadline: a transient sink's pending
+flush is allowed, while a selected compute node's pending event still refuses
+the image. The owner must still reject incomplete local work.
 
 **A** ``dmap_`` **wired inside a component keeps working** as stage 4 built it:
 the owner is a member, and its workers are saved whole, with the empty
@@ -535,13 +542,14 @@ nothing.) Where a configured component would refuse to wire -- a reference in
 an input, a reference escaping the output -- a hosted one records the refusal on
 its nodes, as a worker scope does for a single node.
 
-One thing a boundary used to guarantee is now checked instead. A member fed by a
-node that is neither in its component nor one of the runtime's boundary nodes is
-noted at wiring (``NodeCheckpointIdentity::fed_from_outside``). An image of the
-whole graph restores that producer too, so there it is nothing. An image
-selected by component does not, and would restore the member beside an input
-that was not, so there it is refused -- at the owner's wiring, naming the node
-and the remedy: move what computes the input inside the component.
+One thing a boundary used to guarantee is now checked instead. Producer scopes
+outside a member's own component are recorded at wiring
+(``NodeCheckpointIdentity::input_components``) and checked against the actual
+selection. Selecting an enclosing component includes both it and its nested
+components; selecting only an inner component does not include its parent's
+producers. A dependency omitted from the selected image is refused at the
+owner's wiring, naming the node and the remedy: include what computes its input
+in the recovered component.
 
 *The* ``spawn_`` *node stands in for the component in the owner graph.* At wiring
 it looks for the configured component among its stages' nodes. If a stage hosts
@@ -564,7 +572,7 @@ supplies only future events.
 
 *A stage's image is selected, not whole.* It covers the component and the
 runtime's own boundary nodes -- the stage's sources and its output sink, wired
-under ``worker.boundary``. Those hold the input baselines and the output's
+under ``@hgraph.worker.boundary``. Those hold the input baselines and the output's
 observation state, they are not the user's, and restoring them is what lets a
 restored pipeline skip the first-capture baselines. The checkpoint and restore
 frames carry the component id; an empty id is the whole graph, which is what
@@ -800,3 +808,18 @@ References
 * :doc:`rfc_0037_distributed_map`
 * :doc:`rfc_0038_spawn_pipelines`
 * :doc:`../user_guide/component_recovery`
+
+Recovery review corrections
+---------------------------
+
+Internal worker scopes use the reserved ``@hgraph.`` namespace. A user component
+cannot claim that namespace, and recovery configuration cannot select it.
+Ordinary names such as ``worker`` and ``worker.boundary`` remain valid user
+component names, but must refer to a component that was actually wired.
+
+Child input and output binding signatures name checkpoint identities rather
+than physical node positions. Input bindings to transient sinks are excluded,
+so inserting one cannot renumber the recoverable contract. The same encoding
+is used by dictionary and list maps, meshes, and both reduction strategies.
+These signature corrections fail closed against images with the previous
+encoding; an incompatible image must be regenerated rather than imported.

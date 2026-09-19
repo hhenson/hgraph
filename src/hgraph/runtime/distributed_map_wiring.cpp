@@ -207,6 +207,7 @@ namespace hgraph::distributed
         {
             static const NodeCheckpointOps ops{
                 .supported = true,
+                .schedules_children = true,
                 .capture_impl = &worker_checkpoint::capture,
                 .restore_impl = &worker_checkpoint::restore,
                 .live_schedule_impl = &worker_checkpoint::live_schedule,

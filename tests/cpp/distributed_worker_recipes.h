@@ -251,6 +251,79 @@ namespace hgraph_test
     inline constexpr const char *prepared_keys_name = "prepared: keys";
     inline constexpr const char *prepared_bundle_name = "prepared: bundle";
 
+    /** A timer owned by a transient sink, independent of recovered state. */
+    template <Int Delay> struct CheckpointTimerSink
+    {
+        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD * Delay); }
+        static void eval(In<"ts", TS<Int>, InputValidity::Unchecked>, NodeScheduler) {}
+    };
+    struct CheckpointImmediateSink
+    {
+        static void start(NodeScheduler scheduler, State<Int> calls)
+        { calls.set(Int{0}); scheduler.schedule(scheduler.now()); }
+        static void eval(In<"ts", TS<Int>, InputValidity::Unchecked>, NodeScheduler, State<Int> calls)
+        { calls.set(calls.get() + 1); }
+        static void stop(State<Int> calls)
+        { if (calls.get() == 0) throw std::runtime_error("transient sink startup work was lost"); }
+    };
+    struct HostedWithTimer
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto total = stdlib::component<PreparedAccumulateBody>(w, dmap_component_id, ts);
+            wire<CheckpointTimerSink<100>>(w, total);
+            return total;
+        }
+    };
+    struct ChildWithImmediateSink
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto total = wire<PreparedAccumulate>(w, ts).as<TS<Int>>();
+            wire<CheckpointImmediateSink>(w, total);
+            return total;
+        }
+    };
+    struct NestedCheckpointBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts)
+        {
+            auto intermediate = wire<PreparedAccumulate>(w, ts).as<TS<Int>>();
+            return stdlib::component<PreparedAccumulateBody>(w, "inner", intermediate);
+        }
+    };
+    struct HostedNestedComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<NestedCheckpointBody>(w, dmap_component_id, ts); }
+    };
+    struct CheckpointTransientSink { static void eval(In<"ts", TS<Int>>) {} };
+    template <bool Sink> struct CompatibleCheckpointBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ts", TS<Int>> ts)
+        {
+            if constexpr (Sink) wire<CheckpointTransientSink>(w, ts);
+            return wire<PreparedAccumulate>(w, ts).template as<TS<Int>>();
+        }
+    };
+    template <bool Sink> struct HostedCompatibleComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<CompatibleCheckpointBody<Sink>>(w, dmap_component_id, ts); }
+    };
+    template <fixed_string Id> struct HostedNamedComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        { return stdlib::component<PreparedAccumulateBody>(w, Id.sv(), ts); }
+    };
+    struct CheckpointPendingCompute
+    {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        { static const NodeCheckpointOps ops{.supported = true}; return ops; }
+        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD * 100); }
+        static void eval(In<"ts", TS<Int>> ts, NodeScheduler, Out<TS<Int>> out) { out.set(ts.value()); }
+    };
+
     /** Register what a worker process may be asked to build. */
     void register_distributed_test_recipes();
 }  // namespace hgraph_test

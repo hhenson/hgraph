@@ -65,6 +65,8 @@ namespace hgraph
     GraphCheckpointSelection GraphCheckpointSelection::owned_by(std::string component)
     {
         if (component.empty()) { throw std::invalid_argument("component checkpoint: a component selection requires an id"); }
+        if (reserved_checkpoint_scope(component))
+            throw std::invalid_argument("component checkpoint: component id uses the reserved @hgraph. namespace");
         GraphCheckpointSelection selection;
         selection.roots_.push_back(std::move(component));
         return selection;
@@ -89,6 +91,12 @@ namespace hgraph
             }
         }
         return false;
+    }
+
+    bool GraphCheckpointSelection::contains_dependencies(const NodeCheckpointIdentity &identity) const noexcept
+    {
+        return std::all_of(identity.input_components.begin(), identity.input_components.end(),
+                           [&](const auto &owner) { return selects(owner); });
     }
 
     struct GraphCheckpointCoordinator::Impl
@@ -332,7 +340,7 @@ namespace hgraph
             }
             // An image selected by component does not restore what feeds this
             // node from outside it; a whole-graph image does, so there it is fine.
-            if (!selection.whole() && node.checkpoint_identity().fed_from_outside)
+            if (!selection.contains_dependencies(node.checkpoint_identity()))
             {
                 throw std::runtime_error("component checkpoint: node '" + node_id(node) + "' (" +
                     std::string{node.schema()->name()} + ") is fed from outside its component by a node "
@@ -421,7 +429,8 @@ namespace hgraph
                 if (shape_only) { image.nodes.push_back(std::move(item)); continue; }
                 const auto time = graph.evaluation_time();
                 const auto scheduled = graph.node_scheduled_time(i);
-                if (scheduled != MAX_DT && scheduled > time && !owns_its_schedule(node))
+                if (scheduled != MAX_DT && scheduled > time && !owns_its_schedule(node) &&
+                    !node.checkpoint_ops().schedules_children)
                 {
                     throw std::runtime_error("component checkpoint: pending schedule at '" + item.id + "'");
                 }

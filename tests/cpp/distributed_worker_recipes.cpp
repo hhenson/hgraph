@@ -53,6 +53,46 @@ namespace hgraph_test
             auto plan = prepare_distributed_map(fn<PreparedHostedWithConstant>(), inputs, {}, group, groups);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
+        hosted("hosted timer", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedWithTimer>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("immediate sink", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<ChildWithImmediateSink>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("hosted nested", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedNestedComponent>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("compatible before", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<false>>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("compatible after", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<true>>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("named worker", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker">>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("named worker boundary", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker.boundary">>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
+        hosted("pending compute", +[](std::size_t group, std::size_t groups) {
+            const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
+            auto plan = prepare_distributed_map(fn<CheckpointPendingCompute>(), inputs, {}, group, groups);
+            return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
+        });
         register_prepared_worker_recipe(prepared_keys_name, {+[](std::size_t group, std::size_t groups) {
             const std::array<DistributedMapInput, 1> inputs{{
                 {schema_descriptor<TSS<Str>>::ts_meta(), WiringPortRef::ArgTag::None, "__keys__"}}};

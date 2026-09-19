@@ -18,6 +18,7 @@ process, no checkpoint could replay that, and it declares nothing.
 import os
 import pickle
 from pathlib import Path
+from types import SimpleNamespace
 
 import hgraph as hg
 import hgraph_persistence as persistence
@@ -334,3 +335,138 @@ def test_a_python_sink_inside_a_component_is_transient_and_the_component_around_
     # right every time, because the component recovered; its own counter starts
     # again with each run, because it did not -- and was never asked to.
     assert rows == [(1, 1), (3, 2), (6, 3), (1, 1), (3, 1), (6, 1)]
+
+
+@hg.sink_node
+def transient_timer(ts: hg.TS[int], delay: int, scheduler: hg.SCHEDULER = None):
+    pass
+
+
+@transient_timer.start
+def transient_timer_start(delay: int, scheduler: hg.SCHEDULER = None):
+    scheduler.schedule(delay * hg.MIN_TD)
+
+
+@hg.graph
+def running_with_timer(ts: hg.TS[int]) -> hg.TS[int]:
+    total = running(ts)
+    transient_timer(total, delay=100)
+    return total
+
+
+@hg.sink_node(valid=())
+def immediate_sink(ts: hg.TS[int], scheduler: hg.SCHEDULER = None, state: hg.STATE = None):
+    state.calls += 1
+
+
+@immediate_sink.start
+def immediate_sink_start(scheduler: hg.SCHEDULER = None, state: hg.STATE = None):
+    state.calls = 0
+    scheduler.schedule(0 * hg.MIN_TD)
+
+
+@immediate_sink.stop
+def immediate_sink_stop(state: hg.STATE = None):
+    assert state.calls > 0, "transient sink startup work was lost"
+
+
+@hg.graph
+def total_with_immediate_sink(ts: hg.TS[int]) -> hg.TS[int]:
+    total = running_total(ts)
+    immediate_sink(total)
+    return total
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_transient_sink_timer_does_not_block_dmap_checkpoint(tmp_path, in_process):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_with_timer, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 3}]
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_whole_dmap_worker_runs_transient_startup_work_on_quiet_restored_day(tmp_path, in_process):
+    @hg.component
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(total_with_immediate_sink, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, scenario, (SCHEMA,), SCHEMA, ([{1: 1}, None, {1: 2}],), (1, 2))
+    assert actual == [{1: 1}, None, {1: 3}]
+
+
+@hg.component
+def nested_running(ts: hg.TS[int]) -> hg.TS[int]:
+    return running(running_total(ts))
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_hosted_nested_component_accepts_a_selected_parent_dependency(tmp_path, in_process):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(nested_running, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, nested_running), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 4}]
+    with pytest.raises(Exception, match="fed from outside its component"):
+        _run(_Hosting(scenario, SimpleNamespace(recordable_id="nested_running.running")),
+             (SCHEMA,), SCHEMA, ([{1: 1}],), 0, persistence.ComponentCheckpointStore(tmp_path / "inner"))
+
+
+@hg.sink_node
+def transient_observer(ts: hg.TS[int]):
+    pass
+
+
+@hg.component(recordable_id="compatible")
+def compatible_before(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@hg.component(recordable_id="compatible")
+def compatible_after(ts: hg.TS[int]) -> hg.TS[int]:
+    transient_observer(ts)
+    return running_total(ts)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_adding_a_transient_sink_preserves_hosted_component_compatibility(tmp_path, in_process):
+    @hg.graph
+    def before(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(compatible_before, values, __workers__=2, in_process=in_process)
+
+    @hg.graph
+    def after(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(compatible_after, values, __workers__=2, in_process=in_process)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    assert _run(_Hosting(before, compatible_before), (SCHEMA,), SCHEMA, ([{1: 1}],), 0, store) == [{1: 1}]
+    assert _run(_Hosting(after, compatible_after), (SCHEMA,), SCHEMA, ([{1: 2}],), 1, store, "cut-1") == [{1: 3}]
+
+
+@hg.component(recordable_id="worker")
+def named_worker(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_worker_scope_is_not_a_user_component(tmp_path, in_process):
+    @hg.graph
+    def absent(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_total, values, __workers__=2, in_process=in_process)
+
+    with pytest.raises(Exception, match="configured component was not wired"):
+        _run(_Hosting(absent, named_worker), (SCHEMA,), SCHEMA, ([{1: 1}],), 0,
+             persistence.ComponentCheckpointStore(tmp_path / "absent"))
+
+    @hg.graph
+    def present(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(named_worker, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path / "present", _Hosting(present, named_worker), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 3}]

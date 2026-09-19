@@ -28,6 +28,8 @@ namespace hgraph
         [[nodiscard]] bool whole() const noexcept { return roots_.empty(); }
         /** ``owner`` is a node's ``NodeCheckpointIdentity::component``. */
         [[nodiscard]] bool selects(std::string_view owner) const noexcept;
+        /** Whether every recorded producer is included in this image. */
+        [[nodiscard]] bool contains_dependencies(const NodeCheckpointIdentity &identity) const noexcept;
 
       private:
         std::vector<std::string> roots_{};

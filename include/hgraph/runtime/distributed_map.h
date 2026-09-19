@@ -508,8 +508,8 @@ namespace hgraph::distributed
 
         [[nodiscard]] std::size_t worker_count() const noexcept { return workers_.size(); }
         /** The earliest time a restored worker still wants, or ``MAX_DT``.
-         * Whole workers want nothing; a worker restored only in part started
-         * its other nodes fresh, and their start-time work is live. */
+         * Transient sinks start fresh even in whole-worker recovery; their
+         * start-time work, and that of any other excluded nodes, is live. */
         [[nodiscard]] DateTime restored_next() const noexcept { return restored_next_; }
         [[nodiscard]] std::span<const std::size_t> output_extents() const noexcept { return output_extents_; }
         void restore_output_extents(std::span<const std::size_t> extents)
@@ -559,16 +559,11 @@ namespace hgraph::distributed
                     restored.size(), workers));
         }
 
-        // A worker restored WHOLE wants nothing: an image never holds a
-        // pending schedule, so one that reports otherwise is broken. A worker
-        // restored in part started its other nodes fresh, and what they want
-        // is live work the owner has to run (``restored_next``).
-        void admit_restored(DateTime next, std::size_t group)
+        // Even a whole-worker image excludes transient sinks. Their fresh
+        // start hooks may schedule live work; the coordinator has already
+        // removed historical bootstrap work from recovered nodes.
+        void admit_restored(DateTime next)
         {
-            if (next == MAX_DT) { return; }
-            if (component_.empty())
-                throw std::runtime_error(fmt::format(
-                    "dmap_: restored partition {} reports a pending schedule", group));
             restored_next_ = std::min(restored_next_, next);
         }
 
@@ -580,7 +575,7 @@ namespace hgraph::distributed
             if (image == nullptr) { host->start(config.start_time); }
             else
             {
-                try { admit_restored(start_worker_restored(*host, config.start_time, *image, component_), group); }
+                try { admit_restored(start_worker_restored(*host, config.start_time, *image, component_)); }
                 catch (const std::exception &error)
                 {
                     throw std::runtime_error(
@@ -601,7 +596,7 @@ namespace hgraph::distributed
                 if (!reply.error.empty())
                     throw std::runtime_error(
                         fmt::format("dmap_: partition {} refused its image: {}", group, reply.error));
-                admit_restored(reply.next_scheduled_time, group);
+                admit_restored(reply.next_scheduled_time);
             }
         }
 
@@ -823,6 +818,7 @@ namespace hgraph::distributed
         {
             static const NodeCheckpointOps ops{
                 .supported = true,
+                .schedules_children = true,
                 .capture_impl = &worker_checkpoint::capture,
                 .restore_impl = &worker_checkpoint::restore,
                 .live_schedule_impl = &worker_checkpoint::live_schedule,

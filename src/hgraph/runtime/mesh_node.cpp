@@ -1,3 +1,4 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/mesh_node.h>
 
 #include <hgraph/runtime/nested_bindings.h>
@@ -1604,14 +1605,7 @@ void validate_mesh_checkpoint_mode(const MeshNodeContext &context) {
   }
   writer.varint(spec.multiplexed_inputs.size());
   for (auto index : spec.multiplexed_inputs) { writer.varint(index); }
-  writer.varint(spec.child.input_bindings.size());
-  for (const auto &binding : spec.child.input_bindings) {
-    writer.varint(binding.source_path.size());
-    for (auto index : binding.source_path) { writer.varint(index); }
-    writer.varint(binding.target.node);
-    writer.varint(binding.target.path.size());
-    for (auto index : binding.target.path) { writer.varint(index); }
-  }
+  node_checkpoint_detail::append_input_bindings(writer, spec.child.graph_builder, spec.child.input_bindings);
   const auto &bytes = writer.bytes();
   return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
 }
@@ -2015,6 +2009,11 @@ void mesh_node_stop(const NodeView &view, DateTime evaluation_time) {
   auto mesh_view = view.as<MeshNodeView>();
   auto &storage = storage_of(view, *static_cast<const MeshNodeContext *>(
                                        mesh_view.internal_context()));
+
+  // Release the upstream subscription while its source is still alive. The
+  // owning map can retain this stopped graph until a later slot erase, after
+  // the source has already been detached or replaced.
+  storage.unsubscribe_requested_keys_noexcept();
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();

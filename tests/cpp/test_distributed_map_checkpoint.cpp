@@ -618,3 +618,117 @@ TEST_CASE("dmap_: wrapping the child in a component changes nothing when nothing
     REQUIRE(plain.front().has_value());
     CHECK_OUTPUT(wrapped, plain);
 }
+
+TEST_CASE("dmap_ recovery: transient timers do not become pending recovered work in their owners",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto run = []<WorkerHosting Hosting>() {
+        using Graph = HostingGraph<hgraph_test::HostedWithTimer, "hosted timer", Hosting>;
+        const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}));
+        CHECK_OUTPUT(days<Graph>(ticks, {1}, hgraph_test::dmap_component_id),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 3}})));
+        // The exemption is for child-owned wakeups, not all pending work:
+        // a selected compute child's future event must still refuse capture.
+        using Pending = PreparedComponent<Dict, Dict, hgraph_test::CheckpointPendingCompute, "pending compute", Hosting>;
+        REQUIRE_THROWS_WITH(days<Pending>(ticks, {}, "distributed-map"),
+                            Catch::Matchers::ContainsSubstring("pending schedule"));
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
+TEST_CASE("dmap_ recovery: whole workers run transient sink startup work on a quiet restored day", "[checkpoint][dmap]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto run = []<WorkerHosting Hosting>() {
+        using Graph = PreparedComponent<Dict, Dict, hgraph_test::ChildWithImmediateSink, "immediate sink", Hosting>;
+        // On day two only the sink's start-time alarm can run it. Its stop
+        // hook fails if that work was discarded or was never driven.
+        const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), none,
+                                         dict_delta<Str, TS<Int>>({{"a", 2}}));
+        CHECK_OUTPUT(days<Graph>(ticks, {1, 2}, "distributed-map"),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), none,
+                                   dict_delta<Str, TS<Int>>({{"a", 3}})));
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
+TEST_CASE("dmap_ recovery: dependencies are checked against the selected ancestor component", "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto run = []<WorkerHosting Hosting>() {
+        using Graph = HostingGraph<hgraph_test::HostedNestedComponent, "hosted nested", Hosting>;
+        const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}));
+        CHECK_OUTPUT(days<Graph>(ticks, {1}, hgraph_test::dmap_component_id),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 4}})));
+        // Selecting only the inner component does not restore its producer.
+        REQUIRE_THROWS_WITH(days<Graph>(ticks, {}, "dmap-accumulate.inner"),
+                            Catch::Matchers::ContainsSubstring("fed from outside its component"));
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
+TEST_CASE("dmap_ recovery: inserting a transient sink preserves child binding identities", "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto run = []<WorkerHosting Hosting>() {
+        using Before = HostingGraph<hgraph_test::HostedCompatibleComponent<false>, "compatible before", Hosting>;
+        using After = HostingGraph<hgraph_test::HostedCompatibleComponent<true>, "compatible after", Hosting>;
+        std::optional<ComponentCheckpoint> completed;
+        const auto configure = [&](GlobalContext &context) {
+            configure_component_recovery(context.state().view(), {
+                .component_id = hgraph_test::dmap_component_id, .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+        };
+        {
+            GlobalContext context;
+            configure(context);
+            (void)eval_node_with_options<Before>(interval(0, 1), values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})));
+        }
+        REQUIRE(completed);
+        {
+            GlobalContext context;
+            configure(context);
+            CHECK_OUTPUT(eval_node_with_options<After>(interval(1, 2), values<Value>(dict_delta<Str, TS<Int>>({{"a", 2}}))),
+                         values<Value>(dict_delta<Str, TS<Int>>({{"a", 3}})));
+        }
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
+TEST_CASE("dmap_ recovery: worker scope labels cannot impersonate user components", "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto run = []<WorkerHosting Hosting>() {
+        using Plain = HostingGraph<PreparedAccumulate, "prepared accumulate: recoverable", Hosting>;
+        const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}));
+        for (const char *id : {"worker", "worker.boundary"})
+            REQUIRE_THROWS_WITH(days<Plain>(ticks, {}, id),
+                                Catch::Matchers::ContainsSubstring("configured component was not wired"));
+        using Named = HostingGraph<hgraph_test::HostedNamedComponent<"worker">, "named worker", Hosting>;
+        using BoundaryNamed = HostingGraph<hgraph_test::HostedNamedComponent<"worker.boundary">, "named worker boundary", Hosting>;
+        const auto expected = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 3}}));
+        CHECK_OUTPUT(days<Named>(ticks, {1}, "worker"), expected);
+        CHECK_OUTPUT(days<BoundaryNamed>(ticks, {1}, "worker.boundary"), expected);
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+    GlobalState state;
+    Wiring wiring{state};
+    for (const std::string_view id : {std::string_view{"@hgraph"}, worker_checkpoint_scope,
+                                      worker_boundary_checkpoint_scope})
+    {
+        REQUIRE_THROWS_WITH(GraphCheckpointSelection::owned_by(std::string{id}),
+                            Catch::Matchers::ContainsSubstring("reserved"));
+        REQUIRE_THROWS_WITH(wiring.claim_component_id(id), Catch::Matchers::ContainsSubstring("reserved"));
+    }
+}
