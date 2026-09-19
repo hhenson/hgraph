@@ -1247,9 +1247,15 @@ namespace hgraph
 
         /** The registry name: the namespace-qualified local name with its arguments. */
         [[nodiscard]] static std::string qualified_name() {
-            std::string local =
+            const std::string local =
                 static_schema_detail::bundle_argument_descriptors<TArguments>::specialization_name(LocalName.sv());
-            return Namespace.sv().empty() ? local : std::string{Namespace.sv()} + "::" + local;
+            if (Namespace.sv().empty()) { return local; }
+            // Appended into one reserved string: GCC 14 misreads the bounds of
+            // `operator+` on a temporary here (-Warray-bounds).
+            std::string result;
+            result.reserve(Namespace.sv().size() + 2U + local.size());
+            result.append(Namespace.sv()).append("::").append(local);
+            return result;
         }
 
         /** This struct as one request of a recursive closure; records each edge's target. */
