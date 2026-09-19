@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Document recursive struct fields (ADR 0012): the user guide's "Recursive
+  fields" section, and `examples/recursive-fields.hgl`, a linked list and a
+  generic tree whose `test` blocks run under `hgl test` and again on the
+  generated C++.
 - Generate C++ for recursive struct fields (ADR 0012). An edge is an
   `hgraph::Edge<Target>` field, and a `TS<Edge<Target>>` endpoint in the
   temporal shape; generated structs register through hgraph's

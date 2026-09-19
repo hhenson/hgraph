@@ -27,7 +27,7 @@ how source calls reach hgraph.
 3. [Types and expressions](types-and-expressions.md) defines recursive temporal
    types, nominal and generic structs, abstract data families and final
    concrete values, generic construction, sparse deltas, optional fields,
-   rolling windows, the `atomic<T>` boundary, metadata, and runtime collection
+   recursive fields, rolling windows, the `atomic<T>` boundary, metadata, and runtime collection
    traversal.
 4. [Modules and tools](modules-and-tools.md) covers public declarations,
    implementation discovery, native module use,

@@ -382,7 +382,7 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
-hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ../examples/recursive-fields.hgl)
 hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)

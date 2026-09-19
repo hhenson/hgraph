@@ -700,15 +700,61 @@ For an `atomic<Quote>` output, a tick is a complete `Quote`; a sparse
 `delta<Quote>` is rejected unless user code explicitly retains, patches, and
 publishes prior state.
 
+### Recursive fields
+
+A struct may hold another value of its own struct through a *recursive
+field*: an optional `atomic` field whose struct reaches the declaring struct
+again ([ADR 0012](../design/decisions/0012-recursive-struct-fields.md)).
+
+```hgl
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+    right: atomic<Tree<T>> = null
+}
+```
+
+The field is `atomic` because a recursive value is one complete snapshot: the
+temporal shape of `Node` is a bundle with a `value` endpoint and a `next`
+endpoint, not a structure nested without end. The field is optional with a
+`null` default, which no derived struct may replace, so a chain ends where a
+field is unset and every value is a finite tree. Values are compared, hashed
+and copied through their whole depth.
+
+```hgl
+fn prepend(value: i64, rest: atomic<Node>) -> atomic<Node> =>
+    Node(value: value, next: rest)
+
+fn tail(list: atomic<Node>) -> atomic<Node> => list.next
+```
+
+A cycle may run through several structs of one module, such as
+`struct A { b: atomic<B> = null }` with `struct B { a: atomic<A> = null }`, and
+through an abstract parent: `lhs: atomic<Expr> = null` inside
+`struct Add: Expr` holds any member of the `Expr` family, although a value of
+that family cannot be built in HGL yet, because a concrete struct is not
+assignable to its abstract parent. A generic struct may recur at its own
+parameters, in any order (`atomic<Pair<Y, X>>` inside `Pair<X, Y>`), or at
+concrete arguments; an argument that wraps a parameter, such as
+`atomic<Tree<list<T>>>`, is rejected because it names an unbounded family of
+types. Recursion through a collection (`atomic<list<Node>>`) or a generic
+argument (`atomic<Box<Node>>`) is not supported, and neither is a cycle that
+runs through inheritance. The compiler names the rule a field breaks and, for
+a missing `atomic`, the declaration that fixes it.
+[`examples/recursive-fields.hgl`](../../examples/recursive-fields.hgl) runs
+these under `hgl test`.
+
+### Open structured-value questions
+
 The first structured-value slice does not yet define destructuring or
-copy-with-update syntax. A struct cannot yet contain itself, whether a field
-names it directly or reaches it through another struct, a collection, a
-generic argument, or an abstract family it belongs to; the compiler reports
-each field that closes such a cycle, unless the field is an optional atomic
-boundary such as `next: atomic<Node> = null`. That recursive field is agreed in
-[ADR 0012](../design/decisions/0012-recursive-struct-fields.md) and works in
-compositions run by direct wiring (`hgl test`, `hgl run`) and in generated
-C++. Runtime type tests, concrete
+copy-with-update syntax. A struct contains itself only through a recursive
+field; any other path back to the struct, such as a required or non-atomic
+field, a collection or a generic argument, is reported. Runtime type tests, concrete
 downcasts, exhaustive family matching, and the explicit temporal
 base-projection spelling also remain to be defined. Generic parameter defaults
 and partial generic application are deliberately deferred. Structural

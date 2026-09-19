@@ -1,0 +1,42 @@
+# Recursive struct fields (ADR 0012): a field may hold another value of its
+# own struct through an optional atomic boundary. A value is a finite tree,
+# compared, hashed and copied through its whole depth.
+
+module examples.recursive_fields
+
+export struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+export struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+    right: atomic<Tree<T>> = null
+}
+
+# Put a value in front of a list: the new node's edge is the list itself.
+export fn prepend(value: i64, rest: atomic<Node>) -> atomic<Node> =>
+    Node(value: value, next: rest)
+
+# The list after its head.
+export fn tail(list: atomic<Node>) -> atomic<Node> => list.next
+
+# The value at the root of a tree's left subtree.
+export fn left_value(tree: atomic<Tree<i64>>) -> i64 => tree.left.value
+
+test prepend_builds_a_longer_list {
+    assert eval(prepend, value: [1], rest: [Node(value: 2, next: Node(value: 3))]) ==
+        [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]
+}
+
+test lists_compare_through_their_whole_depth {
+    assert eval(tail, list: [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]) ==
+        [Node(value: 2, next: Node(value: 3))]
+    assert eval(tail, list: [Node(value: 1, next: Node(value: 2, next: Node(value: 3)))]) !=
+        [Node(value: 2, next: Node(value: 4))]
+}
+
+test a_generic_tree {
+    assert eval(left_value, tree: [Tree<i64>(value: 1, left: Tree<i64>(value: 2), right: Tree<i64>(value: 3))]) == [2]
+}

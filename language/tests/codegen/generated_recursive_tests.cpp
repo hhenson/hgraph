@@ -1,7 +1,8 @@
-// Recursive struct fields (ADR 0012) through generated C++. The module is
-// tests/wiring/recursive-structs.hgl, whose `hgl test` cases run the same
-// programs through direct wiring; each case here asserts the same ticks, so
-// the two backends agree tick for tick.
+// Recursive struct fields (ADR 0012) through generated C++. The modules are
+// tests/wiring/recursive-structs.hgl and examples/recursive-fields.hgl, whose
+// `hgl test` cases run the same programs through direct wiring; each case
+// here asserts the same ticks, so the two backends agree tick for tick.
+#include <recursive-fields.h>
 #include <recursive-structs.h>
 
 #include "wiring/backend.h"
@@ -21,6 +22,7 @@
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace recursive = tests::recursive_structs;
+namespace example   = examples::recursive_fields;
 
 namespace
 {
@@ -41,9 +43,10 @@ namespace
         if (values.size() > 1U) { fill_chain(fields["next"].as_bundle().begin_mutation(), values.subspan(1)); }
     }
 
-    /// Node(value: values[0], next: Node(value: values[1], ...)).
-    Value chain(std::vector<std::int64_t> values) {
-        Value root{ValuePlanFactory::instance().type_for(scalar_descriptor<RecursiveNode>::value_meta())};
+    /// Node(value: values[0], next: Node(value: values[1], ...)), for a
+    /// generated `Node` value type.
+    template <typename NodeT = RecursiveNode> Value chain(std::vector<std::int64_t> values) {
+        Value root{ValuePlanFactory::instance().type_for(scalar_descriptor<NodeT>::value_meta())};
         fill_chain(root.as_bundle().begin_mutation(), values);
         return root;
     }
@@ -127,5 +130,34 @@ TEST_CASE("generated recursive structs agree with direct wiring tick for tick", 
         CHECK_OUTPUT((eval_node<Unwrap, TS<RecursiveNode>>(values<Int>(1), values<Value>(chain({2, 3})))),
                      values<Value>(chain({2, 3})));
         CHECK_OUTPUT((eval_node<RootValue, TS<RecursiveNode>>(values<Int>(1), values<Value>(chain({2})))), values<Int>(1));
+    }
+}
+
+// examples/recursive-fields.hgl: the example's three `test` blocks.
+TEST_CASE("the recursive-fields example agrees with hgl test", "[codegen][generated][recursive][example]") {
+    hgl::wiring::ensure_session();
+    example::register_operators();
+    using ExampleNode = typename example::Node::value_type;
+    using ExampleTree = typename example::Tree<Int>::value_type;
+
+    SECTION("prepend_builds_a_longer_list") {
+        CHECK_OUTPUT(
+            (eval_node<example::operators::prepend, TS<ExampleNode>>(values<Int>(1), values<Value>(chain<ExampleNode>({2, 3})))),
+            values<Value>(chain<ExampleNode>({1, 2, 3})));
+    }
+    SECTION("lists_compare_through_their_whole_depth") {
+        const auto result = eval_node<example::operators::tail, TS<ExampleNode>>(values<Value>(chain<ExampleNode>({1, 2, 3})));
+        CHECK_OUTPUT(result, values<Value>(chain<ExampleNode>({2, 3})));
+        REQUIRE(result.size() == 1U);
+        REQUIRE(result.front().has_value());
+        CHECK_FALSE(result.front()->view().equals(chain<ExampleNode>({2, 4}).view()));
+    }
+    SECTION("a_generic_tree") {
+        Value tree_value{ValuePlanFactory::instance().type_for(scalar_descriptor<ExampleTree>::value_meta())};
+        auto  fields = tree_value.as_bundle().begin_mutation();
+        fields["value"].set(std::int64_t{1});
+        fields["left"].as_bundle().begin_mutation()["value"].set(std::int64_t{2});
+        fields["right"].as_bundle().begin_mutation()["value"].set(std::int64_t{3});
+        CHECK_OUTPUT((eval_node<example::operators::left_value, TS<ExampleTree>>(values<Value>(tree_value))), values<Int>(2));
     }
 }

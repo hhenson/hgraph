@@ -1,7 +1,8 @@
 # ADR 0012: recursive struct fields
 
-Status: accepted (2026-09-19). Implemented through the passes the two
-backends share. `check_recursive_fields` (`src/semantics/resolve.cpp`) finds
+Status: accepted (2026-09-19); implemented (2026-09-20) except the import by
+a second module, which waits for struct imports in general. Implemented
+through the passes the two backends share. `check_recursive_fields` (`src/semantics/resolve.cpp`) finds
 every recursive edge, admits the ones rules 2, 3, 4 and 8 allow and reports
 the rule each other edge breaks (`tests/semantics/resolve_tests.cpp`); typed
 HIR and hgraph IR mark each admitted edge and name its target by identity.
@@ -12,9 +13,11 @@ Both backends realize edges through hgraph's
 (`tests/wiring/recursive-structs.hgl`,
 `tests/codegen/generated_recursive_tests.cpp`). Module descriptor format 6
 marks each edge in an exported struct's layout, and `hgl check` validates it
-without loading code (`tests/driver/recursive-export.hgl`). No module can
-import another module's struct type yet, so the import in the acceptance list
-waits for struct imports in general.
+without loading code (`tests/driver/recursive-export.hgl`).
+`examples/recursive-fields.hgl` and the user guide's "Recursive fields"
+section show the feature. No module can import another module's struct type
+yet, so the import in the acceptance list waits for struct imports in
+general.
 
 ## Context
 
