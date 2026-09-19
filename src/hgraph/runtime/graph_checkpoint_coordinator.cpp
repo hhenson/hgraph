@@ -769,6 +769,13 @@ namespace hgraph
                 {
                     auto locator = capture_locator(entry.binding.source);
                     locator.bindings.push_back({entry.binding.requested_schema, entry.binding.path});
+                    // Known limit (RFC 0039, "Sinks"): an adapter lives on the PRODUCER
+                    // and is made for whichever consumer asks, so one made for a
+                    // transient sink counts here too, and adding or removing such a
+                    // sink is refused rather than ignored. Telling a fresh consumer's
+                    // adapter from a restored one's needs a walk of the selected
+                    // nodes' input bindings; accepting every unsaved adapter would also
+                    // accept an image that LOST a restored consumer's clocks.
                     if (saved.erase(locator) != 1)
                         throw std::invalid_argument("component checkpoint: reference adapter inventory mismatch");
                 }
@@ -878,9 +885,12 @@ namespace hgraph
                 scheduler.events.clear();
                 scheduler.tags.clear();
             }
-            // What the restored start found still to do is not historical.
-            const auto live = node.checkpoint_ops().live_schedule_impl(node);
-            if (live != MAX_DT) { node.graph().schedule_node(node.node_index(), std::max(live, impl_->start)); }
         }
+        // What the restored start found still to do is not historical. Asked
+        // whichever way the branch above went: an input stamped at the start
+        // reads as modified without having scheduled anyone, and scheduling keeps
+        // the earliest time, so asking twice costs nothing.
+        const auto live = node.checkpoint_ops().live_schedule_impl(node);
+        if (live != MAX_DT) { node.graph().schedule_node(node.node_index(), std::max(live, impl_->start)); }
     }
 }

@@ -262,6 +262,24 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
         { return stdlib::component<OtherBody>(w, spawn_component_id, value); }
     };
+    /** Recoverable, and always has an event pending: a capture of it is refused. */
+    struct SpawnPendingCompute
+    {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        { static const NodeCheckpointOps ops{.supported = true}; return ops; }
+        static void start(NodeScheduler scheduler) { scheduler.schedule(scheduler.now() + MIN_TD * 1000); }
+        static void eval(In<"value", TS<Int>> value, NodeScheduler, Out<TS<Int>> out) { out.set(value.value()); }
+    };
+    struct PendingBody
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return wire<SpawnPendingCompute>(w, value).as<TS<Int>>(); }
+    };
+    struct PendingComponentStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        { return stdlib::component<PendingBody>(w, spawn_component_id, value); }
+    };
     struct ForgetfulBody
     {
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value);

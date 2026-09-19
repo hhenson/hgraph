@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -239,14 +240,34 @@ namespace hgraph::distributed
 
         [[nodiscard]] std::string collect_checkpoint(std::string_view component)
         {
-            if (host_ != nullptr) { return capture_worker_image(*host_, component); }
-            auto failed = make_scope_exit([this] { process_.terminate(); });
-            auto image  = decode_checkpoint_reply(receive());
+            if (host_ != nullptr)
+            {
+                // In process there is no reply to decode, so a graph that cannot
+                // capture says so directly. Same outcome, same type.
+                try { return capture_worker_image(*host_, component); }
+                catch (const std::exception &error) { throw CheckpointRefused(error.what()); }
+            }
+            auto failed  = make_scope_exit([this] { process_.terminate(); });
+            auto payload = receive();
+            // From here the worker has answered and is still serving. A "no"
+            // is its answer, not a failure of the channel.
             failed.release();
-            return image;
+            return decode_checkpoint_reply(payload);
         }
 
         void terminate() noexcept { process_.terminate(); }
+
+        /**
+         * Give up a worker of a pool that never reached its node. A host that
+         * was raised is a started graph, and nothing else will ever stop it; a
+         * process is terminated, since a pool fails to come up for reasons that
+         * leave no promise its workers still answer.
+         */
+        void abandon() noexcept
+        {
+            if (host_ != nullptr) { (void)fallback_on_exception(false, [this] { host_->stop(); return true; }); }
+            else { process_.terminate(); }
+        }
 
         void stop()
         {
@@ -344,7 +365,7 @@ namespace hgraph::distributed
             reject_push_sources(child);
             require_restored_inventory(restored, config.workers);
             auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
-            UnwindCleanupGuard failed{[&pool] { pool->terminate(); }};
+            UnwindCleanupGuard failed{[&pool] { pool->abandon(); }};
             pool->groups_ = config.workers;
             pool->component_ = config.hosted_component;
             pool->workers_.reserve(config.workers);
@@ -436,9 +457,18 @@ namespace hgraph::distributed
             return next;
         }
 
+        /** Every worker is stopped, whatever an earlier one made of it: one
+         * failed stop must not cost its siblings their stop hooks. The first
+         * failure is what the caller sees. */
         void stop()
         {
-            for (auto &worker : workers_) { worker.stop(); }
+            std::exception_ptr first;
+            for (auto &worker : workers_)
+            {
+                try { worker.stop(); }
+                catch (...) { if (!first) { first = std::current_exception(); } }
+            }
+            if (first) { std::rethrow_exception(first); }
         }
 
         /** Prepared workers share a boundary but own disjoint mapped children. */
@@ -452,7 +482,7 @@ namespace hgraph::distributed
                 throw std::invalid_argument("dmap_: inconsistent worker plan inventory");
             require_restored_inventory(restored, children.size());
             auto pool = std::unique_ptr<WorkerPool>{new WorkerPool{}};
-            UnwindCleanupGuard failed_pool{[&pool] { pool->terminate(); }};
+            UnwindCleanupGuard failed_pool{[&pool] { pool->abandon(); }};
             pool->groups_ = children.size();
             pool->component_ = config.hosted_component;
             pool->slots_ = std::move(slots);
@@ -494,15 +524,23 @@ namespace hgraph::distributed
             for (auto &worker : workers_) { worker.dispatch_checkpoint(component_); }
             std::vector<std::string> images;
             images.reserve(workers_.size());
+            std::string refusal;
             for (std::size_t group = 0; group < workers_.size(); ++group)
             {
+                // A worker that answers "no" is intact and still serving. EVERY
+                // reply is read, or the next exchange would be answered by a
+                // stale one; then the capture fails and the workers are left to
+                // be stopped properly, so their stop hooks run as they do in
+                // process. Only a broken channel takes the workers down.
                 try { images.push_back(workers_[group].collect_checkpoint(component_)); }
-                catch (const std::exception &error)
+                catch (const CheckpointRefused &error)
                 {
-                    throw std::runtime_error(
-                        fmt::format("dmap_: partition {} cannot be checkpointed: {}", group, error.what()));
+                    if (refusal.empty())
+                        refusal = fmt::format("dmap_: partition {} cannot be checkpointed: {}", group, error.what());
                 }
             }
+            failed.release();
+            if (!refusal.empty()) { throw std::runtime_error(refusal); }
             return images;
         }
 
@@ -590,14 +628,21 @@ namespace hgraph::distributed
         {
             if (restored.empty()) { return; }
             for (std::size_t group = 0; group < workers_.size(); ++group) { workers_[group].dispatch_restore(restored[group], component_); }
+            std::string refusal;
             for (std::size_t group = 0; group < workers_.size(); ++group)
             {
                 const auto reply = workers_[group].collect(slots_);
-                if (!reply.error.empty())
-                    throw std::runtime_error(
-                        fmt::format("dmap_: partition {} refused its image: {}", group, reply.error));
-                admit_restored(reply.next_scheduled_time);
+                if (reply.error.empty()) { admit_restored(reply.next_scheduled_time); }
+                else if (refusal.empty())
+                    refusal = fmt::format("dmap_: partition {} refused its image: {}", group, reply.error);
             }
+            if (refusal.empty()) { return; }
+            // Every worker has answered, so every worker is healthy: the ones
+            // that restored are running graphs and are stopped as such, and one
+            // that refused finishes by itself. Killing them, as an earlier cut
+            // did, lost the stop hooks of graphs that had done nothing wrong.
+            (void)fallback_on_exception(false, [this] { stop(); return true; });
+            throw std::runtime_error(refusal);
         }
 
         static void validate_timeout(const WorkerPoolConfig &config)
@@ -609,6 +654,8 @@ namespace hgraph::distributed
         }
         void terminate() noexcept
         { for (auto &worker : workers_) worker.terminate(); }
+        void abandon() noexcept
+        { for (auto &worker : workers_) worker.abandon(); }
 
         /**
          * Wire the child, turning what a distributed worker cannot host into a

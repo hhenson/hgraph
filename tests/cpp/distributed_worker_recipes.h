@@ -324,6 +324,34 @@ namespace hgraph_test
         static void eval(In<"ts", TS<Int>> ts, NodeScheduler, Out<TS<Int>> out) { out.set(ts.value()); }
     };
 
+    /** Leaves a file behind when it is stopped, which a killed worker never does. */
+    inline constexpr const char *stop_marker_directory_variable = "HGRAPH_TEST_STOP_MARKERS";
+    struct CheckpointStopMarker
+    {
+        static void eval(In<"ts", TS<Int>>) {}
+        static void stop();
+    };
+    /** Recoverable, with a sink whose stop hook can be counted. */
+    struct AccumulateWithStopMarker
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto total = wire<PreparedAccumulate>(w, ts).as<TS<Int>>();
+            wire<CheckpointStopMarker>(w, total);
+            return total;
+        }
+    };
+    inline constexpr const char *accumulate_stop_marker_name = "accumulate, stop marker";
+    struct PendingComputeWithStopMarker
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto out = wire<CheckpointPendingCompute>(w, ts).as<TS<Int>>();
+            wire<CheckpointStopMarker>(w, out);
+            return out;
+        }
+    };
+
     /** Register what a worker process may be asked to build. */
     void register_distributed_test_recipes();
 }  // namespace hgraph_test

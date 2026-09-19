@@ -79,9 +79,11 @@ namespace hgraph::spawn_detail
         DateTime next{MAX_DT};
         bool ready{false};
         bool busy{true};
-        /** Owner asks, the stage's transport thread answers: it owns the channel. */
+        /** Owner asks, the stage's transport thread answers: it owns the channel.
+            Exactly one of ``image`` and ``refusal`` is the answer. */
         bool checkpoint_requested{false};
         std::optional<std::string> image;
+        std::optional<std::string> refusal;
     };
 
     /** Graphs execute only in worker processes. Transport threads own channels,
@@ -189,14 +191,22 @@ namespace hgraph::spawn_detail
                 for (auto &stage : stages_)
                 {
                     stage->image.reset();
+                    stage->refusal.reset();
                     stage->checkpoint_requested = true;
                     stage->work.notify_one();
                 }
                 condition_.wait(lock, [&] {
                     return !error_.empty() || std::all_of(stages_.begin(), stages_.end(),
-                        [](const auto &stage) { return stage->image.has_value(); });
+                        [](const auto &stage) { return stage->image.has_value() || stage->refusal.has_value(); });
                 });
                 check_error();
+                // A stage that answered "no" is intact and still serving: the
+                // refusal fails this capture, and the pipeline is left to be
+                // drained and stopped properly, so its stop hooks run.
+                for (std::size_t index = 0; index < stages_.size(); ++index)
+                    if (stages_[index]->refusal)
+                        throw std::runtime_error("spawn_: stage " + std::to_string(index) +
+                            " cannot be checkpointed: " + *stages_[index]->refusal);
                 for (auto &stage : stages_) images.push_back(std::move(*stage->image));
             });
             return images;
@@ -332,6 +342,9 @@ namespace hgraph::spawn_detail
                 channel.send(restored_.empty() ? std::string{distributed::start_frame}
                                                : distributed::encode_restore_frame(restored_[index], plan_->hosted_component),
                              startup_deadline);
+                // Sent, and never read again. Each stage thread touches only
+                // its own element, so the release needs no lock.
+                if (!restored_.empty()) { std::string{}.swap(restored_[index]); }
                 const auto initial = receive(startup_deadline);
                 {
                     std::lock_guard lock{mutex_};
@@ -395,10 +408,13 @@ namespace hgraph::spawn_detail
                         std::string payload;
                         if (!channel.receive(payload, checkpoint_deadline))
                             throw std::runtime_error("worker process exited before replying");
-                        auto image = distributed::decode_checkpoint_reply(payload);
+                        std::optional<std::string> image, refusal;
+                        try { image = distributed::decode_checkpoint_reply(payload); }
+                        catch (const distributed::CheckpointRefused &error) { refusal = error.what(); }
                         {
                             std::lock_guard lock{mutex_};
                             state.image = std::move(image);
+                            state.refusal = std::move(refusal);
                             state.checkpoint_requested = false;
                         }
                         condition_.notify_all();

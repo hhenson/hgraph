@@ -205,6 +205,13 @@ namespace hgraph::distributed::worker_checkpoint
         // fresh": an empty inventory would discard the workers' state silently.
         if (image.payload.view().as_tuple().at(0).as_list().size() == 0)
             throw std::invalid_argument("component checkpoint: worker owner image holds no worker images");
+        // Here rather than in ``claim``: by then the graph is starting, and a
+        // refusal belongs to the phase that can still detach the preparation.
+        for (const auto &extent : image.payload.view().as_tuple().at(1).as_list())
+        {
+            if (extent.checked_as<Int>() < 0)
+                throw std::invalid_argument("component checkpoint: worker owner image has a negative extent");
+        }
         // The workers are raised in the owner's start, which has not run.
         // GlobalState owns the parked state: a preparation that never reaches
         // start leaves nothing to free.
@@ -217,16 +224,16 @@ namespace hgraph::distributed::worker_checkpoint
         const auto key   = parking_key(node);
         const auto parked = state.get(key);
         if (!parked.valid()) { return std::nullopt; }
+        // Claimed once, however the copy below ends: the images are the
+        // largest thing a recovery holds, and the key is this node's address.
+        auto       unpark = make_scope_exit([&] { (void)state.erase(key); });
         Restored   restored;
         const auto tuple = parked.as_tuple();
         for (const auto &image : tuple.at(0).as_list()) { restored.images.push_back(image.checked_as<Bytes>().data); }
         for (const auto &extent : tuple.at(1).as_list())
         {
-            const Int value = extent.checked_as<Int>();
-            if (value < 0) { throw std::invalid_argument("component checkpoint: worker owner image has a negative extent"); }
-            restored.extents.push_back(static_cast<std::size_t>(value));
+            restored.extents.push_back(static_cast<std::size_t>(extent.checked_as<Int>()));
         }
-        (void)state.erase(key);
         return restored;
     }
 

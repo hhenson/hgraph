@@ -20,8 +20,12 @@
 #include "distributed_worker_recipes.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <fmt/format.h>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -600,6 +604,161 @@ TEST_CASE("dmap_ recovery: a worker process serves the control frames", "[checkp
     }
 }
 
+namespace
+{
+    /** Where ``CheckpointStopMarker`` leaves its files, for this scope. */
+    struct StopMarkers
+    {
+        std::filesystem::path directory{std::filesystem::temp_directory_path() /
+            ("hgraph-stop-markers-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
+        StopMarkers()
+        {
+            std::filesystem::create_directories(directory);
+            set(directory.string().c_str());
+        }
+        ~StopMarkers()
+        {
+            set("");
+            std::error_code ignored;
+            std::filesystem::remove_all(directory, ignored);
+        }
+        StopMarkers(const StopMarkers &) = delete;
+        StopMarkers &operator=(const StopMarkers &) = delete;
+        /** The stop hooks that ran since the last call. */
+        [[nodiscard]] std::ptrdiff_t take() const
+        {
+            const auto count = std::distance(std::filesystem::directory_iterator{directory},
+                                             std::filesystem::directory_iterator{});
+            for (const auto &entry : std::filesystem::directory_iterator{directory}) { std::filesystem::remove(entry); }
+            return count;
+        }
+
+      private:
+        static void set(const char *value)
+        {
+#ifdef _WIN32
+            _putenv_s(hgraph_test::stop_marker_directory_variable, value);
+#else
+            if (*value == '\0') { ::unsetenv(hgraph_test::stop_marker_directory_variable); }
+            else { ::setenv(hgraph_test::stop_marker_directory_variable, value, 1); }
+#endif
+        }
+    };
+}  // namespace
+
+TEST_CASE("dmap_ recovery: one refused image stops the workers that did restore", "[checkpoint][dmap]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // A pool that fails to come up never reaches its node, so nothing else
+    // will stop the workers that did start. They were killed (processes) or
+    // simply dropped (in process), stop hooks and all (found by adversarial review).
+    constexpr std::ptrdiff_t keys = 12;
+    std::ptrdiff_t           first_worker_keys = -1;
+    const auto run = [&]<WorkerHosting Hosting>() {
+        using Graph = PreparedComponent<Dict, Dict, hgraph_test::AccumulateWithStopMarker, "accumulate, stop marker", Hosting>;
+        StopMarkers markers;
+        std::optional<ComponentCheckpoint> completed;
+        const auto day = [&](std::size_t begin) {
+            GlobalContext context;
+            configure_component_recovery(context.state().view(), {
+                .component_id = "distributed-map", .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+            return eval_node_with_options<Graph>(interval(begin, begin + 1), values<Value>(dict_delta<Str, TS<Int>>(
+                {{"a", 1}, {"b", 2}, {"c", 3}, {"d", 4}, {"e", 5}, {"f", 6},
+                 {"g", 7}, {"h", 8}, {"i", 9}, {"j", 10}, {"k", 11}, {"l", 12}})));
+        };
+        (void)day(0);
+        REQUIRE(completed);
+        REQUIRE(markers.take() == keys);
+
+        // The saved owner state with worker ``broken``'s image replaced.
+        const auto saved = *completed;
+        const auto spoil = [&](std::size_t broken) {
+            completed = saved;
+            std::size_t owners = 0;
+            for (auto &node : completed->graph.nodes)
+            {
+                if (!node.custom.payload.has_value()) { continue; }
+                const auto tuple = node.custom.payload.view().as_tuple();
+                std::vector<std::string> images;
+                std::vector<std::size_t> extents;
+                for (const auto &image : tuple.at(0).as_list()) { images.push_back(image.template checked_as<Bytes>().data); }
+                for (const auto &extent : tuple.at(1).as_list())
+                    extents.push_back(static_cast<std::size_t>(extent.template checked_as<Int>()));
+                REQUIRE(images.size() == 3);
+                images[broken] = "not an image";
+                node.custom.payload = worker_checkpoint::state_of(std::move(images), extents).payload;
+                ++owners;
+            }
+            REQUIRE(owners == 1);
+        };
+        const auto refused = [&](std::size_t broken) {
+            spoil(broken);
+            REQUIRE_THROWS_WITH(day(1), Catch::Matchers::ContainsSubstring(fmt::format("partition {}", broken)) &&
+                                            Catch::Matchers::ContainsSubstring("refused its image"));
+            return markers.take();
+        };
+        const auto behind_last = refused(2);
+        // The workers before the broken one must hold keys, or a count of zero proves nothing.
+        REQUIRE(behind_last > 0);
+        if (first_worker_keys < 0) { first_worker_keys = behind_last; }
+        CHECK(behind_last == first_worker_keys);
+        const auto behind_first = refused(0);
+        // Processes are all restored at once, so the two good ones had started
+        // and are stopped. In process they are raised in turn, and a refusal by
+        // the first means the others were never started: nothing to stop.
+        if (Hosting == WorkerHosting::InProcess) { CHECK(behind_first == 0); }
+        else { CHECK(behind_first > 0); CHECK(behind_first <= keys); }
+    };
+    run.template operator()<WorkerHosting::Process>();
+    run.template operator()<WorkerHosting::InProcess>();
+}
+
+TEST_CASE("dmap_ recovery: a checkpoint reply is never mistaken for a cycle reply, nor the reverse",
+          "[checkpoint][dmap]")
+{
+    // A stage that fails answers the checkpoint frame's slot with a cycle
+    // reply. Its first byte is zero, which an unmarked reply read as "here is
+    // the image" (found by adversarial review).
+    const BoundarySlots slots;
+    const auto failure = encode_reply(slots, CycleReply{MAX_DT, {}, "boom"});
+    CHECK_THROWS_WITH(decode_checkpoint_reply(failure),
+                      Catch::Matchers::ContainsSubstring("did not answer the checkpoint request"));
+    CHECK_THROWS_WITH(decode_checkpoint_reply(""), Catch::Matchers::ContainsSubstring("did not answer"));
+    CHECK_THROWS_WITH(decode_checkpoint_reply(checkpoint_reply_prefix),
+                      Catch::Matchers::ContainsSubstring("did not answer"));
+
+    CHECK(decode_checkpoint_reply(encode_checkpoint_reply("image bytes")) == "image bytes");
+    CHECK(decode_checkpoint_reply(encode_checkpoint_reply("")).empty());
+    // A refusal is the worker's considered answer and is typed as one: the
+    // worker that gave it is intact, which a broken channel never promises.
+    CHECK_THROWS_AS(decode_checkpoint_reply(encode_checkpoint_error("no")), CheckpointRefused);
+    CHECK_THROWS_WITH(decode_checkpoint_reply(encode_checkpoint_error("no")), Catch::Matchers::ContainsSubstring("no"));
+}
+
+TEST_CASE("dmap_ recovery: a refused capture fails the day and leaves the workers to stop properly",
+          "[checkpoint][dmap]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // Workers that answered "no" are healthy. Terminating them, as an earlier
+    // cut did, lost every stop hook in every worker over one refusal.
+    const auto run = []<WorkerHosting Hosting>() {
+        StopMarkers markers;
+        using Graph = PreparedComponent<Dict, Dict, hgraph_test::PendingComputeWithStopMarker,
+                                        "pending compute, stop marker", Hosting>;
+        // Three keys, so that with three workers more than one worker holds a
+        // child whatever the hash does; every child's sink must be stopped.
+        const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}}));
+        REQUIRE_THROWS_WITH(days<Graph>(ticks, {}, "distributed-map"),
+                            Catch::Matchers::ContainsSubstring("pending schedule"));
+        CHECK(markers.take() == 3);
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
 TEST_CASE("dmap_: wrapping the child in a component changes nothing when nothing is recovered", "[checkpoint][dmap]")
 {
     stdlib::register_standard_operators();
@@ -655,6 +814,37 @@ TEST_CASE("dmap_ recovery: whole workers run transient sink startup work on a qu
     };
     run.template operator()<WorkerHosting::InProcess>();
     run.template operator()<WorkerHosting::Process>();
+}
+
+// A transient sink is outside even a whole image, so it starts fresh in a restored
+// child, and its start-time alarm is live work its owner has to be woken for. map_,
+// the list map_ and dmap_ answer for their children; this pins that the OTHER
+// dynamic owners do as well (found by adversarial review: mesh_, reduce and ordered
+// reduce kept the default "no live work", and the coordinator discarded it).
+template <bool Mesh> struct KeyedSinkBody
+{
+    static Port<Dict> compose(Wiring &w, NamedPort<"ts", Dict> ts)
+    {
+        if constexpr (Mesh) { return wire<stdlib::mesh_>(w, fn<hgraph_test::ChildWithImmediateSink>(), ts).as<Dict>(); }
+        else { return wire<stdlib::map_>(w, fn<hgraph_test::ChildWithImmediateSink>(), ts).as<Dict>(); }
+    }
+};
+template <bool Mesh> struct KeyedSinkComponent
+{
+    static Port<Dict> compose(Wiring &w, Port<Dict> ts)
+    { return stdlib::component<KeyedSinkBody<Mesh>>(w, "distributed-map", ts); }
+};
+
+TEST_CASE("recovery: a transient sink's start-time work runs in a restored mesh_ child, as in a map_ child",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    // On day two only the sink's start-time alarm can run it. Its stop hook
+    // throws if that work was discarded or never driven.
+    const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), none, dict_delta<Str, TS<Int>>({{"a", 2}}));
+    const auto expected = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), none, dict_delta<Str, TS<Int>>({{"a", 3}}));
+    CHECK_OUTPUT(days<KeyedSinkComponent<false>>(ticks, {1, 2}, "distributed-map"), expected);
+    CHECK_OUTPUT(days<KeyedSinkComponent<true>>(ticks, {1, 2}, "distributed-map"), expected);
 }
 
 TEST_CASE("dmap_ recovery: dependencies are checked against the selected ancestor component", "[checkpoint][dmap][hosted]")

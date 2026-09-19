@@ -811,6 +811,18 @@ namespace hgraph
             }
         }
 
+        // The restored start schedules the node for each link with work left, and
+        // the coordinator then discards a restored node's schedule; this is how
+        // that live work comes back.
+        [[nodiscard]] DateTime live_ordered_reduce_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<const OrderedReduceStorage>(view.as<OrderedReduceNodeView>().internal_storage());
+            DateTime next = MAX_DT;
+            for (std::size_t index = 0; index < storage.live_count; ++index)
+                next = std::min(next, storage.entries.entry_at(index)->graph.view().next_scheduled_time());
+            return next;
+        }
+
         [[nodiscard]] const NodeCheckpointOps &ordered_reduce_checkpoint_ops() noexcept
         {
             static const NodeCheckpointOps ops{
@@ -820,6 +832,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_ordered_reduce_checkpoint,
                 .restore_impl = &restore_ordered_reduce_checkpoint,
                 .start_restored_impl = &start_restored_ordered_reduce,
+                .live_schedule_impl = &live_ordered_reduce_schedule,
                 .signature_impl = &ordered_reduce_checkpoint_signature,
             };
             return ops;

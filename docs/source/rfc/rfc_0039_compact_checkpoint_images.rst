@@ -395,15 +395,40 @@ Two control frames join the existing bootstrap frame and ``"stop"`` sentinel.
 Neither is a ``CycleRequest``:
 
 ``@hgraph-checkpoint:1``
-   Caller to worker, between cycles. The worker replies with one frame: a
-   status byte, then ``encode_graph_checkpoint`` of its graph (``0``) or the
-   rendered error (``1``).
+   Caller to worker, between cycles. The worker replies with one frame:
+   ``@hgraph-image:1``, a status byte, then ``encode_graph_checkpoint`` of its
+   graph (``0``) or the rendered error (``1``).
+
+   The reply is marked because a worker that *fails* answers the same slot
+   with a ``CycleReply``, and a failure's first byte is zero: unmarked, that
+   read as "here is the image". A frame without the marker is "the worker did
+   not answer the checkpoint request" and is a broken exchange.
+
+   A marked refusal is the opposite case and is typed as one,
+   ``CheckpointRefused``: the worker considered the request, said no, and is
+   still serving. The owner reads **every** worker's reply (an unread one
+   would answer the next exchange), fails the capture with the first refusal,
+   and leaves the workers running, so the day ends as any failed day does and
+   every worker's stop hooks run. Only a broken channel takes workers down.
+
+   An image travels as one frame. One larger than the transport's frame limit
+   (``DEFAULT_MAX_FRAME_SIZE``, 64 MiB) is answered as a refusal that names the
+   size and the limit -- the worker would otherwise die in ``send`` and the
+   owner would learn only that a channel closed. The limit is per worker, so
+   the remedy is more workers; chunked images are future work.
 
 ``@hgraph-restore:1`` followed by image bytes, in the same frame
    Caller to worker, after bootstrap and before the first cycle. The worker
    decodes, validates against its freshly wired graph and starts through
    ``start_external_restored``. It answers with an ordinary ``CycleReply``:
    ``next_scheduled_time`` from the restored schedule, or the error.
+
+   Every worker is sent its image before any reply is read, so when one
+   refuses, its siblings have already restored and started. They are healthy
+   running graphs and are stopped as such before the refusal propagates; a
+   pool raised in process does the same for the hosts it had already raised
+   (``WorkerPool::abandon``). A pool that fails to come up never reaches its
+   node, so nothing else would stop them.
 
 A worker therefore reads its first frame *before* it starts its graph, which
 is the only change to the ordinary path: a first frame that is not a restore
@@ -611,6 +636,20 @@ things the coordinator does to every other restored node, and either would
 break a periodic flush: it would never re-arm. A sink re-evaluating cannot
 disturb the graph, so there is nothing to protect.
 
+One exception to "free to change" is known and fails closed. A reference
+adapter lives on the *producer's* output and is made for whichever consumer's
+input schema differs from it (``REF`` against non-``REF``), so one made for a
+transient sink is part of that output's adapter inventory. Adding or removing
+such a sink between runs is therefore refused ("reference adapter inventory
+mismatch") rather than ignored. Accepting every unsaved adapter is not the fix:
+it would also accept an image that had lost a *restored* consumer's clocks.
+Telling the two apart needs a walk of the selected nodes' input bindings.
+
+The start-time work of a transient sink is live work wherever the sink sits:
+``map_``, the list ``map_``, ``mesh_``, ``reduce``, ordered ``reduce`` and the
+worker owners all report it through ``live_schedule_impl``, and the coordinator
+asks for it whichever way its bootstrap decision went.
+
 A sink that declares ``NodeCheckpointOps`` -- a boundary sink, or an owner of
 worker graphs, which is a sink by kind -- is what its operations say.
 
@@ -633,6 +672,14 @@ Three details the implementation settled:
   idle, because the owner asserted quiescence first -- sends
   ``@hgraph-checkpoint:1`` and hands the image back. A stage that cannot
   capture reports why and carries on; the refusal fails the owner's capture.
+  The stage thread records the refusal as that stage's *answer*, beside the
+  image it would otherwise have recorded. It is not a stage failure: that
+  would cancel the pipeline and kill the other stages' processes before their
+  stop hooks, over a stage that is intact. The owner waits for every stage's
+  answer and then throws, naming the stage.
+* **How long an image is held.** Each stage's restored image is released as
+  soon as its restore frame is sent. Images are the largest thing a recovery
+  holds, and the pipeline lives for the whole run.
 * **How a stage starts.** A ``spawn_`` stage answers its start before any cycle,
   so unlike a ``dmap_`` worker it cannot wait to see whether its first frame is
   a restore. The owner says which, straight after the boundary identity:

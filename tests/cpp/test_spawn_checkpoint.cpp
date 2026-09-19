@@ -332,6 +332,29 @@ TEST_CASE("spawn recovery: an unrecoverable node INSIDE the hosted component is 
     CHECK(std::get<1>(observed.back()) == "3");
 }
 
+TEST_CASE("spawn recovery: a stage that refuses the capture fails the day and the pipeline still stops properly",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // The stage answered "no": it is intact. An earlier cut read that answer
+    // as a stage failure, cancelled the pipeline and killed the sink's process
+    // before its stop hook (found by adversarial review).
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {
+        .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+        .commit = [](const auto &) { FAIL("a refused capture committed an image"); }});
+    Trace trace;
+    REQUIRE_THROWS_WITH((eval_node_with_options<HostedPipeline<PendingComponentStage>>(
+                            interval(0, 2), values<Int>(1, 2), arg<"trace">(&trace))),
+                        Catch::Matchers::ContainsSubstring("cannot be checkpointed") &&
+                            Catch::Matchers::ContainsSubstring("pending schedule"));
+    trace.load();
+    CHECK(trace.starts == 1);
+    CHECK(trace.stops == 1);
+    // Both ticks reached the sink first: the refusal cost the image, not the day.
+    CHECK(trace.samples.size() == 2);
+}
+
 TEST_CASE("spawn recovery: a configured component that no stage hosts is still reported as not wired",
           "[checkpoint][spawn]")
 {

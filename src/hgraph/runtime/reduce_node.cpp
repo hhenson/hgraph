@@ -1717,6 +1717,21 @@ namespace hgraph
                 if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
         }
 
+        // A combiner graph may hold a transient sink, which starts fresh. With no
+        // input event and no rebuild the node scans every combiner for due work,
+        // so being woken is all it needs.
+        [[nodiscard]] DateTime live_reduce_schedule(const NodeView &view)
+        {
+            const auto typed = view.as<ReduceNodeView>();
+            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
+            if (context.spec.lifted_kernel != nullptr) { return MAX_DT; }
+            const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(typed.internal_storage());
+            DateTime next = MAX_DT;
+            for (const auto *entry : storage.combiners)
+                if (entry != nullptr && entry->graph.has_value()) { next = std::min(next, entry->graph.view().next_scheduled_time()); }
+            return next;
+        }
+
         void visit_reduce_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
         {
             const auto typed = view.as<ReduceNodeView>();
@@ -1740,6 +1755,7 @@ namespace hgraph
                 .prepare_restore_impl = &prepare_reduce_checkpoint,
                 .restore_impl = &restore_reduce_checkpoint,
                 .start_restored_impl = &start_restored_reduce,
+                .live_schedule_impl = &live_reduce_schedule,
                 .visit_endpoints_impl = &visit_reduce_checkpoint_endpoints,
                 .signature_impl = &reduce_checkpoint_signature,
             };

@@ -215,13 +215,7 @@ namespace hgraph::distributed
             }
             if (const auto component = checkpoint_frame_component(payload))
             {
-                std::string reply;
-                try { reply = encode_checkpoint_reply(capture_worker_image(host, *component)); }
-                catch (const std::exception &error)
-                {
-                    reply = encode_checkpoint_error(fmt::format("distributed worker: {}", error.what()));
-                }
-                channel.send(reply);
+                channel.send(answer_checkpoint(host, *component));
                 continue;
             }
             CycleReply reply;

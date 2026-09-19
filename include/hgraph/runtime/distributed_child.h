@@ -289,6 +289,16 @@ namespace hgraph::distributed
      * (``GraphCheckpointSelection::hosted``); empty is the whole graph. */
     [[nodiscard]] HGRAPH_EXPORT std::string capture_worker_image(const DistributedChildHost &host,
                                                                  std::string_view component = {});
+    /**
+     * A worker's whole answer to a checkpoint frame: the image, or why not.
+     *
+     * An image travels as ONE frame, so one larger than the transport's frame
+     * limit cannot be sent. That is answered as a refusal that names the limit
+     * -- the worker would otherwise die in ``send`` and its owner would learn
+     * only that the channel closed.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string answer_checkpoint(const DistributedChildHost &host,
+                                                              std::string_view component);
     /** Start ``host`` from ``image`` and report what the restored graph wants next. */
     [[nodiscard]] HGRAPH_EXPORT DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time,
                                                                std::string_view image,

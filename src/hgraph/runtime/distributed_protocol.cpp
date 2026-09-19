@@ -296,28 +296,33 @@ namespace hgraph::distributed
                             frame.substr(begin + static_cast<std::size_t>(length))};
     }
 
-    std::string encode_checkpoint_reply(std::string_view image)
+    namespace
     {
-        std::string out(1, '\0');
-        out.append(image);
-        return out;
+        std::string checkpoint_answer(char status, std::string_view body)
+        {
+            std::string out;
+            out.reserve(checkpoint_reply_prefix.size() + 1 + body.size());
+            out.append(checkpoint_reply_prefix).push_back(status);
+            out.append(body);
+            return out;
+        }
     }
 
-    std::string encode_checkpoint_error(std::string_view error)
-    {
-        std::string out(1, '\1');
-        out.append(error);
-        return out;
-    }
+    std::string encode_checkpoint_reply(std::string_view image) { return checkpoint_answer('\0', image); }
+
+    std::string encode_checkpoint_error(std::string_view error) { return checkpoint_answer('\1', error); }
 
     std::string decode_checkpoint_reply(std::string_view frame)
     {
-        if (frame.empty() || (frame.front() != '\0' && frame.front() != '\1'))
+        if (!frame.starts_with(checkpoint_reply_prefix) || frame.size() == checkpoint_reply_prefix.size())
         {
-            throw std::runtime_error("distributed protocol: malformed checkpoint reply");
+            throw std::runtime_error("distributed protocol: the worker did not answer the checkpoint request");
         }
-        if (frame.front() == '\1') { throw std::runtime_error(std::string{frame.substr(1)}); }
-        return std::string{frame.substr(1)};
+        const char status = frame[checkpoint_reply_prefix.size()];
+        const auto body   = frame.substr(checkpoint_reply_prefix.size() + 1);
+        if (status == '\1') { throw CheckpointRefused(std::string{body}); }
+        if (status != '\0') { throw std::runtime_error("distributed protocol: malformed checkpoint reply"); }
+        return std::string{body};
     }
 
 }  // namespace hgraph::distributed
@@ -367,6 +372,22 @@ namespace hgraph::distributed
         encode_graph_checkpoint(host.capture(GraphCheckpointSelection::hosted(component)), bytes,
                                 host.graph().evaluation_time());
         return bytes;
+    }
+
+    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component)
+    {
+        try
+        {
+            auto reply = encode_checkpoint_reply(capture_worker_image(host, component));
+            if (reply.size() <= DEFAULT_MAX_FRAME_SIZE) { return reply; }
+            return encode_checkpoint_error(fmt::format(
+                "distributed worker: the image is {} bytes and a frame carries at most {}; "
+                "spread the state over more workers", reply.size(), DEFAULT_MAX_FRAME_SIZE));
+        }
+        catch (const std::exception &error)
+        {
+            return encode_checkpoint_error(fmt::format("distributed worker: {}", error.what()));
+        }
     }
 
     DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time, std::string_view image,

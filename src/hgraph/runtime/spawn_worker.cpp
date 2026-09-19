@@ -61,10 +61,7 @@ namespace hgraph
                 {
                     // A stage that cannot capture says so and carries on: the
                     // refusal fails its owner's capture, not this graph.
-                    std::string image;
-                    try { image = encode_checkpoint_reply(capture_worker_image(host, *component)); }
-                    catch (const std::exception &error) { image = encode_checkpoint_error(error.what()); }
-                    channel.send(image);
+                    channel.send(answer_checkpoint(host, *component));
                     continue;
                 }
                 auto reply = serve_cycle(host, plan.slots, decode_request(plan.slots, payload));

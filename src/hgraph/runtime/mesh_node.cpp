@@ -1866,6 +1866,15 @@ void start_restored_mesh(const NodeView &view, DateTime time) {
   }
 }
 
+// What the restored start found still to do: a child with work due now, or the
+// earliest one queued. A transient sink is outside even a whole image, so it
+// starts fresh in a restored child and its start-time alarm is live work.
+[[nodiscard]] DateTime live_mesh_schedule(const NodeView &view) {
+  const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  if (storage.evaluation_candidates.any()) { return MIN_DT; }
+  return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
+}
+
 void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit) {
   const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
   for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
@@ -1876,10 +1885,12 @@ void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpoint
 [[nodiscard]] const NodeCheckpointOps &mesh_checkpoint_ops() noexcept {
   static const NodeCheckpointOps ops{
       .supported = true,
+      .schedules_children = true,
       .capture_impl = &capture_mesh_checkpoint,
       .prepare_restore_impl = &prepare_mesh_checkpoint,
       .restore_impl = &restore_mesh_checkpoint,
       .start_restored_impl = &start_restored_mesh,
+      .live_schedule_impl = &live_mesh_schedule,
       .visit_endpoints_impl = &visit_mesh_checkpoint_endpoints,
       .signature_impl = &mesh_checkpoint_signature,
   };
