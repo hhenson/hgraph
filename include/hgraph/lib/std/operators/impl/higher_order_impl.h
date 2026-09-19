@@ -4338,7 +4338,13 @@ namespace hgraph::stdlib
 
             std::vector<WiringPortRef> children;
             if (output_required) { children.reserve(size); }
+            // ``func`` is wired once per index on THIS wiring rather than once
+            // as a child template: a component in it is one component with
+            // several instances, and in a worker graph it is the user's code,
+            // not the runtime's.
+            Wiring::InlineRepeat unrolled{w};
             for (std::size_t slot = 0; slot < partition.child_count(size); ++slot) {
+                unrolled.next_index();
                 const auto i = partition.logical_index(slot);
                 std::vector<WiringPortRef> args;
                 args.reserve(func.arity);

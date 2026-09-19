@@ -3,6 +3,7 @@
 Sources emit future deltas at runtime, so a resumed removal is interpreted
 against the restored source baseline rather than a fresh test conversion cache.
 """
+import enum
 from datetime import date, datetime
 
 import hgraph as hg
@@ -222,3 +223,66 @@ def test_seeded_key_churn_across_many_completed_days(tmp_path, seed):
 
     cuts = tuple(sorted(randomizer.sample(range(1, 48), 15)))
     compare_restarts(tmp_path, scenario, (hg.TSD[str, hg.TS[int]],), hg.TSD[str, hg.TS[int]], (events,), cuts)
+
+
+KEYED = hg.TSD[str, hg.TS[int]]
+KEYED_EVENTS = [None, {"a": 1, "b": 2}, {"a": 3}, None, {"b": hg.REMOVE}, {"a": 4, "c": 5}, {"b": 6}, None]
+
+
+def test_a_recordable_id_is_honoured_inside_a_mapped_child(tmp_path):
+    # A map_ child is wired on a wiring of its own, whose own state is empty;
+    # the recovery configuration is the root's. The binding asked the child's
+    # state, so a ``__recordable_id__`` was honoured at the top of a component
+    # and silently dropped one level down (found by adversarial review). A
+    # duplicate is the difference that shows: honoured ids collide.
+    @hg.graph
+    def clashing(ts: hg.TS[int]) -> hg.TS[int]:
+        first = running_total(ts, __recordable_id__="total")
+        return running_total(first, __recordable_id__="total")
+
+    @hg.component
+    def scenario(ts: KEYED) -> KEYED:
+        return hg.map_(clashing, ts)
+
+    with pytest.raises(Exception, match="duplicate node id 'total'"):
+        _run(scenario, (KEYED,), KEYED, (KEYED_EVENTS,), 0, persistence.ComponentCheckpointStore(tmp_path))
+    # With nothing to recover there is no id to honour, here as at the top.
+    assert _run(scenario, (KEYED,), KEYED, (KEYED_EVENTS,), 0)[1] == {"a": 1, "b": 2}
+
+
+@pytest.mark.parametrize("cuts", [(3,), tuple(range(1, 8))])
+def test_named_nodes_inside_a_mapped_child_restart(tmp_path, cuts):
+    @hg.graph
+    def named(ts: hg.TS[int]) -> hg.TS[int]:
+        return running_total(ts, __recordable_id__="total")
+
+    @hg.component
+    def scenario(ts: KEYED) -> KEYED:
+        return hg.map_(named, ts)
+
+    actual = compare_restarts(tmp_path, scenario, (KEYED,), KEYED, (KEYED_EVENTS,), cuts)
+    assert actual[5] == {"a": 8, "c": 5}
+
+
+class _Side(enum.Enum):
+    BUY = 1
+    SELL = 2
+
+
+@hg.compute_node
+def _sided(ts: hg.TS[int], side: _Side) -> hg.TS[str]:
+    return f"{side.name}:{ts.value}"
+
+
+def test_a_node_whose_scalars_cannot_be_signed_is_refused_by_name(tmp_path):
+    # A Python Enum scalar has no canonical signature today. Unrecovered, the node just runs;
+    # as part of a recovered component it is refused when the graph is wired, by name and with
+    # the reason -- it used to surface as a bare "checked_as<T> type mismatch".
+    @hg.component
+    def scenario(ts: hg.TS[int]) -> hg.TS[str]:
+        return _sided(ts, _Side.SELL)
+
+    events = [None, 1, 2]
+    assert _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0)[1] == "SELL:1"
+    with pytest.raises(Exception, match=r"scalar argument \d+ of Python node '_sided' cannot be signed"):
+        _run(scenario, (hg.TS[int],), hg.TS[str], (events,), 0, persistence.ComponentCheckpointStore(tmp_path))

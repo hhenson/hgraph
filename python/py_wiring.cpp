@@ -1271,7 +1271,9 @@ namespace hgraph::python_bridge
         const auto &scope = record_replay::current_scope().recordable_id;
         // A worker graph wires every component as an identity scope (RFC 0039).
         if (wiring.wiring_ref().checkpoint_records_refusals() && !scope.empty()) { return true; }
-        return component_recovery_selected(wiring.wiring_ref().global_state(), scope);
+        // ``operator_state``, as ``stdlib::component`` asks: a child wiring (a map_
+        // child) has an empty store of its own, and the configuration is the root's.
+        return component_recovery_selected(wiring.wiring_ref().operator_state(), scope);
     });
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,

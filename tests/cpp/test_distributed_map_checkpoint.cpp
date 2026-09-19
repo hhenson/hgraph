@@ -382,6 +382,211 @@ TEST_CASE("dmap_ recovery: what the child holds outside the component is process
     }
 }
 
+// A fixed-size list is unrolled inline, once per index, on the worker's own wiring.
+template <std::size_t Workers> struct HostedFixedList
+{
+    using List = TSL<TS<Int>, 4>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    {
+        const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+        WorkerPoolConfig config;
+        config.workers = Workers;
+        config.hosting = WorkerHosting::InProcess;
+        auto plan = prepare_distributed_map_pool(fn<hgraph_test::PreparedHostedThenForgetful>(), inputs, {}, config);
+        return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+            .template as<List>();
+    }
+};
+
+TEST_CASE("dmap_ recovery: a component hosted over a fixed-size list restarts invisibly", "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    // Four instances of one component, two to a worker, then all in one. What
+    // follows the component in each is the user's and merely processed, as it
+    // is under a keyed dmap_: wired inline it used to take the runtime's scope,
+    // be selected, and refuse the capture for being unrecoverable.
+    const auto input = values<Value>(list_delta<TS<Int>>({1, 10, 100, 1000}), list_delta<TS<Int>>({2, std::nullopt, 200, std::nullopt}),
+                                     none, list_delta<TS<Int>>({3, 30, std::nullopt, 3000}));
+    // Component totals, then the forgetful node's running sum of those.
+    const auto unbroken = values<Value>(list_delta<TS<Int>>({1, 10, 100, 1000}), list_delta<TS<Int>>({4, std::nullopt, 400, std::nullopt}),
+                                        none, list_delta<TS<Int>>({10, 50, std::nullopt, 5000}));
+    // Restarted after day two: components resume (6, 40, 300, 4000), the node after them starts again.
+    const auto restarted = values<Value>(list_delta<TS<Int>>({1, 10, 100, 1000}), list_delta<TS<Int>>({4, std::nullopt, 400, std::nullopt}),
+                                         none, list_delta<TS<Int>>({6, 40, std::nullopt, 4000}));
+    for (const std::size_t workers : {std::size_t{1}, std::size_t{2}})
+    {
+        CAPTURE(workers);
+        const auto run = [&](std::initializer_list<std::size_t> cuts, const char *component) {
+            return workers == 1 ? days<HostedFixedList<1>>(input, cuts, component)
+                                : days<HostedFixedList<2>>(input, cuts, component);
+        };
+        CHECK_OUTPUT(run({}, nullptr), unbroken);
+        CHECK_OUTPUT(run({2}, hgraph_test::dmap_component_id), restarted);
+        // The control: the same restart with nothing recovered loses the totals too.
+        CHECK_OUTPUT(run({2}, nullptr), values<Value>(list_delta<TS<Int>>({1, 10, 100, 1000}),
+                                                      list_delta<TS<Int>>({4, std::nullopt, 400, std::nullopt}), none,
+                                                      list_delta<TS<Int>>({3, 30, std::nullopt, 3000})));
+    }
+}
+
+template <std::size_t Workers> struct HostedDynamicList
+{
+    using List = TSL<TS<Int>, unbounded_tsl_size>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    {
+        const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+        WorkerPoolConfig config;
+        config.workers = Workers;
+        config.hosting = WorkerHosting::InProcess;
+        auto plan = prepare_distributed_map_pool(fn<hgraph_test::PreparedHostedChild>(), inputs, {}, config);
+        return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+            .template as<List>();
+    }
+};
+
+TEST_CASE("dmap_ recovery: a component hosted over an unbounded list recovers with one worker, and says so with more",
+          "[checkpoint][dmap][hosted]")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}), dynamic_list_delta<TS<Int>>({{0, 2}, {2, 100}}),
+                                     none, dynamic_list_delta<TS<Int>>({{0, 3}, {1, 30}}));
+    const auto expected = values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 10}}), dynamic_list_delta<TS<Int>>({{0, 3}, {2, 100}}),
+                                        none, dynamic_list_delta<TS<Int>>({{0, 6}, {1, 40}}));
+    CHECK_OUTPUT(days<HostedDynamicList<1>>(input, {}, nullptr), expected);
+    CHECK_OUTPUT(days<HostedDynamicList<1>>(input, {2}, hgraph_test::dmap_component_id), expected);
+    // A list partitioned over workers is a known limit (RFC 0039): refused when
+    // the graph is wired, never recovered wrongly -- and only when recovering.
+    CHECK_OUTPUT(days<HostedDynamicList<2>>(input, {}, nullptr), expected);
+    REQUIRE_THROWS_WITH(days<HostedDynamicList<2>>(input, {2}, hgraph_test::dmap_component_id),
+                        Catch::Matchers::ContainsSubstring("partitioned list maps are not recoverable"));
+}
+
+struct FixedListOfComponents
+{
+    using List = TSL<TS<Int>, 3>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    { return wire<stdlib::map_>(w, fn<hgraph_test::PreparedHostedChild>(), ts).template as<List>(); }
+};
+
+struct RecordedFixedListOfComponents
+{
+    using List = TSL<TS<Int>, 3>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    {
+        record_replay::scope mode{record_replay::Mode::Record};
+        return wire<stdlib::map_>(w, fn<hgraph_test::PreparedHostedChild>(), ts).template as<List>();
+    }
+};
+
+// Two DISTINCT components that share an id, in the function a fixed list unrolls.
+struct TwoComponentsOneId
+{
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+    {
+        auto first = stdlib::component<hgraph_test::PreparedAccumulateBody>(w, hgraph_test::dmap_component_id, ts);
+        return stdlib::component<hgraph_test::PreparedAccumulateBody>(w, hgraph_test::dmap_component_id, first);
+    }
+};
+struct FixedListOfClashingComponents
+{
+    using List = TSL<TS<Int>, 3>;
+    static Port<List> compose(Wiring &w, Port<List> ts)
+    {
+        // Through dmap_: the map_ operator resolves its output type by wiring the
+        // function once on a probe wiring, which rejects this before any repeat
+        // opens -- by accident, and as "output type could not be resolved".
+        const std::vector<DistributedMapInput> inputs{{ts.erased().schema}};
+        WorkerPoolConfig config;
+        config.workers = 1;
+        config.hosting = WorkerHosting::InProcess;
+        auto plan = prepare_distributed_map_pool(fn<TwoComponentsOneId>(), inputs, {}, config);
+        return wire_distributed_map(w, ts.erased(), std::make_shared<const DistributedMapPlan>(std::move(plan)))
+            .template as<List>();
+    }
+};
+
+TEST_CASE("component: a repeat across list indices is an instance, a repeat within one index is still a duplicate",
+          "[checkpoint][hosted]")
+{
+    stdlib::register_standard_operators();
+    // Only the unrolling repeats a component legitimately. Two call sites
+    // sharing an id inside ONE index are the user error the claim exists to
+    // catch, and the first cut of InlineRepeat let it through (Codex, #998).
+    GlobalContext context;
+    const auto input = values<Value>(list_delta<TS<Int>>({1, 10, 100}));
+    REQUIRE_THROWS_WITH((eval_node_with_options<FixedListOfClashingComponents>(interval(0, 1), input)),
+                        Catch::Matchers::ContainsSubstring("duplicate recordable id"));
+}
+
+TEST_CASE("component: mapped over a fixed-size list it is one component wired per index", "[checkpoint][hosted]")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(list_delta<TS<Int>>({1, 10, 100}), list_delta<TS<Int>>({2, std::nullopt, 200}));
+    {
+        // Nothing recorded, nothing recovered: a graph wired three times. The
+        // second index used to be refused as a duplicate recordable id.
+        GlobalContext context;
+        CHECK_OUTPUT(eval_node_with_options<FixedListOfComponents>(interval(0, 2), input),
+                     values<Value>(list_delta<TS<Int>>({1, 10, 100}), list_delta<TS<Int>>({3, std::nullopt, 300})));
+    }
+    {
+        // Recording it is another matter: three instances would share one id
+        // and one set of recordings. Refused at wiring, with the remedies.
+        GlobalContext context;
+        REQUIRE_THROWS_WITH((eval_node_with_options<RecordedFixedListOfComponents>(interval(0, 2), input)),
+                            Catch::Matchers::ContainsSubstring("once per index of a fixed-size list") &&
+                                Catch::Matchers::ContainsSubstring("cannot be recorded or recovered apart"));
+    }
+    // So is recovering it, and sooner: an instance's input is an element of
+    // the list, not a source of its own, which a component input has to be.
+    // The first instance is refused for that before a second one is reached.
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {
+        .component_id = hgraph_test::dmap_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+        .commit = [](const auto &) {}});
+    REQUIRE_THROWS_WITH((eval_node_with_options<FixedListOfComponents>(interval(0, 2), input)),
+                        Catch::Matchers::ContainsSubstring("external inputs require direct owned pull-source outputs"));
+}
+
+// KNOWN LIMIT, pinned as the target behaviour (RFC 0039, "Known limits": "A hosted
+// dmap_ contract covers the whole child"). [!shouldfail]: it fails today, and the
+// day it passes the tag comes off.
+TEST_CASE("dmap_ recovery: editing what the child holds outside the component keeps the component's image",
+          "[checkpoint][dmap][hosted][!shouldfail]")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    // What is outside the component is processed, not recovered, so it should
+    // be no part of the contract: a deploy that adds a node after the component
+    // should still restore the component, as the same edit does under spawn_.
+    // The worker's own map_ is a runtime node and IS selected, and it signs
+    // every node of its child at wiring, before any selection exists -- so this
+    // edit reads as another contract and is refused ("incompatible component,
+    // revision or graph signature"). Fail-closed: a cold start, never a wrong
+    // restore. Found independently by two adversarial reviewers.
+    const auto input = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 2}}),
+                                     dict_delta<Str, TS<Int>>({{"a", 3}}));
+    const auto run = [&]<WorkerHosting Hosting>() {
+        std::optional<ComponentCheckpoint> completed;
+        const auto day = [&]<typename Graph>(std::size_t begin, std::size_t end) {
+            GlobalContext context;
+            configure_component_recovery(context.state().view(), {
+                .component_id = hgraph_test::dmap_component_id, .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+            return eval_node_with_options<Graph>(
+                interval(begin, end), std::vector<std::optional<Value>>{input.begin() + begin, input.begin() + end});
+        };
+        CHECK_OUTPUT(day.template operator()<HostedGraph<Hosting>>(0, 2),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), dict_delta<Str, TS<Int>>({{"a", 3}})));
+        REQUIRE(completed);
+        // The component resumes at 3 + 3; the new node after it starts from nothing.
+        CHECK_OUTPUT(day.template operator()<HostedThenForgetfulGraph<Hosting>>(2, 3),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 6}})));
+    };
+    run.template operator()<WorkerHosting::InProcess>();
+    run.template operator()<WorkerHosting::Process>();
+}
+
 TEST_CASE("dmap_ recovery: a fresh node beside a restored component still gets its start-time work",
           "[checkpoint][dmap][hosted]")
 {

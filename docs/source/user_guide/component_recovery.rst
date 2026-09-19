@@ -213,7 +213,21 @@ each run, so keep state that has to survive inside the component.
   placed by ``hash % workers`` and the placement is not stored, so a different
   count is an incompatible checkpoint, not a silent re-partition.
 * A worker that cannot capture fails the completed day, and one that refuses its
-  image fails the start. Neither falls back to a fresh worker.
+  image fails the start. Neither falls back to a fresh worker. The other workers
+  are not harmed by it: they are stopped as any graph is, so their stop hooks
+  run.
+* **Changing the child changes the contract, even outside the component.** Today
+  the saved contract covers every node of the ``dmap_`` child, not only the
+  component's, so a release that edits the merely *processed* part of the child
+  starts cold: the old checkpoint is refused as incompatible rather than
+  restored. Nothing is restored wrongly. If the processed part changes often,
+  put it in a later ``spawn_`` stage or outside the ``dmap_``, where it is no part
+  of the contract (RFC 0039, "Known limits").
+* One worker's image has to fit one transport frame (64 MiB). A larger one fails
+  the completed day and says so; use more workers.
+* Over a fixed-size ``TSL`` the component is wired once per index and recovers
+  with any worker count. Over an unbounded ``TSL`` it recovers with one worker
+  only.
 * Wrapping the child in a component costs nothing when nothing is being
   recovered: it adds no node.
 
