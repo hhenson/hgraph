@@ -28,6 +28,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <functional>
 #include <string_view>
 #include <typeindex>
 #include <unordered_map>
@@ -75,6 +76,22 @@ namespace hgraph
         std::vector<const ValueTypeMetaData *> generic_arguments{};
         std::string discriminator_value{};
     };
+
+    /**
+     * One specialization in a closure of recursive Bundles, described on demand
+     * (RFC 0041). ``definition`` is an ordinary recursive definition whose
+     * recursive edge fields carry neither ``type`` nor ``owned_target``;
+     * ``edges`` gives each such field's position and the qualified name of the
+     * specialization it owns.
+     */
+    struct RecursiveBundleRequest
+    {
+        RecursiveBundleDefinition definition{};
+        std::vector<std::pair<std::size_t, std::string>> edges{};
+    };
+
+    /** Describes the specialization with the given qualified name. */
+    using RecursiveBundleDescriber = std::function<RecursiveBundleRequest(std::string_view qualified_name)>;
 
     /**
      * Process-wide registry that interns value and time-series schemas.
@@ -165,6 +182,17 @@ namespace hgraph
             indexed edges are stored as one-pointer Owned values. */
         std::vector<const ValueTypeMetaData *> recursive_bundles(
             const std::vector<RecursiveBundleDefinition> &definitions);
+        /**
+         * Register ``root`` and every unregistered specialization its recursive
+         * edges reach, and return ``root``'s schema (RFC 0041). ``describe`` is
+         * called at most once per such name, without the registry lock held.
+         * Each strongly connected component registers when it closes, after
+         * every component it reaches: a single specialization with no edge to
+         * itself through ``bundle()``, any other component as one
+         * ``recursive_bundles`` batch. A name already registered is reused.
+         */
+        const ValueTypeMetaData *recursive_bundle_closure(std::string_view root,
+                                                          const RecursiveBundleDescriber &describe);
         /**
          * Intern a *named* bundle value-schema. Internally synthesises the
          * un-named bundle for ``fields``, then interns a named wrapper keyed

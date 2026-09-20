@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <stdexcept>
+#include <unordered_map>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -214,6 +216,8 @@ namespace hgraph
         static constexpr auto namespace_sv  = Namespace;
         static constexpr auto local_name_sv = LocalName;
         static constexpr bool abstract      = Abstract;
+        using parents                       = TParents;
+        using arguments                     = TArguments;
     };
 
     /** One-pointer, on-demand owner for a value-layer schema. */
@@ -222,6 +226,17 @@ namespace hgraph
     {
         using value_type = TValue;
     };
+
+    /**
+     * A recursive edge of a ``NominalBundle``: one owner of
+     * ``TTarget::value_type`` (RFC 0041). ``TTarget`` is a class with a nested
+     * ``value_type``; it may be incomplete where the edge is written, so a
+     * struct can name itself or one declared after it. A ``NominalBundle``
+     * with an edge registers through ``TypeRegistry::recursive_bundle_closure``.
+     */
+    template <typename TTarget>
+    struct Edge
+    {};
 
     /** Immutable one-pointer handle into the process-wide shared-value arena. */
     template <typename TValue>
@@ -1134,6 +1149,21 @@ namespace hgraph
 
     namespace static_schema_detail
     {
+        /** Whether a NominalBundle field is a recursive ``Edge``, and its target. */
+        template <typename TField> struct is_edge_field : std::false_type
+        {};
+
+        template <fixed_string Name, typename TTarget> struct is_edge_field<Field<Name, Edge<TTarget>>> : std::true_type
+        {
+            using target = TTarget;
+        };
+
+        /** The structs a recursive closure has met, by registry name, and how to describe each. */
+        struct RecursiveTargets
+        {
+            std::unordered_map<std::string, RecursiveBundleRequest (*)(RecursiveTargets &)> describe{};
+        };
+
         template <typename TParents> struct bundle_parent_descriptors;
 
         template <typename... TParents> struct bundle_parent_descriptors<BundleParents<TParents...>>
@@ -1188,7 +1218,21 @@ namespace hgraph
         }
 
         [[nodiscard]] static const ValueTypeMetaData *value_meta() {
-            if constexpr (is_concrete()) {
+            if constexpr (!is_concrete()) {
+                return nullptr;
+            } else if constexpr ((static_schema_detail::is_edge_field<TFields>::value || ...)) {
+                // A recursive struct registers with every struct its edges reach.
+                static_schema_detail::RecursiveTargets targets;
+                const std::string                      root = qualified_name();
+                targets.describe.emplace(root, &recursive_request);
+                return TypeRegistry::instance().recursive_bundle_closure(root, [&](std::string_view name) {
+                    const auto found = targets.describe.find(std::string{name});
+                    if (found == targets.describe.end()) {
+                        throw std::logic_error("recursive bundle closure asked for an undescribed '" + std::string{name} + "'");
+                    }
+                    return found->second(targets);
+                });
+            } else {
                 std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
                 fields.reserve(sizeof...(TFields));
                 (fields.emplace_back(value_field_descriptor<TFields>::field_name(), value_field_descriptor<TFields>::value_meta()),
@@ -1198,8 +1242,48 @@ namespace hgraph
                     static_schema_detail::bundle_argument_descriptors<TArguments>::specialization_name(LocalName.sv()), fields,
                     static_schema_detail::bundle_parent_descriptors<TParents>::value_metas(), Abstract, "__type__",
                     static_schema_detail::bundle_argument_descriptors<TArguments>::value_metas());
+            }
+        }
+
+        /** The registry name: the namespace-qualified local name with its arguments. */
+        [[nodiscard]] static std::string qualified_name() {
+            const std::string local =
+                static_schema_detail::bundle_argument_descriptors<TArguments>::specialization_name(LocalName.sv());
+            if (Namespace.sv().empty()) { return local; }
+            // Appended into one reserved string: GCC 14 misreads the bounds of
+            // `operator+` on a temporary here (-Warray-bounds).
+            std::string result;
+            result.reserve(Namespace.sv().size() + 2U + local.size());
+            result.append(Namespace.sv()).append("::").append(local);
+            return result;
+        }
+
+        /** This struct as one request of a recursive closure; records each edge's target. */
+        [[nodiscard]] static RecursiveBundleRequest recursive_request(static_schema_detail::RecursiveTargets &targets) {
+            RecursiveBundleRequest request;
+            request.definition.bundle_namespace = std::string{Namespace.sv()};
+            request.definition.local_name =
+                static_schema_detail::bundle_argument_descriptors<TArguments>::specialization_name(LocalName.sv());
+            request.definition.parents           = static_schema_detail::bundle_parent_descriptors<TParents>::value_metas();
+            request.definition.is_abstract       = Abstract;
+            request.definition.generic_arguments = static_schema_detail::bundle_argument_descriptors<TArguments>::value_metas();
+            request.definition.fields.reserve(sizeof...(TFields));
+            (describe_field<TFields>(request, targets), ...);
+            return request;
+        }
+
+      private:
+        template <typename TField>
+        static void describe_field(RecursiveBundleRequest &request, static_schema_detail::RecursiveTargets &targets) {
+            if constexpr (static_schema_detail::is_edge_field<TField>::value) {
+                using target = typename static_schema_detail::is_edge_field<TField>::target::value_type;
+                std::string name = value_schema_descriptor<target>::qualified_name();
+                request.edges.emplace_back(request.definition.fields.size(), name);
+                targets.describe.try_emplace(std::move(name), &value_schema_descriptor<target>::recursive_request);
+                request.definition.fields.push_back({.name = value_field_descriptor<TField>::field_name()});
             } else {
-                return nullptr;
+                request.definition.fields.push_back(
+                    {.name = value_field_descriptor<TField>::field_name(), .type = value_field_descriptor<TField>::value_meta()});
             }
         }
     };
@@ -1219,6 +1303,23 @@ namespace hgraph
     struct scalar_descriptor<NominalBundle<Namespace, LocalName, Abstract, TParents, TArguments, TFields...>>
         : value_schema_descriptor<NominalBundle<Namespace, LocalName, Abstract, TParents, TArguments, TFields...>>
     {};
+
+    /** An edge is an owner of its target; it is as concrete as the target's arguments. */
+    template <typename TTarget>
+    struct scalar_descriptor<Edge<TTarget>>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept {
+            return static_schema_detail::bundle_argument_descriptors<typename TTarget::value_type::arguments>::is_concrete();
+        }
+
+        [[nodiscard]] static const ValueTypeMetaData *value_meta() {
+            if constexpr (is_concrete()) {
+                return TypeRegistry::instance().owned(value_schema_descriptor<typename TTarget::value_type>::value_meta());
+            } else {
+                return nullptr;
+            }
+        }
+    };
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_ROOT_STATIC_SCHEMA_H
