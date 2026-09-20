@@ -285,6 +285,20 @@ namespace hgl::semantics
             return found != owner->operators.end() && found->name == name ? &*found : nullptr;
         }
 
+        /// A struct by its qualified identity, `m.Quote` (ADR 0013). Walking an
+        /// imported struct's ancestry needs this: a parent is recorded as a
+        /// nominal identity, not as a module and name.
+        [[nodiscard]] const ImportedStruct *find_struct_by_identity(std::string_view identity) const noexcept {
+            for (const ImportableModule &module : modules_) {
+                if (identity.size() <= module.identity.size() + 1U) { continue; }
+                if (!identity.starts_with(module.identity) || identity[module.identity.size()] != '.') { continue; }
+                const std::string_view name = identity.substr(module.identity.size() + 1U);
+                const auto found = std::ranges::lower_bound(module.structs, name, {}, &ImportedStruct::name);
+                if (found != module.structs.end() && found->name == name) { return &*found; }
+            }
+            return nullptr;
+        }
+
         /// A struct another module exports (ADR 0013); nullptr when the module
         /// is absent or exports no struct of that name.
         [[nodiscard]] const ImportedStruct *find_struct(std::string_view module, std::string_view name) const noexcept {

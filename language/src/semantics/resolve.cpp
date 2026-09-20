@@ -1056,6 +1056,39 @@ namespace hgl::semantics
                 }
             }
 
+            /// Seeds a child's effective fields from an imported parent, its own
+            /// parent, and so on. The catalog records only the fields a struct
+            /// DECLARES, recording what it inherits through its parents, so
+            /// reading `parent.fields` alone loses a grandparent's fields --
+            /// supplying one would be rejected as unknown and omitting a
+            /// required one accepted. Ancestors come first, so a field keeps the
+            /// position it has in the exporting family, and each entry keeps the
+            /// struct that declares it as its source.
+            void seed_imported_fields(ast::DeclId id, StructInfo &info, const ImportedStruct &structure,
+                                      const StructSource &source, std::vector<std::string_view> visiting = {}) {
+                if (std::ranges::find(visiting, std::string_view{structure.identity}) != visiting.end()) { return; }
+                visiting.push_back(structure.identity);
+                for (const ImportedType &parent : structure.parents) {
+                    if (parent.nominal_identity.empty()) { continue; }
+                    const ImportedStruct *ancestor = catalog_.find_struct_by_identity(parent.nominal_identity);
+                    if (ancestor == nullptr) { continue; }
+                    // An ancestor is referenced through the same imported record
+                    // the child came from; this module gains no declaration for
+                    // it either.
+                    seed_imported_fields(id, info, *ancestor, source, visiting);
+                }
+                for (const ImportedStructField &field : structure.fields) {
+                    if (field_indices_[id].contains(field.name)) { continue; }
+                    field_indices_[id].emplace(field.name, info.fields.size());
+                    info.fields.push_back(StructField{.name          = field.name,
+                                                      .type          = ast::no_node,
+                                                      .default_value = ast::no_node,
+                                                      .origin        = source,
+                                                      .optional      = field.optional,
+                                                      .recursive     = field.recursive});
+                }
+            }
+
             /// A qualified source type names a struct another module exports
             /// (ADR 0013). Its identity stays the owner's, so this binds the
             /// name and copies nothing into the importing module. The generic
@@ -1340,17 +1373,7 @@ namespace hgl::semantics
                         }
                         const StructSource source{.imported = binding.index};
                         info.parents.push_back(source);
-                        if (structure.parents.size() == 1) {
-                            for (const ImportedStructField &field : parent.fields) {
-                                field_indices_[id].emplace(field.name, info.fields.size());
-                                info.fields.push_back(StructField{.name          = field.name,
-                                                                  .type          = ast::no_node,
-                                                                  .default_value = ast::no_node,
-                                                                  .origin        = source,
-                                                                  .optional      = field.optional,
-                                                                  .recursive     = field.recursive});
-                            }
-                        }
+                        if (structure.parents.size() == 1) { seed_imported_fields(id, info, parent, source); }
                         continue;
                     }
                     if (binding.kind != BindingKind::Struct) {
@@ -1512,10 +1535,46 @@ namespace hgl::semantics
                 return index < slots.size() && slots[index].kind != BindingKind::Unbound ? &slots[index] : nullptr;
             }
 
+            /// Every struct of this module that inherits the imported struct at
+            /// `index`, directly or through another local struct. Naming an
+            /// imported family reaches them: a value of that family can be any
+            /// of its members, and the members declared here are this module's.
+            [[nodiscard]] std::vector<ast::DeclId> local_members_of(std::uint32_t index) const {
+                std::vector<ast::DeclId> members;
+                bool                     grew = true;
+                while (grew) {
+                    grew = false;
+                    for (const ast::DeclId decl : result_.structs) {
+                        if (std::ranges::find(members, decl) != members.end()) { continue; }
+                        for (const StructSource &parent : result_.struct_info[decl].parents) {
+                            const bool inherits = parent.is_imported()
+                                                      ? parent.imported == index
+                                                      : std::ranges::find(members, parent.decl) != members.end();
+                            if (inherits) {
+                                members.push_back(decl);
+                                grew = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return members;
+            }
+
             void struct_references(ast::TypeId id, Reach reach, std::vector<StructReference> &out) const {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct) {
                     out.push_back(StructReference{result_.type_bindings[id].decl, id, reach});
+                }
+                // A local struct that inherits an imported abstract family is a
+                // MEMBER of it (ADR 0013), so a field typed by that family can
+                // hold this module's struct and the cycle is local -- it never
+                // crosses a module, which is what rule 5 actually says. Naming
+                // the family therefore reaches every local member of it.
+                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::ImportedStruct) {
+                    for (const ast::DeclId member : local_members_of(result_.type_bindings[id].index)) {
+                        out.push_back(StructReference{member, id, reach});
+                    }
                 }
                 const Reach nested = reach == Reach::Direct && type.kind == ast::TypeKind::Reference ? Reach::Reference
                                      : reach == Reach::Direct                                        ? Reach::Container

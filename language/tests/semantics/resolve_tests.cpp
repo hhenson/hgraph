@@ -114,12 +114,34 @@ namespace
         base.identity        = "checks.shapes.Base";
         base.abstract        = true;
         base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct mid;
+        mid.module_identity = module.identity;
+        mid.name            = "Mid";
+        mid.identity        = "checks.shapes.Mid";
+        mid.abstract        = true;
+        mid.fields          = {{"seq", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+        mid.parents               = {root_ref};
+        hgl::semantics::ImportedStruct expr;
+        expr.module_identity = module.identity;
+        expr.name            = "Expr";
+        expr.identity        = "checks.shapes.Expr";
+        expr.abstract        = true;
         hgl::semantics::ImportedStruct pair;
         pair.module_identity = module.identity;
         pair.name            = "Pair";
         pair.identity        = "checks.shapes.Pair";
         pair.generics        = {{.name = "T", .binding_identity = "checks.shapes.Pair::T"}};
-        module.structs       = {std::move(quote), std::move(base), std::move(pair)};
+        module.structs       = {std::move(quote), std::move(base), std::move(root),
+                                std::move(mid),   std::move(expr), std::move(pair)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -924,6 +946,42 @@ TEST_CASE("a local struct may inherit an imported abstract parent", "[semantics]
         CHECK(info.fields[1].name == "bid");
         CHECK_FALSE(info.fields[1].origin.is_imported());
         CHECK(info.fields[1].origin.decl == tick);
+    }
+    SECTION("the imported parent's own inherited fields are included") {
+        // The catalog records only what a struct DECLARES, keeping what it
+        // inherits in its parents, so reading `parent.fields` alone loses a
+        // grandparent's fields entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Leaf: shapes::Mid { own: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const StructInfo &info = resolved.result.structure(resolved.struct_id("Leaf"));
+        REQUIRE(info.fields.size() == 3U);
+        // Ancestors first, so a field keeps the position it has in the family.
+        CHECK(info.fields[0].name == "id");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[1].name == "seq");
+        CHECK(info.fields[2].name == "own");
+    }
+    SECTION("a field naming the imported family reaches this module's members") {
+        // Inheriting an imported family makes this struct a member of it, so a
+        // field typed by the family can hold this struct: the cycle is local
+        // and needs the ADR 0012 atomic boundary.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: shapes::Expr }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "recursive edge 'next' of 'Node' must be an atomic boundary"));
+    }
+    SECTION("an atomic edge onto the imported family is a recursive edge") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: atomic<shapes::Expr> = null }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        CHECK(field_of(resolved, "Node", "next").recursive);
     }
     SECTION("a concrete imported struct is not inheritable") {
         const ModuleCatalog catalog = struct_catalog();
