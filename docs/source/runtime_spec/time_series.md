@@ -188,7 +188,8 @@ sequenceDiagram
     O->>O: last modified time becomes the evaluation time
     O->>P: a child changed
     P->>P: last modified time becomes the evaluation time
-    O-->>I: notify, the first time in this cycle only
+    O-->>I: notify on becoming modified
+    Note over O,I: Invalidation also notifies (TS-7)
     I->>I: record the notification, and pass it up any non-peered parents
     opt the input is active
         I->>G: schedule node B for now
