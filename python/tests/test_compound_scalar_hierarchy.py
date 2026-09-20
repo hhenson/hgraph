@@ -1351,6 +1351,44 @@ def test_mutually_recursive_compound_scalars_resolve_as_one_closed_group():
     assert eval_node(nested_value, [source]) == [3]
 
 
+def test_recursive_compound_scalars_compare_through_their_whole_depth():
+    # The native schema of a recursive CompoundScalar is equatable, so a
+    # time-series comparison sees every level, not just the root.
+    @dataclass
+    class Chain(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        next: Optional["Chain"] = None
+
+    @dataclass
+    class Left(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        right: Optional["Right"] = None
+
+    @dataclass
+    class Right(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        left: Optional[Left] = None
+
+    @graph
+    def same_chain(lhs: TS[Chain], rhs: TS[Chain]) -> TS[bool]:
+        return lhs == rhs
+
+    @graph
+    def same_pair(lhs: TS[Left], rhs: TS[Left]) -> TS[bool]:
+        return lhs == rhs
+
+    assert eval_node(
+        same_chain,
+        [Chain(1, Chain(2, Chain(3))), Chain(1, Chain(2, Chain(3)))],
+        [Chain(1, Chain(2, Chain(3))), Chain(1, Chain(2, Chain(4)))],
+    ) == [True, False]
+    assert eval_node(
+        same_pair,
+        [Left(1, Right(2, Left(3))), Left(1, Right(2))],
+        [Left(1, Right(2, Left(3))), Left(1, Right(2, Left(3)))],
+    ) == [True, False]
+
+
 def test_compound_scalar_readback_reconstructs_frozen_slotted_value_without_init():
     initialized = []
 

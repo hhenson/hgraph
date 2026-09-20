@@ -771,6 +771,8 @@ namespace hgraph
         // Singletons that don't fit any of the keyed caches.
         std::unique_ptr<TSValueTypeMetaData> signal_meta_;
         const ValueTypeMetaData *time_series_reference_meta_{nullptr};
+        /** Stored names by spelling, so interning a name does not scan them all. */
+        std::unordered_map<std::string_view, const char *> name_index_;
     };
 
     template <typename T>

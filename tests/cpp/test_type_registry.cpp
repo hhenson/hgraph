@@ -541,6 +541,68 @@ TEST_CASE("mutually recursive Bundles resolve owned edges across one "
               .checked_as<std::int64_t>() == 3);
 }
 
+TEST_CASE("recursive Bundles hash, compare and order through their owned "
+          "edges") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  // An owned edge into the batch does not remove a capability by itself.
+  const auto *node = registry.recursive_bundle(
+      "tests.recursion.capabilities", "Node",
+      {{"value", integer}, {"next", nullptr}});
+  CHECK(node->is_hashable());
+  CHECK(node->is_equatable());
+  CHECK(node->is_comparable());
+  const auto *owner = node->fields[1].type;
+  CHECK(owner->is_hashable());
+  CHECK(owner->is_equatable());
+  CHECK(owner->is_comparable());
+  CHECK(node->wrapped_un_named->is_hashable());
+
+  const auto chain = [&](std::int64_t first, std::int64_t second) {
+    Value root{ValuePlanFactory::instance().type_for(node)};
+    auto fields = root.as_bundle().begin_mutation();
+    fields["value"].set(first);
+    fields["next"].as_bundle().begin_mutation()["value"].set(second);
+    return root;
+  };
+  const Value left = chain(1, 2);
+  const Value same = chain(1, 2);
+  const Value deeper = chain(1, 3);
+  CHECK(left.view().equals(same.view()));
+  CHECK(left.view().hash() == same.view().hash());
+  CHECK_FALSE(left.view().equals(deeper.view()));
+  CHECK(left.view().compare(deeper.view()) == std::partial_ordering::less);
+
+  // A member keeps a capability only while every direct field and every
+  // member it owns keeps it: `set<int>` is not comparable, and the loss
+  // travels back along the owned edge to the member that holds it.
+  const auto *unordered = registry.set(integer);
+  REQUIRE_FALSE(unordered->is_comparable());
+  const auto schemas = registry.recursive_bundles({
+      RecursiveBundleDefinition{
+          .bundle_namespace = "tests.recursion.capabilities",
+          .local_name = "Holder",
+          .fields = {{.name = "value", .type = integer},
+                     {.name = "tagged", .owned_target = 1}},
+      },
+      RecursiveBundleDefinition{
+          .bundle_namespace = "tests.recursion.capabilities",
+          .local_name = "Tagged",
+          .fields = {{.name = "tags", .type = unordered},
+                     {.name = "holder", .owned_target = 0}},
+      },
+  });
+  CHECK_FALSE(schemas[1]->is_comparable());
+  CHECK_FALSE(schemas[0]->is_comparable());
+  CHECK(schemas[0]->is_hashable());
+  CHECK(schemas[0]->is_equatable());
+  CHECK(schemas[1]->is_hashable());
+  CHECK_FALSE(schemas[0]->fields[1].type->is_comparable());
+}
+
 TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
           "taxing leaves") {
   using namespace hgraph;
