@@ -27,6 +27,15 @@
   the test overlay for every test declaration; types are now indexed by
   owning declaration and scopes are hashed. `hgl check` of a module with
   16,000 structs now takes 0.5 s, at a flat 32 us per struct from 4,000 up.
+- An `atomic<S>` struct construction aggregates only the fields that have a
+  value, so an omitted or `null` optional field stays unset instead of
+  stopping the value from ever ticking. Generated C++ previously combined
+  every field strictly and never published such a struct; direct wiring
+  rejected any `atomic<S>` construction from ports. Both backends now build
+  it the same way and agree tick for tick. The emitter also no longer reads a
+  freed type while stripping `atomic<...>` from a constructor, which could
+  report an unknown nominal type, and finds constructor arguments by name
+  rather than scanning them once per field.
 - Add `cache` declarations (ADR 0011): `cache name[: T] = init` is node-local
   data outside record/replay, declared like `state` and re-initialized on
   every start, lowered to the native `State<T>` selector. One scalar cache per

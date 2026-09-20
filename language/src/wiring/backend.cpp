@@ -288,7 +288,8 @@ namespace hgl::wiring
                 return module_.bindings[id.value];
             }
 
-            [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
+            /// The struct type inside any `atomic<...>` around it.
+            [[nodiscard]] gir::TypeId struct_type(gir::TypeId type) {
                 if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid hgraph IR type ID"); }
                 while (module_.types[type.value].kind == hir::TypeKind::Atomic) {
                     if (module_.types[type.value].children.size() != 1U) {
@@ -297,6 +298,11 @@ namespace hgl::wiring
                     type = module_.types[type.value].children.front();
                     if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid atomic child type ID"); }
                 }
+                return type;
+            }
+
+            [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
+                type                        = struct_type(type);
                 const std::string &identity = module_.types[type.value].nominal_identity;
                 const auto         found = std::find_if(module_.structures.begin(), module_.structures.end(),
                                                         [&](const gir::StructContract &item) { return item.identity == identity; });
@@ -1097,15 +1103,22 @@ namespace hgl::wiring
             if (temporal) {
                 if (delta) { backend(range, "a temporal structured delta is only available in a runtime function"); }
                 const hgraph::TSValueTypeMetaData *target = schema(type);
-                if (target->kind != hgraph::TSTypeKind::TSB || target->field_count() != contract.fields.size()) {
+                // `atomic<S>` aggregates the fields of S's TSB into one value.
+                const bool                         atomic = target->kind == hgraph::TSTypeKind::TS && target->value_schema == meta;
+                const hgraph::TSValueTypeMetaData *shape  = atomic ? schema(struct_type(type)) : target;
+                if (shape->kind != hgraph::TSTypeKind::TSB || shape->field_count() != contract.fields.size()) {
                     backend(range, "temporal struct metadata does not match '" + contract.identity + "'");
                 }
-                std::vector<hgraph::WiringPortRef> children;
+                std::vector<hgraph::WiringPortRef>                                       children;
+                std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> present;
                 for (std::size_t index = 0; index < contract.fields.size(); ++index) {
-                    const auto *field_schema = target->fields()[index].type;
+                    const auto *field_schema = shape->fields()[index].type;
                     if (!effective[index] || effective[index]->kind == Slot::Kind::Null) {
-                        children.push_back(hgraph::WiringPortRef::null_source(field_schema));
-                    } else if (effective[index]->is_const()) {
+                        if (!atomic) { children.push_back(hgraph::WiringPortRef::null_source(field_schema)); }
+                        continue;
+                    }
+                    if (atomic) { present.emplace_back(contract.fields[index].name, field_schema); }
+                    if (effective[index]->is_const()) {
                         Slot converted = make_const(convert(effective[index]->value, meta->fields[index].type,
                                                             effective[index]->range, "field '" + contract.fields[index].name + "'"),
                                                     effective[index]->range);
@@ -1117,7 +1130,13 @@ namespace hgl::wiring
                              "field '" + contract.fields[index].name + "' expects " + std::string{field_schema->name()});
                     }
                 }
-                return make_port(hgraph::WiringPortRef::structural_source(target, std::move(children)), range);
+                if (!atomic) { return make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range); }
+                // Only the fields that have a value take part, so the value
+                // publishes once each of them is valid; an absent optional field
+                // stays unset instead of holding the value back.
+                const Slot fields = make_port(
+                    hgraph::WiringPortRef::structural_source(registry_.un_named_tsb(present), std::move(children)), range);
+                return wire("combine_cs", {argument_of(fields, "ts")}, range, true, target);
             }
 
             hgraph::BundleBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta)};

@@ -100,3 +100,44 @@ test checked_arithmetic {
     assert eval(checked_floor, value: [0], x: -7, y: 3) == [-3]
     assert eval(checked_rem, value: [0], x: -9223372036854775807 - 1, y: -1) == [0]
 }
+
+# `atomic<S>` construction aggregates the fields that have a value: an
+# omitted or null optional field stays unset instead of holding the value
+# back, an optional field given a port waits for it like any other, and a
+# construction from constants alone ticks once.
+export struct Reading {
+    value: f64
+    unit: str = "C"
+    note: str = null
+}
+
+export fn reading(x: f64) -> atomic<Reading> => Reading(value: x)
+
+export fn cleared_reading(x: f64) -> atomic<Reading> => Reading(value: x, note: null)
+
+export fn annotated_reading(x: f64, note: str) -> atomic<Reading> => Reading(value: x, note: note)
+
+export fn fixed_reading(x: f64) -> atomic<Reading> => Reading(value: 1.5)
+
+test atomic_construction_skips_absent_optional_fields {
+    assert eval(reading, x: [1.0, 2.0]) == [Reading(value: 1.0), Reading(value: 2.0)]
+    assert eval(cleared_reading, x: [1.0]) == [Reading(value: 1.0)]
+}
+
+test atomic_construction_waits_for_a_supplied_optional_field {
+    assert eval(annotated_reading, x: [1.0, 2.0], note: [_, "n"]) == [_, Reading(value: 2.0, note: "n")]
+}
+
+test atomic_construction_from_constants_ticks_once {
+    assert eval(fixed_reading, x: [0.0, 1.0]) == [Reading(value: 1.5), _]
+}
+
+export struct Tag {
+    label: str = null
+}
+
+export fn empty_tag(x: f64) -> atomic<Tag> => Tag()
+
+test atomic_construction_without_fields_is_the_empty_struct {
+    assert eval(empty_tag, x: [0.0, 1.0]) == [Tag(), _]
+}

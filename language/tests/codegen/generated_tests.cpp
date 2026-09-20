@@ -16,12 +16,15 @@
 
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/static_schema.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -51,6 +54,16 @@ namespace
         hgl::wiring::ensure_session();
         parity::register_operators();
     }
+
+    /// Reading(value: value, note: note), with `unit` at its default.
+    Value reading(double value, std::optional<std::string> note = std::nullopt) {
+        Value result{ValuePlanFactory::instance().type_for(scalar_descriptor<typename parity::Reading::value_type>::value_meta())};
+        auto  fields = result.as_bundle().begin_mutation();
+        fields["value"].set(value);
+        fields["unit"].set(std::string{"C"});
+        if (note) { fields["note"].set(*note); }
+        return result;
+    }
 }  // namespace
 
 TEST_CASE("generated heterogeneous pack calls retain concrete endpoint schemas", "[codegen][generated][parameter-pack]") {
@@ -76,6 +89,18 @@ TEST_CASE("generated compositions wire helpers, constants and kernels", "[codege
     CHECK(eval_node<parity::maybe_double>(values<Float>(1.5), Bool{true}) == values<Float>(3.0));
     CHECK(eval_node<parity::maybe_double>(values<Float>(1.5), Bool{false}) == values<Float>(1.5));
     CHECK(eval_node<parity::offset_by>(values<Float>(1.0, 2.5), Int{3}) == values<Float>(7.0, 8.5));
+}
+
+TEST_CASE("generated atomic construction aggregates the fields that have a value", "[codegen][generated][struct]") {
+    session();
+    CHECK_OUTPUT(eval_node<parity::operators::reading>(values<Float>(1.0, 2.0)), values<Value>(reading(1.0), reading(2.0)));
+    CHECK_OUTPUT(eval_node<parity::operators::cleared_reading>(values<Float>(1.0)), values<Value>(reading(1.0)));
+    CHECK_OUTPUT((eval_node<parity::operators::annotated_reading>(values<Float>(1.0, 2.0), values<Str>(none, Str{"n"}))),
+                 values<Value>(none, reading(2.0, "n")));
+    CHECK_OUTPUT(eval_node<parity::operators::fixed_reading>(values<Float>(0.0, 1.0)), values<Value>(reading(1.5), none));
+
+    const Value empty_tag{ValuePlanFactory::instance().type_for(scalar_descriptor<typename parity::Tag::value_type>::value_meta())};
+    CHECK_OUTPUT(eval_node<parity::operators::empty_tag>(values<Float>(0.0, 1.0)), values<Value>(empty_tag, none));
 }
 
 TEST_CASE("generated temporal conditionals match scripted switch behavior", "[codegen][generated][conditional]") {

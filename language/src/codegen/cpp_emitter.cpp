@@ -581,6 +581,16 @@ namespace hgl::codegen
                                             SourceRange fallback);
             [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
+            /// One field of a temporal struct construction: its time-series
+            /// schema, and its port, or none for an absent optional field.
+            struct ConstructedField
+            {
+                std::string                name{};
+                std::string                schema{};
+                std::optional<std::string> port{};
+            };
+            [[nodiscard]] Value constructed_struct(const HType &type, const std::vector<ConstructedField> &fields,
+                                                   SourceRange range);
             [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
                                                        SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame);
@@ -1513,8 +1523,8 @@ namespace hgl::codegen
                 }
             }
 
-            std::vector<std::string> temporal_fields;
-            temporal_fields.reserve(contract.fields.size());
+            std::vector<ConstructedField> fields;
+            fields.reserve(contract.fields.size());
             for (const gir::StructField &field : contract.fields) {
                 gir::ConstExprId value;
                 if (const auto found = supplied.find(field.name); found != supplied.end()) {
@@ -1524,13 +1534,12 @@ namespace hgl::codegen
                 }
                 const HType       field_type  = planned_type(field.type, field.range, &generics);
                 const SourceRange field_range = graph_type(field.type, field.range).range;
+                ConstructedField &constructed = fields.emplace_back(field.name, schema(field_type, field_range));
                 if (!value.valid()) {
                     if (!field.optional) {
                         backend(range,
                                 "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
                     }
-                    use("w");
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
                 if (planned_null(value, field.range)) {
@@ -1538,20 +1547,50 @@ namespace hgl::codegen
                         fail(Category::Type, graph_constant(value, field.range).range,
                              "required field '" + field.name + "' cannot be null");
                     }
-                    use("w");
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
-                Value item = planned_field_value(value, field.range, &generics);
-                temporal_fields.push_back(as_port(item, field_type, item.range));
+                Value item       = planned_field_value(value, field.range, &generics);
+                constructed.port = as_port(item, field_type, item.range);
+            }
+            return constructed_struct(type, fields, range);
+        }
+
+        /// A temporal construction: the struct's TSB, in which an absent
+        /// optional field is a `nothing` source, and its `atomic<S>` form. The
+        /// atomic form combines only the fields that have a value, so it
+        /// publishes once each of them is valid; an absent optional field stays
+        /// unset instead of holding the value back. With no such field it is
+        /// the empty struct, a constant.
+        Value Emitter::constructed_struct(const HType &type, const std::vector<ConstructedField> &fields, SourceRange range) {
+            use("w");
+            std::vector<std::string> temporal_fields;
+            std::vector<std::string> present_schemas;
+            std::vector<std::string> present_ports;
+            temporal_fields.reserve(fields.size());
+            for (const ConstructedField &field : fields) {
+                if (!field.port) {
+                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + field.schema + ">(w)");
+                    continue;
+                }
+                temporal_fields.push_back(*field.port);
+                present_schemas.push_back("hgraph::Field<" + quote(field.name) + ", " + field.schema + ">");
+                present_ports.push_back(*field.port);
             }
 
-            use("w");
             Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
                                          (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
                                      type, range);
-            result.atomic_code =
-                "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
+            const std::string value  = value_type(type, range);
+            if (present_ports.empty()) {
+                result.atomic_code =
+                    "hgraph::wire<hgraph::stdlib::const_, hgraph::TS<" + value +
+                    ">>(w, hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(hgraph::scalar_descriptor<" + value +
+                    ">::value_meta())})";
+            } else {
+                result.atomic_code = "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value +
+                                     ">>(w, hgraph::stdlib::to_tsb<hgraph::UnNamedTSB<" + join(present_schemas, ", ") + ">>(w, " +
+                                     join(present_ports, ", ") + "))";
+            }
             return result;
         }
 
@@ -2923,56 +2962,56 @@ namespace hgl::codegen
             HType type = planned_type(type_id, range);
             if (type.kind == HType::Kind::Atomic) {
                 if (type.children.size() != 1U) { backend(range, "an atomic constructor needs one value type"); }
-                type = type.children.front();
+                // Not `type = type.children.front()`: assigning from an element of
+                // `type`'s own children destroys it before its strings are copied.
+                HType inner = std::move(type.children.front());
+                type        = std::move(inner);
             }
             if (type.kind != HType::Kind::Struct) { backend(range, "a generated constructor needs a nominal struct type"); }
             const gir::StructContract &contract         = planned_structure(type.nominal_identity, range);
             const PlannedTypeBindings  planned_generics = planned_struct_bindings(contract, type, range);
 
-            const auto argument_for = [&](std::string_view field) -> const gir::Argument * {
-                const auto found = std::find_if(arguments.begin(), arguments.end(),
-                                                [&](const gir::Argument &argument) { return argument.name == field; });
-                return found == arguments.end() ? nullptr : &*found;
-            };
+            // Arguments by field name, so a wide constructor does not scan its
+            // arguments once per field.
+            std::unordered_map<std::string_view, const gir::Argument *> argument_for;
+            argument_for.reserve(arguments.size());
+            for (const gir::Argument &argument : arguments) { argument_for.try_emplace(argument.name, &argument); }
 
-            std::vector<std::string>                   temporal_fields;
+            std::vector<ConstructedField>              fields;
             std::vector<std::pair<std::size_t, Value>> delta_fields;
+            fields.reserve(contract.fields.size());
             for (std::size_t index = 0; index < contract.fields.size(); ++index) {
                 const gir::StructField &field       = contract.fields[index];
-                const gir::Argument    *argument    = argument_for(field.name);
+                const auto              found       = argument_for.find(field.name);
+                const gir::Argument    *argument    = found == argument_for.end() ? nullptr : found->second;
                 const HType             field_type  = planned_type(field.type, field.range, &planned_generics);
                 const SourceRange       field_range = graph_type(field.type, field.range).range;
 
                 if (argument == nullptr) {
                     if (delta) { continue; }
+                    ConstructedField &constructed = fields.emplace_back(field.name, schema(field_type, field_range));
                     if (field.default_value.valid()) {
                         if (planned_null(field.default_value, field.range)) {
                             if (!field.optional) {
                                 fail(Category::Type, graph_constant(field.default_value, field.range).range,
                                      "required field '" + field.name + "' cannot be null");
                             }
-                            use("w");
-                            temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) +
-                                                      ">(w)");
                             continue;
                         }
-                        Value value = planned_field_value(field.default_value, field.range, &planned_generics);
-                        temporal_fields.push_back(as_port(value, field_type, value.range));
+                        Value value      = planned_field_value(field.default_value, field.range, &planned_generics);
+                        constructed.port = as_port(value, field_type, value.range);
                         continue;
                     }
                     if (!field.optional) {
                         backend(range,
                                 "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
                     }
-                    use("w");
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
 
                 if (planned_null(argument->value, argument->range)) {
                     if (delta) { backend(argument->range, "hgraph IR delta construction retained an optional-field clear"); }
-                    use("w");
-                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
+                    fields.emplace_back(field.name, schema(field_type, field_range));
                     continue;
                 }
 
@@ -2985,7 +3024,7 @@ namespace hgl::codegen
                     value.type = field_type;
                     delta_fields.emplace_back(index, std::move(value));
                 } else {
-                    temporal_fields.push_back(as_port(value, field_type, value.range));
+                    fields.emplace_back(field.name, schema(field_type, field_range), as_port(value, field_type, value.range));
                 }
             }
 
@@ -3000,14 +3039,7 @@ namespace hgl::codegen
                 result.structured_delta = true;
                 return result;
             }
-
-            use("w");
-            Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
-                                         (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
-                                     type, range);
-            result.atomic_code =
-                "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
-            return result;
+            return constructed_struct(type, fields, range);
         }
 
         Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
