@@ -858,6 +858,20 @@ TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct
         Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Missing }\n", catalog};
         CHECK(resolved.has(Category::Module, "checks.shapes does not export struct 'Missing'"));
     }
+    SECTION("a bare-name argument is resolved, not skipped") {
+        // A single identifier lands in GenericArgument::name with neither
+        // `type` nor `value` set, so a loop over those two skips it entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<Typo> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "unknown generic argument 'Typo'"));
+    }
+    SECTION("a value passed to a type generic is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<3> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "type generic 'T' takes a type argument"));
+    }
     SECTION("a generic arity mismatch is reported") {
         const ModuleCatalog catalog = struct_catalog();
         Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair }\n", catalog};

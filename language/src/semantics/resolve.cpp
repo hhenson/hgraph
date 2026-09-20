@@ -1022,29 +1022,76 @@ namespace hgl::semantics
                 return binding;
             }
 
+            /// One argument of an imported generic application (ADR 0013).
+            /// Mirrors the local resolver's role checks against the exporting
+            /// module's parameter, which is an ImportedGeneric rather than a
+            /// declaration of this module.
+            void resolve_imported_generic_argument(const ast::GenericArgument &argument, const ImportedGeneric &parameter,
+                                                   Context &context) {
+                if (argument.type != ast::no_node) {
+                    resolve_type(argument.type, context);
+                    if (parameter.is_const) {
+                        report(Category::Type, argument.range,
+                               "const generic '" + parameter.name + "' takes a value argument");
+                    }
+                    return;
+                }
+                if (argument.value != ast::no_node) {
+                    resolve_expr(argument.value, context);
+                    if (!parameter.is_const) {
+                        report(Category::Type, argument.range, "type generic '" + parameter.name + "' takes a type argument");
+                    }
+                    return;
+                }
+                if (argument.name.empty()) { return; }
+                const std::optional<Binding> binding = lookup(argument.name.text);
+                if (!binding) {
+                    report(Category::Type, argument.name.range,
+                           "unknown generic argument '" + std::string{argument.name.text} + "'");
+                    return;
+                }
+                if (parameter.is_const && !is_const_generic(*binding)) {
+                    report(Category::Type, argument.name.range,
+                           "const generic '" + parameter.name + "' takes a const value argument");
+                }
+            }
+
             /// A qualified source type names a struct another module exports
             /// (ADR 0013). Its identity stays the owner's, so this binds the
             /// name and copies nothing into the importing module. The generic
             /// arguments are resolved either way, so a spelling error inside
             /// them is reported even when the head does not resolve.
             void resolve_imported_named_type(ast::TypeId id, const ast::Type &type, Context &context) {
-                for (const ast::GenericArgument &argument : type.arguments) {
-                    if (argument.type != ast::no_node) {
+                const ImportedStruct *structure = nullptr;
+                const ModuleAlias    *alias     = nullptr;
+                for (const ModuleAlias &candidate : result_.aliases) {
+                    if (candidate.alias == type.qualifier.text) { alias = &candidate; }
+                }
+                if (alias != nullptr) { structure = catalog_.find_struct(alias->module, type.name.text); }
+                // Arguments resolve whether or not the head does, so a spelling
+                // error inside them is still reported. Where the application's
+                // arity matches, each argument is checked against its parameter
+                // -- including a bare name, which the parser leaves in `name`
+                // with neither `type` nor `value` set.
+                const bool paired = structure != nullptr && structure->generics.size() == type.arguments.size();
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    const ast::GenericArgument &argument = type.arguments[index];
+                    if (paired) {
+                        resolve_imported_generic_argument(argument, structure->generics[index], context);
+                    } else if (argument.type != ast::no_node) {
                         resolve_type(argument.type, context);
                     } else if (argument.value != ast::no_node) {
                         resolve_expr(argument.value, context);
+                    } else if (!argument.name.empty() && !lookup(argument.name.text)) {
+                        report(Category::Type, argument.name.range,
+                               "unknown generic argument '" + std::string{argument.name.text} + "'");
                     }
-                }
-                const ModuleAlias *alias = nullptr;
-                for (const ModuleAlias &candidate : result_.aliases) {
-                    if (candidate.alias == type.qualifier.text) { alias = &candidate; }
                 }
                 if (alias == nullptr) {
                     report(Category::Name, type.qualifier.range,
                            "unknown module alias '" + std::string{type.qualifier.text} + "'");
                     return;
                 }
-                const ImportedStruct *structure = catalog_.find_struct(alias->module, type.name.text);
                 if (structure == nullptr) {
                     report(Category::Module, type.name.range,
                            alias->module + " does not export struct '" + std::string{type.name.text} + "'");
