@@ -28,6 +28,7 @@ namespace hgl::semantics
         Generic,           ///< `decl` is the function, `index` the generic parameter
         ConstraintLocal,   ///< type variable introduced by `each` in a requires clause
         Struct,            ///< `decl` is the nominal struct declaration
+        ImportedStruct,    ///< `index` names ResolvedModule::imported_structs (ADR 0013)
         Function,          ///< `decl` is the `fn`
         NativeFunction,    ///< `index` names a local native overload family
         ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
@@ -102,6 +103,9 @@ namespace hgl::semantics
         std::vector<std::vector<Binding>>     instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
         std::vector<FunctionKind>             kinds;                    ///< indexed by DeclId
         std::vector<ImportedOperator>         imports;
+        /// Structs other modules export, bound by qualified type (ADR 0013).
+        /// The identity stays the owner's; nothing is copied into this module.
+        std::vector<ImportedStruct>           imported_structs;
         std::vector<ImportedFunction>         imported_functions;
         std::vector<ImportedOperatorContract> imported_contracts;
         std::vector<ModuleAlias>              aliases;

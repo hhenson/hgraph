@@ -378,6 +378,27 @@ namespace hgl::semantics
                 return binding;
             }
 
+            /// Binds a struct another module exports (ADR 0013). The identity
+            /// stays the owner's, so repeated mentions share one binding and
+            /// nothing is copied into this module's namespace.
+            [[nodiscard]] std::optional<Binding> imported_struct_binding(const ImportedStruct &structure, SourceRange range) {
+                if (!structure.support_error.empty()) {
+                    report(Category::Module, range,
+                           "struct '" + structure.identity + "' is unavailable: " + structure.support_error);
+                    return std::nullopt;
+                }
+                if (const auto found = imported_struct_bindings_.find(structure.identity);
+                    found != imported_struct_bindings_.end()) {
+                    return found->second;
+                }
+                Binding binding;
+                binding.kind  = BindingKind::ImportedStruct;
+                binding.index = static_cast<std::uint32_t>(result_.imported_structs.size());
+                result_.imported_structs.push_back(structure);
+                imported_struct_bindings_.emplace(structure.identity, binding);
+                return binding;
+            }
+
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
                 if (functions.empty()) { return std::nullopt; }
                 std::vector<const ImportedFunction *> supported;
@@ -1001,6 +1022,46 @@ namespace hgl::semantics
                 return binding;
             }
 
+            /// A qualified source type names a struct another module exports
+            /// (ADR 0013). Its identity stays the owner's, so this binds the
+            /// name and copies nothing into the importing module. The generic
+            /// arguments are resolved either way, so a spelling error inside
+            /// them is reported even when the head does not resolve.
+            void resolve_imported_named_type(ast::TypeId id, const ast::Type &type, Context &context) {
+                for (const ast::GenericArgument &argument : type.arguments) {
+                    if (argument.type != ast::no_node) {
+                        resolve_type(argument.type, context);
+                    } else if (argument.value != ast::no_node) {
+                        resolve_expr(argument.value, context);
+                    }
+                }
+                const ModuleAlias *alias = nullptr;
+                for (const ModuleAlias &candidate : result_.aliases) {
+                    if (candidate.alias == type.qualifier.text) { alias = &candidate; }
+                }
+                if (alias == nullptr) {
+                    report(Category::Name, type.qualifier.range,
+                           "unknown module alias '" + std::string{type.qualifier.text} + "'");
+                    return;
+                }
+                const ImportedStruct *structure = catalog_.find_struct(alias->module, type.name.text);
+                if (structure == nullptr) {
+                    report(Category::Module, type.name.range,
+                           alias->module + " does not export struct '" + std::string{type.name.text} + "'");
+                    return;
+                }
+                if (structure->generics.size() != type.arguments.size()) {
+                    report(Category::Type, type.range,
+                           "imported generic struct '" + structure->identity + "' expects " +
+                               std::to_string(structure->generics.size()) + " arguments, got " +
+                               std::to_string(type.arguments.size()));
+                    return;
+                }
+                if (const std::optional<Binding> imported = imported_struct_binding(*structure, type.name.range)) {
+                    result_.type_bindings[id] = *imported;
+                }
+            }
+
             void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Signal && !allow_signal) {
@@ -1029,11 +1090,12 @@ namespace hgl::semantics
                            "map values wrapped in 'ref' require the collection-reference mapping to be resolved");
                 }
                 if (type.kind == ast::TypeKind::Named) {
+                    // A qualified type names a struct another module exports
+                    // (ADR 0013). The identity stays the owner's; this module
+                    // binds the name and nothing is copied into its namespace.
                     if (!type.qualifier.empty()) {
-                        report(Category::Type, type.qualifier.range,
-                               "qualified source types require a module descriptor; only local "
-                               "struct types are available in this prototype");
-                    }
+                        resolve_imported_named_type(id, type, context);
+                    } else {
                     const std::optional<Binding> binding = lookup(type.name.text);
                     if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct)) {
                         report(Category::Type, type.name.range, "unknown type '" + std::string{type.name.text} + "'");
@@ -1069,6 +1131,7 @@ namespace hgl::semantics
                                 }
                             }
                         }
+                    }
                     }
                 }
                 for (const ast::TypeId child : type.children) { resolve_type(child, context); }
@@ -2034,6 +2097,8 @@ namespace hgl::semantics
             Scope                                          test_scope_{};
             bool                                           test_scope_active_{false};
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
+            /// One binding per imported struct identity (ADR 0013).
+            std::unordered_map<std::string, Binding>       imported_struct_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};
             /// What each bare-name argument of an applied type names, indexed

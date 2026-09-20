@@ -96,6 +96,28 @@ namespace
         return resolved;
     }
 
+    /// A module that exports a struct, so a qualified source type has
+    /// something to resolve to (ADR 0013).
+    ModuleCatalog struct_catalog(std::string support_error = {}) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "checks.shapes";
+        hgl::semantics::ImportedStruct quote;
+        quote.module_identity = module.identity;
+        quote.name            = "Quote";
+        quote.identity        = "checks.shapes.Quote";
+        quote.fields          = {{"bid", hgl::semantics::ImportedScalarType::F64, false, false}};
+        quote.support_error   = std::move(support_error);
+        hgl::semantics::ImportedStruct pair;
+        pair.module_identity = module.identity;
+        pair.name            = "Pair";
+        pair.identity        = "checks.shapes.Pair";
+        pair.generics        = {{.name = "T", .binding_identity = "checks.shapes.Pair::T"}};
+        module.structs       = {std::move(quote), std::move(pair)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog scalar_catalog(std::string support_error = {}) {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -729,10 +751,15 @@ TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[s
                  "recursive edge 'boxed' of 'Node' reaches 'Node' again through a generic argument");
     }
     SECTION("a cross-module edge (rule 5)") {
-        // Source types cannot name another module's struct, and module imports
-        // are acyclic, so a cycle can never cross a module boundary.
-        rejected("module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n",
-                 "qualified source types require a module descriptor");
+        // A source type may now name another module's struct (ADR 0013), so
+        // rule 5 rests on the other half of its reason: module imports are
+        // acyclic, so an edge that leaves the module can never lead back and
+        // no cycle crosses a boundary. A module absent from the supplied
+        // package target is reported as such.
+        const Resolved resolved{"module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n"};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Module, "module 'other' is not available in the supplied package target"));
+        CHECK(resolved.has(Category::Name, "unknown module alias 'other'"));
     }
     SECTION("a cycle that runs through inheritance") {
         // hgraph declares a parent before its children; a parent's field that
@@ -797,6 +824,49 @@ TEST_CASE("an exported struct may only reach exported types", "[semantics][expor
                                                 "struct Quote { venue: Venue }\n"
                                                 "struct Book { quote: Quote\n more: list<Quote> }\n");
         CHECK(resolved.result.structure(resolved.struct_id("Book")).valid);
+    }
+}
+
+// A qualified source type names a struct another module exports (ADR 0013).
+// The identity stays the owner's: the importing module binds the name and
+// copies nothing into its own namespace.
+TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct-imports]") {
+    SECTION("a field may name one") {
+        const ModuleCatalog catalog  = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("repeated mentions share one binding") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Book { top: shapes::Quote\n next: shapes::Quote }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        CHECK(resolved.result.imported_structs.size() == 1U);
+    }
+    SECTION("an unknown alias is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Name, "unknown module alias 'shapes'"));
+    }
+    SECTION("a name the module does not export is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Missing }\n", catalog};
+        CHECK(resolved.has(Category::Module, "checks.shapes does not export struct 'Missing'"));
+    }
+    SECTION("a generic arity mismatch is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
+    SECTION("an unavailable struct is reported with its support error") {
+        const ModuleCatalog catalog = struct_catalog("field type is not supported by the catalog");
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Module, "struct 'checks.shapes.Quote' is unavailable"));
     }
 }
 

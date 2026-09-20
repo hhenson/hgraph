@@ -814,6 +814,12 @@ namespace hgl::ir
                             return symbol;
                         }
                         break;
+                    case BindingKind::ImportedStruct:
+                        // A struct another module exports is a type, never a
+                        // value symbol (ADR 0013). Slice 4 carries it through
+                        // the shared passes by identity; until then a mention
+                        // in value position falls through to the report below.
+                        break;
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
