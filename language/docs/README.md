@@ -1,5 +1,9 @@
 # hgraph language documentation
 
+The shared [runtime behaviour specification](../../docs/source/runtime_spec/overview.md) records concepts,
+numbered rules, conformance cases and implementation evidence. HGL source
+syntax remains specified in this language documentation.
+
 HGL is a temporal programming language: change, validity, activation, and
 history are part of its programming model, alongside ordinary value-level work.
 

@@ -1,5 +1,9 @@
 # hgraph language
 
+The shared [runtime behaviour specification](../docs/source/runtime_spec/overview.md) records concepts,
+numbered rules, conformance cases and implementation evidence. HGL source
+syntax remains specified in this language documentation.
+
 HGL is a temporal programming language for expressing computations over values
 that evolve through time. This directory hosts its experimental toolchain, a
 parallel project which consumes the public hgraph C++ SDK; hgraph core does not
