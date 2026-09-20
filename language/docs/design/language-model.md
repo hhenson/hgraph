@@ -933,7 +933,9 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- recursive fields, destructuring, and copy-with-update syntax;
+- destructuring and copy-with-update syntax; recursive struct fields are
+  agreed in [ADR 0012](decisions/0012-recursive-struct-fields.md) and are
+  rejected by the compiler until it is implemented;
 - runtime type tests, concrete downcasts, exhaustive abstract-family matching,
   the temporal base-projection spelling, and multiple-parent field ordering;
 - explicit generic arguments on function and operator calls, generic parameter

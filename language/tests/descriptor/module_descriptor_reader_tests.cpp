@@ -3,7 +3,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -693,8 +695,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 5", "\"format_version\": 6");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 6");
+        replace_once(json, "\"format_version\": 6", "\"format_version\": 5");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 5");
     }
 }
 
@@ -1123,5 +1125,100 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.build.lifecycle.query_symbol",
                     "query symbol does not match native module ABI version 1");
+    }
+}
+
+// Format 6 marks a recursive struct edge (HGL ADR 0012) on each field, so an
+// importer never reads one as an ordinary field; the reader checks the shape
+// the resolver admits.
+TEST_CASE("module descriptors record and validate recursive struct edges", "[descriptor][reader][recursive]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.types                        = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Node"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Atomic, .children = {1U}},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "other.Node"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Atomic, .children = {3U}},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Missing"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Atomic, .children = {5U}},
+    };
+    descriptor::InterfaceDeclaration node;
+    node.category    = descriptor::DeclarationCategory::Structure;
+    node.identity    = "checks.reader.Node";
+    node.fields      = {{"value", 0U, descriptor::no_schema_id, "checks.reader.Node", false, false},
+                        {"next", 2U, descriptor::no_schema_id, "checks.reader.Node", true, true}};
+    source.interface = {node};
+
+    SECTION("an edge round trips") {
+        const auto decoded = descriptor::read_json(descriptor::to_json(source));
+        INFO((decoded.error ? decoded.error->message : ""));
+        REQUIRE(decoded);
+        REQUIRE(decoded.value->interface.size() == 1U);
+        CHECK(decoded.value->interface.front().fields == source.interface.front().fields);
+        CHECK(decoded.value->interface.front().fields[1].recursive);
+    }
+    SECTION("the member is required") {
+        std::string json = descriptor::to_json(source);
+        replace_once(json, ",\n          \"recursive\": false", "");
+        check_error(descriptor::read_json(json), "$.interface[0].fields[0].recursive", "missing required member");
+    }
+    SECTION("an edge is optional") {
+        source.interface.front().fields[1].optional = false;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[1].recursive",
+                    "a recursive edge must be optional");
+    }
+    SECTION("an edge is an atomic type") {
+        source.interface.front().fields[1].type = 1U;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[1].recursive",
+                    "a recursive edge must be an atomic type");
+    }
+    SECTION("an edge names a struct of its own module") {
+        source.interface.front().fields[1].type = 4U;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[1].recursive",
+                    "a recursive edge must name a struct of checks.reader");
+    }
+    SECTION("an edge names a struct this descriptor declares") {
+        // Spelled like a struct of this module, but no such declaration exists,
+        // so an importer would have no layout to rebuild the edge from.
+        source.interface.front().fields[1].type = 6U;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[1].recursive",
+                    "a recursive edge names 'checks.reader.Missing', which is not a struct declared by checks.reader");
+    }
+}
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgl_descriptor_reader_tests '[descriptor-scaling]'
+// Validation records every declaration identity it has read, to reject a
+// duplicate. That membership test is hashed, not a scan, so reading a module
+// of n declarations stays linear in n. The per-declaration figure must stay
+// flat as n doubles (CLAUDE.md guardrail iv).
+TEST_CASE("module descriptor validation scales linearly in declaration count",
+          "[.][descriptor][reader][descriptor-scaling]") {
+    for (const std::size_t count : {1000U, 2000U, 4000U, 8000U}) {
+        descriptor::ModuleDescriptor source = minimal_descriptor();
+        source.types                        = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        };
+        source.interface.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            descriptor::InterfaceDeclaration function;
+            function.category             = descriptor::DeclarationCategory::Function;
+            function.identity             = "checks.reader.fn" + std::to_string(index);
+            function.execution            = descriptor::ExecutionKind::Composition;
+            function.signature.parameters = {
+                {"value", function.identity + "::value", false, 0U, descriptor::no_schema_id}};
+            function.signature.result = 0U;
+            source.interface.push_back(std::move(function));
+        }
+        const std::string json  = descriptor::to_json(source);
+        const auto        start = std::chrono::steady_clock::now();
+        const auto        read  = descriptor::read_json(json);
+        const auto        elapsed_us =
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+        INFO((read.error ? read.error->message : ""));
+        REQUIRE(read);
+        REQUIRE(read.value->interface.size() == count);
+        std::cout << "descriptor_validate count=" << count << " read_us=" << elapsed_us
+                  << " us_per_declaration=" << elapsed_us / static_cast<double>(count) << '\n';
     }
 }

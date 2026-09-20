@@ -166,8 +166,9 @@ The JSON sidecar is canonical and versioned. It records the module and language
 versions; public structures, operators, and functions; implementation
 candidates and provider requirements; and the generated build boundary. Its
 structured schema records preserve generic bindings, parameters and results,
-struct inheritance and effective fields, defaults and rolling bounds, nominal
-type applications, and `requires` constraints. Integer and float literal
+struct inheritance and effective fields with each field's recursive-edge mark
+(ADR 0012), defaults and rolling bounds, nominal type applications, and
+`requires` constraints. Integer and float literal
 payloads are tagged strings so the full i64 range and non-finite floats remain
 valid JSON.
 
@@ -205,11 +206,11 @@ than embedding source text that another tool would need to parse:
 The `type`, `result`, `default`, and `requires` numbers refer to records in the
 same file's `schema` object. They have no identity outside that one descriptor.
 
-In descriptor format v5, a parameter's `"kind"` is `"const"` for fixed
+In descriptor format v6, a parameter's `"kind"` is `"const"` for fixed
 configuration, `"signal"` for a temporal parameter (`window` above is a
 `rolling<T, ...>`), and `"runtime"` for an evaluation-local native schema handle. That `signal` is a parameter-role label and is unrelated
 to the `signal` type of [Types and expressions](../user-guide/types-and-expressions.md).
-The current reader accepts format v5 only; historical format changes are
+The current reader accepts format v6 only; historical format changes are
 recorded in [ADR 0004](../design/decisions/0004-json-module-descriptors.md).
 
 Validate a descriptor without loading its native library:

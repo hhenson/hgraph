@@ -1,0 +1,28 @@
+# Exported recursive structs (ADR 0012): descriptor format 6 marks each edge
+# in the struct layouts, so the descriptor records them without loading code.
+
+module checks.recursive_export
+
+export struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+export struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+    right: atomic<Tree<T>> = null
+}
+
+export abstract struct Expr {}
+
+export struct Lit: Expr {
+    value: i64
+}
+
+export struct Add: Expr {
+    lhs: atomic<Expr> = null
+    rhs: atomic<Expr> = null
+}
+
+export fn head(x: atomic<Node>) -> atomic<Node> => x.next

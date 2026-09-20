@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- Document recursive struct fields (ADR 0012): the user guide's "Recursive
+  fields" section, and `examples/recursive-fields.hgl`, a linked list and a
+  generic tree whose `test` blocks run under `hgl test` and again on the
+  generated C++.
+- Generate C++ for recursive struct fields (ADR 0012). An edge is an
+  `hgraph::Edge<Target>` field, and a `TS<Edge<Target>>` endpoint in the
+  temporal shape; generated structs register through hgraph's
+  `recursive_bundle_closure` (hgraph RFC 0041), which the direct backend's
+  type bridge now uses too, so both register the same schemas under the same
+  names and agree tick for tick on the recursive fixture. The emitter defines
+  each struct after the structs it holds inline and forward-declares only an
+  edge target defined later. Generic specializations are named
+  `Pair[int, str]` in both backends.
+- Module descriptor format 6 (ADR 0004) adds a required `recursive` Boolean
+  to every struct field, marking a recursive edge (ADR 0012) in an exported
+  struct's layout. The reader checks that an edge is optional and an `atomic`
+  type over a struct of the same module, and `hgl check` validates it without
+  loading code. Descriptors in format 5 are rejected; rebuild a module to
+  regenerate its descriptor.
+- Realize recursive struct fields (ADR 0012) in direct wiring. An edge is an
+  owner of its target, so a value is a finite tree compared, hashed and copied
+  through its whole depth; structs that reach one another through edges
+  register as one `recursive_bundles` batch per group of specializations, an
+  edge to an abstract parent owns that parent's schema, and the temporal
+  shape's edge is one `TS[Owned[T]]` endpoint that binds as `TS[T]`. `hgl
+  test` constructs, compares and round-trips three-deep values through
+  `eval`. The direct backend and its type bridge
+  also find struct contracts and constructor fields through indexes rather
+  than scans.
+- Carry recursive struct edges (ADR 0012) through the passes both backends
+  share. Typed HIR marks an admitted edge (`--dump-hir` prints ` recursive`),
+  and hgraph IR marks it with its target's identity (`--dump-hgraph-ir` prints
+  ` recursive->identity`). Every shared pass is shown to terminate on a
+  recursive type, since none follows a field into its type; the stop moves
+  from HIR lowering to hgraph-IR lowering, before the execution backends.
+- Admit recursive struct fields at name resolution (ADR 0012). A field
+  through which a value of a struct can contain another value of the same
+  struct is a recursive edge; the resolver accepts it as an optional
+  `atomic<T>` whose cycle runs through `T` and reports the rule any other
+  edge breaks: a required edge or a replaced null default (rule 2), a missing
+  atomic boundary with the fix spelled out (rule 3), a generic argument
+  that wraps a parameter and so denotes an unbounded family of
+  specializations (rule 4), and a cycle through a container or a generic
+  argument (rule 8). Generic structs may otherwise join any cycle hgraph can
+  register. A cycle through
+  inheritance is rejected because hgraph cannot register it. Admitted edges
+  stop at HIR lowering with a "not yet supported" diagnostic until the later
+  passes realize them.
 - Reject a struct field through which a value of the struct could contain
   another value of the same struct, by any path. Only a field naming its own
   struct was rejected before; a cycle through another struct of the module, a

@@ -589,8 +589,10 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
         CHECK(resolved.has(Category::Type, "only an optional inherited field may have a null default"));
     }
     SECTION("self recursion and inheritance cycles are rejected") {
+        // A self edge is admitted only as an optional atomic boundary (ADR 0012).
         const Resolved recursive{"module t\nstruct Node { next: Node }\n"};
-        CHECK(recursive.has(Category::Type, "recursive struct fields are not supported"));
+        CHECK(recursive.has(Category::Type, "must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'"));
+        CHECK(recursive.has(Category::Type, "must be optional (ADR 0012, rule 2): declare it '= null'"));
         const Resolved cycle{"module t\nabstract struct A: B {}\nabstract struct B: A {}\n"};
         CHECK(cycle.has(Category::Type, "struct inheritance cycle reaches"));
     }
@@ -601,65 +603,168 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
     }
 }
 
-// A value of a struct may not contain another value of the same struct, by
-// any path: through another struct of the module, a generic argument, a
-// collection element, or the closed family of an abstract struct. Before
-// this check only a field naming its own struct was rejected; the other paths
-// crashed direct wiring or produced C++ that could not compile.
-TEST_CASE("struct fields cannot lead back to their own struct", "[semantics]") {
+namespace
+{
+    /// The effective field `field` of struct `name`.
+    const StructField &field_of(const Resolved &resolved, std::string_view name, std::string_view field) {
+        const auto &fields = resolved.result.structure(resolved.struct_id(name)).fields;
+        const auto  found  = std::ranges::find(fields, field, &StructField::name);
+        REQUIRE(found != fields.end());
+        return *found;
+    }
+}  // namespace
+
+// ADR 0012: a field through which a value of a struct can contain another value
+// of the same struct is a recursive edge, admitted as an optional atomic
+// boundary. The resolver finds every edge, by any path, and marks the ones it
+// admits; the rest are rejected with the rule they break.
+TEST_CASE("recursive struct edges are admitted under ADR 0012", "[semantics][recursive]") {
+    SECTION("a direct edge") {
+        const Resolved resolved = resolve_clean("module t\nstruct Node {\n value: i64\n next: atomic<Node> = null\n}\n");
+        CHECK(field_of(resolved, "Node", "next").recursive);
+        CHECK_FALSE(field_of(resolved, "Node", "value").recursive);
+    }
+    SECTION("a same-module mutual pair") {
+        const Resolved resolved = resolve_clean("module t\nstruct A { b: atomic<B> = null }\nstruct B { a: atomic<A> = null }\n");
+        CHECK(field_of(resolved, "A", "b").recursive);
+        CHECK(field_of(resolved, "B", "a").recursive);
+    }
+    SECTION("an edge through an abstract parent") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { value: i64 }\n"
+                                                "struct Add: Expr {\n lhs: atomic<Expr> = null\n rhs: atomic<Expr> = null\n}\n");
+        CHECK(field_of(resolved, "Add", "lhs").recursive);
+        CHECK(field_of(resolved, "Add", "rhs").recursive);
+        CHECK_FALSE(field_of(resolved, "Lit", "value").recursive);
+    }
+    SECTION("an edge declared on an abstract struct, inherited by its family") {
+        const Resolved resolved =
+            resolve_clean("module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { value: i64 }\n");
+        CHECK(field_of(resolved, "Expr", "next").recursive);
+        CHECK(field_of(resolved, "Lit", "next").recursive);
+    }
+    SECTION("a cycle through another struct and an abstract family") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { h: atomic<Holder> = null }\n"
+                                                "struct Holder { e: atomic<Expr> = null }\n");
+        CHECK(field_of(resolved, "Lit", "h").recursive);
+        CHECK(field_of(resolved, "Holder", "e").recursive);
+    }
+    SECTION("a generic self edge") {
+        const Resolved resolved = resolve_clean("module t\nstruct Tree<T> {\n value: T\n next: atomic<Tree<T>> = null\n}\n");
+        CHECK(field_of(resolved, "Tree", "next").recursive);
+    }
+    SECTION("generic cycles that reach finitely many specializations") {
+        // Rule 4 as clarified 2026-09-19: whatever hgraph can register is admitted.
+        const Resolved mutual = resolve_clean("module t\nstruct Tree<T> { forest: atomic<Forest<T>> = null }\n"
+                                              "struct Forest<T> { tree: atomic<Tree<T>> = null }\n");
+        CHECK(field_of(mutual, "Tree", "forest").recursive);
+        CHECK(field_of(mutual, "Forest", "tree").recursive);
+        const Resolved family =
+            resolve_clean("module t\nabstract struct Expr<T> {}\nstruct Add<T>: Expr<T> { lhs: atomic<Expr<T>> = null }\n");
+        CHECK(field_of(family, "Add", "lhs").recursive);
+        const Resolved concrete = resolve_clean("module t\nstruct Node { tree: atomic<Tree<i64>> = null }\n"
+                                                "struct Tree<T> { node: atomic<Node> = null }\n");
+        CHECK(field_of(concrete, "Node", "tree").recursive);
+        CHECK(field_of(concrete, "Tree", "node").recursive);
+        const Resolved swapped =
+            resolve_clean("module t\nstruct Pair<A, B> {\n first: A\n swapped: atomic<Pair<B, A>> = null\n}\n");
+        CHECK(field_of(swapped, "Pair", "swapped").recursive);
+    }
+    SECTION("an edge through an intermediate generic parent at the same specialization") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                                "abstract struct Middle<T>: Event<T> {}\n"
+                                                "struct IntEvent: Middle<i64> { inner: atomic<Event<i64>> = null }\n");
+        CHECK(field_of(resolved, "IntEvent", "inner").recursive);
+    }
+    SECTION("a field naming a recursive struct from outside its cycle is not an edge") {
+        const Resolved resolved =
+            resolve_clean("module t\nstruct Node { next: atomic<Node> = null }\nstruct Holder { first: Node }\n");
+        CHECK_FALSE(field_of(resolved, "Holder", "first").recursive);
+    }
+}
+
+TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[semantics][recursive]") {
     const auto rejected = [](std::string text, std::string_view message) {
         const Resolved resolved{std::move(text)};
         INFO(resolved.diagnostics.render(resolved.file));
         CHECK(resolved.has(Category::Type, message));
     };
-    SECTION("through an abstract parent, required or optional") {
-        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: Expr }\n",
-                 "through field 'operand', a value of 'Neg' can contain another 'Neg'");
-        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: atomic<Expr> = null }\n",
-                 "through field 'operand', a value of 'Neg' can contain another 'Neg'");
+    SECTION("a required edge (rule 2)") {
+        rejected("module t\nstruct Node { next: atomic<Node> }\n",
+                 "recursive edge 'next' of 'Node' must be optional (ADR 0012, rule 2): declare it '= null'");
     }
-    SECTION("through a second struct of the module, reporting each field of the cycle") {
-        const Resolved resolved{"module t\nstruct A { b: B = null }\nstruct B { a: A = null }\n"};
-        CHECK(resolved.has(Category::Type, "through field 'b', a value of 'A' can contain another 'A'"));
-        CHECK(resolved.has(Category::Type, "through field 'a', a value of 'B' can contain another 'B'"));
+    SECTION("an edge whose inherited null default is replaced (rule 2)") {
+        rejected("module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { next = Lit() }\n",
+                 "recursive edge 'next' of 'Expr' keeps a null default (ADR 0012, rule 2)");
     }
-    SECTION("through a bare generic argument and through a collection element") {
-        rejected("module t\nstruct Box<T> { value: T }\nstruct Node { b: Box<Node> = null }\n",
-                 "through field 'b', a value of 'Node' can contain another 'Node'");
-        rejected("module t\nstruct Node { children: list<Node> = null }\n",
-                 "through field 'children', a value of 'Node' can contain another 'Node'");
-    }
-    SECTION("through a generic struct's own application") {
-        rejected("module t\nstruct Tree<T> { value: T\n next: Tree<T> = null }\n",
-                 "through field 'next', a value of 'Tree' can contain another 'Tree'");
-    }
-    SECTION("through an inherited field that names a descendant") {
-        rejected("module t\nabstract struct Base { child: Leaf = null }\nstruct Leaf: Base {}\n",
-                 "through field 'child', a value of 'Leaf' can contain another 'Leaf'");
-    }
-    SECTION("through an abstract struct's own fields, with or without descendants") {
-        rejected("module t\nabstract struct Base { holder: Holder = null }\nstruct Holder { base: Base = null }\n",
-                 "through field 'base', a value of 'Holder' can contain another 'Holder'");
-    }
-    SECTION("through a generic family at the same specialization, or an open one") {
-        rejected("module t\nabstract struct Event<T> { payload: T }\n"
-                 "struct IntEvent: Event<i64> { inner: Event<i64> = null }\n",
-                 "through field 'inner', a value of 'IntEvent' can contain another 'IntEvent'");
-        rejected("module t\nabstract struct Event<T> { payload: T }\n"
-                 "struct Tagged<T>: Event<T> { inner: Event<f64> = null }\n",
-                 "through field 'inner', a value of 'Tagged' can contain another 'Tagged'");
-    }
-    SECTION("through an intermediate generic parent at the same specialization") {
+    SECTION("a non-atomic edge, directly or through a ref (rule 3)") {
+        rejected("module t\nstruct Node { next: Node = null }\n",
+                 "recursive edge 'next' of 'Node' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'");
+        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: Expr = null }\n",
+                 "recursive edge 'operand' of 'Neg' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Expr>'");
+        rejected("module t\nstruct Node { next: ref<Node> }\n",
+                 "recursive edge 'next' of 'Node' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'");
         rejected("module t\nabstract struct Event<T> { payload: T }\nabstract struct Middle<T>: Event<T> {}\n"
                  "struct IntEvent: Middle<i64> { inner: Event<i64> = null }\n",
-                 "through field 'inner', a value of 'IntEvent' can contain another 'IntEvent'");
+                 "recursive edge 'inner' of 'IntEvent' must be an atomic boundary (ADR 0012, rule 3): declare it "
+                 "'atomic<Event<i64>>'");
+    }
+    SECTION("a generic argument that wraps a parameter (rule 4)") {
+        rejected("module t\nstruct Tree<T> { next: atomic<Tree<list<T>>> = null }\n",
+                 "recursive edge 'next' of 'Tree' passes 'list<T>' to 'Tree'; in a cycle a generic argument is a parameter "
+                 "of 'Tree' or mentions none, since a wrapped parameter denotes an unbounded family of specializations "
+                 "(ADR 0012, rule 4)");
+        rejected("module t\nstruct Tree<T> { forest: atomic<Forest<list<T>>> = null }\n"
+                 "struct Forest<T> { tree: atomic<Tree<T>> = null }\n",
+                 "recursive edge 'forest' of 'Tree' passes 'list<T>' to 'Forest'");
+        // A constant expression that *does* mention the parameter is still an
+        // unbounded family: `Tree<N + 1>` reaches a new specialization each step.
+        rejected("module t\nstruct Tree<const N: i64> { next: atomic<Tree<N + 1>> = null }\n",
+                 "recursive edge 'next' of 'Tree' passes 'N + 1' to 'Tree'");
+    }
+    SECTION("a container edge, or an edge through a generic argument (rule 8)") {
+        rejected("module t\nstruct Node { children: atomic<list<Node>> = null }\n",
+                 "recursive edge 'children' of 'Node' reaches 'Node' again through a collection element; recursion through "
+                 "a container or a generic argument is not supported (ADR 0012, rule 8)");
+        rejected("module t\nstruct Box<T> { value: T }\nstruct Node { boxed: atomic<Box<Node>> = null }\n",
+                 "recursive edge 'boxed' of 'Node' reaches 'Node' again through a generic argument");
+    }
+    SECTION("a cross-module edge (rule 5)") {
+        // Source types cannot name another module's struct, and module imports
+        // are acyclic, so a cycle can never cross a module boundary.
+        rejected("module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n",
+                 "qualified source types require a module descriptor");
+    }
+    SECTION("a cycle that runs through inheritance") {
+        // hgraph declares a parent before its children; a parent's field that
+        // names its own descendant cannot be registered.
+        rejected("module t\nabstract struct Base { child: atomic<Leaf> = null }\nstruct Leaf: Base {}\n",
+                 "recursive edge 'child' of 'Base' closes a cycle through inheritance: 'Leaf' inherits from 'Base'");
+    }
+    SECTION("through an intermediate generic parent that permutes its parameters") {
+        // `Swapped<X, Y>` passes its parameters to `Two` reversed, so `Leaf` is
+        // a `Two<f64, i64>` and the field leads back to it. The rule 3 section
+        // covers the parameter-preserving parent, `Middle<T>: Event<T>`.
         rejected("module t\nabstract struct Two<A, B> { at: i64 }\nabstract struct Swapped<X, Y>: Two<Y, X> {}\n"
                  "struct Leaf: Swapped<i64, f64> { inner: Two<f64, i64> = null }\n",
-                 "through field 'inner', a value of 'Leaf' can contain another 'Leaf'");
+                 "recursive edge 'inner' of 'Leaf' must be an atomic boundary (ADR 0012, rule 3): declare it "
+                 "'atomic<Two<f64, i64>>'");
     }
 }
 
 TEST_CASE("struct fields may name other structs that do not lead back", "[semantics]") {
+    SECTION("a const generic argument that mentions no parameter (rule 4)") {
+        // Rule 4 admits an argument that is a parameter of the declaring struct
+        // *or mentions none*. A constant expression names one specialization
+        // however it is spelled, so `Tree<1 + 1>` is the `Tree<2>` cycle.
+        const Resolved literal = resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<2>> = null }\n");
+        CHECK(literal.result.structure(literal.struct_id("Tree")).valid);
+        const Resolved computed =
+            resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<1 + 1>> = null }\n");
+        CHECK(computed.result.structure(computed.struct_id("Tree")).valid);
+        const Resolved negated =
+            resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<-(-2)>> = null }\n");
+        CHECK(negated.result.structure(negated.struct_id("Tree")).valid);
+    }
     SECTION("a struct declared later in the module") {
         const Resolved resolved = resolve_clean("module t\nstruct A { b: B = null }\nstruct B { x: i64 }\n");
         CHECK(resolved.result.structure(resolved.struct_id("A")).valid);
@@ -674,19 +779,23 @@ TEST_CASE("struct fields may name other structs that do not lead back", "[semant
                                                 "struct IntEvent: Event<i64> { inner: Event<f64> = null }\n"
                                                 "struct FloatEvent: Event<f64> {}\n");
         CHECK(resolved.result.structure(resolved.struct_id("IntEvent")).valid);
+        CHECK_FALSE(field_of(resolved, "IntEvent", "inner").recursive);
     }
     SECTION("another specialization through an intermediate generic parent") {
         // `Middle<T>` passes its parameter through, so `IntEvent` is an
-        // `Event<i64>` only and `Event<f64>` does not lead back to it.
+        // `Event<i64>` only and `Event<f64>` does not lead back to it. The
+        // module resolves, and the field is not marked a recursive edge.
         const Resolved nested = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
                                               "abstract struct Middle<T>: Event<T> {}\n"
                                               "struct IntEvent: Middle<i64> { inner: Event<f64> = null }\n"
                                               "struct FloatEvent: Middle<f64> {}\n");
         CHECK(nested.result.structure(nested.struct_id("IntEvent")).valid);
+        CHECK_FALSE(field_of(nested, "IntEvent", "inner").recursive);
         const Resolved permuted = resolve_clean("module t\nabstract struct Two<A, B> { at: i64 }\n"
                                                 "abstract struct Swapped<X, Y>: Two<Y, X> {}\n"
                                                 "struct Leaf: Swapped<i64, f64> { inner: Two<i64, f64> = null }\n");
         CHECK(permuted.result.structure(permuted.struct_id("Leaf")).valid);
+        CHECK_FALSE(field_of(permuted, "Leaf", "inner").recursive);
     }
 }
 

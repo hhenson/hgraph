@@ -1,6 +1,8 @@
 #include "hgraph_ir/complete.h"
 #include "hgraph_ir/lower.h"
+#include "hgraph_ir/plan.h"
 #include "hgraph_ir/printer.h"
+#include "hgraph_ir/uses.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
 #include "semantics/resolve.h"
@@ -999,4 +1001,93 @@ fn count(value: i64) -> i64 {
     CHECK(caches == 1U);
     CHECK(states == 1U);
     CHECK(hgl::hgraph_ir::print(*lowered.graph).find(" cache seen:") != std::string::npos);
+}
+
+// ADR 0012: a recursive edge reaches hgraph IR marked, with its target named
+// by struct identity rather than expanded, and every pass shared by the two
+// backends terminates on it.
+TEST_CASE("recursive struct edges reach hgraph IR marked by identity", "[hgraph-ir][recursive]") {
+    Lowered lowered{R"(
+module t
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct A {
+    b: atomic<B> = null
+    tag: str = "a"
+}
+
+struct B {
+    a: atomic<A> = null
+}
+
+abstract struct Expr {}
+
+struct Add: Expr {
+    lhs: atomic<Expr> = null
+}
+
+struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+}
+
+struct Holder {
+    first: Node
+    tree: Tree<i64>
+}
+
+fn chain(x: i64) -> atomic<Node> => Node(value: x, next: Node(value: x, next: Node(value: x)))
+fn pair(x: str) -> atomic<A> => A(b: B(a: A(tag: x)), tag: x)
+fn tree(x: i64) -> atomic<Tree<i64>> => Tree<i64>(value: x, left: Tree<i64>(value: x))
+fn head(node: Node) -> atomic<Node> => node.next
+fn hold(x: i64) -> Holder => Holder(first: Node(value: x), tree: Tree<i64>(value: x))
+
+fn latest(node: atomic<Node>) -> i64 {
+    inject out
+    when modified(node) {
+        out = node.value
+    }
+}
+)"};
+    REQUIRE(lowered.graph);
+    const hgl::hgraph_ir::Module &graph = *lowered.graph;
+
+    const auto edge = [&](std::string_view identity, std::string_view field) -> const hgl::hgraph_ir::StructField & {
+        const hgl::hgraph_ir::StructContract *contract = structure(graph, identity);
+        REQUIRE(contract != nullptr);
+        const auto found = std::ranges::find(contract->fields, field, &hgl::hgraph_ir::StructField::name);
+        REQUIRE(found != contract->fields.end());
+        return *found;
+    };
+    CHECK(edge("t.Node", "next").recursive);
+    CHECK(edge("t.Node", "next").recursive_target == "t.Node");
+    CHECK(edge("t.A", "b").recursive_target == "t.B");
+    CHECK(edge("t.B", "a").recursive_target == "t.A");
+    CHECK(edge("t.Add", "lhs").recursive_target == "t.Expr");
+    CHECK(edge("t.Tree", "left").recursive_target == "t.Tree");
+    CHECK_FALSE(edge("t.Node", "value").recursive);
+    CHECK_FALSE(edge("t.Holder", "first").recursive);
+    CHECK_FALSE(edge("t.Holder", "tree").recursive);
+    CHECK(hgl::hgraph_ir::print(graph).find("next?:t") != std::string::npos);
+    CHECK(hgl::hgraph_ir::print(graph).find(" recursive->t.Node") != std::string::npos);
+
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    // The passes a backend runs next terminate on the recursive contracts.
+    REQUIRE(graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    hgl::hgraph_ir::Module      executable = graph;
+    hgl::syntax::DiagnosticSink later;
+    hgl::hgraph_ir::plan(executable, later);
+    CHECK(hgl::hgraph_ir::complete_execution(executable, {}, later));
+    for (const hgl::hgraph_ir::Callable &item : executable.callables) {
+        (void)hgl::hgraph_ir::binding_uses(executable, item.block_body);
+        (void)hgl::hgraph_ir::binding_uses(executable, item.concise_body);
+    }
+    INFO(later.render(lowered.file));
+    CHECK_FALSE(later.has_errors());
 }

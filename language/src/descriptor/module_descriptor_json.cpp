@@ -379,7 +379,9 @@ namespace hgl::descriptor
                 schema_reference(out, field.default_value);
                 out << ",\n" << indent << "    \"origin\": ";
                 quote_json(out, field.origin_identity);
-                out << "\n" << indent << "  }" << (index + 1U == fields.size() ? "\n" : ",\n");
+                out << ",\n"
+                    << indent << "    \"recursive\": " << (field.recursive ? "true" : "false") << "\n"
+                    << indent << "  }" << (index + 1U == fields.size() ? "\n" : ",\n");
             }
             out << indent << ']';
         }

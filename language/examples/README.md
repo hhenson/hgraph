@@ -65,6 +65,12 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   runtime function, alongside temporal maps and an anonymous `fn`. Tests: none
   in the file; `generated_structural_tests.cpp`, and direct-wiring struct
   cases in `../tests/wiring/backend_tests.cpp`.
+- [`recursive-fields.hgl`](recursive-fields.hgl) declares recursive struct
+  fields (ADR 0012): a linked list and a generic tree whose edges are optional
+  `atomic` fields, a construction whose edge is a port, and field access
+  through an edge. Tests: 3 `test` blocks under `hgl test`
+  (`hgraph_language_test_recursive-fields`), asserted again on the generated
+  C++ in `generated_recursive_tests.cpp`.
 - [`reference-routing.hgl`](reference-routing.hgl) demonstrates `ref<T>`
   parameters and results in runtime functions: forwarding a reference, and
   routing one element of a `list<ref<T>, 3>` by a temporal index. Tests: none

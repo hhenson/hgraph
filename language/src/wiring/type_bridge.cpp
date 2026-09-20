@@ -3,6 +3,7 @@
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/util/date_time.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <exception>
@@ -45,7 +46,10 @@ namespace hgl::wiring
 
     TypeBridge::TypeBridge(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics)
         : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()},
-          types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {}
+          types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {
+        structures_.reserve(module_.structures.size());
+        for (const hgraph_ir::StructContract &contract : module_.structures) { structures_.emplace(contract.identity, &contract); }
+    }
 
     void TypeBridge::refresh_registry() {
         const std::uint64_t current = registry_.reset_generation();
@@ -61,10 +65,16 @@ namespace hgl::wiring
     }
 
     const hgraph_ir::StructContract *TypeBridge::structure(std::string_view identity) const noexcept {
-        for (const hgraph_ir::StructContract &candidate : module_.structures) {
-            if (candidate.identity == identity) { return &candidate; }
-        }
-        return nullptr;
+        const auto found = structures_.find(identity);
+        return found == structures_.end() ? nullptr : found->second;
+    }
+
+    hgraph_ir::TypeId TypeBridge::resolved(hgraph_ir::TypeId type, const Bindings &bindings) const {
+        if (!type.valid() || type.value >= module_.types.size()) { return type; }
+        const hgraph_ir::Type &value = module_.types[type.value];
+        if (value.kind != hir::TypeKind::Symbol || !value.binding.valid()) { return type; }
+        const auto found = bindings.types.find(value.binding.value);
+        return found == bindings.types.end() ? type : found->second;
     }
 
     std::optional<TypeBridge::Bindings> TypeBridge::bind(const hgraph_ir::Type &type, const hgraph_ir::StructContract &contract,
@@ -88,7 +98,9 @@ namespace hgl::wiring
                     report(type.range, "type generic '" + generic.name + "' requires a type argument");
                     return std::nullopt;
                 }
-                result.types[generic.binding.value] = *argument.type;
+                // An argument is read in the scope that applies it: `Tree<T>` inside
+                // `Tree<T>` names the outer `T`, not the parameter it binds.
+                result.types[generic.binding.value] = resolved(*argument.type, outer);
             }
         }
         return result;
@@ -142,53 +154,156 @@ namespace hgl::wiring
         return std::nullopt;
     }
 
-    const hgraph::ValueTypeMetaData *TypeBridge::nominal_value(const hgraph_ir::Type &type, const Bindings &outer) {
+    std::optional<TypeBridge::Specialization> TypeBridge::specialize(const hgraph_ir::Type &type, const Bindings &outer) {
         const hgraph_ir::StructContract *contract = structure(type.nominal_identity);
         if (contract == nullptr) {
             report(type.range, "unknown nominal type '" + type.nominal_identity + "'");
-            return nullptr;
+            return std::nullopt;
         }
-        const std::optional<Bindings> applied = bind(type, *contract, outer);
-        if (!applied) { return nullptr; }
+        std::optional<Bindings> applied = bind(type, *contract, outer);
+        if (!applied) { return std::nullopt; }
 
-        std::vector<const hgraph::ValueTypeMetaData *> generic_types;
-        std::string                                    local_name = split_identity(contract->identity).second;
-        if (!contract->generics.empty()) { local_name += '['; }
+        Specialization result{.contract = contract, .applied = std::move(*applied)};
+        result.local_name = split_identity(contract->identity).second;
+        if (!contract->generics.empty()) { result.local_name += '['; }
         for (std::size_t index = 0; index < contract->generics.size(); ++index) {
-            if (index != 0) { local_name += ','; }
+            // The static schema's spelling (`Pair[int, str]`), so both backends
+            // register one specialization under one name.
+            if (index != 0) { result.local_name += ", "; }
             const hgraph_ir::GenericParameter &generic = contract->generics[index];
             if (generic.is_const) {
                 report(type.range, "const generic struct arguments require typed constant Bundle metadata in hgraph");
-                return nullptr;
+                return std::nullopt;
             }
-            const hgraph::ValueTypeMetaData *argument = value(applied->types.at(generic.binding.value), *applied);
-            if (argument == nullptr) { return nullptr; }
-            generic_types.push_back(argument);
-            local_name += argument->name();
+            const hgraph::ValueTypeMetaData *argument = value(result.applied.types.at(generic.binding.value), result.applied);
+            if (argument == nullptr) { return std::nullopt; }
+            result.generic_types.push_back(argument);
+            result.local_name += argument->name();
         }
-        if (!contract->generics.empty()) { local_name += ']'; }
+        if (!contract->generics.empty()) { result.local_name += ']'; }
+        result.module_name = split_identity(contract->identity).first;
+        return result;
+    }
 
+    std::optional<TypeBridge::Specialization> TypeBridge::recursive_target(const hgraph_ir::StructField &field,
+                                                                           const Bindings               &applied) {
+        const hgraph_ir::Type &boundary = module_.types[field.type.value];
+        if (boundary.kind != hir::TypeKind::Atomic || boundary.children.size() != 1U) {
+            report(field.range, "hgraph IR recursive edge '" + field.name + "' is not an atomic boundary");
+            return std::nullopt;
+        }
+        return specialize(module_.types[resolved(boundary.children.front(), applied).value], applied);
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::field_value(const hgraph_ir::StructField &field, const Bindings &applied) {
+        if (!field.recursive) { return value(field.type, applied); }
+        // A recursive edge holds its target through one owner pointer, so a
+        // value is a finite tree and the target's fields are never inlined.
+        const hgraph_ir::Type           &boundary = module_.types[field.type.value];
+        const hgraph::ValueTypeMetaData *target =
+            boundary.children.size() == 1U ? value(boundary.children.front(), applied) : nullptr;
+        return target == nullptr ? nullptr : registry_.owned(target);
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::registered(const Specialization &specialization, syntax::SourceRange range) {
+        const hgraph::ValueTypeMetaData *existing = registry_.value_type(specialization.qualified());
+        if (existing == nullptr) { return nullptr; }
+        const std::vector<hgraph_ir::StructField> &fields  = specialization.contract->fields;
+        bool                                       matches = existing->is_named_bundle() && existing->field_count == fields.size();
+        for (std::size_t index = 0; matches && index < fields.size(); ++index) {
+            matches = existing->fields[index].name != nullptr && fields[index].name == existing->fields[index].name;
+        }
+        if (!matches) {
+            report(range, "cannot register struct '" + specialization.local_name +
+                              "': a different schema is already registered under that name");
+        }
+        return existing;
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::register_value(const Specialization &specialization, syntax::SourceRange range) {
         std::vector<std::pair<std::string, const hgraph::ValueTypeMetaData *>> fields;
-        fields.reserve(contract->fields.size());
-        for (const hgraph_ir::StructField &field : contract->fields) {
-            const hgraph::ValueTypeMetaData *field_type = value(field.type, *applied);
+        fields.reserve(specialization.contract->fields.size());
+        for (const hgraph_ir::StructField &field : specialization.contract->fields) {
+            const hgraph::ValueTypeMetaData *field_type = field_value(field, specialization.applied);
             if (field_type == nullptr) { return nullptr; }
             fields.emplace_back(field.name, field_type);
         }
 
         std::vector<const hgraph::ValueTypeMetaData *> parents;
-        parents.reserve(contract->parents.size());
-        for (hgraph_ir::TypeId parent : contract->parents) {
-            const hgraph::ValueTypeMetaData *parent_type = value(parent, *applied);
+        parents.reserve(specialization.contract->parents.size());
+        for (hgraph_ir::TypeId parent : specialization.contract->parents) {
+            const hgraph::ValueTypeMetaData *parent_type = value(parent, specialization.applied);
             if (parent_type == nullptr) { return nullptr; }
             parents.push_back(parent_type);
         }
 
-        const std::string module_name = split_identity(contract->identity).first;
         try {
-            return registry_.bundle(module_name, local_name, fields, parents, contract->abstract, "__type__", generic_types);
+            return registry_.bundle(specialization.module_name, specialization.local_name, fields, parents,
+                                    specialization.contract->abstract, "__type__", specialization.generic_types);
         } catch (const std::exception &error) {
-            report(type.range, "cannot register struct '" + local_name + "': " + error.what());
+            report(range, "cannot register struct '" + specialization.local_name + "': " + error.what());
+            return nullptr;
+        }
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::nominal_value(const hgraph_ir::Type &type, const Bindings &outer) {
+        std::optional<Specialization> specialization = specialize(type, outer);
+        if (!specialization) { return nullptr; }
+        if (std::ranges::any_of(specialization->contract->fields,
+                                [](const hgraph_ir::StructField &field) { return field.recursive; })) {
+            return recursive_value(std::move(*specialization), type.range);
+        }
+        return register_value(*specialization, type.range);
+    }
+
+    /// Realizes a struct with recursive edges (ADR 0012) through hgraph's
+    /// recursive Bundle closure (RFC 0041): the registry walks the
+    /// specializations the edges reach and registers each strongly connected
+    /// component as one batch, the same rule the static schema's `Edge` uses for
+    /// generated C++, so both backends register identical schemas. This bridge
+    /// only describes each specialization when the registry asks for it.
+    const hgraph::ValueTypeMetaData *TypeBridge::recursive_value(Specialization root, syntax::SourceRange range) {
+        if (registry_.value_type(root.qualified()) != nullptr) { return registered(root, range); }
+        // A realization failure is already reported; this unwinds the closure.
+        struct Reported
+        {};
+        std::unordered_map<std::string, Specialization> pending;
+        const std::string                               root_name = root.qualified();
+        pending.emplace(root_name, std::move(root));
+        const auto describe = [&](std::string_view name) -> hgraph::RecursiveBundleRequest {
+            const auto found = pending.find(std::string{name});
+            if (found == pending.end()) { throw std::logic_error("undescribed recursive struct '" + std::string{name} + "'"); }
+            const Specialization          &specialization = found->second;
+            hgraph::RecursiveBundleRequest request;
+            request.definition.bundle_namespace  = specialization.module_name;
+            request.definition.local_name        = specialization.local_name;
+            request.definition.is_abstract       = specialization.contract->abstract;
+            request.definition.generic_arguments = specialization.generic_types;
+            for (const hgraph_ir::StructField &field : specialization.contract->fields) {
+                if (field.recursive) {
+                    std::optional<Specialization> target = recursive_target(field, specialization.applied);
+                    if (!target) { throw Reported{}; }
+                    std::string target_name = target->qualified();
+                    request.edges.emplace_back(request.definition.fields.size(), target_name);
+                    pending.try_emplace(std::move(target_name), std::move(*target));
+                    request.definition.fields.push_back({.name = field.name});
+                    continue;
+                }
+                const hgraph::ValueTypeMetaData *field_type = value(field.type, specialization.applied);
+                if (field_type == nullptr) { throw Reported{}; }
+                request.definition.fields.push_back({.name = field.name, .type = field_type});
+            }
+            for (hgraph_ir::TypeId parent : specialization.contract->parents) {
+                const hgraph::ValueTypeMetaData *parent_type = value(parent, specialization.applied);
+                if (parent_type == nullptr) { throw Reported{}; }
+                request.definition.parents.push_back(parent_type);
+            }
+            return request;
+        };
+        try {
+            return registry_.recursive_bundle_closure(root_name, describe);
+        } catch (const Reported &) { return nullptr; } catch (const std::exception &error) {
+            report(range, "cannot register recursive struct '" + root_name + "': " + error.what());
             return nullptr;
         }
     }
@@ -207,7 +322,13 @@ namespace hgl::wiring
         std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
         fields.reserve(contract->fields.size());
         for (const hgraph_ir::StructField &field : contract->fields) {
-            const hgraph::TSValueTypeMetaData *field_type = schema(field.type, *applied);
+            // A recursive edge is one endpoint carrying a complete target or
+            // nothing (ADR 0012, rule 3). Its value is the owner the struct
+            // stores, so the bundle's value schema is the struct itself; hgraph
+            // treats the owner as storage, equivalent to TS[target] at binding.
+            const hgraph::ValueTypeMetaData   *owner = field.recursive ? field_value(field, *applied) : nullptr;
+            const hgraph::TSValueTypeMetaData *field_type =
+                field.recursive ? (owner == nullptr ? nullptr : registry_.ts(owner)) : schema(field.type, *applied);
             if (field_type == nullptr) { return nullptr; }
             fields.emplace_back(field.name, field_type);
         }

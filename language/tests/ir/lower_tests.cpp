@@ -2607,3 +2607,32 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
                                  "}\n")
               .find("function-kind: 'when' cannot be nested in another block") != std::string::npos);
 }
+
+// ADR 0012: an admitted recursive edge enters typed HIR as a marked field.
+// The target stays the nominal struct inside its `atomic<...>`; no pass
+// expands it. Every struct inheriting the edge carries the mark as well.
+TEST_CASE("an admitted recursive struct edge is marked in typed HIR", "[ir][recursive]") {
+    const Lowered lowered{"module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { value: i64 }\n"
+                          "struct Node {\n value: i64\n next: atomic<Node> = null\n}\n"};
+    require_clean(lowered);
+    const auto fields = [&](std::string_view name) -> const std::vector<hir::StructField> & {
+        for (const hir::Declaration &declaration : lowered.hir.declarations) {
+            const auto *structure = std::get_if<hir::StructDecl>(&declaration.node);
+            if (structure != nullptr && lowered.hir.symbol(declaration.symbol).name == name) { return structure->fields; }
+        }
+        FAIL("no struct " << name);
+        throw 0;
+    };
+    const auto marked = [&](std::string_view structure, std::string_view field) {
+        const auto &items = fields(structure);
+        const auto  found = std::ranges::find(items, field, &hir::StructField::name);
+        REQUIRE(found != items.end());
+        return found->recursive;
+    };
+    CHECK(marked("Expr", "next"));
+    CHECK(marked("Lit", "next"));
+    CHECK_FALSE(marked("Lit", "value"));
+    CHECK(marked("Node", "next"));
+    CHECK_FALSE(marked("Node", "value"));
+    CHECK(hgl::ir::print_hir(lowered.hir).find(" recursive") != std::string::npos);
+}

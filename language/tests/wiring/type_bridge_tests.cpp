@@ -7,12 +7,14 @@
 
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/registry_reset.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -255,4 +257,136 @@ fn consume(values: rolling<f64, 1s, 2s>) -> rolling<f64, 1s, 2s> => values
         CHECK(unit.diagnostics.render(unit.file).find(
                   "a rolling minimum duration must be non-negative and no longer than the maximum") != std::string::npos);
     }
+}
+
+// ADR 0012: a recursive edge is an owner of its target. Structs that reach one
+// another through edges register as one batch; an edge that leaves its batch,
+// such as one to an abstract parent, owns an already registered schema.
+TEST_CASE("recursive structs realize their edges as owners", "[wiring][types][recursive]") {
+    Unit unit{R"(
+module checks.recursive_bridge
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct A {
+    b: atomic<B> = null
+}
+
+struct B {
+    a: atomic<A> = null
+}
+
+struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+}
+
+struct Pair<X, Y> {
+    first: X
+    swapped: atomic<Pair<Y, X>> = null
+}
+
+abstract struct Expr {}
+
+struct Add: Expr {
+    lhs: atomic<Expr> = null
+}
+
+abstract struct Linked {
+    next: atomic<Linked> = null
+}
+
+struct Item: Linked {
+    value: i64
+}
+
+struct Holder {
+    first: Node
+}
+
+fn forms(
+    node: atomic<Node>,
+    a: atomic<A>,
+    tree: atomic<Tree<i64>>,
+    pair: atomic<Pair<i64, str>>,
+    add: atomic<Add>,
+    item: atomic<Item>,
+    holder: atomic<Holder>,
+    temporal: Node
+) -> atomic<Node> => node
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    auto                   &registry = hgraph::TypeRegistry::instance();
+    const auto              value    = [&](std::string_view parameter) {
+        const hgl::hgraph_ir::Type &boundary = unit.graph.types[unit.parameter("forms", parameter).value];
+        const auto                 *meta     = bridge.value(boundary.children.front());
+        REQUIRE(meta != nullptr);
+        return meta;
+    };
+    const auto owned = [](const hgraph::ValueTypeMetaData *meta, std::size_t field) {
+        REQUIRE(field < meta->field_count);
+        REQUIRE(meta->fields[field].type->is_owned());
+        return meta->fields[field].type->element_type;
+    };
+
+    const auto *node = value("node");
+    CHECK(owned(node, 1) == node);
+    CHECK(node->is_hashable());
+    CHECK(node->is_equatable());
+    CHECK(node->is_comparable());
+
+    const auto *a = value("a");
+    CHECK(owned(owned(a, 0), 0) == a);
+
+    const auto *tree = value("tree");
+    CHECK(tree->bundle_local_name() == "Tree[int]");
+    CHECK(owned(tree, 1) == tree);
+
+    const auto *pair    = value("pair");
+    const auto *swapped = owned(pair, 1);
+    CHECK(pair->bundle_local_name() == "Pair[int, str]");
+    CHECK(swapped->bundle_local_name() == "Pair[str, int]");
+    CHECK(owned(swapped, 1) == pair);
+
+    const auto *add = value("add");
+    CHECK(owned(add, 0)->bundle_local_name() == "Expr");
+    CHECK(registry.value_is_a(add, owned(add, 0)));
+
+    const auto *item = value("item");
+    CHECK(owned(item, 0) == owned(owned(item, 0), 0));
+
+    CHECK(value("holder")->fields[0].type == node);
+
+    // Temporal Node is a finite bundle: `next` is one endpoint whose value is
+    // the owner Node stores, so the bundle's value schema is Node itself.
+    const auto *temporal = bridge.schema(unit.parameter("forms", "temporal"));
+    REQUIRE(temporal != nullptr);
+    REQUIRE(temporal->kind == hgraph::TSTypeKind::TSB);
+    CHECK(temporal->fields()[1].type == registry.ts(node->fields[1].type));
+    CHECK(temporal->value_schema == node);
+
+    // A second bridge over the same module finds the registered batch.
+    hgl::wiring::TypeBridge again{unit.graph, unit.diagnostics};
+    CHECK(again.value(unit.graph.types[unit.parameter("forms", "a").value].children.front()) == a);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+
+    // Equality and hashing run through the whole depth.
+    const auto chain = [&](std::int64_t last) {
+        hgraph::Value root{hgraph::ValuePlanFactory::instance().type_for(node)};
+        auto          fields = root.as_bundle().begin_mutation();
+        fields["value"].set(std::int64_t{1});
+        auto second = fields["next"].as_bundle().begin_mutation();
+        second["value"].set(std::int64_t{2});
+        second["next"].as_bundle().begin_mutation()["value"].set(last);
+        return root;
+    };
+    CHECK(chain(3).view().equals(chain(3).view()));
+    CHECK(chain(3).view().hash() == chain(3).view().hash());
+    CHECK_FALSE(chain(3).view().equals(chain(4).view()));
 }

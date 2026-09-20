@@ -1,4 +1,5 @@
 #include "codegen/cpp_emitter.h"
+#include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/plan.h"
 #include "ir/hir_printer.h"
@@ -3126,4 +3127,64 @@ export fn f(value: i64) -> i64 {
 )"};
     CHECK_FALSE(mixed.emit());
     CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
+}
+
+// ADR 0012: an edge is an `Edge<T>` field, and one `TS<Edge<T>>` endpoint in
+// the temporal shape. A target defined after the struct holding the edge is
+// declared first; a struct defined earlier, or the struct itself, is not.
+TEST_CASE("emit-cpp spells a recursive struct edge as an Edge field", "[codegen][recursive]") {
+    Unit unit{R"(
+module recursive_emit
+
+struct A {
+    tag: str
+    b: atomic<B> = null
+}
+
+struct B {
+    a: atomic<A> = null
+}
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+export fn pass(x: atomic<Node>) -> atomic<Node> => x
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Field<\"next\", hgraph::Edge<Node>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"next\", hgraph::TS<hgraph::Edge<Node>>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"b\", hgraph::Edge<B>>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"a\", hgraph::Edge<A>>"));
+    CHECK(contains(emitted->header, "struct B;"));
+    CHECK(emitted->header.find("struct B;") < emitted->header.find("struct A\n"));
+    CHECK_FALSE(contains(emitted->header, "struct A;"));
+    CHECK_FALSE(contains(emitted->header, "struct Node;"));
+}
+
+// An exported struct's layout marks each recursive edge (descriptor format 6,
+// ADR 0012), so an importer never reads one as an ordinary field.
+TEST_CASE("emit-cpp marks recursive edges in an exported struct's descriptor layout", "[codegen][recursive]") {
+    Unit unit{R"(
+module recursive_export
+
+export struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const auto decoded = hgl::descriptor::read_json(emitted->descriptor);
+    INFO((decoded.error ? decoded.error->path + ": " + decoded.error->message : ""));
+    REQUIRE(decoded);
+    REQUIRE(decoded.value->interface.size() == 1U);
+    const auto &fields = decoded.value->interface.front().fields;
+    REQUIRE(fields.size() == 2U);
+    CHECK_FALSE(fields[0].recursive);
+    CHECK(fields[1].recursive);
 }

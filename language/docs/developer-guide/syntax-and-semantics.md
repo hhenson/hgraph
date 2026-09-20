@@ -344,19 +344,44 @@ immutable, and ordered metadata, with newline separators and no semicolons.
 Only an `abstract struct` may be named as a parent. Abstract structs are not
 constructible and may inherit abstract parents; concrete structs may inherit
 one or more abstract parents and are implicitly final. An empty concrete body
-is valid. There are no methods, behavior inheritance, or visibility modifiers
-in the first slice, and no recursive fields: a value of a struct may not
-contain another value of the same struct by any path. A field reaches every
-struct its type names, through collection elements and generic arguments, and
-a field typed by a struct with descendants also reaches that closed family.
-For a generic family the edge is followed only to descendants that can be the
-field's specialization, so `inner: Event<f64>` inside
+is valid. There are no methods, behavior inheritance, or visibility modifiers.
+
+A field through which a value of a struct can contain another value of the
+same struct is a *recursive edge*
+([ADR 0012](../design/decisions/0012-recursive-struct-fields.md)). A field
+reaches every struct its type names, through collection elements and generic
+arguments, and a field typed by a struct with descendants also reaches that
+closed family. For a generic family the edge is followed only to descendants
+that can be the field's specialization, so `inner: Event<f64>` inside
 `struct IntEvent: Event<i64>` does not lead back to `IntEvent`, nor through
 `abstract struct Middle<T>: Event<T>` to `struct IntEvent: Middle<i64>`. An
 intermediate parent keeps the specialization when its application passes its
 own parameters through, in any order; any other generic application, such as
 `Middle<T>: Event<list<T>>`, is followed as its whole family. The resolver
-reports every field that closes such a cycle.
+admits a recursive edge only as an optional atomic boundary whose cycle runs
+through the struct inside `atomic<...>`, such as `next: atomic<Node> = null`,
+and reports the rule each other edge breaks:
+
+- rule 2: the edge is declared `= null`, and no descendant replaces that
+  default;
+- rule 3: the edge is written `atomic<T>`; the diagnostic names the fix;
+- rule 4: every generic argument on the edge is a parameter of the declaring
+  struct or mentions none, so the cycle reaches finitely many
+  specializations: `atomic<Tree<T>>` and `atomic<Forest<T>>` inside `Tree<T>`
+  are admitted, `atomic<Tree<list<T>>>` is not;
+- rule 8: the cycle does not run through a collection element or a generic
+  argument.
+
+A cycle that also runs through inheritance, such as a parent's field that
+names its own descendant, is rejected too: hgraph declares a parent before its
+children, so such a cycle cannot be registered. A struct type cannot name
+another module's struct, and imports are acyclic, so no cycle crosses a module
+(rule 5). The resolver marks each admitted edge on the struct's effective
+fields, and typed HIR and hgraph IR carry the mark with the edge's target
+named by struct identity (compiler and lowering guide, "Recursive struct
+edges"). Both backends realize an edge as an owner of its target, and module
+descriptor format 6 marks each edge in an exported struct's layout (roadmap,
+"Feature status matrix").
 
 Struct generic parameters use the common `generic_parameters` production, and
 their trailing `requires` clause uses the same constraint grammar as a function
@@ -2280,7 +2305,9 @@ observation rather than rule, is collected under
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- recursive fields, destructuring, and copy-with-update syntax;
+- destructuring and copy-with-update syntax; recursive struct fields are
+  agreed in [ADR 0012](../design/decisions/0012-recursive-struct-fields.md)
+  and not yet implemented;
 - explicit generic arguments on function and operator calls, generic parameter
   defaults, partial generic type application, and specialization relationships
   beyond invariant applied types and the defined pattern ranking and ambiguity

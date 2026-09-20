@@ -112,10 +112,12 @@ The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
 the syntax guide ("Scopes and name lookup"), checks `use` declarations against
 the interim kernel table (below, "Interim kernel table"), resolves nominal
-struct hierarchies and effective fields, rejects a field through which a
+struct hierarchies and effective fields, finds every field through which a
 struct can contain itself (one strongly-connected-components pass over the
-module's struct references and abstract families), validates construction and
-closed generic-struct requirements, classifies every function by the rule of
+module's struct references and abstract families) and admits it only as an
+ADR 0012 recursive edge, marking it on the struct's fields and reporting the
+rule any other edge breaks, validates construction and closed generic-struct
+requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
 bindings, constraint identities, struct metadata, and function kinds.
@@ -739,6 +741,75 @@ named `SIZE<"n">` variable that binds the argument's concrete size, and an
 unbounded list binds it to `-1`. A concrete `TSL<T, 0>` is a fixed empty list.
 The source sentinel `unbounded` lowers to `-1`, and a `const` generic in a
 list-size position lowers to the existing size variable.
+
+### Recursive struct edges
+
+[ADR 0012](../design/decisions/0012-recursive-struct-fields.md) admits a
+field through which a value of a struct can hold another value of the same
+struct, as an optional `atomic<T>`. The resolver finds these edges and applies
+the rules (syntax guide, "Compilation-unit grammar"); every later pass sees an
+edge only as a mark on a field:
+
+- `semantics::StructField::recursive` marks an admitted edge on each struct's
+  effective fields, including a struct that inherits it;
+- `hir::StructField::recursive` carries the mark into typed HIR, printed as a
+  trailing ` recursive` by `--dump-hir`;
+- `hgraph_ir::StructField` carries `recursive` and `recursive_target`, the
+  identity of the struct inside the edge's `atomic<...>`, printed as
+  ` recursive->identity` by `--dump-hgraph-ir`.
+
+The target is named, never expanded. The passes the two backends share
+terminate on a recursive type because none of them follows a field into its
+type: canonical types and generic substitution intern struct types
+nominally, by symbol and arguments; the type checker and constraint solver
+build effective fields by walking parents, whose cycles the resolver
+rejects, and read one field at a time for construction, field access and
+reflection (`fields`, `has_fields`, `field_type`); hgraph-IR lowering lowers
+types by nominal identity and maps inherited fields by walking parents; and
+activation planning, execution completion and binding reachability walk
+bodies, not types. `tests/hgraph_ir/lower_tests.cpp` drives a direct edge, a
+mutual pair, an abstract-family edge and a generic self edge through all of
+them.
+
+What expands fields is type realization. Both backends realize an edge as
+`Owned[T]`, one owner pointer, so a value is a finite tree. Both register it
+through one hgraph operation, `TypeRegistry::recursive_bundle_closure` (hgraph
+RFC 0041), which gives them the same schemas under the same names:
+
+- the closure describes each specialization an edge reaches, on demand, and
+  groups them by Tarjan's algorithm; each strongly connected component is one
+  `recursive_bundles` batch, whose edges between members are batch indices,
+  registered as soon as the component closes, after every component it
+  reaches;
+- an edge that leaves its component, such as `lhs: atomic<Expr>` inside
+  `struct Add: Expr`, owns an already registered schema, and the struct is an
+  ordinary Bundle;
+- a specialization already registered under its name is reused, not
+  described again;
+- the temporal shape is a named TSB whose recursive field is a
+  `TS[Owned[T]]` endpoint, so the bundle's value schema is the struct itself.
+  hgraph treats the owner as storage (`value_schema_without_storage`), so the
+  endpoint binds where `TS[T]` is expected, and the direct backend passes
+  such a port through without a conversion;
+- a constant struct value copies each edge's target into its owner.
+
+Direct wiring's type bridge (`wiring/type_bridge`) is the closure's describer:
+it describes a specialization from its struct contract, substituting generic
+arguments, and names each edge's target specialization. Generated C++ spells
+an edge with the static schema's marker: the field is
+`hgraph::Edge<Target>` in `value_type` and `hgraph::TS<hgraph::Edge<Target>>`
+in `time_series`, and a `NominalBundle` with an edge registers through the
+same closure. The emitter defines each struct after every struct it holds
+inline, and declares an edge's target first only when the target is defined
+later; `Edge` needs only the target's name.
+
+A module descriptor records an exported struct's layout. Format 6 (ADR 0004)
+marks each field's `recursive` edge, so no reader takes an edge for an
+ordinary field; the reader checks that an edge is an optional `atomic` record
+over a struct of the same module, and `hgl check <module>.hgl-module.json`
+validates it without loading code. No module can import another module's
+struct type yet, recursive or not, so the mark is recorded for the importer
+that will read it.
 
 ## Generic constraint IR and lowering
 
@@ -1754,7 +1825,8 @@ expression is read from the syntax tree.
 - **Structural types.** An exported source struct becomes a readable C++
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic
-  arguments; `NominalTSB` preserves the recursively temporalized fields.
+  arguments; `NominalTSB` preserves the recursively temporalized fields. A
+  recursive edge is an `Edge<Target>` field ("Recursive struct edges").
   Constructors lower to `to_tsb`; an `atomic<S>` result aggregates the fields
   that have a value, as an `UnNamedTSB`, through `combine_cs`, or is a
   `const_` of the empty struct when none has; and a runtime `delta<S>` builds

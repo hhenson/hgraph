@@ -1298,7 +1298,7 @@ namespace hgl::ir
                                     structure.fields.push_back(
                                         hir::StructField{field.name, id<hir::TypeId>(field.type),
                                                          id<hir::ExprId>(field.default_value), id<hir::DeclarationId>(field.origin),
-                                                         field.optional, field_range(field.origin, field.name)});
+                                                         field.optional, field_range(field.origin, field.name), field.recursive});
                                 }
                             }
                             target.node = std::move(structure);

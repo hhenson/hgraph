@@ -218,6 +218,11 @@ namespace hgl::hgraph_ir
         ConstExprId         default_value{};
         std::string         origin_identity{};
         bool                optional{false};
+        /// An admitted recursive edge (ADR 0012), and the identity of the struct
+        /// inside its `atomic<...>`. Backends realize the edge as an owner of
+        /// that struct; nothing expands the target's fields through it.
+        bool                recursive{false};
+        std::string         recursive_target{};
         syntax::SourceRange range{};
     };
 

@@ -591,6 +591,10 @@ namespace hgl::ir::hir
         DeclarationId       origin{};
         bool                optional{false};
         syntax::SourceRange range{};
+        /// An admitted recursive edge (ADR 0012): an optional `atomic<T>` through
+        /// which a value can hold another value of its own struct. The target
+        /// is the struct inside the field's type, named by identity there.
+        bool recursive{false};
     };
 
     enum class Visibility : std::uint8_t {

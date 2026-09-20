@@ -611,6 +611,7 @@ namespace hgl::ir
                                         out_ << '=' << ref('e', node.fields[field].default_value);
                                     }
                                     out_ << '@' << ref('d', node.fields[field].origin);
+                                    if (node.fields[field].recursive) { out_ << " recursive"; }
                                 }
                                 out_ << ']';
                             } else if constexpr (std::is_same_v<T, hir::OperatorDecl>) {

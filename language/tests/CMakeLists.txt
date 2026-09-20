@@ -80,6 +80,23 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
+# Recursive struct edges (ADR 0012) are marked in both dumps.
+add_test(
+    NAME hgraph_language_dump_hir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hir
+)
+set_tests_properties(hgraph_language_dump_hir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "next:t[0-9]+\\?=e[0-9]+@d[0-9]+ recursive"
+)
+
+add_test(
+    NAME hgraph_language_dump_hgraph_ir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_dump_hgraph_ir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "tree\\?:t[0-9]+ recursive->tests\\.recursive_structs\\.Tree"
+)
+
 add_test(
     NAME hgraph_language_check_descriptor
     COMMAND ${CMAKE_COMMAND}
@@ -87,6 +104,15 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
+)
+
+add_test(
+    NAME hgraph_language_recursive_descriptor
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/recursive-export.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/recursive-descriptor
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_recursive_descriptor.cmake
 )
 
 add_test(
@@ -356,6 +382,8 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ../examples/recursive-fields.hgl)
+hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
 hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hgl)
@@ -428,6 +456,7 @@ set(_hgl_generated_test_sources
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
+    codegen/generated_recursive_tests.cpp
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
     codegen/generated_imported_operator_tests.cpp
@@ -435,6 +464,7 @@ set(_hgl_generated_test_sources
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
     hgl_structural_fixture
+    hgl_recursive_fixture
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
@@ -499,6 +529,17 @@ if(UNIX)
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "13 tests, 0 failed"
+)
+
+# Recursive struct fields (ADR 0012) through direct wiring; the same module is
+# compiled as hgl_recursive_fixture and checked tick for tick by
+# codegen/generated_recursive_tests.cpp.
+add_test(
+    NAME hgraph_language_test_recursive_structs
+    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl
+)
+set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
+    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`
