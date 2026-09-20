@@ -6,10 +6,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace hgl::ir::detail
@@ -94,6 +96,27 @@ namespace hgl::ir::detail
             hir::TypeId type{};
         };
 
+        struct FieldNameHash
+        {
+            using is_transparent = void;
+            [[nodiscard]] std::size_t operator()(std::string_view name) const noexcept {
+                return std::hash<std::string_view>{}(name);
+            }
+        };
+
+        /// The effective fields of one applied struct type, in declaration
+        /// order, with an index by name so a lookup does not scan them.
+        struct EffectiveFields
+        {
+            std::vector<EffectiveField>                                                  fields{};
+            std::unordered_map<std::string, std::size_t, FieldNameHash, std::equal_to<>> index{};
+
+            [[nodiscard]] const EffectiveField *find(std::string_view name) const noexcept {
+                const auto found = index.find(name);
+                return found == index.end() ? nullptr : &fields[found->second];
+            }
+        };
+
         [[nodiscard]] Operand operand(hir::ConstraintId id, GenericSubstitution &substitution);
         [[nodiscard]] Operand type_operand(hir::TypeId type, GenericSubstitution &substitution);
         [[nodiscard]] Operand value_operand(hir::ExprId value, GenericSubstitution &substitution);
@@ -121,8 +144,8 @@ namespace hgl::ir::detail
         [[nodiscard]] bool                             is_struct(hir::TypeId type) const noexcept;
         [[nodiscard]] const hir::Parameter            *pack_parameter(hir::SymbolId symbol) const noexcept;
         [[nodiscard]] Operand                          pack_operand(hir::SymbolId symbol, GenericSubstitution &substitution);
-        [[nodiscard]] std::vector<EffectiveField>      effective_fields(hir::TypeId type);
-        void                                           append_fields(hir::TypeId type, std::vector<EffectiveField> &fields);
+        [[nodiscard]] const EffectiveFields           &effective_fields(hir::TypeId type);
+        void                                           append_fields(hir::TypeId type, EffectiveFields &fields);
         [[nodiscard]] std::optional<std::string>       string_value(hir::ExprId value) const;
         [[nodiscard]] std::optional<std::string>       string_value(const Operand &value) const;
         [[nodiscard]] std::optional<std::int64_t>      integer_value(const Operand &value) const;
@@ -147,6 +170,10 @@ namespace hgl::ir::detail
         syntax::DiagnosticSink &diagnostics_;
         std::string             failure_detail_{};
         std::size_t             evaluation_depth_{0};
+        /// Effective fields by canonical struct type. Canonical types and the
+        /// struct declarations are fixed while a module is checked, and every
+        /// constructor argument asks for one field of the same type.
+        std::unordered_map<std::uint32_t, EffectiveFields> effective_fields_{};
     };
 }  // namespace hgl::ir::detail
 

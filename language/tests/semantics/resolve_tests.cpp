@@ -590,7 +590,7 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
     }
     SECTION("self recursion and inheritance cycles are rejected") {
         const Resolved recursive{"module t\nstruct Node { next: Node }\n"};
-        CHECK(recursive.has(Category::Type, "self-recursive struct fields are not supported"));
+        CHECK(recursive.has(Category::Type, "recursive struct fields are not supported"));
         const Resolved cycle{"module t\nabstract struct A: B {}\nabstract struct B: A {}\n"};
         CHECK(cycle.has(Category::Type, "struct inheritance cycle reaches"));
     }
@@ -598,6 +598,95 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
         const Resolved resolved{"module t\nabstract struct A {}\nabstract struct B "
                                 "{}\nstruct C: A, B {}\n"};
         CHECK(resolved.has(Category::Type, "awaits the stable field-order rule"));
+    }
+}
+
+// A value of a struct may not contain another value of the same struct, by
+// any path: through another struct of the module, a generic argument, a
+// collection element, or the closed family of an abstract struct. Before
+// this check only a field naming its own struct was rejected; the other paths
+// crashed direct wiring or produced C++ that could not compile.
+TEST_CASE("struct fields cannot lead back to their own struct", "[semantics]") {
+    const auto rejected = [](std::string text, std::string_view message) {
+        const Resolved resolved{std::move(text)};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Type, message));
+    };
+    SECTION("through an abstract parent, required or optional") {
+        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: Expr }\n",
+                 "through field 'operand', a value of 'Neg' can contain another 'Neg'");
+        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: atomic<Expr> = null }\n",
+                 "through field 'operand', a value of 'Neg' can contain another 'Neg'");
+    }
+    SECTION("through a second struct of the module, reporting each field of the cycle") {
+        const Resolved resolved{"module t\nstruct A { b: B = null }\nstruct B { a: A = null }\n"};
+        CHECK(resolved.has(Category::Type, "through field 'b', a value of 'A' can contain another 'A'"));
+        CHECK(resolved.has(Category::Type, "through field 'a', a value of 'B' can contain another 'B'"));
+    }
+    SECTION("through a bare generic argument and through a collection element") {
+        rejected("module t\nstruct Box<T> { value: T }\nstruct Node { b: Box<Node> = null }\n",
+                 "through field 'b', a value of 'Node' can contain another 'Node'");
+        rejected("module t\nstruct Node { children: list<Node> = null }\n",
+                 "through field 'children', a value of 'Node' can contain another 'Node'");
+    }
+    SECTION("through a generic struct's own application") {
+        rejected("module t\nstruct Tree<T> { value: T\n next: Tree<T> = null }\n",
+                 "through field 'next', a value of 'Tree' can contain another 'Tree'");
+    }
+    SECTION("through an inherited field that names a descendant") {
+        rejected("module t\nabstract struct Base { child: Leaf = null }\nstruct Leaf: Base {}\n",
+                 "through field 'child', a value of 'Leaf' can contain another 'Leaf'");
+    }
+    SECTION("through an abstract struct's own fields, with or without descendants") {
+        rejected("module t\nabstract struct Base { holder: Holder = null }\nstruct Holder { base: Base = null }\n",
+                 "through field 'base', a value of 'Holder' can contain another 'Holder'");
+    }
+    SECTION("through a generic family at the same specialization, or an open one") {
+        rejected("module t\nabstract struct Event<T> { payload: T }\n"
+                 "struct IntEvent: Event<i64> { inner: Event<i64> = null }\n",
+                 "through field 'inner', a value of 'IntEvent' can contain another 'IntEvent'");
+        rejected("module t\nabstract struct Event<T> { payload: T }\n"
+                 "struct Tagged<T>: Event<T> { inner: Event<f64> = null }\n",
+                 "through field 'inner', a value of 'Tagged' can contain another 'Tagged'");
+    }
+    SECTION("through an intermediate generic parent at the same specialization") {
+        rejected("module t\nabstract struct Event<T> { payload: T }\nabstract struct Middle<T>: Event<T> {}\n"
+                 "struct IntEvent: Middle<i64> { inner: Event<i64> = null }\n",
+                 "through field 'inner', a value of 'IntEvent' can contain another 'IntEvent'");
+        rejected("module t\nabstract struct Two<A, B> { at: i64 }\nabstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                 "struct Leaf: Swapped<i64, f64> { inner: Two<f64, i64> = null }\n",
+                 "through field 'inner', a value of 'Leaf' can contain another 'Leaf'");
+    }
+}
+
+TEST_CASE("struct fields may name other structs that do not lead back", "[semantics]") {
+    SECTION("a struct declared later in the module") {
+        const Resolved resolved = resolve_clean("module t\nstruct A { b: B = null }\nstruct B { x: i64 }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("A")).valid);
+    }
+    SECTION("an abstract family whose members hold no path back") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { value: i64 }\n"
+                                                "struct Holder { first: Expr\n rest: list<Expr> = null }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Holder")).valid);
+    }
+    SECTION("another specialization of a generic family") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                                "struct IntEvent: Event<i64> { inner: Event<f64> = null }\n"
+                                                "struct FloatEvent: Event<f64> {}\n");
+        CHECK(resolved.result.structure(resolved.struct_id("IntEvent")).valid);
+    }
+    SECTION("another specialization through an intermediate generic parent") {
+        // `Middle<T>` passes its parameter through, so `IntEvent` is an
+        // `Event<i64>` only and `Event<f64>` does not lead back to it.
+        const Resolved nested = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                              "abstract struct Middle<T>: Event<T> {}\n"
+                                              "struct IntEvent: Middle<i64> { inner: Event<f64> = null }\n"
+                                              "struct FloatEvent: Middle<f64> {}\n");
+        CHECK(nested.result.structure(nested.struct_id("IntEvent")).valid);
+        const Resolved permuted = resolve_clean("module t\nabstract struct Two<A, B> { at: i64 }\n"
+                                                "abstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                                                "struct Leaf: Swapped<i64, f64> { inner: Two<i64, f64> = null }\n");
+        CHECK(permuted.result.structure(permuted.struct_id("Leaf")).valid);
     }
 }
 

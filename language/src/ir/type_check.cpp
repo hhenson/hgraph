@@ -444,11 +444,24 @@ namespace hgl::ir
                 return (static_cast<std::uint64_t>(owner.value) << 32U) | application.value;
             }
 
+            /// Extends the source-type index by owner over types appended since the
+            /// last call. Interned types carry no owner, and an owner never changes.
+            void index_owned_types() {
+                for (; indexed_types_ < module_.types.size(); ++indexed_types_) {
+                    const DeclarationId type_owner = module_.types[indexed_types_].owner;
+                    if (!type_owner.valid()) { continue; }
+                    if (types_by_owner_.size() <= type_owner.value) { types_by_owner_.resize(type_owner.value + 1U); }
+                    types_by_owner_[type_owner.value].push_back(static_cast<std::uint32_t>(indexed_types_));
+                }
+            }
+
             void validate_owned_type_applications(DeclarationId owner) {
-                const std::size_t type_count = module_.types.size();
-                for (std::uint32_t index = 0; index < type_count; ++index) {
-                    const Type source = module_.types[index];
-                    if (source.owner != owner) { continue; }
+                index_owned_types();
+                if (!owner.valid() || owner.value >= types_by_owner_.size()) { return; }
+                const std::size_t type_count = types_by_owner_[owner.value].size();
+                for (std::size_t position = 0; position < type_count; ++position) {
+                    const std::uint32_t index          = types_by_owner_[owner.value][position];
+                    const Type          source         = module_.types[index];
                     const TypeId application_id = canonical(TypeId{index});
                     if (!application_id.valid()) { continue; }
                     const Type &application = type(application_id);
@@ -2621,7 +2634,21 @@ namespace hgl::ir
                 }
             }
 
-            [[nodiscard]] TypeId infer_struct_application(TypeId applied, const StructDecl &structure,
+            /// The field of `structure` a named constructor argument names, by an
+            /// index built once per struct declaration.
+            [[nodiscard]] const StructField *named_field(DeclarationId owner, const StructDecl &structure,
+                                                         const std::string &name) {
+                auto [entry, inserted] = struct_field_indices_.try_emplace(owner.value);
+                if (inserted) {
+                    for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                        entry->second.try_emplace(structure.fields[index].name, index);
+                    }
+                }
+                const auto found = entry->second.find(name);
+                return found == entry->second.end() ? nullptr : &structure.fields[found->second];
+            }
+
+            [[nodiscard]] TypeId infer_struct_application(TypeId applied, DeclarationId owner, const StructDecl &structure,
                                                           const std::vector<Argument> &arguments, syntax::SourceRange range) {
                 const TypeId unwrapped = unwrap_atomic(applied);
                 if (!unwrapped.valid()) { return applied; }
@@ -2636,9 +2663,7 @@ namespace hgl::ir
                     if (argument.name.empty()) {
                         if (positional < structure.fields.size()) { field = &structure.fields[positional++]; }
                     } else {
-                        const auto found = std::find_if(structure.fields.begin(), structure.fields.end(),
-                                                        [&](const StructField &item) { return item.name == argument.name; });
-                        if (found != structure.fields.end()) { field = &*found; }
+                        field = named_field(owner, structure, argument.name);
                     }
                     if (!field) { continue; }
                     const Expr &source = module_.expr(argument.value);
@@ -2693,11 +2718,10 @@ namespace hgl::ir
                     type_error(expression.range, "constructor requires a struct type");
                     return applied;
                 }
-                const Symbol &symbol = module_.symbol(nominal.symbol);
-                const auto   *structure =
-                    symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                const DeclarationId owner     = module_.symbol(nominal.symbol).owner;
+                const auto         *structure = owner.valid() ? std::get_if<StructDecl>(&module_.declaration(owner).node) : nullptr;
                 if (!structure) { return applied; }
-                applied   = infer_struct_application(applied, *structure, arguments, expression.range);
+                applied   = infer_struct_application(applied, owner, *structure, arguments, expression.range);
                 unwrapped = unwrap_atomic(applied);
                 detail::GenericSubstitution struct_substitution{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, struct_substitution);
@@ -2712,9 +2736,7 @@ namespace hgl::ir
                     if (argument.name.empty()) {
                         if (positional < structure->fields.size()) { field = &structure->fields[positional++]; }
                     } else {
-                        const auto found = std::find_if(structure->fields.begin(), structure->fields.end(),
-                                                        [&](const StructField &item) { return item.name == argument.name; });
-                        if (found != structure->fields.end()) { field = &*found; }
+                        field = named_field(owner, *structure, argument.name);
                     }
                     if (!field) { continue; }
                     const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
@@ -3427,6 +3449,11 @@ namespace hgl::ir
             syntax::DiagnosticSink                  &diagnostics_;
             detail::CanonicalTypes                   canonical_types_;
             detail::ConstraintSolver                 constraint_solver_;
+            /// Field name to position in the StructDecl, by struct declaration.
+            std::unordered_map<std::uint32_t, std::unordered_map<std::string, std::size_t>> struct_field_indices_{};
+            /// Source types by owning declaration, and how far that index has read.
+            std::vector<std::vector<std::uint32_t>>  types_by_owner_{};
+            std::size_t                              indexed_types_{0};
             std::vector<std::uint8_t>                expr_state_{};
             std::unordered_map<std::uint32_t, Phase> symbol_phase_{};
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};

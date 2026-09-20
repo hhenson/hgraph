@@ -698,8 +698,11 @@ For an `atomic<Quote>` output, a tick is a complete `Quote`; a sparse
 `delta<Quote>` is rejected unless user code explicitly retains, patches, and
 publishes prior state.
 
-The first structured-value slice does not yet define self-recursive fields,
-destructuring, or copy-with-update syntax. Runtime type tests, concrete
+The first structured-value slice does not yet define recursive fields,
+destructuring, or copy-with-update syntax. A struct cannot contain itself,
+whether a field names it directly or reaches it through another struct, a
+collection, a generic argument, or an abstract family it belongs to; the
+compiler reports each field that closes such a cycle. Runtime type tests, concrete
 downcasts, exhaustive family matching, and the explicit temporal
 base-projection spelling also remain to be defined. Generic parameter defaults
 and partial generic application are deliberately deferred. Structural

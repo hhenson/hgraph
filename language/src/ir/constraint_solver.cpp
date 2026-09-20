@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <ranges>
+#include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::ir::detail
@@ -148,8 +150,9 @@ namespace hgl::ir::detail
             });
         }
         if (premise_rhs.kind == OperandKind::FieldSet && goal_rhs.kind == OperandKind::FieldSet) {
-            return std::ranges::all_of(premise_rhs.fields,
-                                       [&](const std::string &item) { return std::ranges::contains(goal_rhs.fields, item); });
+            // `fields(U)` yields a struct's whole field list: test containment by hash.
+            const std::unordered_set<std::string_view> goal_fields(goal_rhs.fields.begin(), goal_rhs.fields.end());
+            return std::ranges::all_of(premise_rhs.fields, [&](const std::string &item) { return goal_fields.contains(item); });
         }
         return operand_equivalent(premise_rhs, goal_rhs);
     }
@@ -352,7 +355,7 @@ namespace hgl::ir::detail
                std::holds_alternative<StructDecl>(module_.declaration(symbol.owner).node);
     }
 
-    void ConstraintSolver::append_fields(TypeId type_id, std::vector<EffectiveField> &fields) {
+    void ConstraintSolver::append_fields(TypeId type_id, EffectiveFields &fields) {
         type_id = types_.canonical(type_id);
         if (!is_struct(type_id)) { return; }
         const Type       &applied = module_.type(type_id);
@@ -378,20 +381,22 @@ namespace hgl::ir::detail
             // visiting the flattened copy again would overwrite the
             // substituted type with the parent's unbound generic.
             if (field.origin != symbol.owner) { continue; }
-            const auto   existing = std::ranges::find(fields, field.name, &EffectiveField::name);
             const TypeId resolved = substitution.apply(field.type);
-            if (existing == fields.end()) {
-                fields.push_back(EffectiveField{field.name, resolved});
+            if (const auto existing = fields.index.find(field.name); existing != fields.index.end()) {
+                fields.fields[existing->second].type = resolved;
             } else {
-                existing->type = resolved;
+                fields.index.emplace(field.name, fields.fields.size());
+                fields.fields.push_back(EffectiveField{field.name, resolved});
             }
         }
     }
 
-    std::vector<ConstraintSolver::EffectiveField> ConstraintSolver::effective_fields(TypeId type) {
-        std::vector<EffectiveField> result;
+    const ConstraintSolver::EffectiveFields &ConstraintSolver::effective_fields(TypeId type) {
+        type = types_.canonical(type);
+        if (const auto found = effective_fields_.find(type.value); found != effective_fields_.end()) { return found->second; }
+        EffectiveFields result;
         append_fields(type, result);
-        return result;
+        return effective_fields_.emplace(type.value, std::move(result)).first->second;
     }
 
     ConstraintSolver::Operand ConstraintSolver::operand(ConstraintId id, GenericSubstitution &substitution) {
@@ -543,7 +548,9 @@ namespace hgl::ir::detail
                         if (!source.known) { return Operand{.kind = OperandKind::FieldSet, .known = false}; }
                         if (source.kind != OperandKind::Type || !is_struct(source.type)) { return {}; }
                         Operand result{.kind = OperandKind::FieldSet, .known = true};
-                        for (const EffectiveField &field : effective_fields(source.type)) { result.fields.push_back(field.name); }
+                        for (const EffectiveField &field : effective_fields(source.type).fields) {
+                            result.fields.push_back(field.name);
+                        }
                         return result;
                     }
                     if (name == "has_fields" && node.arguments.size() == 2U) {
@@ -553,12 +560,11 @@ namespace hgl::ir::detail
                         if (source.kind != OperandKind::Type || !is_struct(source.type) || names.kind != OperandKind::ValueSet) {
                             return {};
                         }
-                        std::vector<std::string> available;
-                        for (const EffectiveField &field : effective_fields(source.type)) { available.push_back(field.name); }
-                        bool result = true;
+                        const EffectiveFields &available = effective_fields(source.type);
+                        bool                   result    = true;
                         for (ExprId item : names.values) {
                             const auto name_value = string_value(item);
-                            if (!name_value || !std::ranges::contains(available, *name_value)) { result = false; }
+                            if (!name_value || available.find(*name_value) == nullptr) { result = false; }
                         }
                         return Operand{.kind = OperandKind::Boolean, .known = true, .boolean = result};
                     }
@@ -569,9 +575,8 @@ namespace hgl::ir::detail
                         if (source.kind != OperandKind::Type || name_value.kind != OperandKind::Value) { return {}; }
                         const auto field_name = string_value(name_value.value);
                         if (!field_name || !is_struct(source.type)) { return {}; }
-                        const auto fields = effective_fields(source.type);
-                        const auto found  = std::ranges::find(fields, *field_name, &EffectiveField::name);
-                        if (found == fields.end()) { return {}; }
+                        const EffectiveField *found = effective_fields(source.type).find(*field_name);
+                        if (found == nullptr) { return {}; }
                         return Operand{.kind = OperandKind::Type, .known = true, .type = found->type};
                     }
                     return {};
@@ -1022,10 +1027,7 @@ namespace hgl::ir::detail
     std::optional<TypeId> ConstraintSolver::field_type(ConstraintId requirement, TypeId subject, std::string_view field,
                                                        GenericSubstitution *substitution) {
         if (substitution != nullptr) { subject = substitution->apply(subject); }
-        const auto concrete = effective_fields(subject);
-        if (const auto found = std::ranges::find(concrete, field, &EffectiveField::name); found != concrete.end()) {
-            return found->type;
-        }
+        if (const EffectiveField *found = effective_fields(subject).find(field)) { return found->type; }
         GenericSubstitution  empty{module_, types_};
         GenericSubstitution &bindings = substitution == nullptr ? empty : *substitution;
         return find_required_field(requirement, subject, field, bindings);
