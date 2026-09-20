@@ -92,6 +92,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
                 case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
+                case semantics::ImportedTypeKind::Atomic: return hir::TypeKind::Atomic;
             }
             std::unreachable();
         }

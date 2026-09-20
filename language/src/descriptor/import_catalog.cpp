@@ -50,8 +50,13 @@ namespace hgl::descriptor
             return std::nullopt;
         }
 
+        /// `atomic<T>` is a struct field's shape, never a signature's: the
+        /// resolver rejects it in value position, and ADR 0012 admits an edge
+        /// only at a field's top level, never through a container. So it
+        /// converts only where a layout asks for it, and never for a child.
         [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor, SchemaId id,
-                                                                           std::vector<SchemaId> path = {}) noexcept {
+                                                                           std::vector<SchemaId> path        = {},
+                                                                           bool                  allow_atomic = false) noexcept {
             using semantics::ImportedType;
             using semantics::ImportedTypeKind;
             if (id == no_schema_id || id >= descriptor.types.size()) { return std::nullopt; }
@@ -71,9 +76,12 @@ namespace hgl::descriptor
             }
             switch (source.category) {
                 case TypeCategory::Symbol:
-                    if (source.binding_identity.empty()) { return std::nullopt; }
+                    // A generic parameter binding, a nominal struct (ADR 0013),
+                    // or both; a Symbol naming neither says nothing.
+                    if (source.binding_identity.empty() && source.nominal_identity.empty()) { return std::nullopt; }
                     result.kind             = ImportedTypeKind::Symbol;
                     result.binding_identity = source.binding_identity;
+                    result.nominal_identity = source.nominal_identity;
                     break;
                 case TypeCategory::List: result.kind = ImportedTypeKind::List; break;
                 case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
@@ -81,10 +89,14 @@ namespace hgl::descriptor
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
                 case TypeCategory::Signal: result.kind = ImportedTypeKind::Signal; break;
                 case TypeCategory::Schema: result.kind = ImportedTypeKind::Schema; break;
+                case TypeCategory::Atomic:
+                    if (!allow_atomic) { return std::nullopt; }
+                    result.kind = ImportedTypeKind::Atomic;
+                    break;
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
-                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);
+                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);  // never allow_atomic
                 if (!lowered) { return std::nullopt; }
                 result.children.push_back(std::move(*lowered));
             }
@@ -122,6 +134,65 @@ namespace hgl::descriptor
                 case NativeParameterAccess::InputView: return semantics::NativeParameterAccess::InputView;
             }
             std::unreachable();
+        }
+
+        /// One exported struct's layout (ADR 0013). The importer rebuilds the
+        /// type from this and registers it under the owner's identity, so every
+        /// field type, parent and generic has to survive the crossing; whatever
+        /// does not is recorded as a support error rather than silently dropped,
+        /// the same discipline imported operators follow.
+        [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
+                                                                const InterfaceDeclaration &declaration) {
+            semantics::ImportedStruct result;
+            result.module_identity        = descriptor.module_identity;
+            result.identity               = declaration.identity;
+            result.abstract               = declaration.abstract;
+            result.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            const std::string prefix      = descriptor.module_identity + ".";
+            if (declaration.identity.starts_with(prefix)) {
+                const std::string name = declaration.identity.substr(prefix.size());
+                if (!name.empty() && name.find_first_of(".:") == std::string::npos) { result.name = name; }
+            }
+            const auto unsupported = [&](std::string message) {
+                if (result.support_error.empty()) { result.support_error = std::move(message); }
+            };
+            if (declaration.signature.requirements != no_schema_id) {
+                unsupported("imported struct constraints require catalog constraint reconstruction");
+            }
+            for (const GenericParameter &generic : declaration.signature.generics) {
+                semantics::ImportedGeneric lowered{
+                    .name = generic.name, .binding_identity = generic.binding_identity, .is_const = generic.is_const};
+                if (generic.is_pack) { unsupported("imported struct type packs require catalog pack reconstruction"); }
+                if (generic.type != no_schema_id) {
+                    lowered.type = imported_type(descriptor, generic.type);
+                    if (!lowered.type) { unsupported("imported struct generic type is not supported by the catalog"); }
+                }
+                result.generics.push_back(std::move(lowered));
+            }
+            for (const SchemaId parent : declaration.parents) {
+                const auto type = imported_type(descriptor, parent);
+                if (!type) {
+                    unsupported("imported struct parent type is not supported by the catalog");
+                    continue;
+                }
+                result.parents.push_back(*type);
+            }
+            for (const StructField &field : declaration.fields) {
+                // An inherited field arrives with the parent, which the importer
+                // rebuilds first; carrying it twice would duplicate it.
+                if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) { continue; }
+                if (field.default_value != no_schema_id) {
+                    unsupported("imported struct field defaults require catalog constant reconstruction");
+                }
+                const auto type = imported_type(descriptor, field.type, {}, /*allow_atomic=*/true);
+                if (!type) {
+                    unsupported("imported struct field type is not supported by the catalog");
+                    continue;
+                }
+                result.fields.push_back(
+                    {.name = field.name, .type = *type, .optional = field.optional, .recursive = field.recursive});
+            }
+            return result;
         }
 
         [[nodiscard]] semantics::ImportedOperatorContract imported_operator(const ModuleDescriptor     &descriptor,
@@ -199,6 +270,16 @@ namespace hgl::descriptor
                                  "operator identity must be '" + descriptor.module_identity + ".<name>'"};
             }
             module.operators.push_back(std::move(contract));
+        }
+        for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
+            const InterfaceDeclaration &declaration = descriptor.interface[index];
+            if (declaration.category != DeclarationCategory::Structure) { continue; }
+            auto structure = imported_struct(descriptor, declaration);
+            if (structure.name.empty()) {
+                return ReadError{"$.interface[" + std::to_string(index) + "].identity",
+                                 "struct identity must be '" + descriptor.module_identity + ".<name>'"};
+            }
+            module.structs.push_back(std::move(structure));
         }
         for (std::size_t declaration_index = 0; declaration_index < descriptor.native_declarations.size(); ++declaration_index) {
             const NativeDeclaration &declaration = descriptor.native_declarations[declaration_index];

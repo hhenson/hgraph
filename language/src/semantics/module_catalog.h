@@ -50,6 +50,9 @@ namespace hgl::semantics
         Rolling,
         Signal,
         Schema,
+        /// `atomic<T>`. An imported struct's recursive edge is one (ADR 0012),
+        /// so a layout can carry it even though no signature does.
+        Atomic,
     };
 
     enum class ImportedConstantKind : std::uint8_t {
@@ -71,7 +74,12 @@ namespace hgl::semantics
     {
         ImportedTypeKind          kind{ImportedTypeKind::Scalar};
         ImportedScalarType        scalar{ImportedScalarType::Bool};
+        /// A generic parameter this type binds to, `m.fn::T`.
         std::string               binding_identity{};
+        /// A nominal struct this type names, `m.Quote` (ADR 0013). Distinct
+        /// from `binding_identity`: a parameter is substituted, a struct is
+        /// registered under its owner's identity.
+        std::string               nominal_identity{};
         std::vector<ImportedType> children{};
         ImportedConstant          size{};
         ImportedConstant          min_size{};
@@ -157,12 +165,43 @@ namespace hgl::semantics
         std::string                            support_error{};
     };
 
+    /// One field of an imported struct's layout. A recursive edge (ADR 0012)
+    /// names its target by identity through `type`, exactly as the descriptor
+    /// records it.
+    struct ImportedStructField
+    {
+        std::string  name{};
+        ImportedType type{};
+        bool         optional{false};
+        bool         recursive{false};
+    };
+
+    /// A struct another module exports (ADR 0013). The importer rebuilds the
+    /// type from this layout and registers it under `identity`, the owning
+    /// module's qualified name -- there is no copy under the importer's
+    /// namespace. `public_headers` follows ImportedFunction: what a consumer
+    /// needs in order to use it.
+    struct ImportedStruct
+    {
+        std::string                      module_identity{};
+        std::string                      name{};
+        std::string                      identity{};
+        bool                             abstract{false};
+        std::vector<ImportedGeneric>     generics{};
+        std::vector<ImportedStructField> fields{};
+        std::vector<ImportedType>        parents{};
+        std::vector<std::string>         public_headers{};
+        std::string                      descriptor_fingerprint{};
+        std::string                      support_error{};
+    };
+
     struct ImportableModule
     {
         std::string                           identity{};
         std::string                           descriptor_fingerprint{};
         std::vector<ImportedFunction>         functions{};
         std::vector<ImportedOperatorContract> operators{};
+        std::vector<ImportedStruct>           structs{};
     };
 
     struct CatalogError
@@ -208,6 +247,22 @@ namespace hgl::semantics
                                                            contract.name + "'"};
                 }
             }
+            std::ranges::sort(module.structs, {}, &ImportedStruct::name);
+            for (std::size_t index = 0; index < module.structs.size(); ++index) {
+                const ImportedStruct &structure = module.structs[index];
+                if (index != 0U && module.structs[index - 1U].name == structure.name) {
+                    return CatalogError{"$.interface",
+                                        "module '" + module.identity + "' exports struct '" + structure.name + "' more than once"};
+                }
+                // A struct and a callable of one name would make a qualified
+                // spelling ambiguous between a type and a value position.
+                if (std::ranges::binary_search(module.functions, structure.name, {}, &ImportedFunction::name) ||
+                    std::ranges::binary_search(module.operators, structure.name, {}, &ImportedOperatorContract::name)) {
+                    return CatalogError{"$.interface", "module '" + module.identity +
+                                                           "' exports both a struct and a callable named '" +
+                                                           structure.name + "'"};
+                }
+            }
             modules_.push_back(std::move(module));
             std::ranges::sort(modules_, {}, &ImportableModule::identity);
             return std::nullopt;
@@ -228,6 +283,15 @@ namespace hgl::semantics
             if (owner == nullptr) { return nullptr; }
             const auto found = std::ranges::lower_bound(owner->operators, name, {}, &ImportedOperatorContract::name);
             return found != owner->operators.end() && found->name == name ? &*found : nullptr;
+        }
+
+        /// A struct another module exports (ADR 0013); nullptr when the module
+        /// is absent or exports no struct of that name.
+        [[nodiscard]] const ImportedStruct *find_struct(std::string_view module, std::string_view name) const noexcept {
+            const ImportableModule *owner = find(module);
+            if (owner == nullptr) { return nullptr; }
+            const auto found = std::ranges::lower_bound(owner->structs, name, {}, &ImportedStruct::name);
+            return found != owner->structs.end() && found->name == name ? &*found : nullptr;
         }
 
         [[nodiscard]] std::span<const ImportedFunction> find_functions(std::string_view module,
