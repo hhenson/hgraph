@@ -89,14 +89,26 @@ struct ImportedStruct
 `public_headers` follows `ImportedFunction`: an imported entity carries what a
 consumer needs in order to use it.
 
-**Construction metadata does not cross yet.** A descriptor records a field's
-default and a generic struct's `where` requirement; `ImportedStruct` carries
-neither. So an imported constructor cannot reproduce the calls the exporting
-module accepts — an omitted argument with a default, or an inherited default a
-child overrides — and an imported generic family cannot be constraint-checked
-when applied. Both are recorded as support errors rather than silently
-dropped, so such a struct is unavailable rather than wrong, and slice 3 must
-either reconstruct the metadata or keep refusing these structs by name.
+**Whatever crosses a module boundary crosses whole, or is refused by name.**
+A partial record is worse than an absent one, because it still looks complete:
+a short layout registers under the owner's name while disagreeing with the
+exporter, a dropped field default rebuilds the parent's, a skipped generic
+argument admits an unchecked specialization, and half a `where` requirement is
+weaker than the one the exporting module declared. Each of those was a real
+defect in this work. So a record that cannot be rebuilt whole records a
+support error naming what failed, and carries nothing partial.
+
+**Construction metadata does not cross yet.** A descriptor records a field's default, which
+`ImportedStruct` does not carry, so an imported constructor cannot yet
+reproduce the calls the exporting module accepts — an omitted argument with a
+default, or an inherited default a child overrides. Such a struct records a
+support error and is unavailable rather than wrong.
+
+A generic struct's `where` requirement **does** cross (owner's ruling): the
+descriptor's normalized constraint graph rebuilds into `ImportedStruct::
+constraints`, whose shape mirrors both the descriptor's and the typed HIR's,
+so lowering reconstructs it for the **existing** solver rather than a second
+checker. It crosses whole or not at all.
 
 `ImportedType` was built to describe **signatures**, and a layout is a richer
 thing: a parameter list never names a nominal struct and never carries an

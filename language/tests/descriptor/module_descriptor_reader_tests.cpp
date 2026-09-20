@@ -572,6 +572,71 @@ TEST_CASE("catalog guards what an imported struct layout may carry", "[descripto
     }
 }
 
+// A `where` requirement crosses whole or not at all (ADR 0013): a partial one
+// would be weaker than the exporting module declared, so it would admit
+// specializations the exporter rejects.
+TEST_CASE("catalog rebuilds an exported struct's requirements", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol,
+                               .nominal_identity = "T",
+                               .binding_identity = "checks.reader.Holder::T"},
+    };
+    source.constraints = {
+        descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Symbol, .identity = "checks.reader.Holder::T"},
+        descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Type, .type = 0U},
+        descriptor::ConstraintRecord{.category          = descriptor::ConstraintCategory::Relation,
+                                     .operator_spelling = "==",
+                                     .relation_category = "admission",
+                                     .lhs               = 0U,
+                                     .rhs               = 1U},
+    };
+    descriptor::InterfaceDeclaration holder;
+    holder.category                 = descriptor::DeclarationCategory::Structure;
+    holder.identity                 = "checks.reader.Holder";
+    holder.signature.generics       = {{"T", "checks.reader.Holder::T", false, descriptor::no_schema_id}};
+    holder.signature.requirements   = 2U;
+    holder.fields                   = {{"value", 0U, descriptor::no_schema_id, "checks.reader.Holder", false, false}};
+
+    SECTION("a requirement the catalog can rebuild crosses whole") {
+        source.interface = {std::move(holder)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Holder");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error.empty());
+        REQUIRE(imported->requirements != hgl::semantics::no_imported_constraint);
+        const auto &root = imported->constraints[imported->requirements];
+        CHECK(root.kind == hgl::semantics::ImportedConstraintKind::Relation);
+        CHECK(root.relation_category == "admission");
+        REQUIRE(root.lhs != hgl::semantics::no_imported_constraint);
+        CHECK(imported->constraints[root.lhs].kind == hgl::semantics::ImportedConstraintKind::Symbol);
+        CHECK(imported->constraints[root.lhs].identity == "checks.reader.Holder::T");
+        REQUIRE(root.rhs != hgl::semantics::no_imported_constraint);
+        CHECK(imported->constraints[root.rhs].kind == hgl::semantics::ImportedConstraintKind::Type);
+    }
+    SECTION("a requirement that cannot cross makes the struct unsupported") {
+        // Validation resolves arena references, so an unconvertible node is the
+        // reachable case: a `void` type has no imported form.
+        source.types.push_back({.category = descriptor::TypeCategory::Void});
+        source.constraints[1].type = 2U;
+        source.interface          = {std::move(holder)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Holder");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct requirements are not supported by the catalog");
+        // Nothing partial is left behind.
+        CHECK(imported->constraints.empty());
+        CHECK(imported->requirements == hgl::semantics::no_imported_constraint);
+    }
+}
+
 TEST_CASE("catalog rejects struct namespace and name clashes", "[descriptor][catalog][structs]") {
     SECTION("a foreign or nested identity is refused transactionally") {
         auto                             source = minimal_descriptor();
