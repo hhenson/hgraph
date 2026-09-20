@@ -1,11 +1,11 @@
 # ADR 0012: recursive struct fields
 
-Status: accepted (2026-09-19). Not implemented. The compiler rejects every
-field through which a value of a struct could contain another value of the
-same struct, by any path (`src/semantics/resolve.cpp`,
-`reject_recursive_fields`: "recursive struct fields are not supported in this
-prototype"), and `tests/semantics/resolve_tests.cpp` pins that rejection.
-Nothing below is a claim of compiler support.
+Status: accepted (2026-09-19). Implemented through name resolution only.
+`check_recursive_fields` (`src/semantics/resolve.cpp`) finds every recursive
+edge, admits the ones rules 2, 3, 4 and 8 allow and reports the rule each
+other edge breaks (`tests/semantics/resolve_tests.cpp`). HIR lowering then
+stops every admitted edge with a "not yet supported" diagnostic
+(`src/ir/lower.cpp`), so no program with a recursive field compiles yet.
 
 ## Context
 
@@ -83,16 +83,39 @@ check:
    This is recorded as an RFC ask on hgraph, not worked around in the
    compiler.
 
+## Clarifications (2026-09-19)
+
+Implementing the resolver raised four questions the rules above did not
+settle. The owner decided them as follows; the rules are read with these
+answers.
+
+- **Rule 4 admits whatever hgraph can register.** A generic struct may join a
+  wider cycle (`Tree<T>` and `Forest<T>`), recurse through its abstract parent
+  (`struct Add<T>: Expr<T> { lhs: atomic<Expr<T>> = null }`), or be reached
+  from a non-generic struct, provided the cycle reaches finitely many
+  specializations: every generic argument on an edge is a parameter of the
+  declaring struct or mentions none. `Tree<list<T>>` inside `Tree<T>` stays
+  rejected.
+- **A cycle through inheritance is rejected.** A parent's field that names its
+  own descendant (`abstract struct Base { child: atomic<Leaf> = null }` with
+  `struct Leaf: Base {}`) cannot be registered, because hgraph declares a
+  parent before its children and a recursive batch cannot name one of its own
+  members as a parent. What hgraph cannot implement, HGL does not allow.
+- **Recursion through another struct's generic argument is a container edge**
+  under rule 8 (`boxed: atomic<Box<Node>> = null`): the argument's schema would
+  be needed before it exists.
+- **Rule 2's null default is permanent.** A descendant may not replace a
+  recursive edge's null default with a value.
+
 ## Consequences
 
-- **Name resolution** (`semantics/resolve`): `reject_recursive_fields`
-  stops being a rejection and becomes the detector of recursive edges. It
-  already follows same-module structs (rule 5), abstract families (rule 6),
-  generic arguments and collection elements, and names every field that
-  closes a cycle; the rules above then decide which of those fields are
-  admitted. (When this record was written the check looked only for the
-  struct itself, so edges through another struct or an abstract parent passed
-  the resolver and crashed direct wiring; that was fixed first, as its own
+- **Name resolution** (`semantics/resolve`): `check_recursive_fields` is
+  the detector of recursive edges. It follows same-module structs (rule 5),
+  abstract families (rule 6), generic arguments and collection elements,
+  admits the edges the rules above allow and marks them on the struct's
+  fields. (When this record was written the check looked only for the struct
+  itself, so edges through another struct or an abstract parent passed the
+  resolver and crashed direct wiring; that was fixed first, as its own
   change.)
 - **Every pass that walks struct fields must terminate on a recursive type**:
   canonical types, capability and recordability checks, temporalization,

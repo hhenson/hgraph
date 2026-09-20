@@ -1295,6 +1295,16 @@ namespace hgl::ir
                             structure.requirements = id<hir::ConstraintId>(node.requirements);
                             if (index < resolved_.struct_info.size()) {
                                 for (const semantics::StructField &field : resolved_.structure(index).fields) {
+                                    // The resolver admits recursive edges under ADR 0012;
+                                    // no pass after it realizes them yet, so they stop here
+                                    // for every backend alike.
+                                    if (field.recursive && field.origin == index) {
+                                        diagnostics_.report(syntax::Category::Type, field_range(field.origin, field.name),
+                                                            "recursive edge '" + field.name + "' of '" +
+                                                                std::string{node.name.text} +
+                                                                "' is admitted by ADR 0012, but recursive struct fields "
+                                                                "are not yet supported past name resolution");
+                                    }
                                     structure.fields.push_back(
                                         hir::StructField{field.name, id<hir::TypeId>(field.type),
                                                          id<hir::ExprId>(field.default_value), id<hir::DeclarationId>(field.origin),

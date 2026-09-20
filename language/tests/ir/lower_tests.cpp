@@ -2607,3 +2607,21 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
                                  "}\n")
               .find("function-kind: 'when' cannot be nested in another block") != std::string::npos);
 }
+
+// ADR 0012, slice 1: the resolver admits a recursive edge, and HIR lowering
+// stops it once, at the declaring struct, before any pass that would realize
+// it. Every backend therefore rejects the same program the same way.
+TEST_CASE("an admitted recursive struct edge stops at HIR lowering", "[ir][recursive]") {
+    const Lowered lowered{"module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { value: i64 }\n"
+                          "struct Node {\n value: i64\n next: atomic<Node> = null\n}\n"};
+    const auto   &diagnostics = lowered.diagnostics.diagnostics();
+    const auto    stopped     = [&](std::string_view fragment) {
+        return std::ranges::count_if(diagnostics, [&](const hgl::syntax::Diagnostic &diagnostic) {
+            return diagnostic.message.find(fragment) != std::string::npos;
+        });
+    };
+    CHECK(stopped("recursive edge 'next' of 'Expr' is admitted by ADR 0012, but recursive struct fields are not yet "
+                  "supported past name resolution") == 1);
+    CHECK(stopped("recursive edge 'next' of 'Node' is admitted by ADR 0012") == 1);
+    CHECK(diagnostics.size() == 2U);
+}

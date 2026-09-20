@@ -79,6 +79,10 @@ namespace hgl::semantics
         ast::ExprId default_value{ast::no_node};
         ast::DeclId origin{ast::no_node};
         bool        optional{false};
+        /// An admitted recursive edge (ADR 0012): through this field a value of
+        /// the struct can hold another value of the same struct, so the field
+        /// is an optional `atomic<T>` whose target is realized as an owner.
+        bool recursive{false};
     };
 
     struct StructInfo

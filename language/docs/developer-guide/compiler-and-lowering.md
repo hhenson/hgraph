@@ -112,10 +112,12 @@ The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
 the syntax guide ("Scopes and name lookup"), checks `use` declarations against
 the interim kernel table (below, "Interim kernel table"), resolves nominal
-struct hierarchies and effective fields, rejects a field through which a
+struct hierarchies and effective fields, finds every field through which a
 struct can contain itself (one strongly-connected-components pass over the
-module's struct references and abstract families), validates construction and
-closed generic-struct requirements, classifies every function by the rule of
+module's struct references and abstract families) and admits it only as an
+ADR 0012 recursive edge, marking it on the struct's fields and reporting the
+rule any other edge breaks, validates construction and closed generic-struct
+requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
 bindings, constraint identities, struct metadata, and function kinds.
@@ -125,7 +127,9 @@ uses strongly typed arena IDs, gives every declaration, parameter, local,
 state value, injectable, loop value, anonymous parameter, type name, imported
 operator, and intrinsic a stable `SymbolId`, and retains structured control
 flow, constraints, effective struct fields, and source ranges. Bare generic
-arguments become explicit type or value references. `hgl check --dump-hir`
+arguments become explicit type or value references. Until later passes realize
+recursive struct fields, lowering stops each admitted recursive edge, once at
+its declaring struct, with a "not yet supported" diagnostic. `hgl check --dump-hir`
 prints the deterministic diagnostic representation used by snapshot tests.
 
 `src/ir/canonical_types` owns structural interning and source-to-canonical

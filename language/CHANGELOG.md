@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Admit recursive struct fields at name resolution (ADR 0012). A field
+  through which a value of a struct can contain another value of the same
+  struct is a recursive edge; the resolver accepts it as an optional
+  `atomic<T>` whose cycle runs through `T` and reports the rule any other
+  edge breaks: a required edge or a replaced null default (rule 2), a missing
+  atomic boundary with the fix spelled out (rule 3), a generic argument
+  that wraps a parameter and so denotes an unbounded family of
+  specializations (rule 4), and a cycle through a container or a generic
+  argument (rule 8). Generic structs may otherwise join any cycle hgraph can
+  register. A cycle through
+  inheritance is rejected because hgraph cannot register it. Admitted edges
+  stop at HIR lowering with a "not yet supported" diagnostic until the later
+  passes realize them.
 - Reject a struct field through which a value of the struct could contain
   another value of the same struct, by any path. Only a field naming its own
   struct was rejected before; a cycle through another struct of the module, a

@@ -99,9 +99,9 @@ namespace hgl::semantics
         class Resolver
         {
           public:
-            Resolver(const ast::Module &module, const ModuleCatalog &catalog, const OperatorLookup &has_operator,
-                     syntax::DiagnosticSink &diagnostics)
-                : module_{module}, catalog_{catalog}, has_operator_{has_operator}, diagnostics_{diagnostics} {
+            Resolver(const syntax::SourceFile &file, const ast::Module &module, const ModuleCatalog &catalog,
+                     const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics)
+                : file_{file}, module_{module}, catalog_{catalog}, has_operator_{has_operator}, diagnostics_{diagnostics} {
                 result_.bindings.resize(module.exprs.size());
                 result_.type_bindings.resize(module.types.size());
                 argument_bindings_.resize(module.types.size());
@@ -1294,19 +1294,30 @@ namespace hgl::semantics
                 struct_states_.assign(module_.decls.size(), 0);
                 field_indices_.assign(module_.decls.size(), {});
                 for (const ast::DeclId id : result_.structs) { (void)validate_struct(id); }
-                reject_recursive_fields();
+                check_recursive_fields();
             }
 
             // ------------------------------------------- recursive struct fields
 
             static constexpr std::uint32_t no_position = std::numeric_limits<std::uint32_t>::max();
 
-            /// A struct named in a field type, and the applied type naming it;
-            /// no_node for a bare generic argument, which applies nothing.
+            /// How a field type reaches a struct it names: as the field's own type
+            /// (the `T` of `atomic<T>`, or a bare `T`), through a `ref`, or nested
+            /// in a collection element or a generic argument.
+            enum class Reach : std::uint8_t {
+                Direct,
+                Reference,
+                Container,
+                Argument,
+            };
+
+            /// A struct named in a field type, the applied type naming it (no_node
+            /// for a bare generic argument, which applies nothing), and its reach.
             struct StructReference
             {
                 ast::DeclId decl{ast::no_node};
                 ast::TypeId applied{ast::no_node};
+                Reach       reach{Reach::Direct};
             };
 
             [[nodiscard]] const Binding *argument_binding(ast::TypeId id, std::size_t index) const noexcept {
@@ -1314,20 +1325,31 @@ namespace hgl::semantics
                 return index < slots.size() && slots[index].kind != BindingKind::Unbound ? &slots[index] : nullptr;
             }
 
-            void struct_references(ast::TypeId id, std::vector<StructReference> &out) const {
+            void struct_references(ast::TypeId id, Reach reach, std::vector<StructReference> &out) const {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct) {
-                    out.push_back(StructReference{result_.type_bindings[id].decl, id});
+                    out.push_back(StructReference{result_.type_bindings[id].decl, id, reach});
                 }
-                for (const ast::TypeId child : type.children) { struct_references(child, out); }
+                const Reach nested = reach == Reach::Direct && type.kind == ast::TypeKind::Reference ? Reach::Reference
+                                     : reach == Reach::Direct                                        ? Reach::Container
+                                                                                                     : reach;
+                for (const ast::TypeId child : type.children) { struct_references(child, nested, out); }
                 for (std::size_t index = 0; index < type.arguments.size(); ++index) {
                     if (type.arguments[index].type != ast::no_node) {
-                        struct_references(type.arguments[index].type, out);
+                        struct_references(type.arguments[index].type, Reach::Argument, out);
                     } else if (const Binding *binding = argument_binding(id, index);
                                binding != nullptr && binding->kind == BindingKind::Struct) {
-                        out.push_back(StructReference{binding->decl, ast::no_node});
+                        out.push_back(StructReference{binding->decl, ast::no_node, Reach::Argument});
                     }
                 }
+            }
+
+            /// The struct references of a field type. An outer `atomic<...>` is the
+            /// declared boundary; the type inside it is the field's direct type.
+            void field_references(ast::TypeId id, std::vector<StructReference> &out) const {
+                const ast::Type &type = module_.type(id);
+                struct_references(type.kind == ast::TypeKind::Atomic && type.children.size() == 1U ? type.children.front() : id,
+                                  Reach::Direct, out);
             }
 
             [[nodiscard]] static std::string struct_key(ast::DeclId decl, std::string_view arguments) {
@@ -1425,17 +1447,96 @@ namespace hgl::semantics
                 return result;
             }
 
-            /// Rejects every field through which a value of a struct could
-            /// contain another value of the same struct (syntax guide,
-            /// "Compilation-unit grammar"). A field reaches each struct its type
-            /// names, through collection elements and generic arguments. A field
-            /// typed by a struct with descendants also reaches that family: every
+            [[nodiscard]] bool literal(ast::ExprId id) const {
+                const ast::ExprNode &node = module_.expr(id).node;
+                return std::holds_alternative<ast::IntLiteral>(node) || std::holds_alternative<ast::FloatLiteral>(node) ||
+                       std::holds_alternative<ast::StringLiteral>(node) || std::holds_alternative<ast::BoolLiteral>(node) ||
+                       std::holds_alternative<ast::TemporalLiteral>(node);
+            }
+
+            /// Whether a constant expression can mention a generic parameter. A
+            /// literal cannot; a name does when it binds to one; an operator does
+            /// when an operand does. Any other form is taken to mention one,
+            /// which only ever keeps the older, stricter answer (ADR 0012,
+            /// rule 4) rather than admitting a cycle it should not.
+            [[nodiscard]] bool expression_mentions_parameter(ast::ExprId id) const {
+                if (id == ast::no_node) { return false; }
+                const ast::ExprNode &node = module_.expr(id).node;
+                if (literal(id) || std::holds_alternative<ast::NullLiteral>(node)) { return false; }
+                if (std::holds_alternative<ast::NameRef>(node) || std::holds_alternative<ast::QualifiedRef>(node)) {
+                    return result_.binding(id).kind == BindingKind::Generic;
+                }
+                if (const auto *unary = std::get_if<ast::Unary>(&node)) {
+                    return expression_mentions_parameter(unary->operand);
+                }
+                if (const auto *binary = std::get_if<ast::Binary>(&node)) {
+                    return expression_mentions_parameter(binary->lhs) || expression_mentions_parameter(binary->rhs);
+                }
+                return true;
+            }
+
+            /// Whether a type may mention a generic parameter: a parameter by
+            /// name, or a size whose expression mentions one.
+            [[nodiscard]] bool mentions_parameter(ast::TypeId id) const {
+                const ast::Type &type = module_.type(id);
+                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind != BindingKind::Struct) { return true; }
+                if (expression_mentions_parameter(type.size) || expression_mentions_parameter(type.min_size)) {
+                    return true;
+                }
+                for (const ast::TypeId child : type.children) {
+                    if (mentions_parameter(child)) { return true; }
+                }
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    if (argument_mentions_parameter(id, index)) { return true; }
+                }
+                return false;
+            }
+
+            [[nodiscard]] bool argument_mentions_parameter(ast::TypeId applied, std::size_t index) const {
+                const ast::GenericArgument &argument = module_.type(applied).arguments[index];
+                if (argument.type != ast::no_node) { return mentions_parameter(argument.type); }
+                if (argument.value != ast::no_node) { return expression_mentions_parameter(argument.value); }
+                const Binding *binding = argument_binding(applied, index);
+                return binding == nullptr || binding->kind != BindingKind::Struct;
+            }
+
+            /// Whether argument `index` of `applied` is exactly a generic parameter
+            /// of `decl`.
+            [[nodiscard]] bool parameter_argument(ast::TypeId applied, std::size_t index, ast::DeclId decl) const {
+                const ast::GenericArgument &argument = module_.type(applied).arguments[index];
+                const Binding              *binding  = argument_binding(applied, index);
+                if (argument.type != ast::no_node) {
+                    if (module_.type(argument.type).kind != ast::TypeKind::Named ||
+                        !module_.type(argument.type).arguments.empty()) {
+                        return false;
+                    }
+                    binding = &result_.type_bindings[argument.type];
+                }
+                return binding != nullptr && binding->kind == BindingKind::Generic && binding->decl == decl;
+            }
+
+            [[nodiscard]] std::string struct_name(ast::DeclId decl) const {
+                return std::string{std::get<ast::StructDecl>(module_.decl(decl).node).name.text};
+            }
+
+            /// Finds every recursive edge of the module's structs and admits it
+            /// only under ADR 0012 (syntax guide, "Compilation-unit grammar").
+            ///
+            /// A value of a struct contains another value of the same struct
+            /// through a field whose type reaches a struct of its own strongly
+            /// connected component. A field reaches each struct its type names,
+            /// through collection elements and generic arguments. A field typed by
+            /// a struct with descendants also reaches that family: every
             /// descendant of a non-generic struct, and of a generic one only the
-            /// descendants that can be the field's specialization.
-            /// Strongly connected components find every such field in one pass
-            /// that is linear in the declared fields, times the depth of generic
-            /// inheritance for the specialized groups.
-            void reject_recursive_fields() {
+            /// descendants that can be the field's specialization. Such a
+            /// field is a recursive edge; it is admitted when it is an optional
+            /// `atomic<T>` whose cycle runs through `T` itself (rules 2, 3 and 8)
+            /// and whose generic arguments are parameters of the declaring struct
+            /// or mention none (rule 4). A cycle that also runs through a parent is
+            /// rejected: hgraph declares a parent before its children, so it
+            /// cannot register one. Every step is linear in the declared fields,
+            /// times the depth of generic inheritance for the specialized groups.
+            void check_recursive_fields() {
                 const std::size_t          count = result_.structs.size();
                 std::vector<std::uint32_t> position(module_.decls.size(), no_position);
                 for (std::size_t index = 0; index < count; ++index) {
@@ -1575,64 +1676,215 @@ namespace hgl::semantics
                     }
                 }
 
-                struct FieldEdges
+                // Every node an effective field reaches, with the reach and the
+                // struct reference that produced it; fields index into `targets`.
+                struct Target
+                {
+                    std::uint32_t   node{};
+                    StructReference reference{};
+                };
+                struct FieldTargets
                 {
                     std::uint32_t owner{};
                     std::size_t   field{};
                     std::size_t   begin{};
                     std::size_t   end{};
                 };
-                std::vector<FieldEdges>      field_edges;
+                std::vector<Target>          targets;
+                std::vector<FieldTargets>    field_targets;
                 std::vector<StructReference> references;
                 for (std::uint32_t owner = 0; owner < count; ++owner) {
                     const StructInfo &info = result_.struct_info[result_.structs[owner]];
                     for (std::size_t field = 0; field < info.fields.size(); ++field) {
                         if (info.fields[field].type == ast::no_node) { continue; }
-                        std::vector<std::uint32_t> &out   = edges[value_node(owner)];
-                        const std::size_t           begin = out.size();
+                        const std::size_t begin = targets.size();
                         references.clear();
-                        struct_references(info.fields[field].type, references);
+                        field_references(info.fields[field].type, references);
                         for (const StructReference &reference : references) {
                             const std::uint32_t target = position[reference.decl];
                             if (target == no_position) { continue; }
-                            out.push_back(value_node(target));
+                            targets.push_back(Target{value_node(target), reference});
                             const Family &family = families[target];
                             if (family.any == no_position) { continue; }
                             const std::optional<std::string> key = reference.applied == ast::no_node
                                                                        ? std::optional<std::string>{"<>"}
                                                                        : arguments_key(reference.applied);
                             if (!key) {
-                                out.push_back(family.any);
+                                targets.push_back(Target{family.any, reference});
                                 continue;
                             }
-                            out.push_back(free[target]);
+                            targets.push_back(Target{free[target], reference});
                             if (const auto found = specialized[target].find(*key); found != specialized[target].end()) {
-                                out.push_back(found->second.node);
+                                targets.push_back(Target{found->second.node, reference});
                             }
                         }
-                        field_edges.push_back(FieldEdges{owner, field, begin, out.size()});
+                        for (std::size_t index = begin; index < targets.size(); ++index) {
+                            edges[value_node(owner)].push_back(targets[index].node);
+                        }
+                        field_targets.push_back(FieldTargets{owner, field, begin, targets.size()});
+                    }
+                }
+                const std::vector<std::uint32_t> component = strongly_connected_components(edges);
+
+                // Registration order: a struct needs its parents and every struct
+                // its own fields name. hgraph declares a recursive batch whose
+                // members reach each other only through owned edges, and requires
+                // each member's parents to exist first, so a registration cycle
+                // through a parent cannot be declared.
+                std::vector<std::vector<std::uint32_t>> registration(count);
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
+                        if (position[parent] != no_position) { registration[index].push_back(position[parent]); }
+                    }
+                }
+                for (const FieldTargets &item : field_targets) {
+                    const StructInfo &info = result_.struct_info[result_.structs[item.owner]];
+                    if (info.fields[item.field].origin != result_.structs[item.owner]) { continue; }
+                    for (std::size_t index = item.begin; index < item.end; ++index) {
+                        const std::uint32_t target = position[targets[index].reference.decl];
+                        if (registration[item.owner].empty() || registration[item.owner].back() != target) {
+                            registration[item.owner].push_back(target);
+                        }
+                    }
+                }
+                const std::vector<std::uint32_t> registered = strongly_connected_components(registration);
+                // A parent edge inside a registration component, by component.
+                std::unordered_map<std::uint32_t, std::pair<std::uint32_t, std::uint32_t>> inheritance_cycles;
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
+                        if (position[parent] != no_position && registered[position[parent]] == registered[index]) {
+                            inheritance_cycles.try_emplace(registered[index], index, position[parent]);
+                        }
                     }
                 }
 
-                const std::vector<std::uint32_t> component = strongly_connected_components(edges);
-                std::vector<bool>                reported(module_.types.size(), false);
-                for (const FieldEdges &item : field_edges) {
-                    const std::vector<std::uint32_t> &out   = edges[value_node(item.owner)];
-                    const std::uint32_t               self  = component[value_node(item.owner)];
-                    const auto                        begin = out.begin() + static_cast<std::ptrdiff_t>(item.begin);
-                    const auto                        end   = out.begin() + static_cast<std::ptrdiff_t>(item.end);
-                    if (std::none_of(begin, end, [&](std::uint32_t target) { return component[target] == self; })) { continue; }
-                    const ast::DeclId  decl  = result_.structs[item.owner];
-                    StructInfo        &info  = result_.struct_info[decl];
-                    const StructField &field = info.fields[item.field];
-                    info.valid               = false;
-                    if (reported[field.type]) { continue; }
-                    reported[field.type] = true;
-                    const std::string name{std::get<ast::StructDecl>(module_.decl(decl).node).name.text};
+                // One verdict per field declaration, keyed by its type node.
+                enum class Verdict : std::uint8_t {
+                    Unchecked,
+                    Admitted,
+                    Rejected,
+                };
+                std::vector<Verdict> verdicts(module_.types.size(), Verdict::Unchecked);
+                std::vector<bool>    recursive(field_targets.size(), false);
+                // A descendant may replace an inherited default, so rule 2's null
+                // default is checked on every struct that has the edge.
+                std::vector<bool> replaced(field_targets.size(), false);
+                std::vector<bool> reported_defaults(module_.exprs.size(), false);
+                for (std::size_t item_index = 0; item_index < field_targets.size(); ++item_index) {
+                    const FieldTargets            &item  = field_targets[item_index];
+                    const std::uint32_t            self  = component[value_node(item.owner)];
+                    const ast::DeclId              owner = result_.structs[item.owner];
+                    const StructField             &field = result_.struct_info[owner].fields[item.field];
+                    std::optional<StructReference> direct;
+                    std::optional<StructReference> nested;
+                    for (std::size_t index = item.begin; index < item.end; ++index) {
+                        if (component[targets[index].node] != self) { continue; }
+                        const StructReference &reference = targets[index].reference;
+                        if (reference.reach == Reach::Direct) {
+                            direct = reference;
+                        } else if (!nested) {
+                            nested = reference;
+                        }
+                    }
+                    if (!direct && !nested) { continue; }
+                    recursive[item_index] = true;
+                    if (field.optional && field.default_value != ast::no_node && !is_null(field.default_value)) {
+                        replaced[item_index] = true;
+                        if (!reported_defaults[field.default_value]) {
+                            reported_defaults[field.default_value] = true;
+                            report(Category::Type, module_.expr(field.default_value).range,
+                                   "recursive edge '" + field.name + "' of '" + struct_name(field.origin) +
+                                       "' keeps a null default (ADR 0012, rule 2)");
+                        }
+                    }
+                    if (verdicts[field.type] != Verdict::Unchecked) { continue; }
+                    verdicts[field.type] =
+                        check_recursive_edge(field, owner, direct, nested) ? Verdict::Admitted : Verdict::Rejected;
+                    if (verdicts[field.type] == Verdict::Rejected) { continue; }
+                    // The edge obeys the language rules; it must also be registrable.
+                    // Registration follows the declaring struct's own fields.
+                    const std::uint32_t declared = registered[position[field.origin]];
+                    const auto          cycle    = inheritance_cycles.find(declared);
+                    if (cycle == inheritance_cycles.end() ||
+                        std::none_of(targets.begin() + static_cast<std::ptrdiff_t>(item.begin),
+                                     targets.begin() + static_cast<std::ptrdiff_t>(item.end), [&](const Target &target) {
+                                         return registered[position[target.reference.decl]] == declared;
+                                     })) {
+                        continue;
+                    }
+                    verdicts[field.type] = Verdict::Rejected;
                     report(Category::Type, module_.type(field.type).range,
-                           "recursive struct fields are not supported in this prototype: through field '" + field.name +
-                               "', a value of '" + name + "' can contain another '" + name + "'");
+                           "recursive edge '" + field.name + "' of '" + struct_name(field.origin) +
+                               "' closes a cycle through inheritance: '" + struct_name(result_.structs[cycle->second.first]) +
+                               "' inherits from '" + struct_name(result_.structs[cycle->second.second]) +
+                               "', and hgraph declares a parent before its children, so the cycle cannot be registered");
                 }
+                for (std::size_t item_index = 0; item_index < field_targets.size(); ++item_index) {
+                    if (!recursive[item_index]) { continue; }
+                    const FieldTargets &item  = field_targets[item_index];
+                    StructInfo         &info  = result_.struct_info[result_.structs[item.owner]];
+                    StructField        &field = info.fields[item.field];
+                    if (verdicts[field.type] == Verdict::Admitted && !replaced[item_index]) {
+                        field.recursive = true;
+                    } else {
+                        info.valid = false;
+                    }
+                }
+            }
+
+            /// Applies rules 2, 3, 4 and 8 of ADR 0012 to one recursive edge of
+            /// `owner` and reports each rule it breaks. `direct` is the reference
+            /// inside the edge's `atomic<...>` when the cycle runs through it;
+            /// `nested` is the first other reference by which the field stays in
+            /// its cycle. At least one of them is set.
+            bool check_recursive_edge(const StructField &field, ast::DeclId owner, const std::optional<StructReference> &direct,
+                                      const std::optional<StructReference> &nested) {
+                const std::string edge  = "recursive edge '" + field.name + "' of '" + struct_name(field.origin) + "'";
+                const ast::Type  &type  = module_.type(field.type);
+                const SourceRange range = type.range;
+                if (nested && (nested->reach == Reach::Container || nested->reach == Reach::Argument)) {
+                    report(Category::Type, range,
+                           edge + " reaches '" + struct_name(owner) + "' again through " +
+                               (nested->reach == Reach::Container ? "a collection element" : "a generic argument") +
+                               "; recursion through a container or a generic argument is not supported (ADR 0012, rule 8)");
+                    return false;
+                }
+                bool valid = true;
+                if (type.kind != ast::TypeKind::Atomic || nested) {
+                    const StructReference &reached = direct ? *direct : *nested;
+                    const std::string      target  = reached.applied == ast::no_node
+                                                         ? struct_name(reached.decl)
+                                                         : std::string{file_.slice(module_.type(reached.applied).range)};
+                    report(Category::Type, range,
+                           edge + " must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<" + target + ">'");
+                    valid = false;
+                }
+                if (!field.optional) {
+                    report(Category::Type, range, edge + " must be optional (ADR 0012, rule 2): declare it '= null'");
+                    valid = false;
+                }
+                if (!valid) { return false; }
+                // Rule 4: a cycle reaches finitely many specializations, so each
+                // generic argument on an edge is a parameter of the declaring
+                // struct or mentions none. A parameter wrapped in a type, as in
+                // `Tree<list<T>>` inside `Tree<T>`, would denote an unbounded family.
+                if (direct->applied != ast::no_node) {
+                    const std::vector<ast::GenericArgument> &arguments = module_.type(direct->applied).arguments;
+                    for (std::size_t index = 0; index < arguments.size(); ++index) {
+                        if (parameter_argument(direct->applied, index, field.origin) ||
+                            !argument_mentions_parameter(direct->applied, index)) {
+                            continue;
+                        }
+                        report(Category::Type, range,
+                               edge + " passes '" + std::string{file_.slice(arguments[index].range)} + "' to '" +
+                                   struct_name(direct->decl) + "'; in a cycle a generic argument is a parameter of '" +
+                                   struct_name(field.origin) +
+                                   "' or mentions none, since a wrapped parameter denotes an unbounded family of "
+                                   "specializations (ADR 0012, rule 4)");
+                        return false;
+                    }
+                }
+                return true;
             }
 
             void validate_constructor(ast::DeclId decl, const std::vector<ast::Argument> &arguments, bool delta,
@@ -1725,6 +1977,7 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
+            const syntax::SourceFile                      &file_;
             const ast::Module                             &module_;
             const ModuleCatalog                           &catalog_;
             const OperatorLookup                          &has_operator_;
@@ -1752,9 +2005,9 @@ namespace hgl::semantics
         return false;
     }
 
-    ResolvedModule resolve(const syntax::SourceFile &, const ast::Module &module, const ModuleCatalog &catalog,
+    ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const ModuleCatalog &catalog,
                            const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics) {
-        return Resolver{module, catalog, has_operator, diagnostics}.run();
+        return Resolver{file, module, catalog, has_operator, diagnostics}.run();
     }
 
     ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
