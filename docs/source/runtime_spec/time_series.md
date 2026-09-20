@@ -1,9 +1,7 @@
 Time-series types
 =================
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 A time-series is a value that changes over time. It is what flows along every
 edge of a graph, what every node reads and writes, and the thing that makes
@@ -200,8 +198,8 @@ sequenceDiagram
 - An admitted publication of the value a time-series already holds is still
   a tick. An operator may suppress an equal result before publication; a
   conformance adapter must identify that boundary.
-- However many times a time-series is written in one cycle, it notifies once,
-  and its delta at the end describes the net change.
+- Further writes while already modified do not notify again; the final
+  delta describes the net change. Invalidation notifies separately (TS-7).
 - The delta is read through *modified*: in any later cycle it reads nil,
   whatever was there. Nothing sweeps deltas away at the end of a cycle, and
   nothing needs to.
@@ -308,13 +306,13 @@ Rules
   returns it to *never*.
 - **TS-4** A child modified in a cycle means every ancestor is modified in
   that cycle.
-- **TS-5** Applying an output's deltas, in order, starting from when it was
-  last not valid, reproduces its value.
-- **TS-6** A time-series notifies at most once in a cycle, when it first
-  ticks. A later write in that cycle changes the value and notifies nobody —
-  not even an input that began watching between the two writes. A node may
-  still be notified more than once in a cycle, by several inputs; it is
-  evaluated once (GRF-16).
+- **TS-5** Applying an output's deltas in order, from its last invalid
+  state, reproduces its value. For TSD this also needs membership changes:
+  published-value deltas alone omit keys with invalid children.
+- **TS-6** Marking a time-series modified notifies its watchers. Further
+  writes while it is already modified do not notify, even an input that
+  began watching between writes. Invalidation notifies separately (TS-7).
+  Several notifications still cause only one node evaluation (GRF-16).
 - **TS-7** Becoming invalid notifies, and is not a tick. The time-series
   reads neither valid nor modified. Its parent reads modified.
 - **TS-8** A passive input never schedules its node. Making an input active
@@ -322,7 +320,7 @@ Rules
   node — not even when its source has already ticked in the cycle.
 - **TS-9** All valid implies valid. TSB, TSL and TSD additionally require
   every immediate live child to be valid, without asking its all_valid.
-  Removed children do not count. TS, TSS and REF use valid; TSW additionally
+  Removed children do not count. TS, TSS, REF and SIGNAL use valid; TSW additionally
   requires its minimum. An empty collection passes only if itself valid.
 - **TS-10** In a set's delta, *added* and *removed* share no element. An
   element added and removed in one cycle is in neither.

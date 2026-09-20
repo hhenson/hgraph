@@ -1,9 +1,7 @@
 HGraph Runtime Specification
 ============================
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 This specification describes what an HGraph runtime *is*: the concepts it is
 made of, how they relate, and the behaviour a program running on it can rely
@@ -294,7 +292,8 @@ rests on.
 9. Becoming invalid resets the last modified time to *never*. It is
    therefore not a tick — the time-series reads neither valid nor modified —
    but it notifies, and an active input bound to it schedules its node.
-10. Applying an output's successive deltas reproduces its value.
+10. Applying an output's successive deltas reproduces its value; dictionaries
+    also need their membership changes (TS-5).
 11. A child's tick is its ancestors' tick.
 12. Evaluation is single-threaded. Other threads meet the graph only at a push
     source's queue.
@@ -316,8 +315,7 @@ Chapters
 | 5 | Scalar types | [scalar_types.md](scalar_types.md) | first draft |
 | 6 | Injectables | [injectables.md](injectables.md) | first draft |
 
-Supporting documents preserve the extracted specification work without
-expanding these chapters into a language or a storage manual:
+Cases and supporting notes:
 
 - [Conformance](conformance.md) and cases for [atomic series](cases_atomic.md),
   [collections](cases_collections.md), and [lifecycle](cases_lifecycle.md).
@@ -351,6 +349,9 @@ language bridges; checkpointing; distribution.
 How this specification is written
 ---------------------------------
 
+These are intended rules. Proposals and implementation gaps are marked in
+[Evidence](evidence.md); the written cases do not certify a runtime.
+
 **Concept first.** The specification starts from the concept and is refined
 only as far as working behaviour requires. A facility hgraph has that no
 concept here yet needs — externally driven stepping, observers, run-wide
@@ -369,9 +370,8 @@ its chapter's Deferred section and specified when an implementation needs it.
 5. **Rules** — numbered statements a test could check (`ENG-1`, `GRF-1`,
    `NOD-1`, `TS-1`, `VAL-1`, `INJ-1`). A test names the rule it checks.
 6. **Deferred**, and **Points to settle**.
-7. **Evidence and cases** — the owning rules, source revision, expected
-   transitions, failure boundaries and untested behaviour. Existing chapters
-   share the [evidence ledger](evidence.md) and [conformance method](conformance.md).
+7. **Evidence and cases** — what supports a rule, and what a test should see.
+   See [Evidence](evidence.md) and [Conformance](conformance.md).
 
 **What belongs.** Could a node author, a graph author, or a test observing
 ticks tell the difference? Evaluation order, validity, what a delta contains

@@ -1,9 +1,7 @@
 Graph
 =====
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 A graph exists in two forms, one for each phase of the runtime. In the wiring
 phase it is a **graph description**: what the graph will be. In the

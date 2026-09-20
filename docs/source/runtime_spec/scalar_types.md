@@ -1,9 +1,7 @@
 Scalar types
 ============
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 A scalar value is a piece of data with no time in it. It is what a
 time-series carries from one tick to the next, what a node is configured

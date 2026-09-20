@@ -1,21 +1,18 @@
-# A bounded atomic layout example
+# Atomic layout example
 
-Status: proposed physical exercise preserved from #934; not the size, ABI,
-serialization format or chosen representation of a hgraph endpoint.
+Status: proposed cell storage; no endpoint-size, ABI or serialization claim.
 
 ## Placement
 
-Assume C++ object storage, 8-bit bytes and a 64-bit size limit. A payload's
-target-verified size s and alignment a must be positive; a is a power of two
-and s is a multiple of a. Put the payload at 0 and an eight-byte, eight-aligned
-stamp at `align_up(s, 8)`. Region alignment is `max(a, 8)` and size is
-`align_up(stamp_offset + 8, region_alignment)`. `align_up(n,a)` is the least
-multiple of a not smaller than n.
+C++ storage, 8-bit bytes, 64-bit size limit. Payload size s and alignment a
+are target-verified and positive; a is a power of two and divides s. Payload
+offset is 0; the eight-byte stamp is at `align_up(s, 8)`. Alignment is
+`max(a, 8)`; size is `align_up(stamp_offset + 8, alignment)`. Align-up gives
+the least multiple at or above its first argument.
 
-Compute mathematically, then reject any offset, end or size above `2^64 - 1`
-before allocation. Invalid traits produce InvalidStorage; overflow produces
-LayoutOverflow; overlapping/misaligned regions produce InvalidLayout. These
-are example planning categories, not current native error names.
+Compute mathematically; reject before allocation: InvalidStorage for bad
+traits, LayoutOverflow for any offset/end/size above `2^64 - 1`, InvalidLayout
+for overlap or misalignment. These are example error categories.
 
 | Payload size/alignment | Payload offset | Stamp offset | Region size/alignment |
 |---|---|---|---|
@@ -26,30 +23,21 @@ are example planning categories, not current native error names.
 | 18446744073709551608 / 8 | — | — | LayoutOverflow |
 | pair of 8 / 8 cells | left 0; right 16 | local stamp offset 8 each | 32 / 8 |
 
-The containing owner supplies aligned, stable storage from successful
-construction through destruction. Construct live C++ objects before typed
-access, destroy before release, and never let a field free its containing
-region. Padding has no meaning. Neither a native struct's offsets nor byte
-copying as object relocation follows from this plan. Generic payload failure
-and lifetime rules still need a separate contract.
+The owner holds aligned, stable storage until destruction. Construct before
+typed access; destroy before release. Fields do not free their region. Padding
+has no meaning; native struct offsets and byte relocation are not implied.
+Generic payload lifetime and failure need their own contract.
 
-## Relating an i64 cell to atomic behaviour
+## The i64 realization
 
-For the 8/8 payload only, construct payload zero and stamp minus one. A stamp
-of minus one decodes to no current value and `never`; a nonnegative stamp in
-`[0, 2^63 - 1]` decodes to a real abstract tick and a present payload. Decode
-zero and the maximum explicitly in boundary checks. Other negative stamps
-are outside this profile. Observation time comes from the external context.
+For the 8/8 payload, construct value 0 and stamp -1. Stamp -1 means absent and
+`never`; `[0, 2^63 - 1]` means a real abstract tick and present value. Check zero
+and the maximum; other negative stamps are excluded. Time comes from context.
 
-On admitted publication assign payload, then stamp; exclude concurrent reads
-and observe after both assignments. Begin changes only the context. Run both
-[atomic cases](cases_atomic.md) unchanged. No valid flag, modified flag,
-current-time field or ops pointer lives in this region. Publication and
-inspection allocate no **cell** storage; owner and observer infrastructure is
-excluded from the footprint. No total endpoint memory saving is claimed.
+Publish writes payload then stamp; no concurrent reads. Observe after both.
+Begin changes only context. Run the [atomic cases](cases_atomic.md) unchanged.
+The region holds no flags, current time or ops pointer. Publish and inspect
+allocate no cell storage; owner and observers are outside the size count.
 
-The [pair cases](cases_lifecycle.md) add owner, borrow and construction-failure
-obligations without moving the controller into these 32 bytes. Physical
-validation needs actual target size/alignment assertions, checked boundaries,
-object lifetime tests and sanitizers. Arithmetic consistency in this document
-is not that native evidence.
+The [pair cases](cases_lifecycle.md) add lifetime obligations. Physical proof
+needs target assertions, boundary and lifetime checks, and sanitizers.

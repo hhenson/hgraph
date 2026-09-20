@@ -1,34 +1,27 @@
 # Activation and lifetime cases
 
-Status: proposed cases extracted from #796/#934; the pair owner is a bounded
-physical example, not a replacement graph lifecycle.
+Status: proposed. The pair owner is a physical example, not the graph lifecycle.
 
 ## ORDERED-ACTIVATION — GRF-15, GRF-16 and NOD-2
 
-Declare ranks explicitly: source A, source B, sum, sink. In one cycle A
-publishes 2 and B publishes 3. Both inputs of sum are active and required
-valid. Sum evaluates once after both sources and publishes 5; the sink observes
-5 once. The order is `[A, B, sum, sink]` because this graph description declares
-it, not because an unspecified resolver must arbitrarily rank A before B.
+Declare ranks `[A, B, sum, sink]`. A publishes 2 and B publishes 3 in one
+cycle. Sum's inputs are active and required valid. It evaluates once after
+both sources, publishes 5, and the sink observes 5 once.
 
-In a second instance leave B invalid. A's notification schedules sum, but sum
-is not admitted and the sink sees no result. In a third, make B passive and
-initially valid: B's notification alone does not schedule sum, but an A tick
-can evaluate it with B's current value. Absent policies use the declared
-defaults; an explicit empty active or valid selection selects no inputs for
-that policy. Neither a missing trigger nor an empty policy invents a tick.
+Leave B invalid: A schedules sum, but admission fails. Make B passive and
+valid: B alone does not schedule sum; A can wake it to read both values.
+Absent policies use defaults; explicit empty selections select no inputs.
 
 ## PAIR-NORMAL
 
-Two cells, left and right, share one owned region. The controller and consumer
-link are outside the [32-byte example region](layout_example.md). Allocation
-succeeds; start, stop, detach and destruction finish without throwing. Only
-one synchronous read borrow and one consumer link are admitted. A borrow
-permits no mutation or callback retention and ends explicitly.
+Left and right share the [32-byte region](layout_example.md); controller and
+link live outside it. Allocation succeeds; hooks, detach and destruction
+finish without throwing. One synchronous read borrow, ending explicitly,
+permits no mutation or callback retention. One consumer link is admitted.
 
 State is `(phase, allocated, live cells, borrowed, linked)`, initially
-`(fresh, false, 0, false, false)`. Each row observes the completed action.
-An empty event list forbids side effects; unspecified state is retained.
+`(fresh, false, 0, false, false)`. Read after each action. Unmentioned state
+stays; “none” forbids events. Error names are local to this example.
 
 | Action | Resulting state | Ordered events / error |
 |---|---|---|
@@ -44,28 +37,21 @@ An empty event list forbids side effects; unspecified state is retained.
 | release | released, false, 0, false, false | destroy right; destroy left; release region |
 | observe again | unchanged | none |
 
-Quiesce disables new delivery before stop hooks, which still have live cells.
-Detach removes the link before destruction. No subsequent notification may
-reach dead storage. BorrowLive takes precedence over WrongPhase on release.
-The error names belong to this example; they are not promised C++ exceptions.
+Quiesce prevents new delivery; stop hooks still have live cells. Detach precedes
+destruction. BorrowLive takes precedence over WrongPhase on release.
 
 ## PAIR-CONSTRUCTION-FAILURE
 
-Inject a failure at entry to right's constructor, before any right subobject
-is live. Starting fresh, the exact events are `allocate; construct left;
-fail right; destroy left; release region`. Return ConstructionFailed with
-state `(released, false, 0, false, false)`. Observation changes nothing.
-Never destroy right, call either stop, or release the region twice. Unlike
-BorrowLive, this failure has cleanup effects and changes the initial state.
+Fail at entry to right's constructor, before any right subobject is live.
+From fresh: `allocate; construct left; fail right; destroy left; release region`.
+Return ConstructionFailed and `(released, false, 0, false, false)`. Observe
+changes nothing. Never destroy right, call stop or release twice.
 
 ## PAIR-NEVER-STARTED
 
-From fresh, construct both cells, then release without start. Events are
-`allocate; construct left; construct right; destroy right; destroy left;
-release region`. No semantic stop hook runs for an unstarted object.
+From fresh: `allocate; construct left; construct right; destroy right;
+destroy left; release region`. No stop hook runs.
 
-These three cases preserve the source experiment's failure and borrow
-boundaries. Allocation failure, partial right subobjects, failing start/stop,
-concurrent delivery and retained references require further contracts. In the
-actual graph, GRF-9 and GRF-18 govern partial instantiation and failed start;
-the pair's nonthrowing start assumption is not a restriction on graph nodes.
+Allocation failure, partial right construction, failing hooks, concurrent
+delivery and retained references remain outside these cases. GRF-9 and GRF-18
+own the actual graph's construction and failed-start rules.

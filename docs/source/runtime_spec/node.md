@@ -1,9 +1,7 @@
 Node
 ====
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 A node is the unit of behaviour in a graph. Everything a graph *does* — take
 in an event, compute, remember, schedule, report a failure, write to the
@@ -135,11 +133,10 @@ Injectables).
 **State** is a private value. It exists from instantiation until disposal,
 it is read and written only by the node, it never ticks, and nothing outside
 the node can see it. It is a cache: a node must behave the same whether its
-state survived or was rebuilt from equivalent authoritative inputs,
-recordable history and pending work. With the same future events, outputs,
-validity, deltas and effects must agree. Losing a running total is not cache
-reconstruction. This is the intended contract, not a claim that arbitrary
-native `State` use is checked for reconstructibility.
+state survived or was rebuilt from equivalent inputs, recordable history and
+pending work. The same future events must give the same observations and
+effects. A lost running total is not a cache. Native `State` does not enforce
+this distinction.
 
 **Recordable state** is a time-series the node owns, and it **works the same
 as the output**. The node reads what it holds and writes to it during eval —

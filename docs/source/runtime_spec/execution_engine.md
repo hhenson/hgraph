@@ -1,9 +1,7 @@
 Execution Engine
 ================
 
-Status: proposed consolidated specification; intended rules and implementation
-evidence are distinguished in [Evidence](evidence.md). No full runtime
-conformance is claimed.
+Status: draft. See [Evidence](evidence.md) for implementation status.
 
 The execution engine is responsible for setting up the evaluation loop.
 The engine has one graph associated to it. The engine will call the different lifecycle methods of the graph.
