@@ -664,6 +664,64 @@ TEST_CASE("recursive_bundle_closure registers each strongly connected "
                   std::invalid_argument);
 }
 
+TEST_CASE("recursive_bundle_closure registers a cyclic component once under "
+          "contention") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  constexpr std::size_t thread_count = 8;
+  constexpr int rounds = 64;
+
+  // A mutually recursive pair, so the component is cyclic and registers
+  // through recursive_bundles(), which refuses a name the registry already
+  // holds. Each round takes a fresh namespace: the race is reachable only
+  // while a closure is unregistered, and the early value_type() short
+  // circuit would retire it after the first round.
+  const auto describer = [integer](const std::string &space) {
+    return [integer, space](std::string_view name) {
+      const bool is_a = name == space + "::A";
+      RecursiveBundleRequest result;
+      result.definition.bundle_namespace = space;
+      result.definition.local_name = is_a ? "A" : "B";
+      result.definition.fields.push_back({.name = "value", .type = integer});
+      result.edges.emplace_back(result.definition.fields.size(),
+                                space + (is_a ? "::B" : "::A"));
+      result.definition.fields.push_back({.name = is_a ? "b" : "a"});
+      return result;
+    };
+  };
+
+  std::array<std::string, thread_count> errors{};
+  for (int round = 0; round < rounds; ++round) {
+    const std::string space = "tests.closure.race" + std::to_string(round);
+    std::array<const ValueTypeMetaData *, thread_count> seen{};
+    std::atomic<std::size_t> ready{0};
+    std::array<std::thread, thread_count> threads;
+    for (std::size_t index = 0; index < thread_count; ++index) {
+      threads[index] = std::thread([&, index] {
+        // Start together, so every thread is inside this round's first
+        // realization at the same time.
+        ready.fetch_add(1);
+        while (ready.load() < thread_count) { std::this_thread::yield(); }
+        try {
+          seen[index] =
+              registry.recursive_bundle_closure(space + "::A", describer(space));
+        } catch (const std::exception &error) { errors[index] = error.what(); }
+      });
+    }
+    for (auto &thread : threads) { thread.join(); }
+
+    for (std::size_t index = 0; index < thread_count; ++index) {
+      INFO("round " << round << " thread " << index << ": " << errors[index]);
+      REQUIRE(errors[index].empty());
+      REQUIRE(seen[index] == seen[0]);
+    }
+    REQUIRE(seen[0] != nullptr);
+  }
+}
+
 TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
           "taxing leaves") {
   using namespace hgraph;

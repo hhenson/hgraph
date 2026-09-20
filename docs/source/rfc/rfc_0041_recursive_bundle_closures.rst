@@ -81,8 +81,17 @@ strongly connected component when it closes, after every component it reaches:
 The operation returns the schema of ``root``. It is linear in the number of
 reachable specializations and their fields. It does not hold the registry lock
 while the describer runs, so a describer may realize other schemas, including
-other closures. A race between two threads registering the same closure is
-resolved by re-reading each name before its batch registers.
+other closures.
+
+Each component is closed under the registry lock, which covers both the
+re-read of its names and the registration that follows. The two must be one
+step: a cyclic component registers through ``recursive_bundles``, which refuses
+a name the registry already holds, so two threads that both re-read a
+previously unseen closure before either registered it would leave the loser
+throwing ``std::invalid_argument`` instead of reusing the winner's schemas. The
+registry lock is recursive, so the registry calls a component makes while
+closing re-enter it, and closing never runs the describer, so no caller code is
+held under the lock.
 
 Static schema
 -------------

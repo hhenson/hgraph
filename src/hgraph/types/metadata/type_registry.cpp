@@ -1331,6 +1331,14 @@ namespace hgraph
         };
         // Registers one closed component, members in discovery order.
         const auto close = [&](std::vector<std::uint32_t> members) {
+            // The recheck below and the registration that follows it are one
+            // step. Two callers first realizing the same cyclic closure would
+            // otherwise both pass the recheck, and the loser's
+            // recursive_bundles() refuses a name the winner has just
+            // registered. mutex_ is recursive, so the registry calls made here
+            // re-enter it, and close() never runs the describer, so no caller
+            // code is held under the lock.
+            const std::lock_guard lock(mutex_);
             std::ranges::sort(members);
             std::unordered_map<std::string_view, std::size_t> position;
             for (std::size_t member = 0; member < members.size(); ++member)
