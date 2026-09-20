@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <unordered_set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -55,7 +56,8 @@ namespace hgl::descriptor
         /// only at a field's top level, never through a container. So it
         /// converts only where a layout asks for it, and never for a child.
         [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor, SchemaId id,
-                                                                           std::vector<SchemaId> path        = {},
+                                                                           std::vector<SchemaId> path         = {},
+                                                                           bool                  allow_layout = false,
                                                                            bool                  allow_atomic = false) noexcept {
             using semantics::ImportedType;
             using semantics::ImportedTypeKind;
@@ -76,9 +78,14 @@ namespace hgl::descriptor
             }
             switch (source.category) {
                 case TypeCategory::Symbol:
-                    // A generic parameter binding, a nominal struct (ADR 0013),
-                    // or both; a Symbol naming neither says nothing.
-                    if (source.binding_identity.empty() && source.nominal_identity.empty()) { return std::nullopt; }
+                    // A signature's Symbol is a generic parameter, which
+                    // lowering resolves by binding identity. A nominal struct
+                    // (ADR 0013) is a type to register, and only a layout can
+                    // carry one: advertising it in a signature would report
+                    // support for a function lowering then rejects.
+                    if (source.binding_identity.empty() && !(allow_layout && !source.nominal_identity.empty())) {
+                        return std::nullopt;
+                    }
                     result.kind             = ImportedTypeKind::Symbol;
                     result.binding_identity = source.binding_identity;
                     result.nominal_identity = source.nominal_identity;
@@ -96,7 +103,9 @@ namespace hgl::descriptor
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
-                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);  // never allow_atomic
+                // A layout's nested types may still name a struct; only the
+                // atomic boundary is confined to the field's top level.
+                std::optional<ImportedType> lowered = imported_type(descriptor, child, path, allow_layout);
                 if (!lowered) { return std::nullopt; }
                 result.children.push_back(std::move(*lowered));
             }
@@ -148,6 +157,11 @@ namespace hgl::descriptor
             result.identity               = declaration.identity;
             result.abstract               = declaration.abstract;
             result.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            // Generated C++ refers to the exporter's type rather than
+            // re-declaring it (ADR 0013), so a consumer needs the header that
+            // declares it -- the same reason an imported native function
+            // carries them.
+            result.public_headers         = descriptor.build.public_headers;
             const std::string prefix      = descriptor.module_identity + ".";
             if (declaration.identity.starts_with(prefix)) {
                 const std::string name = declaration.identity.substr(prefix.size());
@@ -170,7 +184,7 @@ namespace hgl::descriptor
                 result.generics.push_back(std::move(lowered));
             }
             for (const SchemaId parent : declaration.parents) {
-                const auto type = imported_type(descriptor, parent);
+                const auto type = imported_type(descriptor, parent, {}, /*allow_layout=*/true);
                 if (!type) {
                     unsupported("imported struct parent type is not supported by the catalog");
                     continue;
@@ -179,12 +193,20 @@ namespace hgl::descriptor
             }
             for (const StructField &field : declaration.fields) {
                 // An inherited field arrives with the parent, which the importer
-                // rebuilds first; carrying it twice would duplicate it.
-                if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) { continue; }
+                // rebuilds first; carrying it twice would duplicate it. A child
+                // that overrides the inherited default is a different matter:
+                // the override lives only here, so dropping the field silently
+                // would rebuild the parent's default instead of the child's.
+                if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
+                    if (field.default_value != no_schema_id) {
+                        unsupported("imported struct inherited field defaults require catalog constant reconstruction");
+                    }
+                    continue;
+                }
                 if (field.default_value != no_schema_id) {
                     unsupported("imported struct field defaults require catalog constant reconstruction");
                 }
-                const auto type = imported_type(descriptor, field.type, {}, /*allow_atomic=*/true);
+                const auto type = imported_type(descriptor, field.type, {}, /*allow_layout=*/true, /*allow_atomic=*/true);
                 if (!type) {
                     unsupported("imported struct field type is not supported by the catalog");
                     continue;
@@ -280,6 +302,46 @@ namespace hgl::descriptor
                                  "struct identity must be '" + descriptor.module_identity + ".<name>'"};
             }
             module.structs.push_back(std::move(structure));
+        }
+        // A descriptor may name a struct of its own module that it does not
+        // declare: validation resolves a recursive edge's target but not an
+        // ordinary parent or field. An importer would have no layout to
+        // rebuild it from, so the layout is unsupported rather than merely
+        // incomplete (ADR 0013).
+        {
+            std::unordered_set<std::string_view> declared;
+            declared.reserve(module.structs.size());
+            for (const semantics::ImportedStruct &structure : module.structs) { declared.emplace(structure.identity); }
+            const std::string prefix = descriptor.module_identity + ".";
+            const auto        unresolved =
+                [&](const semantics::ImportedType &type, auto &&self) -> const std::string * {
+                if (type.kind == semantics::ImportedTypeKind::Symbol && !type.nominal_identity.empty() &&
+                    type.nominal_identity.starts_with(prefix) && !declared.contains(type.nominal_identity)) {
+                    return &type.nominal_identity;
+                }
+                for (const semantics::ImportedType &child : type.children) {
+                    if (const std::string *found = self(child, self)) { return found; }
+                }
+                return nullptr;
+            };
+            for (semantics::ImportedStruct &structure : module.structs) {
+                if (!structure.support_error.empty()) { continue; }
+                for (const semantics::ImportedType &parent : structure.parents) {
+                    if (const std::string *missing = unresolved(parent, unresolved)) {
+                        structure.support_error = "imported struct parent '" + *missing + "' is not declared by " +
+                                                  descriptor.module_identity;
+                        break;
+                    }
+                }
+                if (!structure.support_error.empty()) { continue; }
+                for (const semantics::ImportedStructField &field : structure.fields) {
+                    if (const std::string *missing = unresolved(field.type, unresolved)) {
+                        structure.support_error = "imported struct field '" + field.name + "' names '" + *missing +
+                                                  "', which is not declared by " + descriptor.module_identity;
+                        break;
+                    }
+                }
+            }
         }
         for (std::size_t declaration_index = 0; declaration_index < descriptor.native_declarations.size(); ++declaration_index) {
             const NativeDeclaration &declaration = descriptor.native_declarations[declaration_index];

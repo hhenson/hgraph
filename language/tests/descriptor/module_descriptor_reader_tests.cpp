@@ -506,6 +506,72 @@ TEST_CASE("catalog carries an exported struct's layout", "[descriptor][catalog][
     CHECK(catalog.find_struct("other.module", "Quote") == nullptr);
 }
 
+// Review findings on the catalog slice: a layout may say things a signature
+// cannot, but the converse must not leak, and a layout that cannot be rebuilt
+// is unsupported rather than merely shorter.
+TEST_CASE("catalog guards what an imported struct layout may carry", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Missing"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Quote"},
+    };
+    source.build.public_headers = {"checks/reader.h"};
+
+    SECTION("the exporter's headers travel with the struct") {
+        descriptor::InterfaceDeclaration quote;
+        quote.category   = descriptor::DeclarationCategory::Structure;
+        quote.identity   = "checks.reader.Quote";
+        quote.fields     = {{"bid", 0U, descriptor::no_schema_id, "checks.reader.Quote", false, false}};
+        source.interface = {std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->public_headers == std::vector<std::string>{"checks/reader.h"});
+    }
+    SECTION("a field naming an undeclared struct of its own module is unsupported") {
+        descriptor::InterfaceDeclaration quote;
+        quote.category   = descriptor::DeclarationCategory::Structure;
+        quote.identity   = "checks.reader.Quote";
+        quote.fields     = {{"venue", 1U, descriptor::no_schema_id, "checks.reader.Quote", false, false}};
+        source.interface = {std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field 'venue' names 'checks.reader.Missing', which is not "
+                                         "declared by checks.reader");
+    }
+    SECTION("a child's override of an inherited default is not dropped silently") {
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .literal = hgl::ir::hir::Constant{std::int64_t{1}}}};
+        descriptor::InterfaceDeclaration base;
+        base.category = descriptor::DeclarationCategory::Structure;
+        base.identity = "checks.reader.Base";
+        base.abstract = true;
+        base.fields   = {{"at", 0U, descriptor::no_schema_id, "checks.reader.Base", false, false}};
+        descriptor::InterfaceDeclaration quote;
+        quote.category = descriptor::DeclarationCategory::Structure;
+        quote.identity = "checks.reader.Quote";
+        // `at` is inherited, but this descriptor carries the child's own default.
+        quote.fields     = {{"at", 0U, 0U, "checks.reader.Base", true, false}};
+        source.interface = {std::move(base), std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error ==
+              "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+}
+
 TEST_CASE("catalog rejects struct namespace and name clashes", "[descriptor][catalog][structs]") {
     SECTION("a foreign or nested identity is refused transactionally") {
         auto                             source = minimal_descriptor();
