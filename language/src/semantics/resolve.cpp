@@ -1324,6 +1324,35 @@ namespace hgl::semantics
                 }
                 for (const ast::TypeId parent_type : structure.parents) {
                     const Binding &binding = result_.type_bindings[parent_type];
+                    // A struct another module exports may be inherited (ADR
+                    // 0013). It is referenced, never absorbed: this module
+                    // gains no declaration for it, and each field it declares
+                    // keeps that struct as its source, so a diagnostic names
+                    // the module the field really comes from.
+                    if (binding.kind == BindingKind::ImportedStruct) {
+                        const ImportedStruct &parent = result_.imported_structs[binding.index];
+                        if (!parent.abstract) {
+                            report(Category::Type, module_.type(parent_type).range,
+                                   "only an abstract struct may be inherited; '" + parent.identity +
+                                       "' is concrete and implicitly final");
+                            valid = false;
+                            continue;
+                        }
+                        const StructSource source{.imported = binding.index};
+                        info.parents.push_back(source);
+                        if (structure.parents.size() == 1) {
+                            for (const ImportedStructField &field : parent.fields) {
+                                field_indices_[id].emplace(field.name, info.fields.size());
+                                info.fields.push_back(StructField{.name          = field.name,
+                                                                  .type          = ast::no_node,
+                                                                  .default_value = ast::no_node,
+                                                                  .origin        = source,
+                                                                  .optional      = field.optional,
+                                                                  .recursive     = field.recursive});
+                            }
+                        }
+                        continue;
+                    }
                     if (binding.kind != BindingKind::Struct) {
                         valid = false;
                         continue;
@@ -1337,7 +1366,7 @@ namespace hgl::semantics
                         continue;
                     }
                     if (!validate_struct(binding.decl)) { valid = false; }
-                    info.parents.push_back(binding.decl);
+                    info.parents.push_back(StructSource{.decl = binding.decl});
                     if (structure.parents.size() == 1) {
                         info.fields        = result_.struct_info[binding.decl].fields;
                         field_indices_[id] = field_indices_[binding.decl];
@@ -1367,7 +1396,8 @@ namespace hgl::semantics
                                     return;
                                 }
                                 field_index.emplace(item.name.text, info.fields.size());
-                                info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value, id,
+                                info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value,
+                                                                  StructSource{.decl = id},
                                                                   is_null(item.default_value)});
                             } else {
                                 if (!overridden.insert(item.name.text).second) {
@@ -1440,7 +1470,7 @@ namespace hgl::semantics
                     for (const StructField &field : info.fields) {
                         // Inherited fields are reported against the struct that
                         // declares them, so each is named once.
-                        if (field.origin != owner || field.type == ast::no_node) { continue; }
+                        if (field.origin != StructSource{.decl = owner} || field.type == ast::no_node) { continue; }
                         references.clear();
                         field_references(field.type, references);
                         for (const StructReference &reference : references) {
@@ -1672,6 +1702,13 @@ namespace hgl::semantics
                 return binding != nullptr && binding->kind == BindingKind::Generic && binding->decl == decl;
             }
 
+            /// A struct another module exports is named by its identity; it
+            /// has no declaration here to take a name from (ADR 0013).
+            [[nodiscard]] std::string struct_name(const StructSource &source) const {
+                if (source.is_imported()) { return result_.imported_structs[source.imported].identity; }
+                return struct_name(source.decl);
+            }
+
             [[nodiscard]] std::string struct_name(ast::DeclId decl) const {
                 return std::string{std::get<ast::StructDecl>(module_.decl(decl).node).name.text};
             }
@@ -1890,13 +1927,16 @@ namespace hgl::semantics
                 // through a parent cannot be declared.
                 std::vector<std::vector<std::uint32_t>> registration(count);
                 for (std::uint32_t index = 0; index < count; ++index) {
-                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
-                        if (position[parent] != no_position) { registration[index].push_back(position[parent]); }
+                    for (const StructSource &parent : result_.struct_info[result_.structs[index]].parents) {
+                        // A cycle never crosses a module (ADR 0012 rule 5), so an
+                        // imported parent is no part of this module's analysis.
+                        if (parent.is_imported()) { continue; }
+                        if (position[parent.decl] != no_position) { registration[index].push_back(position[parent.decl]); }
                     }
                 }
                 for (const FieldTargets &item : field_targets) {
                     const StructInfo &info = result_.struct_info[result_.structs[item.owner]];
-                    if (info.fields[item.field].origin != result_.structs[item.owner]) { continue; }
+                    if (info.fields[item.field].origin != StructSource{.decl = result_.structs[item.owner]}) { continue; }
                     for (std::size_t index = item.begin; index < item.end; ++index) {
                         const std::uint32_t target = position[targets[index].reference.decl];
                         if (registration[item.owner].empty() || registration[item.owner].back() != target) {
@@ -1908,9 +1948,10 @@ namespace hgl::semantics
                 // A parent edge inside a registration component, by component.
                 std::unordered_map<std::uint32_t, std::pair<std::uint32_t, std::uint32_t>> inheritance_cycles;
                 for (std::uint32_t index = 0; index < count; ++index) {
-                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
-                        if (position[parent] != no_position && registered[position[parent]] == registered[index]) {
-                            inheritance_cycles.try_emplace(registered[index], index, position[parent]);
+                    for (const StructSource &parent : result_.struct_info[result_.structs[index]].parents) {
+                        if (parent.is_imported()) { continue; }
+                        if (position[parent.decl] != no_position && registered[position[parent.decl]] == registered[index]) {
+                            inheritance_cycles.try_emplace(registered[index], index, position[parent.decl]);
                         }
                     }
                 }
@@ -1960,7 +2001,7 @@ namespace hgl::semantics
                     if (verdicts[field.type] == Verdict::Rejected) { continue; }
                     // The edge obeys the language rules; it must also be registrable.
                     // Registration follows the declaring struct's own fields.
-                    const std::uint32_t declared = registered[position[field.origin]];
+                    const std::uint32_t declared = registered[position[field.origin.decl]];
                     const auto          cycle    = inheritance_cycles.find(declared);
                     if (cycle == inheritance_cycles.end() ||
                         std::none_of(targets.begin() + static_cast<std::ptrdiff_t>(item.begin),
@@ -2028,7 +2069,7 @@ namespace hgl::semantics
                 if (direct->applied != ast::no_node) {
                     const std::vector<ast::GenericArgument> &arguments = module_.type(direct->applied).arguments;
                     for (std::size_t index = 0; index < arguments.size(); ++index) {
-                        if (parameter_argument(direct->applied, index, field.origin) ||
+                        if (parameter_argument(direct->applied, index, field.origin.decl) ||
                             !argument_mentions_parameter(direct->applied, index)) {
                             continue;
                         }

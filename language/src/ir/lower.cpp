@@ -1303,9 +1303,14 @@ namespace hgl::ir
                             if (index < resolved_.struct_info.size()) {
                                 for (const semantics::StructField &field : resolved_.structure(index).fields) {
                                     structure.fields.push_back(
+                                        // A field inherited from another module's struct has no
+                                        // declaration here to point at (ADR 0013); it keeps its
+                                        // source in the layout the importer references, not in a
+                                        // local declaration id.
                                         hir::StructField{field.name, id<hir::TypeId>(field.type),
-                                                         id<hir::ExprId>(field.default_value), id<hir::DeclarationId>(field.origin),
-                                                         field.optional, field_range(field.origin, field.name), field.recursive});
+                                                         id<hir::ExprId>(field.default_value),
+                                                         id<hir::DeclarationId>(field.origin.decl), field.optional,
+                                                         field_range(field.origin.decl, field.name), field.recursive});
                                 }
                             }
                             target.node = std::move(structure);

@@ -108,12 +108,18 @@ namespace
         quote.identity        = "checks.shapes.Quote";
         quote.fields          = {{"bid", hgl::semantics::ImportedScalarType::F64, false, false}};
         quote.support_error   = std::move(support_error);
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
         hgl::semantics::ImportedStruct pair;
         pair.module_identity = module.identity;
         pair.name            = "Pair";
         pair.identity        = "checks.shapes.Pair";
         pair.generics        = {{.name = "T", .binding_identity = "checks.shapes.Pair::T"}};
-        module.structs       = {std::move(quote), std::move(pair)};
+        module.structs       = {std::move(quote), std::move(base), std::move(pair)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -584,7 +590,8 @@ fn make() -> atomic<Future> => Future(symbol: "F", expiry: @2026-12-18)
     const ast::DeclId future     = resolved.struct_id("Future");
     REQUIRE(resolved.result.structure(instrument).valid);
     REQUIRE(resolved.result.structure(future).valid);
-    REQUIRE(resolved.result.structure(future).parents == std::vector<ast::DeclId>{instrument});
+    REQUIRE(resolved.result.structure(future).parents ==
+            std::vector<StructSource>{StructSource{.decl = instrument}});
     const auto &fields = resolved.result.structure(future).fields;
     REQUIRE(fields.size() == 4);
     CHECK(fields[0].name == "symbol");
@@ -881,6 +888,48 @@ TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct
         const ModuleCatalog catalog = struct_catalog("field type is not supported by the catalog");
         Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
         CHECK(resolved.has(Category::Module, "struct 'checks.shapes.Quote' is unavailable"));
+    }
+}
+
+// Extending a family a library publishes is why a library is worth having
+// (ADR 0013). The imported parent is referenced, never absorbed: this module
+// gains no declaration for it, and each inherited field keeps the exporting
+// struct as its source rather than becoming an anonymous local copy.
+TEST_CASE("a local struct may inherit an imported abstract parent", "[semantics][struct-imports]") {
+    SECTION("the parent is referenced and its fields keep their source") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Tick: shapes::Base { bid: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const ast::DeclId  tick = resolved.struct_id("Tick");
+        const StructInfo  &info = resolved.result.structure(tick);
+        REQUIRE(info.valid);
+
+        // One parent, and it is the imported struct -- not a local declaration.
+        REQUIRE(info.parents.size() == 1U);
+        CHECK(info.parents.front().is_imported());
+        CHECK(info.parents.front().decl == ast::no_node);
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Base");
+
+        // The inherited field is visible for construction and keeps the
+        // exporting struct as its source; its type lives in that module's
+        // descriptor, not in this module's AST.
+        REQUIRE(info.fields.size() == 2U);
+        CHECK(info.fields[0].name == "at");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[0].type == ast::no_node);
+        CHECK(info.fields[1].name == "bid");
+        CHECK_FALSE(info.fields[1].origin.is_imported());
+        CHECK(info.fields[1].origin.decl == tick);
+    }
+    SECTION("a concrete imported struct is not inheritable") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book: shapes::Quote {}\n", catalog};
+        CHECK(resolved.has(Category::Type,
+                           "only an abstract struct may be inherited; 'checks.shapes.Quote' is concrete"));
     }
 }
 
