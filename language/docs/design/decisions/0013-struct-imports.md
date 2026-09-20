@@ -44,8 +44,18 @@ follows — an identical description under an existing name is the same schema �
 and `TypeRegistry::recursive_bundle_closure` already follows for a batch
 (hgraph RFC 0041). Re-describing is how an importer says *which* type it
 means without requiring the exporting module's process to have run first; it
-is not a copy. A description that disagrees with the registered one is a
-conflict and is reported, not silently accepted.
+is not a copy.
+
+**Detecting a disagreement needs work the registry does not do today.**
+`bundle()` interns an identical description, but `recursive_bundle_closure`
+returns `value_type(root)` as soon as the name is registered and never calls
+the describer, and its concurrent path accepts an existing batch without
+comparing it. So two importers built from different revisions of a recursive
+struct would not collide: the stale one would silently receive the other's
+layout. Acceptance item 4 therefore requires an explicit preflight comparison
+in slice 5 — describe, then compare against the registered schema before
+reusing it — or a registry change. The earlier claim that the existing closure
+already provided this was wrong.
 
 ### Catalog
 
@@ -79,6 +89,25 @@ struct ImportedStruct
 `public_headers` follows `ImportedFunction`: an imported entity carries what a
 consumer needs in order to use it.
 
+**Construction metadata does not cross yet.** A descriptor records a field's
+default and a generic struct's `where` requirement; `ImportedStruct` carries
+neither. So an imported constructor cannot reproduce the calls the exporting
+module accepts — an omitted argument with a default, or an inherited default a
+child overrides — and an imported generic family cannot be constraint-checked
+when applied. Both are recorded as support errors rather than silently
+dropped, so such a struct is unavailable rather than wrong, and slice 3 must
+either reconstruct the metadata or keep refusing these structs by name.
+
+`ImportedType` was built to describe **signatures**, and a layout is a richer
+thing: a parameter list never names a nominal struct and never carries an
+`atomic`. So the type vocabulary widens with the layouts that need it —
+`nominal_identity` beside `binding_identity` (a parameter is substituted, a
+struct is registered), and `ImportedTypeKind::Atomic`. `atomic` converts only
+where a layout asks for it and only at a field's top level: the resolver
+rejects it in value position, so it is not a signature's shape, and ADR 0012
+rule 8 forbids an edge reached through a container. Expect the same widening
+wherever a later slice asks a layout to say something a signature cannot.
+
 ### Resolution
 
 A qualified `Named` type resolves through the catalog to an `ImportedStruct`,
@@ -101,12 +130,28 @@ with `binding_identity` is the existing representation and is reused.
 a library publishes is a large part of why a library is worth having, so this
 is part of the decision rather than a later question.
 
-It needs no new mechanism. hgraph requires a parent to be registered before
-its children, and `bundle()` takes parents as already-registered metadata. An
-importer holds the parent's whole layout, so it registers the imported parent
-and then the local child — the parent-before-child order both backends already
-compute for local parents, with imported parents joining the same topological
-sort.
+Registration needs no new mechanism: hgraph requires a parent to be registered
+before its children, `bundle()` takes parents as already-registered metadata,
+and an importer holds the parent's whole layout, so it registers the imported
+parent and then the local child — the order both backends already compute.
+
+**Resolution did need one, and getting it wrong is instructive.** Inheriting a
+local parent *copies* its resolved fields into the child. Extending that to an
+imported parent is impossible and, more to the point, wrong: a `StructField`'s
+type is an `ast::TypeId` into the inheriting module's own AST, which an
+imported field has no node in. The copy is the defect, not the obstacle.
+
+An inherited struct is **referenced, and keeps the information describing its
+source**. `StructField::origin` already existed to record which struct
+declares a field; it was an `ast::DeclId`, so it could not name another
+module's struct, and the moment a parent was imported an inherited entry
+degraded into an anonymous copy. `origin` and `StructInfo::parents` are a
+`StructSource` instead — a local declaration or an index into
+`imported_structs` — so an inherited field says which module declares it, a
+diagnostic names that module, and the importing module gains no declaration
+for a struct it does not own. An inherited field's `type` stays `no_node`: its
+type lives in the owner's descriptor, and synthesising a local node for it
+would be the same copy by another route.
 
 The consequence is deliberate and worth stating: a local child **joins the
 imported family**. `a.Base`'s bundle hierarchy gains a member and its
