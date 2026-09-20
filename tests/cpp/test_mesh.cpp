@@ -641,6 +641,31 @@ struct StagedDependencyFn {
 
 struct MeshLifecycleRecorderTag {};
 
+struct ScheduleParentOnStop {
+  static constexpr auto name = "mesh_schedule_parent_on_stop";
+
+  static void eval(In<"value", TS<Int>>) {}
+
+  static void stop(NodeView node, DateTime evaluation_time) {
+    NodeView mesh = node.graph().as_nested().parent_node();
+    GraphView parent = mesh.graph();
+    const std::size_t target = parent.node_count() - 1;
+    if (target <= mesh.node_index()) {
+      throw std::logic_error("mesh retirement test has no later parent node");
+    }
+    parent.schedule_node(target, evaluation_time);
+  }
+};
+
+struct ScheduleParentOnStopG {
+  static constexpr auto name = "mesh_schedule_parent_on_stop_g";
+
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) {
+    wire<ScheduleParentOnStop>(w, value);
+    return value;
+  }
+};
+
 void wire_mesh_lifecycle_recorder(
     Wiring &w, const WiringPortRef &mesh_output,
     std::span<const WiringPortRef> triggers,
@@ -1073,6 +1098,19 @@ TEST_CASE("mesh_: removed instances stop for one cycle before slot erase") {
   CHECK(constructed_counts == std::vector<std::size_t>{1, 2, 2, 1});
   CHECK(NestedLifecycleCounters::snapshot() ==
         NestedLifecycleSnapshot{2, 0, 2, 2, 2});
+}
+
+TEST_CASE("mesh_: retiring a child stops it at the parent evaluation time") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<stdlib::mesh_, TSD<Str, TS<Int>>>(
+          fn<ScheduleParentOnStopG>(),
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                        dict_delta<Str, TS<Int>>({}, {"a"s})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                    dict_delta<Str, TS<Int>>({}, {"a"s})));
 }
 
 TEST_CASE("mesh_: named key-set access forwards the mesh output key set") {

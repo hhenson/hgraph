@@ -317,7 +317,7 @@ namespace hgraph
         single_nested_graph_propagate_schedule(nested);
     }
 
-    void single_nested_graph_stop(const NodeView &view, DateTime)
+    void single_nested_graph_stop(const NodeView &view, DateTime evaluation_time)
     {
         auto nested = checked_nested_view(view);
         // The forwarding link is intentionally left intact: stop() only halts
@@ -327,7 +327,7 @@ namespace hgraph
         // wrappers that swap the active child use single_nested_graph_clear_output_binding.
         if (nested.context().options.stop_child_on_stop && nested.child_graph_value().has_value())
         {
-            nested.child_graph().stop();
+            nested.child_graph().stop(evaluation_time);
         }
     }
 

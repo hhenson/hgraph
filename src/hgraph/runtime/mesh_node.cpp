@@ -367,7 +367,8 @@ struct MeshNodeStorage final : SlotObserver {
     }
     if (entry != nullptr && entry->graph.has_value() &&
         entry->graph.view().started()) {
-      removal_exceptions.capture([&] { entry->graph.view().stop(); });
+      removal_exceptions.capture(
+          [&] { entry->graph.view().stop(retirement_time); });
     }
   }
 

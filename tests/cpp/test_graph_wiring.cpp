@@ -1055,6 +1055,30 @@ namespace
         return single_nested_graph_node(std::move(meta), std::move(spec));
     }
 
+    NodeBuilder nested_stop_scheduler_builder()
+    {
+        NodeTypeMetaData meta;
+        meta.display_name = "nested_stop_scheduler";
+        meta.node_kind = NodeKind::Sink;
+
+        NodeCallbacks callbacks;
+        callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
+            NodeView parent = view.graph().as_nested().parent_node();
+            parent.graph().schedule_node(parent.node_index(), evaluation_time);
+        };
+
+        GraphBuilder child;
+        child.label("nested_stop_scheduler_child")
+            .add_node(NodeBuilder::native(std::move(meta), std::move(callbacks)));
+
+        NodeTypeMetaData nested_meta;
+        nested_meta.display_name = "nested_stop_scheduler_graph";
+
+        SingleNestedGraphNodeSpec spec;
+        spec.graph_builder = std::move(child);
+        return single_nested_graph_node(std::move(nested_meta), std::move(spec));
+    }
+
     void write_int(const NodeView &view, DateTime evaluation_time, Int value)
     {
         Value wrapped{value};
@@ -1747,6 +1771,23 @@ TEST_CASE("graph wiring: an out-of-band child graph schedule pushes through to t
 
     CHECK(graph.next_scheduled_time() == when);
     graph.stop();
+}
+
+TEST_CASE("graph wiring: nested child stop uses the parent stop time")
+{
+    using namespace hgraph;
+
+    GraphBuilder graph_builder;
+    graph_builder.label("outer_nested_stop_scheduler")
+        .add_node(nested_stop_scheduler_builder());
+
+    testing::MockRootGraph root{graph_builder};
+    auto graph = root.graph();
+    graph.start(MIN_ST);
+
+    // The child last ran at MIN_ST, but its stop hook schedules back into the
+    // parent after the parent's clock has advanced to this explicit stop time.
+    CHECK_NOTHROW(graph.stop(MIN_ST + MIN_TD));
 }
 
 TEST_CASE("graph wiring: nested graph evaluation propagates cached child next schedule")
