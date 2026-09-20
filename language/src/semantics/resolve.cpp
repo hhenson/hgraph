@@ -1295,6 +1295,53 @@ namespace hgl::semantics
                 field_indices_.assign(module_.decls.size(), {});
                 for (const ast::DeclId id : result_.structs) { (void)validate_struct(id); }
                 check_recursive_fields();
+                check_export_closure();
+            }
+
+            /// An importer rebuilds an exported struct from its layout, so every
+            /// struct that layout reaches has to be exported too (ADR 0013,
+            /// "Exports are closed under reachability"). A field reaches each
+            /// struct its type names, through collection elements, generic
+            /// arguments and an `atomic` edge; a parent is reached by
+            /// inheritance. The rule runs from exported roots only, so an
+            /// unexported leaf or chain may reference other internal structs.
+            /// The check is on the exporting module, so the error lands on
+            /// whoever broke the contract rather than on a consumer.
+            void check_export_closure() {
+                const auto exported = [&](ast::DeclId id) {
+                    return std::get<ast::StructDecl>(module_.decl(id).node).exported;
+                };
+                std::vector<StructReference> references;
+                for (const ast::DeclId owner : result_.structs) {
+                    if (!exported(owner)) { continue; }
+                    const auto       &structure = std::get<ast::StructDecl>(module_.decl(owner).node);
+                    const StructInfo &info      = result_.struct_info[owner];
+                    for (const ast::TypeId parent : structure.parents) {
+                        references.clear();
+                        struct_references(parent, Reach::Direct, references);
+                        for (const StructReference &reference : references) {
+                            if (exported(reference.decl)) { continue; }
+                            report(Category::Type, module_.type(parent).range,
+                                   "exported struct '" + struct_name(owner) + "' inherits module-internal struct '" +
+                                       struct_name(reference.decl) + "'; everything an exported struct reaches must be " +
+                                       "exported (ADR 0013)");
+                        }
+                    }
+                    for (const StructField &field : info.fields) {
+                        // Inherited fields are reported against the struct that
+                        // declares them, so each is named once.
+                        if (field.origin != owner || field.type == ast::no_node) { continue; }
+                        references.clear();
+                        field_references(field.type, references);
+                        for (const StructReference &reference : references) {
+                            if (exported(reference.decl)) { continue; }
+                            report(Category::Type, module_.type(field.type).range,
+                                   "exported struct '" + struct_name(owner) + "' reaches module-internal struct '" +
+                                       struct_name(reference.decl) + "' through field '" + field.name +
+                                       "'; everything an exported struct reaches must be exported (ADR 0013)");
+                        }
+                    }
+                }
             }
 
             // ------------------------------------------- recursive struct fields

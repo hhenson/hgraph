@@ -751,6 +751,55 @@ TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[s
     }
 }
 
+// An importer rebuilds an exported struct from its layout, so everything that
+// layout reaches has to be exported too (ADR 0013, "Exports are closed under
+// reachability"). The check is on the exporting module, so the error lands on
+// whoever broke the contract rather than on a consumer.
+TEST_CASE("an exported struct may only reach exported types", "[semantics][export-closure]") {
+    const auto rejected = [](std::string text, std::string_view message) {
+        const Resolved resolved{std::move(text)};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Type, message));
+    };
+    SECTION("a field naming a module-internal struct") {
+        rejected("module t\nstruct Venue { name: str }\nexport struct Quote { venue: Venue }\n",
+                 "exported struct 'Quote' reaches module-internal struct 'Venue' through field 'venue'");
+    }
+    SECTION("through a collection element") {
+        rejected("module t\nstruct Leg { size: i64 }\nexport struct Order { legs: list<Leg> }\n",
+                 "exported struct 'Order' reaches module-internal struct 'Leg' through field 'legs'");
+    }
+    SECTION("through a generic argument") {
+        rejected("module t\nstruct Key { id: i64 }\nstruct Box<T> { value: T }\n"
+                 "export struct Holder { boxed: Box<Key> }\n",
+                 "exported struct 'Holder' reaches module-internal struct 'Box' through field 'boxed'");
+    }
+    SECTION("through a recursive edge (ADR 0012)") {
+        rejected("module t\nstruct Node { next: atomic<Node> = null }\n"
+                 "export struct Chain { head: atomic<Node> = null }\n",
+                 "exported struct 'Chain' reaches module-internal struct 'Node' through field 'head'");
+    }
+    SECTION("an inherited abstract parent") {
+        rejected("module t\nabstract struct Base { at: i64 }\nexport struct Leaf: Base {}\n",
+                 "exported struct 'Leaf' inherits module-internal struct 'Base'");
+    }
+    SECTION("an exported struct reaching exported types is fine") {
+        const Resolved resolved =
+            resolve_clean("module t\nexport struct Venue { name: str }\n"
+                          "export abstract struct Base { at: i64 }\n"
+                          "export struct Quote: Base { venue: Venue\n legs: list<Venue> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Quote")).valid);
+    }
+    SECTION("an internal struct may reach internal structs freely") {
+        // The closure rule applies only from an exported root: a module-internal
+        // leaf or chain stays unconstrained.
+        const Resolved resolved = resolve_clean("module t\nstruct Venue { name: str }\n"
+                                                "struct Quote { venue: Venue }\n"
+                                                "struct Book { quote: Quote\n more: list<Quote> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Book")).valid);
+    }
+}
+
 TEST_CASE("struct fields may name other structs that do not lead back", "[semantics]") {
     SECTION("a const generic argument that mentions no parameter (rule 4)") {
         // Rule 4 admits an argument that is a parameter of the declaring struct
