@@ -40,19 +40,22 @@ The relation holds initially and after every action, including inspection.
 |---|---|---|
 | observation time | external evaluation context | external evaluation context |
 | X present | X in live key index | X maps to an occupied row |
-| bid | live X and published bid leaf, otherwise nil | occupied X row and published bid time, otherwise nil |
-| ask | live X and published ask leaf, otherwise nil | occupied X row and published ask time, otherwise nil |
+| current bid | live X and published bid leaf, otherwise nil | occupied X row and published bid time, otherwise nil |
+| current ask | live X and published ask leaf, otherwise nil | occupied X row and published ask time, otherwise nil |
 | root last time | root tracking | root tracking |
 | row last time | live X bundle tracking, otherwise absent | occupied X bundle-time column, otherwise absent |
 | bid last time | live bid tracking, otherwise absent | occupied X bid-time column, otherwise absent |
 | ask last time | live ask tracking, otherwise absent | occupied X ask-time column, otherwise absent |
 | X removed this cycle | removal record for X and this time | removal record for logical X and this time, independent of slot reuse |
+| removed child: identity, bid/ask values and row/leaf times | retained child outside the live key index, keyed by X and removal cycle | retired row or saved row image, including identity, payloads and time columns, keyed by X and removal cycle |
 
 Initially there are no members or changes; times are `never`. Begin advances
 the external clock. Publication creates unpublished children as needed, writes
 the leaf, and stamps leaf, row and root while retaining sibling time. Removal
-records the key, removes live membership and stamps the root. Removed children
-remain readable for TS-11's interval. Inspection changes nothing.
+retains the child before removing live membership, records the key and stamps
+the root. The removed view reads the retained child, not the live index.
+Reclamation or row reuse must preserve it until the cycle ends (TS-11);
+reinsertion in that cycle restores the same child. Inspection changes nothing.
 
 Updates finish before observation. Flags follow the behavioural rules,
 including TS-9. Moving a row preserves its values and times; reuse initializes
