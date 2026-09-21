@@ -351,6 +351,11 @@ namespace hgl::ir::detail
         const Type &value = module_.type(type);
         if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return false; }
         const Symbol &symbol = module_.symbol(value.symbol);
+        // A struct another module exports IS a struct to everything that asks
+        // (ADR 0013) -- `T is struct`, `fields(T)`, `field_type(T, "x")`.
+        // Only its declaration lives elsewhere, and the re-description is what
+        // stands in for it.
+        if (symbol.kind == SymbolKind::ImportedStruct) { return imported_struct(type) != nullptr; }
         return symbol.kind == SymbolKind::Struct && symbol.owner.valid() &&
                std::holds_alternative<StructDecl>(module_.declaration(symbol.owner).node);
     }
@@ -375,12 +380,28 @@ namespace hgl::ir::detail
         // first, so they are the effective list as they stand -- and a generic
         // imported family still refuses by name, so nothing here substitutes.
         if (const ImportedStructDecl *imported = imported_struct(type_id)) {
+            // An applied family substitutes exactly as a local one does: the
+            // field types were lowered in the OWNER's generic scope, so
+            // `Box<i64>.value` reads as `T` unless the application's arguments
+            // are bound into it.
+            const Type         &applied = module_.type(type_id);
+            GenericSubstitution substitution{module_, types_};
+            for (std::size_t index = 0; index < imported->generics.size() && index < applied.arguments.size(); ++index) {
+                const GenericParameter &generic  = imported->generics[index];
+                const TypeArgument     &argument = applied.arguments[index];
+                if (generic.is_const && argument.kind == TypeArgumentKind::Value) {
+                    (void)substitution.bind_value(generic.symbol, argument.value);
+                } else if (!generic.is_const && argument.kind == TypeArgumentKind::Type) {
+                    (void)substitution.bind_type(generic.symbol, argument.type);
+                }
+            }
             for (const StructField &field : imported->fields) {
+                const TypeId resolved = substitution.apply(field.type);
                 if (const auto existing = fields.index.find(field.name); existing != fields.index.end()) {
-                    fields.fields[existing->second].type = field.type;
+                    fields.fields[existing->second].type = resolved;
                 } else {
                     fields.index.emplace(field.name, fields.fields.size());
-                    fields.fields.push_back(EffectiveField{field.name, field.type});
+                    fields.fields.push_back(EffectiveField{field.name, resolved});
                 }
             }
             return;

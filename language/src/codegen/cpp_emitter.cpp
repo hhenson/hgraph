@@ -4933,6 +4933,14 @@ namespace hgl::codegen
                     if (!field.recursive) { continue; }
                     const auto target = by_identity.find(field.recursive_target);
                     if (target == by_identity.end()) {
+                        // An edge inherited from a family another module
+                        // exports names that module's struct (ADR 0013). It is
+                        // already declared, by the exporter's header, so there
+                        // is nothing to forward-declare here -- and nothing
+                        // wrong either.
+                        const auto imported = std::ranges::find(graph_.structures, field.recursive_target,
+                                                                &gir::StructContract::identity);
+                        if (imported != graph_.structures.end() && imported->imported) { continue; }
                         backend(field.range, "hgraph IR recursive edge '" + field.name + "' names no local struct");
                     }
                     if (position[target->second.value] <= index || declared[target->second.value]) { continue; }

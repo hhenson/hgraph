@@ -161,7 +161,20 @@ namespace
         base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false},
                                 {"venue", nominal("checks.shapes.Venue"), false, false}};
 
-        module.structs = {std::move(base), std::move(venue)};
+        // A generic family, so an APPLIED imported struct is exercised too.
+        hgl::semantics::ImportedType parameter;
+        parameter.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        parameter.binding_identity = "checks.shapes.Box::T";
+
+        hgl::semantics::ImportedStruct box;
+        box.module_identity = module.identity;
+        box.name            = "Box";
+        box.identity        = "checks.shapes.Box";
+        box.public_headers  = {"checks/shapes.h"};
+        box.generics        = {{"T", "checks.shapes.Box::T", false, {}}};
+        box.fields          = {{"value", parameter, false, false}};
+
+        module.structs = {std::move(base), std::move(venue), std::move(box)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -3258,4 +3271,42 @@ export fn reading(tick: atomic<Tick>, venue: atomic<shapes::Venue>) -> atomic<Ti
     CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Base"));
     // ... which only compiles because the exporter's header comes with it.
     CHECK(contains(emitted->header, "#include <checks/shapes.h>"));
+}
+
+TEST_CASE("an applied imported generic substitutes its arguments into field types", "[codegen][struct-imports]") {
+    // The field types were lowered in the OWNER's generic scope, so
+    // `Box<i64>.value` reads as `T` unless the application's arguments are
+    // bound into it -- and `T` is loosely assignable, so the mistake is
+    // silent rather than loud.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_generic
+
+use checks.shapes as shapes
+
+export fn unbox(boxed: atomic<shapes::Box<i64>>) -> str => boxed.value
+)",
+                             catalog};
+    CHECK(unit.has(Category::Type, "has type i64"));
+}
+
+TEST_CASE("an imported struct satisfies struct reflection", "[codegen][struct-imports]") {
+    // `U is struct`, `fields(U)` and `field_type(U, ...)` reach a struct
+    // through its declaration; a struct another module exports has none here,
+    // and the re-description is what stands in for it.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_reflection
+
+use checks.shapes as shapes
+
+fn code_of<U>(value: atomic<U>) -> i64
+requires U is struct && has_fields(U, {"code"}) && field_type(U, "code") == i64
+=> value.code
+
+export fn venue_code(venue: atomic<shapes::Venue>) -> i64 => code_of(venue)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
 }
