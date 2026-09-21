@@ -290,12 +290,18 @@ backend one.** The effective-field walk reaches a struct through its
 re-description instead — whose fields are already the whole layout, so they
 are the effective list as they stand.
 
-**Constructing** a value of an imported struct — `m::Quote(...)` — is not
-part of this: a qualified reference resolves to an operator or a function, and
-a constructor needs its own binding and its own validation against the
-re-described layout rather than a local declaration. Constructing a **local
-child** of an imported family does work, and is the case that matters for
-extending a library. Acceptance 1's "constructs a value" is what remains.
+**Constructing** a value of an imported struct — `m::Quote(...)` or
+`use m::{Quote}` then `Quote(...)` — checks against the re-described layout
+rather than a `StructDecl`, and refers to the struct as a struct rather than
+as a binding, so both backends see a construction of the owner's type. The
+two spellings share one binding and cannot drift.
+
+**The ancestry travels with the struct, at binding time.** An ancestor is
+reached only through a parent and is never spelled in the importing module, so
+binding just the named struct leaves its inherited fields with nowhere to come
+from. Binding the family was previously reached only when a local struct
+inherited an imported parent, which left `m::Quote(...)` short of the fields
+`Quote` inherits.
 
 ## Slices
 
@@ -366,11 +372,12 @@ extending a library. Acceptance 1's "constructs a value" is what remains.
    but for a field seeded from a catalog record is a view into a record held
    by value -- so the lookup read freed memory and reported a field the struct
    plainly had. The keys own their spelling now.
-7. **Constructing an imported struct.** `m::Quote(...)`: the qualified
-   reference binds to the imported struct, and the constructor validates
-   against the re-described layout rather than a local declaration. Split out
-   of slice 6, which proved everything around it; this is what acceptance 1's
-   "constructs a value" still needs.
+7. **Constructing an imported struct.** `m::Quote(...)` and
+   `use m::{Quote}` then `Quote(...)`: the qualified reference binds to the
+   imported struct, the constructor validates against the re-described layout
+   rather than a local declaration, and the struct is referred to as a struct
+   rather than as a binding so both backends construct the owner's type. The
+   ancestry is bound with the struct, not only when a local child inherits it.
 8. **Docs and example.** The guide's "Structured values" section gains the
    import; an example module pair exports and imports a struct and extends an
    imported family, asserted on both backends. ADR 0012's acceptance item
@@ -422,6 +429,13 @@ also contradicts how `use` already works for functions.
   identity differently are a conflict. Slice 5 reports it at registration;
   whether the driver should refuse the catalog earlier, on fingerprints
   alone, is left open.
+- **Passing an imported value back to a function of the exporting module**,
+  the last clause of acceptance 1. This is not a struct question: an ordinary
+  HGL `export fn` is not importable at all, because behaviour crosses a module
+  boundary through an operator contract. A module that wants to publish both a
+  shape and something to do with it declares an operator whose signature names
+  the struct, which already works. Whether a plain exported function should
+  also be importable belongs to its own decision.
 
 ## Acceptance
 

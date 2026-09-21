@@ -881,7 +881,11 @@ namespace hgl::hgraph_ir
                         break;
                     case hir::SymbolKind::Operator:
                     case hir::SymbolKind::ImportedOperator: target.kind = ReferenceKind::Operator; break;
-                    case hir::SymbolKind::Struct: target.kind = ReferenceKind::Struct; break;
+                    // A struct another module exports is referred to as a
+                    // struct, not as a binding (ADR 0013): it is a type to
+                    // construct, and its identity is already the owner's.
+                    case hir::SymbolKind::Struct:
+                    case hir::SymbolKind::ImportedStruct: target.kind = ReferenceKind::Struct; break;
                     case hir::SymbolKind::Intrinsic: target.kind = ReferenceKind::Intrinsic; break;
                     default: target.kind = ReferenceKind::Binding; break;
                 }

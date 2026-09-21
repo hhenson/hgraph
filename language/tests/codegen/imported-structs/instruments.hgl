@@ -1,9 +1,10 @@
-# The importing side: the struct is REFERRED to, never re-declared. A local
-# struct extends the imported family, and a signature naming the imported type
-# forces generated C++ to reach the exporter's own definition.
+# The importing side: the struct is REFERRED to, never re-declared. A value
+# built here IS the exporting module's type, and a local struct extends the
+# imported family.
 module checks.imported_struct_consumer
 
 use checks.imported_shapes as shapes
+use checks.imported_shapes::{Equity}
 
 # Extending a family a library publishes -- the reason a library is worth
 # having, so it is part of the decision rather than a later question.
@@ -15,8 +16,9 @@ export struct Future: shapes::Instrument
 # Inherited from the imported parent, and declared here.
 export fn future_symbol(future: atomic<Future>) -> str => future.symbol
 export fn future_expiry(future: atomic<Future>) -> i64 => future.expiry
-# Names the imported type itself: this is what must resolve to
-# `::checks::imported_shapes::Equity` rather than a local re-declaration.
+# Constructing the imported struct itself, in both spellings.
+export fn build(lot: i64) -> atomic<Equity> => Equity(symbol: "eq", lot: lot)
+export fn build_qualified(lot: i64) -> atomic<shapes::Equity> => shapes::Equity(symbol: "q", lot: lot)
 export fn equity_lot(equity: atomic<shapes::Equity>) -> i64 => equity.lot
 
 test {
@@ -26,5 +28,16 @@ test {
     }
     test own_field {
         assert eval(future_expiry, future: [Future(symbol: "fu", expiry: 3)]) == [3]
+    }
+    # Constructed here, read back here: one schema, no conversion between.
+    test construct_imported {
+        assert eval(equity_lot, equity: [Equity(symbol: "eq", lot: 7)]) == [7]
+    }
+    test round_trip_imported {
+        assert eval(build, lot: [5]) == [Equity(symbol: "eq", lot: 5)]
+    }
+    # The alias spelling and the `use` spelling share one binding.
+    test round_trip_qualified {
+        assert eval(build_qualified, lot: [5]) == [shapes::Equity(symbol: "q", lot: 5)]
     }
 }

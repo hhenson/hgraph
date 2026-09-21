@@ -1130,6 +1130,16 @@ namespace hgl::semantics
                         if (const auto binding = imported_operator(*contract, ref.name.range)) { result_.bindings[id] = *binding; }
                         return;
                     }
+                    // `m::Quote(...)` constructs a struct the module exports
+                    // (ADR 0013). The alias form and `use m::{Quote}` share the
+                    // binding, so they cannot drift.
+                    if (const ImportedStruct *structure = catalog_.find_struct(alias.module, ref.name.text)) {
+                        const ImportedStruct record = *structure;
+                        if (const auto binding = imported_struct_binding(record, ref.name.range)) {
+                            result_.bindings[id] = *binding;
+                        }
+                        return;
+                    }
                     if (alias.module != kernel_std && alias.module != kernel_analytics) {
                         const std::span<const ImportedFunction> functions = catalog_.find_functions(alias.module, ref.name.text);
                         if (functions.empty()) {
