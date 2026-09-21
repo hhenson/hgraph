@@ -448,6 +448,151 @@ TEST_CASE("unsupported imported operator contracts cannot become unconstrained s
     CHECK(imported->support_error == "imported operator " + expected);
 }
 
+// A struct another module exports crosses into the catalog as a layout the
+// importer rebuilds (ADR 0013). Whatever cannot cross is a support error, not
+// a silently shorter layout -- that would register under the owner's name while
+// disagreeing with the exporter.
+TEST_CASE("catalog carries an exported struct's layout", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Base"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Quote"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Atomic, .children = {2U}},
+    };
+    descriptor::InterfaceDeclaration base;
+    base.category = descriptor::DeclarationCategory::Structure;
+    base.identity = "checks.reader.Base";
+    base.abstract = true;
+    base.fields   = {{"at", 0U, descriptor::no_schema_id, "checks.reader.Base", false, false}};
+
+    descriptor::InterfaceDeclaration quote;
+    quote.category = descriptor::DeclarationCategory::Structure;
+    quote.identity = "checks.reader.Quote";
+    quote.parents  = {1U};
+    quote.fields   = {{"at", 0U, descriptor::no_schema_id, "checks.reader.Base", false, false},
+                      {"bid", 0U, descriptor::no_schema_id, "checks.reader.Quote", false, false},
+                      {"next", 3U, descriptor::no_schema_id, "checks.reader.Quote", true, true}};
+    source.interface = {std::move(base), std::move(quote)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Quote");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->identity == "checks.reader.Quote");
+    CHECK(imported->module_identity == "checks.reader");
+    CHECK(imported->support_error.empty());
+    CHECK_FALSE(imported->abstract);
+    REQUIRE(imported->parents.size() == 1U);
+    CHECK(imported->parents.front().nominal_identity == "checks.reader.Base");
+
+    // The inherited `at` arrives with the parent the importer rebuilds first,
+    // so the child's layout carries only what it declares.
+    REQUIRE(imported->fields.size() == 2U);
+    CHECK(imported->fields[0].name == "bid");
+    CHECK(imported->fields[1].name == "next");
+    CHECK(imported->fields[1].optional);
+    CHECK(imported->fields[1].recursive);
+
+    const auto *parent = catalog.find_struct("checks.reader", "Base");
+    REQUIRE(parent != nullptr);
+    CHECK(parent->abstract);
+    REQUIRE(parent->fields.size() == 1U);
+    CHECK(parent->fields.front().name == "at");
+
+    CHECK(catalog.find_struct("checks.reader", "Missing") == nullptr);
+    CHECK(catalog.find_struct("other.module", "Quote") == nullptr);
+}
+
+// Review findings on the catalog slice: a layout may say things a signature
+// cannot, but the converse must not leak, and a layout that cannot be rebuilt
+// is unsupported rather than merely shorter.
+TEST_CASE("catalog guards what an imported struct layout may carry", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Missing"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Quote"},
+    };
+    source.build.public_headers = {"checks/reader.h"};
+
+    SECTION("the exporter's headers travel with the struct") {
+        descriptor::InterfaceDeclaration quote;
+        quote.category   = descriptor::DeclarationCategory::Structure;
+        quote.identity   = "checks.reader.Quote";
+        quote.fields     = {{"bid", 0U, descriptor::no_schema_id, "checks.reader.Quote", false, false}};
+        source.interface = {std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->public_headers == std::vector<std::string>{"checks/reader.h"});
+    }
+    SECTION("a field naming an undeclared struct of its own module is unsupported") {
+        descriptor::InterfaceDeclaration quote;
+        quote.category   = descriptor::DeclarationCategory::Structure;
+        quote.identity   = "checks.reader.Quote";
+        quote.fields     = {{"venue", 1U, descriptor::no_schema_id, "checks.reader.Quote", false, false}};
+        source.interface = {std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field 'venue' names 'checks.reader.Missing', which is not "
+                                         "declared by checks.reader");
+    }
+    SECTION("a child's override of an inherited default is not dropped silently") {
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .literal = hgl::ir::hir::Constant{std::int64_t{1}}}};
+        descriptor::InterfaceDeclaration base;
+        base.category = descriptor::DeclarationCategory::Structure;
+        base.identity = "checks.reader.Base";
+        base.abstract = true;
+        base.fields   = {{"at", 0U, descriptor::no_schema_id, "checks.reader.Base", false, false}};
+        descriptor::InterfaceDeclaration quote;
+        quote.category = descriptor::DeclarationCategory::Structure;
+        quote.identity = "checks.reader.Quote";
+        // `at` is inherited, but this descriptor carries the child's own default.
+        quote.fields     = {{"at", 0U, 0U, "checks.reader.Base", true, false}};
+        source.interface = {std::move(base), std::move(quote)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Quote");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error ==
+              "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+}
+
+TEST_CASE("catalog rejects struct namespace and name clashes", "[descriptor][catalog][structs]") {
+    SECTION("a foreign or nested identity is refused transactionally") {
+        auto                             source = minimal_descriptor();
+        source.types                            = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        descriptor::InterfaceDeclaration structure;
+        structure.category = descriptor::DeclarationCategory::Structure;
+        structure.fields   = {{"at", 0U, descriptor::no_schema_id, "", false, false}};
+        SECTION("foreign namespace") { structure.identity = "other.module.Quote"; }
+        SECTION("nested route") { structure.identity = "checks.reader.inner.Quote"; }
+        source.interface = {std::move(structure)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    error = descriptor::add_to_catalog(source, catalog);
+        REQUIRE(error);
+        CHECK(error->path == "$.interface[0].identity");
+        CHECK(catalog.modules().empty());
+    }
+}
+
 TEST_CASE("catalog rejects operator namespace errors transactionally", "[descriptor][catalog][operators]") {
     auto                             source = scalar_native_descriptor();
     descriptor::InterfaceDeclaration contract;

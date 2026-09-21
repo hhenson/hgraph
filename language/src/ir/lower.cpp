@@ -92,6 +92,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
                 case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
+                case semantics::ImportedTypeKind::Atomic: return hir::TypeKind::Atomic;
             }
             std::unreachable();
         }
@@ -813,6 +814,12 @@ namespace hgl::ir
                             return symbol;
                         }
                         break;
+                    case BindingKind::ImportedStruct:
+                        // A struct another module exports is a type, never a
+                        // value symbol (ADR 0013). Slice 4 carries it through
+                        // the shared passes by identity; until then a mention
+                        // in value position falls through to the report below.
+                        break;
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
@@ -1296,9 +1303,14 @@ namespace hgl::ir
                             if (index < resolved_.struct_info.size()) {
                                 for (const semantics::StructField &field : resolved_.structure(index).fields) {
                                     structure.fields.push_back(
+                                        // A field inherited from another module's struct has no
+                                        // declaration here to point at (ADR 0013); it keeps its
+                                        // source in the layout the importer references, not in a
+                                        // local declaration id.
                                         hir::StructField{field.name, id<hir::TypeId>(field.type),
-                                                         id<hir::ExprId>(field.default_value), id<hir::DeclarationId>(field.origin),
-                                                         field.optional, field_range(field.origin, field.name), field.recursive});
+                                                         id<hir::ExprId>(field.default_value),
+                                                         id<hir::DeclarationId>(field.origin.decl), field.optional,
+                                                         field_range(field.origin.decl, field.name), field.recursive});
                                 }
                             }
                             target.node = std::move(structure);

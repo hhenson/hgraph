@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <unordered_set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -50,8 +51,14 @@ namespace hgl::descriptor
             return std::nullopt;
         }
 
+        /// `atomic<T>` is a struct field's shape, never a signature's: the
+        /// resolver rejects it in value position, and ADR 0012 admits an edge
+        /// only at a field's top level, never through a container. So it
+        /// converts only where a layout asks for it, and never for a child.
         [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor, SchemaId id,
-                                                                           std::vector<SchemaId> path = {}) noexcept {
+                                                                           std::vector<SchemaId> path         = {},
+                                                                           bool                  allow_layout = false,
+                                                                           bool                  allow_atomic = false) noexcept {
             using semantics::ImportedType;
             using semantics::ImportedTypeKind;
             if (id == no_schema_id || id >= descriptor.types.size()) { return std::nullopt; }
@@ -71,9 +78,17 @@ namespace hgl::descriptor
             }
             switch (source.category) {
                 case TypeCategory::Symbol:
-                    if (source.binding_identity.empty()) { return std::nullopt; }
+                    // A signature's Symbol is a generic parameter, which
+                    // lowering resolves by binding identity. A nominal struct
+                    // (ADR 0013) is a type to register, and only a layout can
+                    // carry one: advertising it in a signature would report
+                    // support for a function lowering then rejects.
+                    if (source.binding_identity.empty() && !(allow_layout && !source.nominal_identity.empty())) {
+                        return std::nullopt;
+                    }
                     result.kind             = ImportedTypeKind::Symbol;
                     result.binding_identity = source.binding_identity;
+                    result.nominal_identity = source.nominal_identity;
                     break;
                 case TypeCategory::List: result.kind = ImportedTypeKind::List; break;
                 case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
@@ -81,10 +96,16 @@ namespace hgl::descriptor
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
                 case TypeCategory::Signal: result.kind = ImportedTypeKind::Signal; break;
                 case TypeCategory::Schema: result.kind = ImportedTypeKind::Schema; break;
+                case TypeCategory::Atomic:
+                    if (!allow_atomic) { return std::nullopt; }
+                    result.kind = ImportedTypeKind::Atomic;
+                    break;
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
-                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);
+                // A layout's nested types may still name a struct; only the
+                // atomic boundary is confined to the field's top level.
+                std::optional<ImportedType> lowered = imported_type(descriptor, child, path, allow_layout);
                 if (!lowered) { return std::nullopt; }
                 result.children.push_back(std::move(*lowered));
             }
@@ -122,6 +143,78 @@ namespace hgl::descriptor
                 case NativeParameterAccess::InputView: return semantics::NativeParameterAccess::InputView;
             }
             std::unreachable();
+        }
+
+        /// One exported struct's layout (ADR 0013). The importer rebuilds the
+        /// type from this and registers it under the owner's identity, so every
+        /// field type, parent and generic has to survive the crossing; whatever
+        /// does not is recorded as a support error rather than silently dropped,
+        /// the same discipline imported operators follow.
+        [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
+                                                                const InterfaceDeclaration &declaration) {
+            semantics::ImportedStruct result;
+            result.module_identity        = descriptor.module_identity;
+            result.identity               = declaration.identity;
+            result.abstract               = declaration.abstract;
+            result.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            // Generated C++ refers to the exporter's type rather than
+            // re-declaring it (ADR 0013), so a consumer needs the header that
+            // declares it -- the same reason an imported native function
+            // carries them.
+            result.public_headers         = descriptor.build.public_headers;
+            const std::string prefix      = descriptor.module_identity + ".";
+            if (declaration.identity.starts_with(prefix)) {
+                const std::string name = declaration.identity.substr(prefix.size());
+                if (!name.empty() && name.find_first_of(".:") == std::string::npos) { result.name = name; }
+            }
+            const auto unsupported = [&](std::string message) {
+                if (result.support_error.empty()) { result.support_error = std::move(message); }
+            };
+            if (declaration.signature.requirements != no_schema_id) {
+                unsupported("imported struct constraints require catalog constraint reconstruction");
+            }
+            for (const GenericParameter &generic : declaration.signature.generics) {
+                semantics::ImportedGeneric lowered{
+                    .name = generic.name, .binding_identity = generic.binding_identity, .is_const = generic.is_const};
+                if (generic.is_pack) { unsupported("imported struct type packs require catalog pack reconstruction"); }
+                if (generic.type != no_schema_id) {
+                    lowered.type = imported_type(descriptor, generic.type);
+                    if (!lowered.type) { unsupported("imported struct generic type is not supported by the catalog"); }
+                }
+                result.generics.push_back(std::move(lowered));
+            }
+            for (const SchemaId parent : declaration.parents) {
+                const auto type = imported_type(descriptor, parent, {}, /*allow_layout=*/true);
+                if (!type) {
+                    unsupported("imported struct parent type is not supported by the catalog");
+                    continue;
+                }
+                result.parents.push_back(*type);
+            }
+            for (const StructField &field : declaration.fields) {
+                // An inherited field arrives with the parent, which the importer
+                // rebuilds first; carrying it twice would duplicate it. A child
+                // that overrides the inherited default is a different matter:
+                // the override lives only here, so dropping the field silently
+                // would rebuild the parent's default instead of the child's.
+                if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
+                    if (field.default_value != no_schema_id) {
+                        unsupported("imported struct inherited field defaults require catalog constant reconstruction");
+                    }
+                    continue;
+                }
+                if (field.default_value != no_schema_id) {
+                    unsupported("imported struct field defaults require catalog constant reconstruction");
+                }
+                const auto type = imported_type(descriptor, field.type, {}, /*allow_layout=*/true, /*allow_atomic=*/true);
+                if (!type) {
+                    unsupported("imported struct field type is not supported by the catalog");
+                    continue;
+                }
+                result.fields.push_back(
+                    {.name = field.name, .type = *type, .optional = field.optional, .recursive = field.recursive});
+            }
+            return result;
         }
 
         [[nodiscard]] semantics::ImportedOperatorContract imported_operator(const ModuleDescriptor     &descriptor,
@@ -199,6 +292,56 @@ namespace hgl::descriptor
                                  "operator identity must be '" + descriptor.module_identity + ".<name>'"};
             }
             module.operators.push_back(std::move(contract));
+        }
+        for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
+            const InterfaceDeclaration &declaration = descriptor.interface[index];
+            if (declaration.category != DeclarationCategory::Structure) { continue; }
+            auto structure = imported_struct(descriptor, declaration);
+            if (structure.name.empty()) {
+                return ReadError{"$.interface[" + std::to_string(index) + "].identity",
+                                 "struct identity must be '" + descriptor.module_identity + ".<name>'"};
+            }
+            module.structs.push_back(std::move(structure));
+        }
+        // A descriptor may name a struct of its own module that it does not
+        // declare: validation resolves a recursive edge's target but not an
+        // ordinary parent or field. An importer would have no layout to
+        // rebuild it from, so the layout is unsupported rather than merely
+        // incomplete (ADR 0013).
+        {
+            std::unordered_set<std::string_view> declared;
+            declared.reserve(module.structs.size());
+            for (const semantics::ImportedStruct &structure : module.structs) { declared.emplace(structure.identity); }
+            const std::string prefix = descriptor.module_identity + ".";
+            const auto        unresolved =
+                [&](const semantics::ImportedType &type, auto &&self) -> const std::string * {
+                if (type.kind == semantics::ImportedTypeKind::Symbol && !type.nominal_identity.empty() &&
+                    type.nominal_identity.starts_with(prefix) && !declared.contains(type.nominal_identity)) {
+                    return &type.nominal_identity;
+                }
+                for (const semantics::ImportedType &child : type.children) {
+                    if (const std::string *found = self(child, self)) { return found; }
+                }
+                return nullptr;
+            };
+            for (semantics::ImportedStruct &structure : module.structs) {
+                if (!structure.support_error.empty()) { continue; }
+                for (const semantics::ImportedType &parent : structure.parents) {
+                    if (const std::string *missing = unresolved(parent, unresolved)) {
+                        structure.support_error = "imported struct parent '" + *missing + "' is not declared by " +
+                                                  descriptor.module_identity;
+                        break;
+                    }
+                }
+                if (!structure.support_error.empty()) { continue; }
+                for (const semantics::ImportedStructField &field : structure.fields) {
+                    if (const std::string *missing = unresolved(field.type, unresolved)) {
+                        structure.support_error = "imported struct field '" + field.name + "' names '" + *missing +
+                                                  "', which is not declared by " + descriptor.module_identity;
+                        break;
+                    }
+                }
+            }
         }
         for (std::size_t declaration_index = 0; declaration_index < descriptor.native_declarations.size(); ++declaration_index) {
             const NativeDeclaration &declaration = descriptor.native_declarations[declaration_index];
