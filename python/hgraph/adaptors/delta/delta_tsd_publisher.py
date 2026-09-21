@@ -172,7 +172,7 @@ def publish_tsd_to_delta_table(
         tsd, max_rows=max_rows, flush_period=flush_period)
     cache_location = DataEnvironment.current().get_entry(
         "table_history_path").environment_path
-    written = delta_write_adaptor_raw[SCHEMA:frame_schema](
+    written = delta_write_adaptor_raw(
         path=cache_location,
         table=table_name.replace(" ", "_"),
         data=frame,
