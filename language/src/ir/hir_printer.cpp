@@ -36,6 +36,7 @@ namespace hgl::ir
             switch (kind) {
                 case SymbolKind::Module: return "module";
                 case SymbolKind::Struct: return "struct";
+                case SymbolKind::ImportedStruct: return "imported-struct";
                 case SymbolKind::Operator: return "operator";
                 case SymbolKind::Function: return "function";
                 case SymbolKind::Test: return "test";

@@ -224,6 +224,25 @@ itself, with no conversion and no chance of two definitions drifting.
    application. Admit a local struct inheriting an imported abstract parent.
 4. **Shared passes.** Typed HIR and hgraph IR carry an imported struct by
    identity, with the termination audit ADR 0012 slice 2 established.
+
+   This is larger than it reads, and each layer needs its own accommodation.
+   A struct this module does not own has **no declaration here**, so: it is an
+   external HIR symbol interned by the owner's identity
+   (`SymbolKind::ImportedStruct`), the way an imported function already is; it
+   names a type beside `SymbolKind::Struct` in the type checker; an inherited
+   field carries `origin_identity` because `hir::StructField::origin` is a
+   declaration id that cannot name one; that field's **type** is lowered from
+   the owner's layout, since it has no AST node here; and hgraph-IR lowering
+   skips the local generic-scope walk, which has no declaration to walk to.
+   Losing any one of them leaves the field typeless, or anonymous, in the IR
+   both backends realize from.
+
+   Still owed here: the requirement lowering slice 3c reconstructed. An
+   imported struct is a symbol and a type, not yet an HIR *declaration*, so a
+   rebuilt `where` has nothing to attach to. Inheriting a **generic** imported
+   struct refuses by name meanwhile, because its parameters would have to map
+   into this module's symbols and typing those fields against the wrong scope
+   would be silently wrong.
 5. **Direct wiring.** Realize an imported struct through the type bridge under
    the owner's identity, imported parents ahead of local children; conflict
    detection when a description disagrees with a registered schema; recursive

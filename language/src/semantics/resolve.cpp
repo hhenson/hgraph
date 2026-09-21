@@ -1082,10 +1082,14 @@ namespace hgl::semantics
             /// required one accepted. Ancestors come first, so a field keeps the
             /// position it has in the exporting family, and each entry keeps the
             /// struct that declares it as its source.
-            [[nodiscard]] bool seed_imported_fields(ast::DeclId id, StructInfo &info, const ImportedStruct &structure,
-                                                    const StructSource &source,
-                                                    std::vector<std::string_view> visiting = {}) {
-                if (std::ranges::find(visiting, std::string_view{structure.identity}) != visiting.end()) { return true; }
+            /// Taken BY VALUE, not by reference: binding an ancestor appends to
+            /// `result_.imported_structs`, and a reference into that vector
+            /// would dangle the moment it reallocates -- which silently drops
+            /// the fields this struct declares.
+            [[nodiscard]] bool seed_imported_fields(ast::DeclId id, StructInfo &info, const ImportedStruct structure,
+                                                    const StructSource &source, SourceRange range,
+                                                    std::vector<std::string> visiting = {}) {
+                if (std::ranges::find(visiting, structure.identity) != visiting.end()) { return true; }
                 visiting.push_back(structure.identity);
                 for (const ImportedType &parent : structure.parents) {
                     if (parent.nominal_identity.empty()) { continue; }
@@ -1101,7 +1105,15 @@ namespace hgl::semantics
                     // An ancestor is referenced through the same imported record
                     // the child came from; this module gains no declaration for
                     // it either.
-                    if (!seed_imported_fields(id, info, *ancestor, source, visiting)) { return false; }
+                    // Each catalog record holds only the fields it DECLARES, so a
+                    // field seeded from an ancestor must name that ancestor as
+                    // its source -- naming the immediate parent would make its
+                    // type unfindable, and leave the field typeless in the IRs.
+                    const ImportedStruct          ancestor_copy   = *ancestor;
+                    const std::optional<Binding>  ancestor_binding = imported_struct_binding(ancestor_copy, range);
+                    if (!ancestor_binding) { return false; }
+                    const StructSource ancestor_source{.imported = ancestor_binding->index};
+                    if (!seed_imported_fields(id, info, ancestor_copy, ancestor_source, range, visiting)) { return false; }
                 }
                 for (const ImportedStructField &field : structure.fields) {
                     if (field_indices_[id].contains(field.name)) { continue; }
@@ -1407,7 +1419,9 @@ namespace hgl::semantics
                     // keeps that struct as its source, so a diagnostic names
                     // the module the field really comes from.
                     if (binding.kind == BindingKind::ImportedStruct) {
-                        const ImportedStruct &parent = result_.imported_structs[binding.index];
+                        // By value: seeding may bind ancestors, which appends to
+                        // this very vector and would invalidate a reference.
+                        const ImportedStruct parent = result_.imported_structs[binding.index];
                         if (!parent.abstract) {
                             report(Category::Type, module_.type(parent_type).range,
                                    "only an abstract struct may be inherited; '" + parent.identity +
@@ -1417,7 +1431,8 @@ namespace hgl::semantics
                         }
                         const StructSource source{.imported = binding.index};
                         info.parents.push_back(source);
-                        if (structure.parents.size() == 1 && !seed_imported_fields(id, info, parent, source)) {
+                        if (structure.parents.size() == 1 &&
+                            !seed_imported_fields(id, info, parent, source, module_.type(parent_type).range)) {
                             report(Category::Module, module_.type(parent_type).range,
                                    "imported struct '" + parent.identity +
                                        "' inherits a struct whose module is not in the supplied package target, so its "

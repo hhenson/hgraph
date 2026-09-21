@@ -1178,6 +1178,10 @@ namespace hgl::ir
                         expression.value_kind = ValueKind::Function;
                         break;
                     case SymbolKind::Struct:
+                    // A struct another module exports names a type exactly as a
+                    // local one does (ADR 0013); only its declaration lives
+                    // elsewhere.
+                    case SymbolKind::ImportedStruct:
                     case SymbolKind::TypeParameter:
                         expression.type       = make_type(TypeKind::Symbol, {}, reference.symbol);
                         expression.phase      = Phase::Constant;
