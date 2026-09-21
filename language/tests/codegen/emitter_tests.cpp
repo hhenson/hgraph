@@ -3376,6 +3376,20 @@ export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, nope: 2)
                   catalog};
         CHECK(unit.has(Category::Type, "has no field named 'nope'"));
     }
+    SECTION("a positional argument") {
+        // The local rule, applied to an imported struct: accepting this in the
+        // front end only moved the failure to the backend, which reports it
+        // against generated code the author never wrote.
+        Unit unit{R"(
+module checks.import_positional
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(1)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "struct construction uses named arguments"));
+    }
 }
 
 TEST_CASE("an applied imported generic constructs with its arguments spelled", "[codegen][struct-imports]") {

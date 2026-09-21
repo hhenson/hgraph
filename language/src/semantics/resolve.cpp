@@ -1074,7 +1074,13 @@ namespace hgl::semantics
                             resolve_expr(node.rhs, context);
                         } else if constexpr (std::is_same_v<T, ast::Call>) {
                             resolve_expr(node.callee, context);
-                            if (result_.bindings[node.callee].kind == BindingKind::Struct) {
+                            // A struct another module exports constructs by
+                            // name exactly as a local one does (ADR 0013).
+                            // Leaving it out here accepted syntax the local
+                            // rule rejects, only for the backend to fail on it
+                            // later -- the front end has to say no.
+                            if (const auto kind = result_.bindings[node.callee].kind;
+                                kind == BindingKind::Struct || kind == BindingKind::ImportedStruct) {
                                 for (const ast::Argument &argument : node.arguments) {
                                     if (argument.name.empty()) {
                                         report(Category::Type, module_.expr(argument.value).range,
