@@ -1,6 +1,8 @@
 # Collection cases
 
-Status: proposed. See [Evidence](evidence.md) for current validity tests.
+Status: mixed. QUOTE-HISTORY, MEMBERSHIP-INDEPENDENT and same-cycle restoration
+have [executed evidence and variations](validation.md). Other cases remain
+proposed unless separately identified.
 
 ## VALIDITY-IMMEDIATE — TS-9
 
@@ -65,3 +67,11 @@ that child later neither adds nor removes the key. Removing the key does.
 Replay needs both membership changes and published-value deltas (TS-5).
 [Evidence](evidence.md) names the C++ surfaces. This case extends beyond
 QUOTE-HISTORY.
+
+## SAME-CYCLE-RESTORE — TS-11
+
+Publish X=7 at 0. At 1 remove X, inspect the removed child twice, then restore
+X without publishing a value. Both removed reads give 7 with child time 0;
+restoration returns that value and time. The final added and removed sets are
+empty. The dictionary has still ticked. Remove at 2 and insert X=9 at 3:
+this is a new child. See the `restore` input and observations in the evidence.

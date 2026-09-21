@@ -242,6 +242,18 @@ that cycle.
 | **unbind** | Not valid | None — except a TSS or TSD input, which ticks once to report every element or key it was showing as removed |
 | **rebind** | An unbind and a bind in one step. A TSS or TSD input ticks once with the difference: keys only in the old output removed, keys only in the new one added, and the children of the new one read as modified | As sampled bind |
 
+A sampled input reports the sampling time as its observed last modified time.
+Its producer keeps its own timestamp. Sampling a collection samples its live
+children as input views; a child's whole current value is its sampled delta.
+A passive input has the same observations as an active one.
+
+A keyed withdrawal is an input-side event: the input is invalid and modified,
+has no current members, and reports the former members as removed for this
+cycle. Its last modified time is `never`; the withdrawal event, not an owned
+output timestamp, makes it modified. The removal delta is readable while
+invalid. Physical teardown detaches silently and does not synthesize this
+running-graph withdrawal. See [reference cases](cases_references.md).
+
 Sampling is how an input brought into a running graph — a new branch of a
 switch, a new key of a map — sees values that were set before it existed.
 
@@ -326,7 +338,11 @@ Rules
 - **TS-10** In a set's delta, *added* and *removed* share no element. An
   element added and removed in one cycle is in neither.
 - **TS-11** A key removed from a dictionary, and its child, are readable for
-  the rest of that cycle. The key restored in that cycle is the same child.
+  the rest of that cycle. The key restored in that cycle is the same child,
+  with its previous value and timestamp unless explicitly written. From the
+  next engine cycle, a key that remained removed and its child are absent
+  from both live and removed observations. This applies to reference-valued
+  children too; removing one does not destroy its independently owned target.
 - **TS-12** A growing list shrinks only from its end, and never reports
   positions both added and removed in one cycle.
 - **TS-13** A window is valid from its first value, and all valid once it
@@ -353,6 +369,11 @@ Rules
   what the output shows does not change.
 - **TS-22** What an input gives is read-only. Anything kept from it beyond
   the cycle is a copy.
+- **TS-23** A saved reference does not extend an endpoint's lifetime. From
+  the first engine cycle after its dictionary key remained removed at cycle
+  end, it designates nothing and binding through it leaves the input unbound. Reusing the key
+  or its storage cannot retarget the old reference. Reclamation may be lazy;
+  expiry must be observable at that cycle boundary.
 
 
 Deferred
@@ -373,17 +394,12 @@ Points to settle
    ticked, and in hgraph stays valid even if its only valid field is later
    invalidated. A non-peered bundle *input* is valid only while some child
    is. The same bundle can therefore read differently from its two ends.
-2. **Modified and not valid together.** TS-1 rules it out for anything that
-   holds its own last modified time. hgraph has one case on the input side:
-   a set or dictionary input whose reference is withdrawn ticks once to
-   report its keys removed, and is by then unbound. TS-15 keeps that
-   behaviour. Should that input instead report the removals and become
-   invalid a cycle later — or is "modified, not valid" acceptable for an
-   input?
-3. **A stored reference whose output has gone.** Nothing in hgraph says what
-   it means. An input bound through it becomes unbound; a reference merely
-   held in a node's state designates nothing. It should read as empty, and
-   the implementation has to be able to tell.
+2. **Keyed withdrawal** is specified under Binding and exercised by
+   REF-DICTIONARY. It is the explicit input-side exception to the owned-output
+   timestamp rule. Implementation variations are recorded separately.
+3. **Expired stored references** follow TS-23, confirmed 2026-09-21.
+   REF-EXPIRES fixes the cycle boundary and distinguishes using a saved
+   reference from inserting a new dictionary member.
 4. **A reference carried backward.** TS-20 holds by construction so long as
    references travel only along edges. The one way to break it is to carry a
    reference backward — through a feedback, into a lower-ranked node — and

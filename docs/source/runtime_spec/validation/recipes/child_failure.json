@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "runtime-child_failure",
+  "description": "Nested lifecycle specification",
+  "template": "runtime_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2
+    ]
+  },
+  "parameters": {
+    "mode": "child_failure"
+  },
+  "features": []
+}

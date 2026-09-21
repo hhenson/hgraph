@@ -1,7 +1,9 @@
 # Evidence
 
 Status: source audit, 2026-09-20, hgraph `51b66437af4fa634af2f8f017be721e4ae47a353`.
-Sources and tests were read; runtime suites were not run.
+This source audit read code and tests; it did not run runtime suites.
+The later [dynamic-case validation](validation.md) records executed Python/C++
+traces, native endpoint checks, accepted variations and their exact scope.
 
 Current C++ rulings and accepted records take precedence over older prose.
 These are implementation findings at the pinned revision.
@@ -25,8 +27,9 @@ These are implementation findings at the pinned revision.
 - Nil for an invalid value or idle delta is a logical observation. The
   [user guide](https://github.com/hhenson/hgraph/blob/51b66437af4fa634af2f8f017be721e4ae47a353/docs/source/user_guide/concepts/time_series_types.rst) calls invalid input reads meaningless; raw accessor
   behaviour and adapter normalization still need evidence.
-- Rank-safe references are intended. Backward-binding enforcement and expired
-  stored references remain open, as do the chapters' start/stop and error cases.
+- Rank-safe references are intended. Backward-binding enforcement remains
+  open. Expired stored references now follow TS-23; both implementations vary
+  from the next-cycle expiry confirmed by the user. See dynamic-case validation.
 - Layout and pair-owner examples remain proposals, including their error names.
 
 This replaces the earlier conflict survey's stale TSD and recursive-field

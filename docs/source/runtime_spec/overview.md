@@ -478,3 +478,6 @@ the RFCs, notably 0002 (temporal types), 0022 (serialisable graph manifest),
 intent; the older `docs/source/specification/` chapters for framing;
 `language/docs/design/` for the names HGL gives these concepts; and the
 `.hgspec` runtime-contract draft (PR #796).
+
+[Dynamic-case validation](validation.md) records the TSD, REF and nested-graph
+expectations, executed traces and implementation variations.

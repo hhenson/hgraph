@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "runtime-restore",
+  "description": "Runtime specification restore",
+  "template": "runtime_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "mode": "restore"
+  },
+  "features": []
+}

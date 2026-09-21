@@ -20,6 +20,10 @@ It is incomplete and does not certify an implementation.
    cases_atomic
    cases_collections
    cases_lifecycle
+   cases_references
+   cases_nested
+   validation
+   validation/README
    representations
    layout_example
    boundaries
