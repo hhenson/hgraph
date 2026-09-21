@@ -699,6 +699,33 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: a repeated input variable accepts a narrower nominal input")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *animal = registry.bundle(
+        "tests.operator.repeated", "Animal", {{"id", integer}});
+    const auto *dog = registry.bundle(
+        "tests.operator.repeated", "Dog",
+        {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+
+    register_overload<add_, add_generic>();
+
+    std::array<WiringArg, 2> covariant_args{
+        ts_arg(registry.ts(animal)), ts_arg(registry.ts(dog))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "add", std::span<const WiringArg>{covariant_args}, true);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.map.find_ts("S") == registry.ts(animal));
+
+    std::array<WiringArg, 2> unsafe_args{
+        ts_arg(registry.ts(dog)), ts_arg(registry.ts(animal))};
+    REQUIRE_THROWS_AS(
+        OperatorRegistry::instance().resolve(
+            "add", std::span<const WiringArg>{unsafe_args}, true),
+        OperatorResolutionError);
+}
+
 TEST_CASE("operators: frame acceptance and its ranking stay in step")
 {
     // value_is_a and value_inheritance_distance advertise that

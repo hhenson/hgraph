@@ -401,8 +401,8 @@ namespace hgraph
             {
                 if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                 {
-                    return time_series_value_equivalent(bound, concrete) &&
-                           input_ts_allowed_by_constraints(pattern, concrete);
+                    return graph_wiring_detail::input_accepts_output_schema(bound, concrete) &&
+                           input_ts_allowed_by_constraints(pattern, bound);
                 }
                 if (!input_ts_allowed_by_constraints(pattern, concrete)) { return false; }
                 map.bind_ts(pattern.name, concrete);

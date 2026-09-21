@@ -989,6 +989,24 @@ def test_default_forwards_derived_fallback_through_non_abstract_base():
     assert eval_node(app, [None]) == [fallback]
 
 
+def test_default_upcasts_a_wired_derived_fallback_to_its_base():
+    @dataclass(frozen=True)
+    class Base(CompoundScalar, namespace="tests.default_wired_covariance"):
+        value: int
+
+    @dataclass(frozen=True)
+    class Derived(Base):
+        label: str
+
+    fallback = Derived(value=1, label="one")
+
+    @graph
+    def app(value: TS[Base], derived: TS[Derived]) -> TS[Base]:
+        return default(value, derived)
+
+    assert eval_node(app, [None], [fallback]) == [fallback]
+
+
 def test_polymorphic_union_accepts_canonical_derived_with_polymorphic_field():
     @dataclass(frozen=True)
     class Model(CompoundScalar, namespace="tests.nested_union_source", abstract=True):
