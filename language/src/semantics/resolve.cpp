@@ -378,6 +378,27 @@ namespace hgl::semantics
                 return binding;
             }
 
+            /// Binds a struct another module exports (ADR 0013). The identity
+            /// stays the owner's, so repeated mentions share one binding and
+            /// nothing is copied into this module's namespace.
+            [[nodiscard]] std::optional<Binding> imported_struct_binding(const ImportedStruct &structure, SourceRange range) {
+                if (!structure.support_error.empty()) {
+                    report(Category::Module, range,
+                           "struct '" + structure.identity + "' is unavailable: " + structure.support_error);
+                    return std::nullopt;
+                }
+                if (const auto found = imported_struct_bindings_.find(structure.identity);
+                    found != imported_struct_bindings_.end()) {
+                    return found->second;
+                }
+                Binding binding;
+                binding.kind  = BindingKind::ImportedStruct;
+                binding.index = static_cast<std::uint32_t>(result_.imported_structs.size());
+                result_.imported_structs.push_back(structure);
+                imported_struct_bindings_.emplace(structure.identity, binding);
+                return binding;
+            }
+
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
                 if (functions.empty()) { return std::nullopt; }
                 std::vector<const ImportedFunction *> supported;
@@ -1001,6 +1022,126 @@ namespace hgl::semantics
                 return binding;
             }
 
+            /// One argument of an imported generic application (ADR 0013).
+            /// Mirrors the local resolver's role checks against the exporting
+            /// module's parameter, which is an ImportedGeneric rather than a
+            /// declaration of this module.
+            void resolve_imported_generic_argument(const ast::GenericArgument &argument, const ImportedGeneric &parameter,
+                                                   Context &context) {
+                if (argument.type != ast::no_node) {
+                    resolve_type(argument.type, context);
+                    if (parameter.is_const) {
+                        report(Category::Type, argument.range,
+                               "const generic '" + parameter.name + "' takes a value argument");
+                    }
+                    return;
+                }
+                if (argument.value != ast::no_node) {
+                    resolve_expr(argument.value, context);
+                    if (!parameter.is_const) {
+                        report(Category::Type, argument.range, "type generic '" + parameter.name + "' takes a type argument");
+                    }
+                    return;
+                }
+                if (argument.name.empty()) { return; }
+                const std::optional<Binding> binding = lookup(argument.name.text);
+                if (!binding) {
+                    report(Category::Type, argument.name.range,
+                           "unknown generic argument '" + std::string{argument.name.text} + "'");
+                    return;
+                }
+                if (parameter.is_const && !is_const_generic(*binding)) {
+                    report(Category::Type, argument.name.range,
+                           "const generic '" + parameter.name + "' takes a const value argument");
+                }
+            }
+
+            /// Seeds a child's effective fields from an imported parent, its own
+            /// parent, and so on. The catalog records only the fields a struct
+            /// DECLARES, recording what it inherits through its parents, so
+            /// reading `parent.fields` alone loses a grandparent's fields --
+            /// supplying one would be rejected as unknown and omitting a
+            /// required one accepted. Ancestors come first, so a field keeps the
+            /// position it has in the exporting family, and each entry keeps the
+            /// struct that declares it as its source.
+            void seed_imported_fields(ast::DeclId id, StructInfo &info, const ImportedStruct &structure,
+                                      const StructSource &source, std::vector<std::string_view> visiting = {}) {
+                if (std::ranges::find(visiting, std::string_view{structure.identity}) != visiting.end()) { return; }
+                visiting.push_back(structure.identity);
+                for (const ImportedType &parent : structure.parents) {
+                    if (parent.nominal_identity.empty()) { continue; }
+                    const ImportedStruct *ancestor = catalog_.find_struct_by_identity(parent.nominal_identity);
+                    if (ancestor == nullptr) { continue; }
+                    // An ancestor is referenced through the same imported record
+                    // the child came from; this module gains no declaration for
+                    // it either.
+                    seed_imported_fields(id, info, *ancestor, source, visiting);
+                }
+                for (const ImportedStructField &field : structure.fields) {
+                    if (field_indices_[id].contains(field.name)) { continue; }
+                    field_indices_[id].emplace(field.name, info.fields.size());
+                    info.fields.push_back(StructField{.name          = field.name,
+                                                      .type          = ast::no_node,
+                                                      .default_value = ast::no_node,
+                                                      .origin        = source,
+                                                      .optional      = field.optional,
+                                                      .recursive     = field.recursive});
+                }
+            }
+
+            /// A qualified source type names a struct another module exports
+            /// (ADR 0013). Its identity stays the owner's, so this binds the
+            /// name and copies nothing into the importing module. The generic
+            /// arguments are resolved either way, so a spelling error inside
+            /// them is reported even when the head does not resolve.
+            void resolve_imported_named_type(ast::TypeId id, const ast::Type &type, Context &context) {
+                const ImportedStruct *structure = nullptr;
+                const ModuleAlias    *alias     = nullptr;
+                for (const ModuleAlias &candidate : result_.aliases) {
+                    if (candidate.alias == type.qualifier.text) { alias = &candidate; }
+                }
+                if (alias != nullptr) { structure = catalog_.find_struct(alias->module, type.name.text); }
+                // Arguments resolve whether or not the head does, so a spelling
+                // error inside them is still reported. Where the application's
+                // arity matches, each argument is checked against its parameter
+                // -- including a bare name, which the parser leaves in `name`
+                // with neither `type` nor `value` set.
+                const bool paired = structure != nullptr && structure->generics.size() == type.arguments.size();
+                for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+                    const ast::GenericArgument &argument = type.arguments[index];
+                    if (paired) {
+                        resolve_imported_generic_argument(argument, structure->generics[index], context);
+                    } else if (argument.type != ast::no_node) {
+                        resolve_type(argument.type, context);
+                    } else if (argument.value != ast::no_node) {
+                        resolve_expr(argument.value, context);
+                    } else if (!argument.name.empty() && !lookup(argument.name.text)) {
+                        report(Category::Type, argument.name.range,
+                               "unknown generic argument '" + std::string{argument.name.text} + "'");
+                    }
+                }
+                if (alias == nullptr) {
+                    report(Category::Name, type.qualifier.range,
+                           "unknown module alias '" + std::string{type.qualifier.text} + "'");
+                    return;
+                }
+                if (structure == nullptr) {
+                    report(Category::Module, type.name.range,
+                           alias->module + " does not export struct '" + std::string{type.name.text} + "'");
+                    return;
+                }
+                if (structure->generics.size() != type.arguments.size()) {
+                    report(Category::Type, type.range,
+                           "imported generic struct '" + structure->identity + "' expects " +
+                               std::to_string(structure->generics.size()) + " arguments, got " +
+                               std::to_string(type.arguments.size()));
+                    return;
+                }
+                if (const std::optional<Binding> imported = imported_struct_binding(*structure, type.name.range)) {
+                    result_.type_bindings[id] = *imported;
+                }
+            }
+
             void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Signal && !allow_signal) {
@@ -1029,11 +1170,12 @@ namespace hgl::semantics
                            "map values wrapped in 'ref' require the collection-reference mapping to be resolved");
                 }
                 if (type.kind == ast::TypeKind::Named) {
+                    // A qualified type names a struct another module exports
+                    // (ADR 0013). The identity stays the owner's; this module
+                    // binds the name and nothing is copied into its namespace.
                     if (!type.qualifier.empty()) {
-                        report(Category::Type, type.qualifier.range,
-                               "qualified source types require a module descriptor; only local "
-                               "struct types are available in this prototype");
-                    }
+                        resolve_imported_named_type(id, type, context);
+                    } else {
                     const std::optional<Binding> binding = lookup(type.name.text);
                     if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct)) {
                         report(Category::Type, type.name.range, "unknown type '" + std::string{type.name.text} + "'");
@@ -1069,6 +1211,7 @@ namespace hgl::semantics
                                 }
                             }
                         }
+                    }
                     }
                 }
                 for (const ast::TypeId child : type.children) { resolve_type(child, context); }
@@ -1214,6 +1357,25 @@ namespace hgl::semantics
                 }
                 for (const ast::TypeId parent_type : structure.parents) {
                     const Binding &binding = result_.type_bindings[parent_type];
+                    // A struct another module exports may be inherited (ADR
+                    // 0013). It is referenced, never absorbed: this module
+                    // gains no declaration for it, and each field it declares
+                    // keeps that struct as its source, so a diagnostic names
+                    // the module the field really comes from.
+                    if (binding.kind == BindingKind::ImportedStruct) {
+                        const ImportedStruct &parent = result_.imported_structs[binding.index];
+                        if (!parent.abstract) {
+                            report(Category::Type, module_.type(parent_type).range,
+                                   "only an abstract struct may be inherited; '" + parent.identity +
+                                       "' is concrete and implicitly final");
+                            valid = false;
+                            continue;
+                        }
+                        const StructSource source{.imported = binding.index};
+                        info.parents.push_back(source);
+                        if (structure.parents.size() == 1) { seed_imported_fields(id, info, parent, source); }
+                        continue;
+                    }
                     if (binding.kind != BindingKind::Struct) {
                         valid = false;
                         continue;
@@ -1227,7 +1389,7 @@ namespace hgl::semantics
                         continue;
                     }
                     if (!validate_struct(binding.decl)) { valid = false; }
-                    info.parents.push_back(binding.decl);
+                    info.parents.push_back(StructSource{.decl = binding.decl});
                     if (structure.parents.size() == 1) {
                         info.fields        = result_.struct_info[binding.decl].fields;
                         field_indices_[id] = field_indices_[binding.decl];
@@ -1257,7 +1419,8 @@ namespace hgl::semantics
                                     return;
                                 }
                                 field_index.emplace(item.name.text, info.fields.size());
-                                info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value, id,
+                                info.fields.push_back(StructField{std::string{item.name.text}, item.type, item.default_value,
+                                                                  StructSource{.decl = id},
                                                                   is_null(item.default_value)});
                             } else {
                                 if (!overridden.insert(item.name.text).second) {
@@ -1295,6 +1458,53 @@ namespace hgl::semantics
                 field_indices_.assign(module_.decls.size(), {});
                 for (const ast::DeclId id : result_.structs) { (void)validate_struct(id); }
                 check_recursive_fields();
+                check_export_closure();
+            }
+
+            /// An importer rebuilds an exported struct from its layout, so every
+            /// struct that layout reaches has to be exported too (ADR 0013,
+            /// "Exports are closed under reachability"). A field reaches each
+            /// struct its type names, through collection elements, generic
+            /// arguments and an `atomic` edge; a parent is reached by
+            /// inheritance. The rule runs from exported roots only, so an
+            /// unexported leaf or chain may reference other internal structs.
+            /// The check is on the exporting module, so the error lands on
+            /// whoever broke the contract rather than on a consumer.
+            void check_export_closure() {
+                const auto exported = [&](ast::DeclId id) {
+                    return std::get<ast::StructDecl>(module_.decl(id).node).exported;
+                };
+                std::vector<StructReference> references;
+                for (const ast::DeclId owner : result_.structs) {
+                    if (!exported(owner)) { continue; }
+                    const auto       &structure = std::get<ast::StructDecl>(module_.decl(owner).node);
+                    const StructInfo &info      = result_.struct_info[owner];
+                    for (const ast::TypeId parent : structure.parents) {
+                        references.clear();
+                        struct_references(parent, Reach::Direct, references);
+                        for (const StructReference &reference : references) {
+                            if (exported(reference.decl)) { continue; }
+                            report(Category::Type, module_.type(parent).range,
+                                   "exported struct '" + struct_name(owner) + "' inherits module-internal struct '" +
+                                       struct_name(reference.decl) + "'; everything an exported struct reaches must be " +
+                                       "exported (ADR 0013)");
+                        }
+                    }
+                    for (const StructField &field : info.fields) {
+                        // Inherited fields are reported against the struct that
+                        // declares them, so each is named once.
+                        if (field.origin != StructSource{.decl = owner} || field.type == ast::no_node) { continue; }
+                        references.clear();
+                        field_references(field.type, references);
+                        for (const StructReference &reference : references) {
+                            if (exported(reference.decl)) { continue; }
+                            report(Category::Type, module_.type(field.type).range,
+                                   "exported struct '" + struct_name(owner) + "' reaches module-internal struct '" +
+                                       struct_name(reference.decl) + "' through field '" + field.name +
+                                       "'; everything an exported struct reaches must be exported (ADR 0013)");
+                        }
+                    }
+                }
             }
 
             // ------------------------------------------- recursive struct fields
@@ -1325,10 +1535,46 @@ namespace hgl::semantics
                 return index < slots.size() && slots[index].kind != BindingKind::Unbound ? &slots[index] : nullptr;
             }
 
+            /// Every struct of this module that inherits the imported struct at
+            /// `index`, directly or through another local struct. Naming an
+            /// imported family reaches them: a value of that family can be any
+            /// of its members, and the members declared here are this module's.
+            [[nodiscard]] std::vector<ast::DeclId> local_members_of(std::uint32_t index) const {
+                std::vector<ast::DeclId> members;
+                bool                     grew = true;
+                while (grew) {
+                    grew = false;
+                    for (const ast::DeclId decl : result_.structs) {
+                        if (std::ranges::find(members, decl) != members.end()) { continue; }
+                        for (const StructSource &parent : result_.struct_info[decl].parents) {
+                            const bool inherits = parent.is_imported()
+                                                      ? parent.imported == index
+                                                      : std::ranges::find(members, parent.decl) != members.end();
+                            if (inherits) {
+                                members.push_back(decl);
+                                grew = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                return members;
+            }
+
             void struct_references(ast::TypeId id, Reach reach, std::vector<StructReference> &out) const {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::Struct) {
                     out.push_back(StructReference{result_.type_bindings[id].decl, id, reach});
+                }
+                // A local struct that inherits an imported abstract family is a
+                // MEMBER of it (ADR 0013), so a field typed by that family can
+                // hold this module's struct and the cycle is local -- it never
+                // crosses a module, which is what rule 5 actually says. Naming
+                // the family therefore reaches every local member of it.
+                if (type.kind == ast::TypeKind::Named && result_.type_bindings[id].kind == BindingKind::ImportedStruct) {
+                    for (const ast::DeclId member : local_members_of(result_.type_bindings[id].index)) {
+                        out.push_back(StructReference{member, id, reach});
+                    }
                 }
                 const Reach nested = reach == Reach::Direct && type.kind == ast::TypeKind::Reference ? Reach::Reference
                                      : reach == Reach::Direct                                        ? Reach::Container
@@ -1513,6 +1759,13 @@ namespace hgl::semantics
                     binding = &result_.type_bindings[argument.type];
                 }
                 return binding != nullptr && binding->kind == BindingKind::Generic && binding->decl == decl;
+            }
+
+            /// A struct another module exports is named by its identity; it
+            /// has no declaration here to take a name from (ADR 0013).
+            [[nodiscard]] std::string struct_name(const StructSource &source) const {
+                if (source.is_imported()) { return result_.imported_structs[source.imported].identity; }
+                return struct_name(source.decl);
             }
 
             [[nodiscard]] std::string struct_name(ast::DeclId decl) const {
@@ -1733,13 +1986,16 @@ namespace hgl::semantics
                 // through a parent cannot be declared.
                 std::vector<std::vector<std::uint32_t>> registration(count);
                 for (std::uint32_t index = 0; index < count; ++index) {
-                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
-                        if (position[parent] != no_position) { registration[index].push_back(position[parent]); }
+                    for (const StructSource &parent : result_.struct_info[result_.structs[index]].parents) {
+                        // A cycle never crosses a module (ADR 0012 rule 5), so an
+                        // imported parent is no part of this module's analysis.
+                        if (parent.is_imported()) { continue; }
+                        if (position[parent.decl] != no_position) { registration[index].push_back(position[parent.decl]); }
                     }
                 }
                 for (const FieldTargets &item : field_targets) {
                     const StructInfo &info = result_.struct_info[result_.structs[item.owner]];
-                    if (info.fields[item.field].origin != result_.structs[item.owner]) { continue; }
+                    if (info.fields[item.field].origin != StructSource{.decl = result_.structs[item.owner]}) { continue; }
                     for (std::size_t index = item.begin; index < item.end; ++index) {
                         const std::uint32_t target = position[targets[index].reference.decl];
                         if (registration[item.owner].empty() || registration[item.owner].back() != target) {
@@ -1751,9 +2007,10 @@ namespace hgl::semantics
                 // A parent edge inside a registration component, by component.
                 std::unordered_map<std::uint32_t, std::pair<std::uint32_t, std::uint32_t>> inheritance_cycles;
                 for (std::uint32_t index = 0; index < count; ++index) {
-                    for (const ast::DeclId parent : result_.struct_info[result_.structs[index]].parents) {
-                        if (position[parent] != no_position && registered[position[parent]] == registered[index]) {
-                            inheritance_cycles.try_emplace(registered[index], index, position[parent]);
+                    for (const StructSource &parent : result_.struct_info[result_.structs[index]].parents) {
+                        if (parent.is_imported()) { continue; }
+                        if (position[parent.decl] != no_position && registered[position[parent.decl]] == registered[index]) {
+                            inheritance_cycles.try_emplace(registered[index], index, position[parent.decl]);
                         }
                     }
                 }
@@ -1803,7 +2060,7 @@ namespace hgl::semantics
                     if (verdicts[field.type] == Verdict::Rejected) { continue; }
                     // The edge obeys the language rules; it must also be registrable.
                     // Registration follows the declaring struct's own fields.
-                    const std::uint32_t declared = registered[position[field.origin]];
+                    const std::uint32_t declared = registered[position[field.origin.decl]];
                     const auto          cycle    = inheritance_cycles.find(declared);
                     if (cycle == inheritance_cycles.end() ||
                         std::none_of(targets.begin() + static_cast<std::ptrdiff_t>(item.begin),
@@ -1871,7 +2128,7 @@ namespace hgl::semantics
                 if (direct->applied != ast::no_node) {
                     const std::vector<ast::GenericArgument> &arguments = module_.type(direct->applied).arguments;
                     for (std::size_t index = 0; index < arguments.size(); ++index) {
-                        if (parameter_argument(direct->applied, index, field.origin) ||
+                        if (parameter_argument(direct->applied, index, field.origin.decl) ||
                             !argument_mentions_parameter(direct->applied, index)) {
                             continue;
                         }
@@ -1987,6 +2244,8 @@ namespace hgl::semantics
             Scope                                          test_scope_{};
             bool                                           test_scope_active_{false};
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
+            /// One binding per imported struct identity (ADR 0013).
+            std::unordered_map<std::string, Binding>       imported_struct_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};
             /// What each bare-name argument of an applied type names, indexed
