@@ -1,6 +1,7 @@
 #include "hgraph_ir/lower.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
+#include "semantics/module_catalog.h"
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 #include "wiring/type_bridge.h"
@@ -35,6 +36,21 @@ namespace
             hgl::semantics::ResolvedModule resolved =
                 hgl::semantics::resolve(file, ast, [](std::string_view) { return true; }, diagnostics);
             if (diagnostics.has_errors()) { return; }
+            complete(ast, resolved);
+        }
+
+        /// The importing form (ADR 0013): the catalog supplies the layouts of
+        /// structs this module does not declare.
+        Unit(std::string text, const hgl::semantics::ModuleCatalog &catalog) : file{"test.hgl", std::move(text)} {
+            hgl::syntax::ast::Module ast = hgl::syntax::parse(file, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hgl::semantics::ResolvedModule resolved =
+                hgl::semantics::resolve(file, ast, catalog, [](std::string_view) { return true; }, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            complete(ast, resolved);
+        }
+
+        void complete(const hgl::syntax::ast::Module &ast, const hgl::semantics::ResolvedModule &resolved) {
             hgl::ir::hir::Module            hir       = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
             const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
                 hgl::ir::OperatorSelection selected;
@@ -60,6 +76,61 @@ namespace
             throw std::runtime_error{"missing parameter"};
         }
     };
+
+    [[nodiscard]] hgl::semantics::ImportedType symbol(std::string identity) {
+        hgl::semantics::ImportedType type;
+        type.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        type.nominal_identity = std::move(identity);
+        return type;
+    }
+
+    /// A module that exports a struct family and a recursive struct, so the
+    /// bridge has something to realize that this module does not declare
+    /// (ADR 0013 slice 5).
+    hgl::semantics::ModuleCatalog exported_shapes(const std::string &module_name = "checks.shapes") {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = module_name;
+
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = module_name + ".Venue";
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = module_name + ".Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", symbol(module_name + ".Venue"), false, false}};
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = module_name + ".Base";
+        base.abstract        = true;
+        base.parents         = {symbol(module_name + ".Root")};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        // A recursive exported struct (ADR 0012): the edge is an `atomic<Node>`
+        // boundary, which is how format 6 records it.
+        hgl::semantics::ImportedType edge;
+        edge.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+        edge.children = {symbol(module_name + ".Node")};
+
+        hgl::semantics::ImportedStruct node;
+        node.module_identity = module.identity;
+        node.name            = "Node";
+        node.identity        = module_name + ".Node";
+        node.fields          = {{"label", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"next", edge, false, true}};
+
+        module.structs = {std::move(base), std::move(root), std::move(venue), std::move(node)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("hgraph IR types materialize canonical runtime metadata", "[wiring][hgraph-ir][types]") {
@@ -389,4 +460,152 @@ fn forms(
     CHECK(chain(3).view().equals(chain(3).view()));
     CHECK(chain(3).view().hash() == chain(3).view().hash());
     CHECK_FALSE(chain(3).view().equals(chain(4).view()));
+}
+
+TEST_CASE("imported structs realize under the owning module's identity", "[wiring][types][struct-imports]") {
+    // ADR 0013: the importer re-describes the owner's layout, and the bridge
+    // registers it under the OWNER's qualified name. There is no copy in the
+    // importer's namespace, so a value built by either module is one schema.
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes();
+    Unit                                unit{R"(
+module checks.import_wiring
+
+use checks.shapes as shapes
+
+struct Tick: shapes::Base
+{
+    bid: f64
+}
+
+fn reading(tick: atomic<Tick>, base: atomic<shapes::Base>, venue: atomic<shapes::Venue>) -> atomic<Tick> => tick
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    auto                   &registry = hgraph::TypeRegistry::instance();
+    const auto              types    = hgraph::stdlib::register_standard_types();
+
+    const auto *tick = bridge.value(unit.graph.types[unit.parameter("reading", "tick").value].children.front());
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(tick != nullptr);
+    // The local child keeps ITS namespace ...
+    CHECK(tick->bundle_namespace() == "checks.import_wiring");
+    CHECK(tick->bundle_local_name() == "Tick");
+    // ... and carries the whole inherited layout, ancestors first.
+    REQUIRE(tick->field_count == 4);
+    CHECK(std::string_view{tick->fields[0].name} == "id");
+    CHECK(std::string_view{tick->fields[1].name} == "venue");
+    CHECK(std::string_view{tick->fields[2].name} == "at");
+    CHECK(std::string_view{tick->fields[3].name} == "bid");
+
+    // The imported ancestry registered under checks.shapes, not here: the
+    // parents had to be realized before the local child could name them.
+    const auto *base = bridge.value(unit.graph.types[unit.parameter("reading", "base").value].children.front());
+    REQUIRE(base != nullptr);
+    CHECK(base->bundle_namespace() == "checks.shapes");
+    CHECK(base->bundle_local_name() == "Base");
+    CHECK(base == registry.named_bundle("checks.shapes", "Base"));
+    CHECK(registry.named_bundle("checks.import_wiring", "Base") == nullptr);
+    CHECK(registry.named_bundle("checks.shapes", "Root") != nullptr);
+
+    // A field that names an imported struct resolves to that same schema.
+    const auto *venue = bridge.value(unit.graph.types[unit.parameter("reading", "venue").value].children.front());
+    REQUIRE(venue != nullptr);
+    CHECK(venue == tick->fields[1].type);
+    CHECK(venue->bundle_namespace() == "checks.shapes");
+    REQUIRE(venue->field_count == 1);
+    CHECK(venue->fields[0].type == types.int_type);
+}
+
+TEST_CASE("a recursive imported struct rebuilds its edges", "[wiring][types][struct-imports][recursive]") {
+    // Acceptance 3: the closure walks the same edges format 6 records, so an
+    // imported recursive struct registers exactly as a local one does.
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes();
+    Unit                                unit{R"(
+module checks.import_recursive
+
+use checks.shapes as shapes
+
+fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    auto                   &registry = hgraph::TypeRegistry::instance();
+    const auto              types    = hgraph::stdlib::register_standard_types();
+
+    const auto *node = bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front());
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(node != nullptr);
+    CHECK(node->bundle_namespace() == "checks.shapes");
+    CHECK(node->bundle_local_name() == "Node");
+    REQUIRE(node->field_count == 2);
+    CHECK(node->fields[0].type == types.int_type);
+    // The edge is an owner of the struct itself, so a value stays a finite tree.
+    CHECK(node->fields[1].type == registry.owned(node));
+}
+
+TEST_CASE("an imported layout that disagrees with the registered schema is rejected", "[wiring][types][struct-imports]") {
+    // Acceptance 4: an importer built against a layout that has since changed
+    // must be told so, not silently mismatched. The identity is the owner's,
+    // so the two descriptions meet in one registry slot and the disagreement
+    // is detectable exactly there.
+    auto      &registry = hgraph::TypeRegistry::instance();
+    const auto types    = hgraph::stdlib::register_standard_types();
+    // Stands in for the exporting module having been built with `code: str`.
+    REQUIRE(registry.bundle("checks.skew", "Venue", {{"code", types.str_type}}) != nullptr);
+
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes("checks.skew");
+    Unit                                unit{R"(
+module checks.import_skew
+
+use checks.skew as shapes
+
+fn reading(venue: atomic<shapes::Venue>) -> atomic<shapes::Venue> => venue
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    CHECK(bridge.value(unit.graph.types[unit.parameter("reading", "venue").value].children.front()) == nullptr);
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    // Pointed: it names the struct, not just "a type mismatch".
+    CHECK(rendered.find("Venue") != std::string::npos);
+}
+
+TEST_CASE("a recursive imported struct compares against the registered schema before the closure runs",
+          "[wiring][types][struct-imports][recursive]") {
+    // The recursive path cannot rely on the registry throwing: hgraph's
+    // recursive closure answers from the registered type BEFORE it asks the
+    // describer, so a skewed layout would be accepted silently. The bridge
+    // compares first, which is the only place the two descriptions meet.
+    auto      &registry = hgraph::TypeRegistry::instance();
+    const auto types    = hgraph::stdlib::register_standard_types();
+    REQUIRE(registry.bundle("checks.rskew", "Node", {{"label", types.str_type}}) != nullptr);
+
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes("checks.rskew");
+    Unit                                unit{R"(
+module checks.import_rskew
+
+use checks.rskew as shapes
+
+fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    static_cast<void>(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()));
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("Node") != std::string::npos);
 }

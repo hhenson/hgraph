@@ -142,6 +142,23 @@ expansion — the rule ADR 0002 already sets for the backend boundary and ADR
 0012 already follows for a recursive edge's target. `ImportedTypeKind::Symbol`
 with `binding_identity` is the existing representation and is reused.
 
+**A re-described struct's fields are its whole layout, ancestors first**, the
+same as a local declaration's. A *catalog record* holds only the fields it
+declares, which is right for a descriptor; typed HIR is where the two meet,
+so the ancestry is flattened when the struct is re-described and every later
+consumer — the type checker, hgraph IR, and through it both backends — reads
+one shape. hgraph's registry holds the same rule from the other side:
+`bundle()` refuses a child that does not preserve its parents' fields, so a
+short layout is not a subtler description, it is a registration failure. A
+diamond dedupes by name; each field keeps the identity of the ancestor that
+declares it.
+
+The description is guarded against **re-entry, not just repetition**: a
+recursive edge (ADR 0012) names its own struct, and the record is complete
+only once its fields are lowered, so the guard covers a struct that is still
+being described. A guard that only skipped already-recorded structs would not
+terminate on the first recursive import.
+
 ### Inheriting an imported family
 
 **A local struct may inherit an imported abstract parent.** Extending a family
