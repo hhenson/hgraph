@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from hgraph import sub_, add_, WiringError, mul_, div_, lt_, graph, TS, SCALAR
+from hgraph import sub_, add_, WiringError, mul_, div_, floordiv_, lt_, graph, TS, SCALAR
 from hgraph.test import eval_node
 
 import pytest
@@ -42,8 +42,25 @@ def test_mul_timedelta_number():
     assert eval_node(mul_, timedelta(seconds=3), 4) == [timedelta(seconds=12)]
 
 
+@pytest.mark.parametrize("number", [4, 4.0])
+def test_mul_number_timedelta(number):
+    assert eval_node(mul_, number, timedelta(seconds=3)) == [timedelta(seconds=12)]
+
+
 def test_div_timedelta_number():
     assert eval_node(div_, timedelta(seconds=4), 2) == [timedelta(seconds=2)]
+
+
+@pytest.mark.parametrize(
+    "lhs,rhs,expected",
+    [
+        (timedelta(seconds=7), timedelta(seconds=3), 2),
+        (timedelta(seconds=-7), timedelta(seconds=3), -3),
+        (timedelta(seconds=7), timedelta(seconds=-3), -3),
+    ],
+)
+def test_floordiv_timedeltas(lhs, rhs, expected):
+    assert eval_node(floordiv_, lhs, rhs) == [expected]
 
 
 def test_lt_timedelta():

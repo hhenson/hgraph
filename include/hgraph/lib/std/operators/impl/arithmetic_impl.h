@@ -354,6 +354,16 @@ namespace hgraph::stdlib
         }
     };
 
+    /** ``TimeDelta // TimeDelta -> Int`` — the floored ratio of two durations. */
+    struct floordiv_timedeltas
+    {
+        static void eval(In<"lhs", TS<TimeDelta>> lhs, In<"rhs", TS<TimeDelta>> rhs,
+                         Out<TS<Int>> out)
+        {
+            out.set(floor_divide_int(lhs.value().count(), rhs.value().count()));
+        }
+    };
+
     struct abs_timedelta
     {
         static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<TimeDelta>> out)
@@ -723,6 +733,16 @@ namespace hgraph::stdlib
             }
         };
 
+        struct int_scale_timedelta_impl
+        {
+            static constexpr auto name = "mul_int_timedelta";
+
+            static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<TimeDelta>> rhs, Out<TS<TimeDelta>> out)
+            {
+                out.set(checked_multiply(rhs.value(), lhs.value()));
+            }
+        };
+
         struct timedelta_div_impl
         {
             static constexpr auto name = "div_timedelta_int";
@@ -742,6 +762,18 @@ namespace hgraph::stdlib
                              Out<TS<Duration>> out)
             {
                 out.set(checked_multiply(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct float_scale_timedelta_impl
+        {
+            static constexpr auto name = "mul_float_timedelta";
+
+            static void eval(In<"lhs", TS<Float>> lhs,
+                             In<"rhs", TS<Duration>> rhs,
+                             Out<TS<Duration>> out)
+            {
+                out.set(checked_multiply(rhs.value(), lhs.value()));
             }
         };
 

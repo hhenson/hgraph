@@ -81,6 +81,38 @@ TEST_CASE("datepart truncates datetime values to midnight")
                          DateTime{sys_days{date(2024, 11, 1)}}));
 }
 
+TEST_CASE("timedelta floor division uses Python quotient semantics")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::floordiv_>(
+            values<TimeDelta>(seconds{7}, seconds{-7}, seconds{7}),
+            values<TimeDelta>(seconds{3}, seconds{3}, seconds{-3})),
+        values<Int>(2, -3, -3));
+
+    CHECK_THROWS(
+        eval_node<hgraph::stdlib::floordiv_>(
+            values<TimeDelta>(seconds{7}),
+            values<TimeDelta>(seconds{0})));
+}
+
+TEST_CASE("timedelta multiplication accepts a numeric left operand")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::mul_>(
+            values<Int>(4),
+            values<TimeDelta>(seconds{3})),
+        values<TimeDelta>(seconds{12}));
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::mul_>(
+            values<Float>(1.5),
+            values<TimeDelta>(seconds{2})),
+        values<TimeDelta>(seconds{3}));
+}
+
 TEST_CASE("datetime getattr exposes native date and time values")
 {
     hgraph::stdlib::register_standard_operators();
