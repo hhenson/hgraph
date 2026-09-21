@@ -3337,3 +3337,60 @@ export fn go(v: atomic<Venue>) -> i64 => coded(v)
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
+
+TEST_CASE("an imported constructor is checked for completeness", "[codegen][struct-imports]") {
+    // A catalog record carries only the fields it DECLARES, so the check has
+    // to run against the flattened layout: `Venue` declares `code`, and a
+    // child of an imported family inherits more.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("a missing required field") {
+        Unit unit{R"(
+module checks.import_missing
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue()
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "needs field 'code'"));
+    }
+    SECTION("a field given twice") {
+        Unit unit{R"(
+module checks.import_twice
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, code: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "is given twice"));
+    }
+    SECTION("an unknown field") {
+        Unit unit{R"(
+module checks.import_unknown
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, nope: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "has no field named 'nope'"));
+    }
+}
+
+TEST_CASE("an applied imported generic constructs with its arguments spelled", "[codegen][struct-imports]") {
+    // `m::Box<i64>(...)` reaches the resolver as a Construct rather than a
+    // Call, and was refused there -- so the applied spelling worked only when
+    // the expected type happened to supply the arguments.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_applied
+
+use checks.shapes as shapes
+
+export fn build(v: i64) -> atomic<shapes::Box<i64>> => shapes::Box<i64>(value: v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}

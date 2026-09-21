@@ -2755,14 +2755,28 @@ namespace hgl::ir
                     type_error(expression.range, "abstract struct '" + imported.identity + "' is not constructible");
                     return;
                 }
-                std::size_t positional = 0;
+                // The completeness this module's own constructors get, held
+                // here rather than in the resolver: a catalog record carries
+                // only the fields it DECLARES, and this is the flattened
+                // layout. Without it a missing required field surfaces only as
+                // a backend failure, and a field given twice is resolved
+                // silently to whichever the backend happens to keep.
+                std::vector<bool> supplied(imported.fields.size(), false);
+                std::size_t       positional = 0;
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
+                    std::size_t        position = imported.fields.size();
                     if (argument.name.empty()) {
-                        if (positional < imported.fields.size()) { field = &imported.fields[positional++]; }
+                        if (positional < imported.fields.size()) {
+                            position = positional;
+                            field    = &imported.fields[positional++];
+                        }
                     } else {
-                        for (const StructField &candidate : imported.fields) {
-                            if (candidate.name == argument.name) { field = &candidate; }
+                        for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                            if (imported.fields[index].name == argument.name) {
+                                position = index;
+                                field    = &imported.fields[index];
+                            }
                         }
                         if (field == nullptr) {
                             type_error(argument.range,
@@ -2771,6 +2785,12 @@ namespace hgl::ir
                         }
                     }
                     if (!field) { continue; }
+                    if (position < supplied.size()) {
+                        if (supplied[position]) {
+                            type_error(argument.range, "field '" + field->name + "' is given twice");
+                        }
+                        supplied[position] = true;
+                    }
                     const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
                     if (!expected) {
                         type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
@@ -2785,6 +2805,12 @@ namespace hgl::ir
                         require_assignable(*expected, value, "constructor field");
                     }
                     expression.effects |= value.effects;
+                }
+                if (delta) { return; }
+                for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                    if (supplied[index] || imported.fields[index].optional) { continue; }
+                    type_error(expression.range,
+                               "struct '" + imported.identity + "' needs field '" + imported.fields[index].name + "'");
                 }
             }
 
