@@ -355,8 +355,36 @@ namespace hgl::ir::detail
                std::holds_alternative<StructDecl>(module_.declaration(symbol.owner).node);
     }
 
+    const ImportedStructDecl *ConstraintSolver::imported_struct(TypeId type_id) const noexcept {
+        type_id = types_.canonical(type_id);
+        if (!type_id.valid()) { return nullptr; }
+        const Type &value = module_.type(type_id);
+        if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return nullptr; }
+        if (module_.symbol(value.symbol).kind != SymbolKind::ImportedStruct) { return nullptr; }
+        for (const ImportedStructDecl &candidate : module_.imported_structs) {
+            if (candidate.symbol == value.symbol) { return &candidate; }
+        }
+        return nullptr;
+    }
+
     void ConstraintSolver::append_fields(TypeId type_id, EffectiveFields &fields) {
         type_id = types_.canonical(type_id);
+        // A struct another module exports has no declaration here (ADR 0013),
+        // so it is reached through its re-description rather than a
+        // `StructDecl`. Its fields are already the whole layout, ancestors
+        // first, so they are the effective list as they stand -- and a generic
+        // imported family still refuses by name, so nothing here substitutes.
+        if (const ImportedStructDecl *imported = imported_struct(type_id)) {
+            for (const StructField &field : imported->fields) {
+                if (const auto existing = fields.index.find(field.name); existing != fields.index.end()) {
+                    fields.fields[existing->second].type = field.type;
+                } else {
+                    fields.index.emplace(field.name, fields.fields.size());
+                    fields.fields.push_back(EffectiveField{field.name, field.type});
+                }
+            }
+            return;
+        }
         if (!is_struct(type_id)) { return; }
         const Type       &applied = module_.type(type_id);
         const Symbol     &symbol  = module_.symbol(applied.symbol);

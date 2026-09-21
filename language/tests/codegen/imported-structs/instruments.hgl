@@ -1,0 +1,30 @@
+# The importing side: the struct is REFERRED to, never re-declared. A local
+# struct extends the imported family, and a signature naming the imported type
+# forces generated C++ to reach the exporter's own definition.
+module checks.imported_struct_consumer
+
+use checks.imported_shapes as shapes
+
+# Extending a family a library publishes -- the reason a library is worth
+# having, so it is part of the decision rather than a later question.
+export struct Future: shapes::Instrument
+{
+    expiry: i64
+}
+
+# Inherited from the imported parent, and declared here.
+export fn future_symbol(future: atomic<Future>) -> str => future.symbol
+export fn future_expiry(future: atomic<Future>) -> i64 => future.expiry
+# Names the imported type itself: this is what must resolve to
+# `::checks::imported_shapes::Equity` rather than a local re-declaration.
+export fn equity_lot(equity: atomic<shapes::Equity>) -> i64 => equity.lot
+
+test {
+    # A field a local child inherits from a struct ANOTHER module declares.
+    test inherited_field {
+        assert eval(future_symbol, future: [Future(symbol: "fu", expiry: 3)]) == ["fu"]
+    }
+    test own_field {
+        assert eval(future_expiry, future: [Future(symbol: "fu", expiry: 3)]) == [3]
+    }
+}

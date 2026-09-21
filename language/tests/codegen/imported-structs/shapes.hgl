@@ -1,0 +1,13 @@
+# ADR 0013: a module publishes a data SHAPE, not only behaviour. The family is
+# abstract at the root so an importing module can extend it.
+module checks.imported_shapes
+
+export abstract struct Instrument
+{
+    symbol: str
+}
+
+export struct Equity: Instrument
+{
+    lot: i64
+}

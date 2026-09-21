@@ -425,6 +425,23 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
 hgl_apply_warnings(hgl_parameter_pack_fixture)
 
+# ADR 0013: a module that exports a struct family, and one that imports it and
+# extends it. Generated C++ refers to the exporter's type and includes its
+# header; it never re-declares the struct.
+hgl_add_module(hgl_imported_shape_fixture STATIC HGL codegen/imported-structs/shapes.hgl)
+hgl_add_module(hgl_imported_struct_consumer_fixture STATIC HGL codegen/imported-structs/instruments.hgl
+    LINK_LIBRARIES hgl_imported_shape_fixture)
+foreach(_fixture IN ITEMS hgl_imported_shape_fixture hgl_imported_struct_consumer_fixture)
+    hgl_apply_warnings(${_fixture})
+endforeach()
+if(UNIX)
+    # The same module through DIRECT WIRING, so the two backends are held to
+    # the same assertions.
+    add_test(NAME hgraph_language_test_imported_struct_consumer
+        COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-structs/instruments.hgl"
+            --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_shape_fixture/src/shapes.hgl-module.json")
+endif()
+
 hgl_add_module(hgl_imported_contract_fixture STATIC HGL codegen/imported-operators/contracts.hgl)
 hgl_add_module(hgl_imported_provider_fixture STATIC HGL codegen/imported-operators/provider.hgl
     LINK_LIBRARIES hgl_imported_contract_fixture)
@@ -460,6 +477,7 @@ set(_hgl_generated_test_sources
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
     codegen/generated_imported_operator_tests.cpp
+    codegen/generated_imported_struct_tests.cpp
 )
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
@@ -476,6 +494,8 @@ set(_hgl_generated_test_libraries
     hgl_module_parts_fixture
     hgl_parameter_pack_fixture
     hgl_imported_consumer_fixture
+    hgl_imported_shape_fixture
+    hgl_imported_struct_consumer_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)
