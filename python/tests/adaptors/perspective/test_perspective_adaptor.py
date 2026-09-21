@@ -407,7 +407,8 @@ def test_publish_multitable_combines_multiple_clients_without_a_reply_channel():
     ]
 
 
-def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
+@pytest.mark.parametrize("empty_row", [False, True])
+def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop(empty_row):
     client = _Client()
     manager = PerspectiveTablesManager(client)
     received = []
@@ -423,9 +424,12 @@ def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
                 time.sleep(0.01)
             time.sleep(0.05)
             sender({1: _Row("initial", 1)})
+            edit = {"id": 1, "name": "edited", "value": 2}
+            if empty_row:
+                edit["_id"] = 1
             manager.publish_edits(
                 "editable",
-                [{"id": 1, "name": "edited", "value": 2}],
+                [edit],
                 [3],
             )
 
@@ -447,7 +451,7 @@ def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
     def app():
         register_perspective_adaptors()
         capture(publish_table_editable(
-            "editable", rows(), index_col_name="id"))
+            "editable", rows(), index_col_name="id", empty_row=empty_row))
 
     with hg.GlobalContext(hg.GlobalState()):
         PerspectiveTablesManager.set_current(manager)

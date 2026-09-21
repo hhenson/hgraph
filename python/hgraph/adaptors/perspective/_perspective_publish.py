@@ -457,12 +457,12 @@ def _start_edit_subscription_lifetime(
     _global_state: GlobalState = None,
 ):
     manager = PerspectiveTablesManager.current(_global_state)
+    mapping_state = _global_state.get(
+        f"perspective_table_index_to_id_{name}") if empty_row else None
 
     def receive(rows, removals=()):
         edits = {}
         removed = set(removals)
-        mapping_state = _global_state.get(
-            f"perspective_table_index_to_id_{name}") if empty_row else None
 
         for original in rows:
             row = dict(original)
