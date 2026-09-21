@@ -699,8 +699,10 @@ namespace hgl::hgraph_ir
                     target.identity = source.identity;
                     // Exported from its own module by definition; this module
                     // declares nothing for it and re-exports nothing.
-                    target.exported     = false;
-                    target.abstract     = source.abstract;
+                    target.exported       = false;
+                    target.imported       = true;
+                    target.public_headers = source.public_headers;
+                    target.abstract       = source.abstract;
                     target.requirements = lower_constraint(source.requirements);
                     target.range        = source.range;
                     for (const hir::GenericParameter &generic : source.generics) {

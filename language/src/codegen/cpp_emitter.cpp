@@ -1058,7 +1058,12 @@ namespace hgl::codegen
             const std::size_t local_operator_count =
                 static_cast<std::size_t>(std::count_if(graph_.operators.begin(), graph_.operators.end(),
                                                        [](const gir::OperatorContract &item) { return !item.imported; }));
-            if (structure_declarations_.size() != graph_.structures.size()) {
+            // An imported contract is described by this module and declared by
+            // another (ADR 0013), so it has no source-order handle by design.
+            // Only this module's own structs are accounted for here.
+            const std::size_t declared = static_cast<std::size_t>(
+                std::ranges::count_if(graph_.structures, [](const gir::StructContract &s) { return !s.imported; }));
+            if (structure_declarations_.size() != declared) {
                 backend({}, "hgraph IR source order omits a struct declaration");
             }
             if (operator_declarations_.size() != local_operator_count) {

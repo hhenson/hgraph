@@ -813,7 +813,22 @@ namespace hgl::ir
                         target.node = hir::ConstraintEach{symbol(source.identity), child(source.source), child(source.body)};
                         break;
                     case K::Operator: {
-                        hir::OperatorRequirement requirement{symbol(source.identity), {}, hir::no_type};
+                        // An operator requirement names an OPERATOR, not one of
+                        // the struct's generic parameters, so the generics table
+                        // never holds it. It interns as an imported operator by
+                        // its canonical identity, carrying the registry name the
+                        // solver dispatches on -- looking it up among the
+                        // generics yields no symbol, and the solver then refuses
+                        // every application.
+                        hir::SymbolId op = hir::no_symbol;
+                        if (!source.identity.empty()) {
+                            // `external_name` IS the registry key the solver
+                            // dispatches on; `canonical_name` is the defining
+                            // module's identity, independent of that spelling.
+                            op = external_symbol(hir::SymbolKind::ImportedOperator, source.identity, source.registry_name,
+                                                 source.identity, range);
+                        }
+                        hir::OperatorRequirement requirement{op, {}, hir::no_type};
                         for (const std::uint32_t argument : source.arguments) {
                             requirement.arguments.push_back(child(argument));
                         }
@@ -833,6 +848,25 @@ namespace hgl::ir
                 }
                 result_.constraints[reserved.value] = std::move(target);
                 return reserved;
+            }
+
+            /// Re-describes every exported struct an imported type names, at any
+            /// depth -- a field's type, a collection element, a generic
+            /// argument, or an ADR 0012 edge's target. A backend cannot realize
+            /// a struct whose referenced types it has no layout for.
+            void describe_nominal_closure(const semantics::ImportedType &type, syntax::SourceRange range) {
+                if (!type.nominal_identity.empty()) {
+                    const auto found = std::ranges::find(resolved_.imported_structs, type.nominal_identity,
+                                                         &semantics::ImportedStruct::identity);
+                    if (found != resolved_.imported_structs.end()) {
+                        const semantics::ImportedStruct referenced = *found;
+                        const hir::SymbolId             symbol     = external_symbol(
+                            hir::SymbolKind::ImportedStruct, referenced.identity, referenced.identity, referenced.identity,
+                            range);
+                        lower_imported_struct(referenced, symbol, range);
+                    }
+                }
+                for (const semantics::ImportedType &child : type.children) { describe_nominal_closure(child, range); }
             }
 
             /// Re-describes a struct another module exports into this module's
@@ -890,6 +924,12 @@ namespace hgl::ir
                     target.fields.push_back(hir::StructField{field.name, imported_type(field.type, generics, range),
                                                              hir::no_expr, hir::no_declaration, source.identity,
                                                              field.optional, range, field.recursive});
+                    // A field's type may name another exported struct, and a
+                    // recursive edge names its target (ADR 0012). Re-describing
+                    // only parents leaves those absent, and a backend realizing
+                    // this struct then reports an unknown nominal type. The
+                    // closure is over everything the layout reaches.
+                    describe_nominal_closure(field.type, range);
                 }
                 // The `where` the exporting module declared, rebuilt for the
                 // solver that already checks a local family's.
