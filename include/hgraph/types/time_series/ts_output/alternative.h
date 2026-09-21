@@ -57,6 +57,8 @@ namespace hgraph::detail
 
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema);
+        [[nodiscard]] static bool can_bind(const TSValueTypeMetaData *source_schema,
+                                           const TSValueTypeMetaData &requested_schema) noexcept;
         [[nodiscard]] TSOutputHandle checkpoint_binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema);
         [[nodiscard]] std::optional<TSOutputAlternativeDescriptor> checkpoint_alternative(

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -86,6 +87,17 @@ namespace hgraph::detail
             const std::string_view lname = lhs.name != nullptr ? std::string_view{lhs.name} : std::string_view{};
             const std::string_view rname = rhs.name != nullptr ? std::string_view{rhs.name} : std::string_view{};
             return lname == rname;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> field_index_by_name(
+            const TSValueTypeMetaData *schema, const TSFieldMetaData &field) noexcept
+        {
+            if (schema == nullptr || schema->kind != TSTypeKind::TSB) { return std::nullopt; }
+            for (std::size_t index = 0; index < schema->field_count(); ++index)
+            {
+                if (field_name_equal(schema->fields()[index], field)) { return index; }
+            }
+            return std::nullopt;
         }
 
         [[nodiscard]] bool is_to_ref_shape(const TSValueTypeMetaData *source_schema,
@@ -177,13 +189,6 @@ namespace hgraph::detail
             return is_to_ref_shape(source_schema, &requested_schema);
         }
 
-        [[nodiscard]] bool alternative_route_matches_from_ref(const TSValueTypeMetaData *source_schema,
-                                                              const TSValueTypeMetaData &requested_schema) noexcept
-        {
-            return source_schema != nullptr && source_schema->kind == TSTypeKind::REF &&
-                   requested_schema.kind != TSTypeKind::REF;
-        }
-
         /**
          * INTERIOR from-REF shapes (time_series.rst, keyed/structural
          * inverse conversion): the source carries REF positions below the
@@ -197,6 +202,16 @@ namespace hgraph::detail
                                                       const TSValueTypeMetaData *requested_schema,
                                                       bool allow_dict);
 
+        [[nodiscard]] bool alternative_route_matches_from_ref(const TSValueTypeMetaData *source_schema,
+                                                              const TSValueTypeMetaData &requested_schema) noexcept
+        {
+            return source_schema != nullptr && source_schema->kind == TSTypeKind::REF &&
+                   requested_schema.kind != TSTypeKind::REF &&
+                   (requested_schema.kind == TSTypeKind::SIGNAL ||
+                    is_from_ref_interior_shape(
+                        source_schema->referenced_ts(), &requested_schema, true));
+        }
+
         [[nodiscard]] bool from_ref_interior_shape_matches_unsupported(const TSValueTypeMetaData *,
                                                                        const TSValueTypeMetaData *, bool) noexcept
         {
@@ -209,11 +224,10 @@ namespace hgraph::detail
             if (source_schema->field_count() != requested_schema->field_count()) { return false; }
             for (std::size_t index = 0; index < requested_schema->field_count(); ++index)
             {
-                if (!field_name_equal(source_schema->fields()[index], requested_schema->fields()[index]))
-                {
-                    return false;
-                }
-                if (!is_from_ref_interior_shape(source_schema->fields()[index].type,
+                const auto source_index = field_index_by_name(
+                    source_schema, requested_schema->fields()[index]);
+                if (!source_index.has_value() ||
+                    !is_from_ref_interior_shape(source_schema->fields()[*source_index].type,
                                                 requested_schema->fields()[index].type, false))
                 {
                     return false;
@@ -269,7 +283,8 @@ namespace hgraph::detail
             if (time_series_schema_equivalent(source_schema, requested_schema)) { return true; }
             if (source_schema->kind == TSTypeKind::REF && requested_schema->kind != TSTypeKind::REF)
             {
-                return time_series_value_equivalent(source_schema->referenced_ts(), requested_schema);
+                return is_from_ref_interior_shape(
+                    source_schema->referenced_ts(), requested_schema, allow_dict);
             }
             if (source_schema->kind != requested_schema->kind) { return false; }
             return from_ref_interior_shape_matcher_for(requested_schema->kind)(source_schema, requested_schema,
@@ -507,6 +522,7 @@ namespace hgraph::detail
             // they never rediscover endpoint roles from live storage.
             TSEndpointSchema                 schema{};
             const FromRefRoleOps            *ops{nullptr};
+            std::size_t                      source_index{0};
             std::vector<FromRefEndpointPlan> children{};
         };
 
@@ -579,9 +595,11 @@ namespace hgraph::detail
         {
             for (std::size_t index = 0; index < plan.children.size(); ++index)
             {
+                const auto &child_plan = plan.children[index];
                 auto child = endpoint_child_view(target, index);
-                auto child_output = output_child_view(output, *plan.schema.schema(), index);
-                apply_output_to_from_ref_data(plan.children[index], child, child_output, modified_time);
+                auto child_output = output_child_view(
+                    output, *output.schema(), child_plan.source_index);
+                apply_output_to_from_ref_data(child_plan, child, child_output, modified_time);
             }
         }
 
@@ -656,8 +674,10 @@ namespace hgraph::detail
 
             for (std::size_t index = 0; index < plan.children.size(); ++index)
             {
+                const auto &child_plan = plan.children[index];
                 auto child = endpoint_child_view(target, index);
-                apply_reference_to_from_ref_data(plan.children[index], child, reference[index], modified_time);
+                apply_reference_to_from_ref_data(
+                    child_plan, child, reference[child_plan.source_index], modified_time);
             }
         }
 
@@ -710,7 +730,8 @@ namespace hgraph::detail
             {
                 const auto &child_plan = plan.children[index];
                 if (!child_plan.ops->reference_identity_matches(
-                        child_plan, endpoint_child_view(target, index), desired[index]))
+                        child_plan, endpoint_child_view(target, index),
+                        desired[child_plan.source_index]))
                 {
                     return false;
                 }
@@ -766,7 +787,9 @@ namespace hgraph::detail
             children.reserve(schema.child_count());
             for (std::size_t index = 0; index < schema.child_count(); ++index)
             {
-                children.push_back(make_from_ref_endpoint_plan(schema.child(index)));
+                auto child = make_from_ref_endpoint_plan(schema.child(index));
+                child.source_index = index;
+                children.push_back(std::move(child));
             }
             return FromRefEndpointPlan{
                 .schema = std::move(schema),
@@ -778,6 +801,50 @@ namespace hgraph::detail
         [[nodiscard]] FromRefEndpointPlan make_from_ref_endpoint_plan(const TSValueTypeMetaData *schema)
         {
             return make_from_ref_endpoint_plan(from_ref_endpoint_schema_for(schema));
+        }
+
+        void map_from_ref_endpoint_sources(FromRefEndpointPlan &plan,
+                                           const TSValueTypeMetaData &requested,
+                                           const TSValueTypeMetaData &source)
+        {
+            if (requested.kind == TSTypeKind::TSB && source.kind == TSTypeKind::TSB)
+            {
+                for (std::size_t index = 0; index < plan.children.size(); ++index)
+                {
+                    auto &child = plan.children[index];
+                    const auto source_index = field_index_by_name(
+                        &source, requested.fields()[index]);
+                    if (!source_index.has_value())
+                    {
+                        throw std::logic_error("TSOutput from-REF bundle plan lost a matched source field");
+                    }
+                    child.source_index = *source_index;
+                    map_from_ref_endpoint_sources(
+                        child, *requested.fields()[index].type,
+                        *source.fields()[*source_index].type);
+                }
+                return;
+            }
+            if (requested.kind == TSTypeKind::TSL && source.kind == TSTypeKind::TSL)
+            {
+                for (std::size_t index = 0; index < plan.children.size(); ++index)
+                {
+                    plan.children[index].source_index = index;
+                    map_from_ref_endpoint_sources(
+                        plan.children[index], *requested.element_ts(), *source.element_ts());
+                }
+            }
+        }
+
+        [[nodiscard]] FromRefEndpointPlan make_from_ref_endpoint_plan(
+            const TSValueTypeMetaData *requested, const TSValueTypeMetaData *source)
+        {
+            auto plan = make_from_ref_endpoint_plan(requested);
+            if (requested != nullptr && source != nullptr)
+            {
+                map_from_ref_endpoint_sources(plan, *requested, *source);
+            }
+            return plan;
         }
 
         void unbind_from_ref_data(const FromRefEndpointPlan &plan,
@@ -876,6 +943,7 @@ namespace hgraph::detail
             const TSValueTypeMetaData          *source_schema{nullptr};
             const FromRefBuildContext          *build_context{nullptr};
             const FromRefInteriorOps           *ops{nullptr};
+            std::size_t                         source_index{0};
             std::optional<FromRefEndpointPlan>  endpoint{};
             std::vector<FromRefInteriorPlan>    children{};
         };
@@ -979,8 +1047,10 @@ namespace hgraph::detail
         {
             for (std::size_t index = 0; index < plan.children.size(); ++index)
             {
-                apply_from_ref_interior(plan.children[index], endpoint_child_view(target, index),
-                                        output_child_view(source_view, *plan.source_schema, index),
+                const auto &child_plan = plan.children[index];
+                apply_from_ref_interior(child_plan, endpoint_child_view(target, index),
+                                        output_child_view(source_view, *plan.source_schema,
+                                                          child_plan.source_index),
                                         modified_time);
             }
         }
@@ -1032,7 +1102,8 @@ namespace hgraph::detail
                 const auto &child_plan = plan.children[index];
                 if (!child_plan.ops->identity_matches(
                         child_plan, endpoint_child_view(target, index),
-                        output_child_view(source_view, *plan.source_schema, index)))
+                        output_child_view(source_view, *plan.source_schema,
+                                          child_plan.source_index)))
                 {
                     return false;
                 }
@@ -1148,7 +1219,8 @@ namespace hgraph::detail
             if (source.kind == TSTypeKind::REF)
             {
                 plan.ops = &from_ref_interior_reference_ops();
-                plan.endpoint = make_from_ref_endpoint_plan(&requested);
+                plan.endpoint = make_from_ref_endpoint_plan(
+                    &requested, source.referenced_ts());
                 return plan;
             }
             if (time_series_schema_equivalent(&source, &requested))
@@ -1170,8 +1242,17 @@ namespace hgraph::detail
                 plan.children.reserve(requested.field_count());
                 for (std::size_t index = 0; index < requested.field_count(); ++index)
                 {
-                    plan.children.push_back(make_from_ref_interior_plan(
-                        *requested.fields()[index].type, *source.fields()[index].type, build_context));
+                    const auto source_index = field_index_by_name(
+                        &source, requested.fields()[index]);
+                    if (!source_index.has_value())
+                    {
+                        throw std::logic_error("TSOutput interior bundle plan lost a matched source field");
+                    }
+                    auto child = make_from_ref_interior_plan(
+                        *requested.fields()[index].type,
+                        *source.fields()[*source_index].type, build_context);
+                    child.source_index = *source_index;
+                    plan.children.push_back(std::move(child));
                 }
                 return plan;
             }
@@ -1182,8 +1263,10 @@ namespace hgraph::detail
                 plan.children.reserve(requested.fixed_size());
                 for (std::size_t index = 0; index < requested.fixed_size(); ++index)
                 {
-                    plan.children.push_back(make_from_ref_interior_plan(
-                        *requested.element_ts(), *source.element_ts(), build_context));
+                    auto child = make_from_ref_interior_plan(
+                        *requested.element_ts(), *source.element_ts(), build_context);
+                    child.source_index = index;
+                    plan.children.push_back(std::move(child));
                 }
             }
             return plan;
@@ -1787,7 +1870,9 @@ namespace hgraph::detail
         RefLinkAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
                                 bool initialise = true)
             : requested_schema{&requested_schema},
-              plan{make_from_ref_endpoint_plan(&requested_schema)},
+              plan{make_from_ref_endpoint_plan(
+                  &requested_schema,
+                  source.schema() != nullptr ? source.schema()->referenced_ts() : nullptr)},
               data{checked_from_ref_storage_type(plan.schema)},
               notifier{*this}
         {
@@ -2172,6 +2257,16 @@ namespace hgraph::detail
             .source_data      = source.data_view().data(),
             .requested_schema = &requested_schema,
         };
+    }
+
+    bool TSOutputAlternativeStore::can_bind(
+        const TSValueTypeMetaData *source_schema,
+        const TSValueTypeMetaData &requested_schema) noexcept
+    {
+        return source_schema != nullptr &&
+               (alternative_route_matches_to_ref(source_schema, requested_schema) ||
+                alternative_route_matches_from_ref(source_schema, requested_schema) ||
+                alternative_route_matches_from_ref_interior(source_schema, requested_schema));
     }
 
     TSOutputHandle TSOutputAlternativeStore::binding_for(const TSOutputView &source,

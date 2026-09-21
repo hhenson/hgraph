@@ -1675,6 +1675,50 @@ def test_service_adaptor_from_python():
     out = eval_node(arithmetic_client, [7], [2])
     check(out == [{"total": 9, "difference": 5}], f"multi-field service adaptor: {out}")
 
+    class StreamLikeResult(hg.TimeSeriesSchema):
+        status: TS[int]
+        status_msg: TS[str]
+        values: TS[int]
+        timestamp: TS[datetime.datetime]
+
+    class ImplementationStreamLikeResult(hg.TimeSeriesSchema):
+        values: TS[int]
+        status: TS[int]
+        status_msg: TS[str]
+        timestamp: TS[datetime.datetime]
+
+    @hg.service_adaptor
+    def ref_leaf_result(request: TS[int]) -> TSB[StreamLikeResult]: ...
+
+    @hg.graph
+    def make_ref_leaf_result(value: TS[int]) -> TSB[ImplementationStreamLikeResult]:
+        return hg.combine[TSB[ImplementationStreamLikeResult]](
+            values=value,
+            status=hg.const(0, tp=TS[int]),
+            status_msg=hg.const("", tp=TS[str]),
+            timestamp=hg.const(datetime.datetime(2024, 1, 1), tp=TS[datetime.datetime]),
+        )
+
+    @hg.service_adaptor_impl(interfaces=ref_leaf_result)
+    def ref_leaf_result_impl(
+        requests: TSD[int, TS[int]],
+    ) -> TSD[int, TSB[ImplementationStreamLikeResult]]:
+        values = hg.map_(make_ref_leaf_result, requests)
+        groups = hg.map_(
+            lambda key: hg.const("all", tp=TS[str]),
+            __keys__=values.key_set,
+            __key_arg__="key",
+        )
+        return hg.unpartition(hg.partition(values, groups))
+
+    @graph
+    def ref_leaf_result_client(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("ref-leaf-result", ref_leaf_result_impl)
+        return ref_leaf_result(value, path="ref-leaf-result").values
+
+    out = eval_node(ref_leaf_result_client, [3, None, 5])
+    check(out == [3, None, 5], f"reference-leaf service adaptor: {out}")
+
     try:
         @hg.service_adaptor_impl(interfaces=echo)
         def invalid_impl(): ...

@@ -11,6 +11,7 @@
 #include <hgraph/runtime/shared_output_node.h>
 #include <hgraph/types/static_schema.h>                 // schema_descriptor
 #include <hgraph/types/time_series/endpoint_schema.h>   // time_series_schema_equivalent
+#include <hgraph/types/time_series/ts_output.h>         // TSOutput::binding_compatible
 #include <hgraph/types/type_resolution.h>               // ResolutionMap, ts_resolver, unifiers, ts_type
 #include <hgraph/types/value/value.h>                   // Value (scalar configuration)
 #include <hgraph/types/wiring_observer.h>
@@ -1977,6 +1978,7 @@ namespace hgraph
             if (input_schema->kind == TSTypeKind::SIGNAL) { return true; }
 
             if (time_series_value_equivalent(input_schema, output_schema)) { return true; }
+            if (TSOutput::binding_compatible(output_schema, *input_schema)) { return true; }
             auto &registry = TypeRegistry::instance();
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
