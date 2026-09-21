@@ -605,7 +605,10 @@ fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
     REQUIRE_FALSE(unit.diagnostics.has_errors());
 
     hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
-    static_cast<void>(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()));
+    // Reporting is not enough: the backend aborts only on a null result, so
+    // handing back the incompatible metadata would let a run continue against
+    // the wrong layout.
+    CHECK(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()) == nullptr);
     REQUIRE(unit.diagnostics.has_errors());
     const std::string rendered = unit.diagnostics.render(unit.file);
     INFO(rendered);
@@ -636,10 +639,95 @@ fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
     REQUIRE_FALSE(unit.diagnostics.has_errors());
 
     hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
-    static_cast<void>(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()));
+    // Reporting is not enough: the backend aborts only on a null result, so
+    // handing back the incompatible metadata would let a run continue against
+    // the wrong layout.
+    CHECK(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()) == nullptr);
     REQUIRE(unit.diagnostics.has_errors());
     const std::string rendered = unit.diagnostics.render(unit.file);
     INFO(rendered);
     // Pointed at the field that disagrees, not just at the struct.
     CHECK(rendered.find("field 'label'") != std::string::npos);
+}
+
+TEST_CASE("a recursive imported edge that targets a different struct is rejected", "[wiring][types][struct-imports][recursive]") {
+    // Names and arity match, and the edge IS an owner of a named bundle -- it
+    // just owns the wrong one. That is version skew of exactly the kind the
+    // recursive closure cannot catch on its own, because it answers from the
+    // registered type before it asks the describer.
+    auto      &registry = hgraph::TypeRegistry::instance();
+    const auto types    = hgraph::stdlib::register_standard_types();
+    const auto *other   = registry.bundle("checks.rtarget", "Other", {{"tag", types.str_type}});
+    REQUIRE(other != nullptr);
+    REQUIRE(registry.bundle("checks.rtarget", "Node",
+                            {{"label", types.int_type}, {"next", registry.owned(other)}}) != nullptr);
+
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes("checks.rtarget");
+    Unit                                unit{R"(
+module checks.import_rtarget
+
+use checks.rtarget as shapes
+
+fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    CHECK(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()) == nullptr);
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("checks.rtarget::Other") != std::string::npos);
+}
+
+TEST_CASE("an imported generic family with an applied parent refuses by name", "[wiring][types][struct-imports]") {
+    // Pinned deliberately. `Child<U>: Base<U>` would need the parent's
+    // parameters mapped into the child's scope before its inherited fields
+    // mean anything, and the catalog refuses the record rather than rebuild
+    // it wrong. If this ever starts resolving, the flattening in
+    // `lower_imported_struct` has to remap inherited field types through the
+    // parent application first -- it copies them as they stand.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.genfam";
+
+    hgl::semantics::ImportedType parameter;
+    parameter.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+    parameter.binding_identity = "checks.genfam.Base::T";
+
+    hgl::semantics::ImportedStruct base;
+    base.module_identity = module.identity;
+    base.name            = "Base";
+    base.identity        = "checks.genfam.Base";
+    base.abstract        = true;
+    base.generics        = {{"T", "checks.genfam.Base::T", false, {}}};
+    base.fields          = {{"value", parameter, false, false}};
+
+    hgl::semantics::ImportedType applied_parent;
+    applied_parent.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+    applied_parent.nominal_identity = "checks.genfam.Base";
+    applied_parent.children         = {hgl::semantics::ImportedScalarType::I64};
+
+    hgl::semantics::ImportedStruct child;
+    child.module_identity = module.identity;
+    child.name            = "Child";
+    child.identity        = "checks.genfam.Child";
+    child.parents         = {applied_parent};
+    child.fields          = {{"extra", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+    module.structs = {std::move(base), std::move(child)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_genfam
+
+use checks.genfam as g
+
+fn take(c: atomic<g::Child>) -> i64 => c.extra
+)",
+              catalog};
+    // Refused at the name, before anything could be rebuilt wrong.
+    CHECK(unit.diagnostics.has_errors());
 }

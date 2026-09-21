@@ -224,10 +224,14 @@ namespace hgl::wiring
         const hgraph::ValueTypeMetaData *existing = registry_.value_type(specialization.qualified());
         if (existing == nullptr) { return nullptr; }
         const std::vector<hgraph_ir::StructField> &fields = specialization.contract->fields;
-        const auto                                 disagrees = [&](std::string_view what) {
+        // Reporting is not enough: `value()` caches whatever this returns and
+        // the backend aborts only on a NULL result, so handing back the
+        // incompatible metadata would let a run continue against the wrong
+        // field layout and merely print a diagnostic afterwards.
+        const auto disagrees = [&](std::string_view what) -> const hgraph::ValueTypeMetaData * {
             report(range, "cannot register struct '" + specialization.local_name + "': a different schema is already " +
                               "registered under that name (" + std::string{what} + ")");
-            return existing;
+            return nullptr;
         };
         if (!existing->is_named_bundle() || existing->field_count != fields.size()) { return disagrees("field count"); }
         if (existing->is_abstract_bundle() != specialization.contract->abstract) { return disagrees("abstract"); }
@@ -237,7 +241,7 @@ namespace hgl::wiring
         if (hierarchy->parents.size() != specialization.contract->parents.size()) { return disagrees("parents"); }
         for (std::size_t index = 0; index < specialization.contract->parents.size(); ++index) {
             const hgraph::ValueTypeMetaData *parent = value(specialization.contract->parents[index], specialization.applied);
-            if (parent == nullptr) { return existing; }
+            if (parent == nullptr) { return nullptr; }
             if (parent != hierarchy->parents[index]) { return disagrees("parent '" + std::string{parent->name()} + "'"); }
         }
         if (hierarchy->generic_arguments.size() != specialization.generic_types.size()) {
@@ -256,14 +260,26 @@ namespace hgl::wiring
                 return disagrees("field '" + field.name + "'");
             }
             if (field.recursive) {
+                // The edge is compared by the TARGET IT NAMES rather than
+                // realized: realizing it would need the very type being
+                // checked. "An owner of some named bundle" is not enough --
+                // an edge that owns a different struct is exactly the skew
+                // this preflight exists to catch, and the closure never asks
+                // the describer once the name is registered.
                 if (declared == nullptr || !declared->is_owned() || declared->element_type == nullptr ||
                     !declared->element_type->is_named_bundle()) {
                     return disagrees("recursive field '" + field.name + "'");
                 }
+                const std::optional<Specialization> target = recursive_target(field, specialization.applied);
+                if (!target) { return nullptr; }
+                if (std::string{declared->element_type->name()} != target->qualified()) {
+                    return disagrees("recursive field '" + field.name + "' targets '" +
+                                     std::string{declared->element_type->name()} + "'");
+                }
                 continue;
             }
             const hgraph::ValueTypeMetaData *described = field_value(field, specialization.applied);
-            if (described == nullptr) { return existing; }
+            if (described == nullptr) { return nullptr; }
             if (described != declared) { return disagrees("field '" + field.name + "'"); }
         }
         return existing;

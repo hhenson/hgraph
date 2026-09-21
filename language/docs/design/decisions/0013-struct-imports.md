@@ -62,9 +62,15 @@ field's *type* is what a version bump usually looks like, and it leaves the
 field count and every field name unchanged — so kind, arity and names would
 call two different schemas a match. The preflight compares each field's
 realized type, the parents, abstractness and the generic arguments, and names
-the part that disagrees. A recursive field is compared structurally rather
-than realized, because realizing the edge would need the very type being
-checked.
+the part that disagrees. A recursive field is compared by the **target it
+names** rather than realized, because realizing the edge would need the very
+type being checked; "an owner of some named bundle" would accept an edge that
+owns a different struct.
+
+**A disagreement fails; it does not merely report.** The backend aborts on a
+null result, so returning the registered-but-incompatible metadata would let a
+run continue against the wrong field layout and print the diagnostic
+afterwards.
 
 ### Catalog
 
