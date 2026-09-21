@@ -277,6 +277,22 @@ after publication the link never changes.  This keeps ordinary ``Value``
 construction O(1), avoids a process-global side map on the hot path, and leaves
 the plan, ops, schema, capabilities, and identity metadata immutable.
 
+The materialisation is what a ``Value`` *is*, not a conversion applied on the
+way out: ``Value{binding}`` allocates storage of ``value_owning_type(binding)``.
+Anything that then writes into that storage has to take its child bindings from
+the representation the ``Value`` actually holds, never from the binding the
+caller passed.  The two are plan-compatible — same size, same field offsets —
+so a mismatch does not fault.  It writes each child through one realization's
+ops and leaves the reader to interpret it through the other's, and for a
+polymorphic child the two realizations are distinct closed-Bundle entries with
+their own alternative ``TypeRecord``s: the payload ends up tagged with a record
+the reader's entry has never seen, and the first consumer to ask for the child's
+concrete type fails with "closed Bundle source alternative ... is outside this
+graph snapshot".  ``BundleBuilder`` therefore takes its assembly binding through
+``value_owning_type`` and converts to the caller's target in ``build``;
+``ListBuilder::build(target)`` does the same for a target representation that
+differs from the compact one it accumulates into.
+
 The value-family pilot makes this concrete: ``ValueTypeMetaData`` is a
 standard-layout type whose first member is ``SchemaHeader`` and whose second
 member is ``ValueTypeFlags``.  It does not inherit the legacy family metadata.
