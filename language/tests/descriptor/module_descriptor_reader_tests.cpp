@@ -1467,3 +1467,94 @@ TEST_CASE("an applied generic field type does not cross the catalog", "[descript
     REQUIRE(imported != nullptr);
     CHECK(imported->support_error == "imported struct field type is not supported by the catalog");
 }
+
+// An identity is not just a label: generated C++ derives a namespace from it
+// and spells it into the source (`::checks::shapes::Venue`). A descriptor is
+// an input, so anything not shaped like an identifier is refused before
+// anything is built from it.
+TEST_CASE("a descriptor's identities must be identifiers", "[descriptor][catalog][security]") {
+    SECTION("a module identity that is not dot-separated identifiers is refused") {
+        auto source            = minimal_descriptor();
+        source.module_identity = "checks.reader {}; \n#define EVIL 1\nnamespace x";
+        source.provider_identity = source.module_identity;
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    error = descriptor::add_to_catalog(source, catalog);
+        REQUIRE(error.has_value());
+        CHECK(error->path == "$.module.identity");
+    }
+
+    SECTION("a struct whose local name is not an identifier is not admitted") {
+        auto source  = minimal_descriptor();
+        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        descriptor::InterfaceDeclaration bad;
+        bad.category = descriptor::DeclarationCategory::Structure;
+        bad.identity = "checks.reader.Venue {}; struct Evil";
+        bad.fields   = {{"code", 0U, descriptor::no_schema_id, bad.identity, false, false}};
+        source.interface = {std::move(bad)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    error = descriptor::add_to_catalog(source, catalog);
+        // Either refused outright, or admitted under no name at all -- never
+        // under a name that reaches the emitter.
+        if (!error.has_value()) { CHECK(catalog.find_struct_by_identity(bad.identity) == nullptr); }
+    }
+
+    SECTION("an ordinary identity still crosses") {
+        auto source = minimal_descriptor();
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        CHECK_FALSE(descriptor::add_to_catalog(source, catalog).has_value());
+    }
+}
+
+// Pinned deliberately (ADR 0013). `Child<U>: Base<U>` would need the parent's
+// parameters mapped into the child's scope before its inherited fields mean
+// anything, and the catalog refuses the record rather than rebuild it wrong --
+// the flattening in `lower_imported_struct` copies an ancestor's field types
+// as they stand. If this ever starts crossing, that flattening has to remap
+// them through the parent application first.
+
+
+// Pinned deliberately (ADR 0013). `Child<U>: Base<U>` would need the parent's
+// parameters mapped into the child's scope before its inherited fields mean
+// anything, and the catalog refuses the record rather than rebuild it wrong --
+// the flattening in `lower_imported_struct` copies an ancestor's field types
+// as they stand. If this ever starts crossing, that flattening has to remap
+// them through the parent application first.
+TEST_CASE("an applied generic parent does not cross the catalog", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category         = descriptor::TypeCategory::Symbol,
+                               .nominal_identity = "T",
+                               .binding_identity = "checks.reader.Base::T"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Base",
+                               .arguments = {descriptor::TypeArgument{.reference = 0U}}},
+    };
+    descriptor::InterfaceDeclaration base;
+    base.category           = descriptor::DeclarationCategory::Structure;
+    base.identity           = "checks.reader.Base";
+    base.abstract           = true;
+    base.signature.generics = {{"T", "checks.reader.Base::T", false, descriptor::no_schema_id}};
+    base.fields             = {{"value", 1U, descriptor::no_schema_id, "checks.reader.Base", false, false}};
+
+    descriptor::InterfaceDeclaration child;
+    child.category = descriptor::DeclarationCategory::Structure;
+    child.identity = "checks.reader.Child";
+    child.parents  = {2U};
+    child.fields   = {{"value", 1U, descriptor::no_schema_id, "checks.reader.Base", false, false},
+                      {"extra", 0U, descriptor::no_schema_id, "checks.reader.Child", false, false}};
+
+    source.interface = {std::move(base), std::move(child)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Child");
+    REQUIRE(imported != nullptr);
+    CHECK_FALSE(imported->support_error.empty());
+}

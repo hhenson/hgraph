@@ -707,56 +707,6 @@ fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
     CHECK(rendered.find("checks.rtarget::Other") != std::string::npos);
 }
 
-TEST_CASE("an imported generic family with an applied parent refuses by name", "[wiring][types][struct-imports]") {
-    // Pinned deliberately. `Child<U>: Base<U>` would need the parent's
-    // parameters mapped into the child's scope before its inherited fields
-    // mean anything, and the catalog refuses the record rather than rebuild
-    // it wrong. If this ever starts resolving, the flattening in
-    // `lower_imported_struct` has to remap inherited field types through the
-    // parent application first -- it copies them as they stand.
-    hgl::semantics::ModuleCatalog    catalog;
-    hgl::semantics::ImportableModule module;
-    module.identity = "checks.genfam";
-
-    hgl::semantics::ImportedType parameter;
-    parameter.kind             = hgl::semantics::ImportedTypeKind::Symbol;
-    parameter.binding_identity = "checks.genfam.Base::T";
-
-    hgl::semantics::ImportedStruct base;
-    base.module_identity = module.identity;
-    base.name            = "Base";
-    base.identity        = "checks.genfam.Base";
-    base.abstract        = true;
-    base.generics        = {{"T", "checks.genfam.Base::T", false, {}}};
-    base.fields          = {{"value", parameter, false, false}};
-
-    hgl::semantics::ImportedType applied_parent;
-    applied_parent.kind             = hgl::semantics::ImportedTypeKind::Symbol;
-    applied_parent.nominal_identity = "checks.genfam.Base";
-    applied_parent.children         = {hgl::semantics::ImportedScalarType::I64};
-
-    hgl::semantics::ImportedStruct child;
-    child.module_identity = module.identity;
-    child.name            = "Child";
-    child.identity        = "checks.genfam.Child";
-    child.parents         = {applied_parent};
-    child.fields          = {{"extra", hgl::semantics::ImportedScalarType::I64, false, false}};
-
-    module.structs = {std::move(base), std::move(child)};
-    REQUIRE_FALSE(catalog.add(std::move(module)));
-
-    Unit unit{R"(
-module checks.import_genfam
-
-use checks.genfam as g
-
-fn take(c: atomic<g::Child>) -> i64 => c.extra
-)",
-              catalog};
-    // Refused at the name, before anything could be rebuilt wrong.
-    CHECK(unit.diagnostics.has_errors());
-}
-
 TEST_CASE("a recursive closure member registered incompatibly is rejected", "[wiring][types][struct-imports][recursive]") {
     // The ROOT agrees and its edge still names the right target, so a
     // root-only check passes -- but the target is already registered with a

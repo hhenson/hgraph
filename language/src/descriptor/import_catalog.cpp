@@ -1,5 +1,7 @@
 #include "descriptor/import_catalog.h"
 
+#include "descriptor/module_descriptor_reader.h"
+
 #include <algorithm>
 #include <optional>
 #include <unordered_map>
@@ -240,8 +242,11 @@ namespace hgl::descriptor
             result.public_headers         = descriptor.build.public_headers;
             const std::string prefix      = descriptor.module_identity + ".";
             if (declaration.identity.starts_with(prefix)) {
+                // The local name is spelled straight into generated C++, so it
+                // has to BE an identifier -- "contains no dot or colon" leaves
+                // every other character through.
                 const std::string name = declaration.identity.substr(prefix.size());
-                if (!name.empty() && name.find_first_of(".:") == std::string::npos) { result.name = name; }
+                if (is_identifier(name)) { result.name = name; }
             }
             const auto unsupported = [&](std::string message) {
                 if (result.support_error.empty()) { result.support_error = std::move(message); }
