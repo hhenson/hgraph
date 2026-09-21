@@ -73,6 +73,37 @@ namespace hgraph
     };
 }
 
+namespace unset_polymorphic_emit_repro
+{
+    // A second hierarchy whose Event carries a POLYMORPHIC field. The
+    // emit_repro Event above has only scalar fields, so its realization
+    // survives a mislabelled round trip; a polymorphic field does not.
+    struct Event
+    {};
+}
+
+namespace hgraph
+{
+    template <>
+    struct scalar_descriptor<unset_polymorphic_emit_repro::Event>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            // Detail is an EMPTY abstract base; FilledDetail is what makes it
+            // polymorphic at all.
+            const auto *detail = registry.bundle("tests.emit_unset", "Detail", {}, {}, true);
+            registry.bundle(
+                "tests.emit_unset", "FilledDetail",
+                {{"amount", registry.value_type("int")}}, {detail});
+            return registry.bundle(
+                "tests.emit_unset", "Event",
+                {{"value", registry.value_type("int")}, {"detail", detail}}, {}, true);
+        }
+    };
+}
+
 namespace hgraph::testing
 {
     template <>
@@ -90,6 +121,24 @@ namespace hgraph::testing
     template <>
     struct ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
         : bundle_ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<unset_polymorphic_emit_repro::Event>>
+        : bundle_ts_harness<TS<unset_polymorphic_emit_repro::Event>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Map<Str, unset_polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Map<Str, unset_polymorphic_emit_repro::Event>>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Set<unset_polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Set<unset_polymorphic_emit_repro::Event>>>
     {
     };
 }
@@ -293,6 +342,24 @@ namespace
         {
             return wire<stdlib::emit>(w, events)
                 .as<PolymorphicEventKeyValue>();
+        }
+    };
+
+    using UnsetPolymorphicEvent = unset_polymorphic_emit_repro::Event;
+    using UnsetPolymorphicEventDict = TSD<Str, TS<UnsetPolymorphicEvent>>;
+    using UnsetPolymorphicEventKeyValue =
+        UnNamedTSB<Field<"key", TS<Str>>,
+                   Field<"value", TS<UnsetPolymorphicEvent>>>;
+
+    struct UnsetPolymorphicEventDictEmitGraph
+    {
+        static constexpr auto name = "unset_polymorphic_event_dict_emit_graph";
+
+        static Port<UnsetPolymorphicEventKeyValue> compose(
+            Wiring &w, Port<UnsetPolymorphicEventDict> events)
+        {
+            return wire<stdlib::emit>(w, events)
+                .as<UnsetPolymorphicEventKeyValue>();
         }
     };
 
@@ -2108,6 +2175,71 @@ TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")
     CHECK(event_fields.at("event_id").checked_as<Str>() == Str{"event"});
     CHECK(event_fields.at("order_id").checked_as<Str>() == Str{"order"});
     CHECK(event_fields.at("payload").checked_as<Str>() == Str{"created"});
+}
+
+TEST_CASE("std operators: keyed emit preserves an unset polymorphic field")
+{
+    // emit(TSD) assembles its {key, value} bundle with a BundleBuilder over
+    // the output's published binding, and that binding is GRAPH-LOCAL while
+    // the Value the builder allocates is the external owner it publishes.
+    // Writing the fields through one realization and reading them back
+    // through the other leaves a polymorphic field tagged with a record the
+    // reader's closed-Bundle entry has never seen. An UNSET field typed as
+    // the declared base is what exposes it: it stays on the base rather than
+    // being replaced by a concrete leaf, so its realization is what has to
+    // survive the round trip.
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *text     = registry.value_type("str");
+    const auto *event    = scalar_descriptor<UnsetPolymorphicEvent>::value_meta();
+    const auto *detail   = registry.named_bundle("tests.emit_unset", "Detail");
+    REQUIRE(detail != nullptr);
+    const auto *child_event = registry.bundle(
+        "tests.emit_unset", "ChildEvent",
+        {{"value", integer}, {"detail", detail}}, {event});
+
+    // `detail` is deliberately never set.
+    BundleBuilder child{ValuePlanFactory::instance().type_for(child_event)};
+    child.set("value", Value{Int{7}});
+    const Value created = child.build();
+
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+    const auto key_binding   = realization->type_for(text);
+    const auto event_binding = realization->type_for(event);
+    Value      event_value{event_binding};
+    event_binding.ops_ref().copy_assign_from(
+        event_binding, event_value.begin_mutation().mutable_data(),
+        created.binding(), created.view().data());
+
+    SetBuilder removed{key_binding};
+    MapBuilder modified{key_binding, event_binding};
+    const Str  key{"order"};
+    modified.set_item_copy(&key, event_value.view().data());
+    const auto *delta_schema =
+        ts_type<UnsetPolymorphicEventDict>()->delta_value_schema;
+    BundleBuilder delta{realization->type_for(delta_schema)};
+    delta.set("removed", removed.build());
+    delta.set("modified", modified.build());
+
+    const auto actual = eval_node<UnsetPolymorphicEventDictEmitGraph>(
+        values<Value>(delta.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto fields = actual.front()->view().as_indexed_view();
+    REQUIRE(fields.size() == 2);
+    CHECK(fields.at(0).checked_as<Str>() == Str{"order"});
+    // The concrete leaf survives ...
+    const auto concrete = fields.at(1).concrete();
+    REQUIRE(concrete.schema() == child_event);
+    const auto event_fields = concrete.as_bundle();
+    CHECK(event_fields.at("value").checked_as<Int>() == Int{7});
+    // ... and the unset polymorphic field is still unset, not dropped and
+    // not filled with a default leaf.
+    CHECK_FALSE(event_fields.at("detail").has_value());
 }
 
 TEST_CASE("std operators preserve concrete Bundle leaves across owned container transfers")
