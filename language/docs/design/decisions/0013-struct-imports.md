@@ -125,9 +125,15 @@ wherever a later slice asks a layout to say something a signature cannot.
 A qualified `Named` type resolves through the catalog to an `ImportedStruct`,
 bound as a new `BindingKind::ImportedStruct` whose `index` names
 `ResolvedModule::imported_structs`, mirroring `ImportedFunction`. The
-prototype rejection is removed. An unqualified name still resolves locally
-first; a `use` of a struct name makes the unqualified spelling available the
-way a `use` of a function does.
+prototype rejection is removed.
+
+**Both spellings, through one path.** `use m::{Quote}` binds the name in the
+importing module and `m::Quote` names it through an alias; an unqualified name
+still resolves locally first. The two forms share the binding, the arity check
+and the per-argument role checks, so they cannot drift — the unqualified form
+needs the `use` to bind it *and* the bare name to resolve as a type, and
+missing either half makes the documented spelling fail while the alias one
+works.
 
 ### The shared passes
 

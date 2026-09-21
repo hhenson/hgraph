@@ -154,7 +154,11 @@ namespace hgl::descriptor
         [[nodiscard]] bool imported_constraints(const ModuleDescriptor &descriptor, SchemaId root,
                                                 std::vector<semantics::ImportedConstraint> &arena,
                                                 std::unordered_map<SchemaId, std::uint32_t> &seen,
-                                                std::uint32_t &out) {
+                                                std::uint32_t &out, std::uint32_t depth = 0) {
+            // Validation checks reference bounds, not graph depth, so an
+            // arbitrarily deep acyclic chain would exhaust the stack. The same
+            // budget imported_type uses.
+            if (depth >= 256U) { return false; }
             if (root == no_schema_id || root >= descriptor.constraints.size()) { return false; }
             if (const auto found = seen.find(root); found != seen.end()) {
                 out = found->second;
@@ -181,8 +185,12 @@ namespace hgl::descriptor
             node.registry_name     = source.registry_name;
             node.operator_spelling = source.operator_spelling;
             node.relation_category = source.relation_category;
-            if (source.type != no_schema_id) {
-                node.type = imported_type(descriptor, source.type, {}, /*allow_layout=*/true);
+            // An Operator requirement stores the return type it demands in
+            // `result`, not `type`; reading only `type` would drop it and leave
+            // a requirement weaker than the exporting module declared.
+            const SchemaId type_ref = source.category == ConstraintCategory::Operator ? source.result : source.type;
+            if (type_ref != no_schema_id) {
+                node.type = imported_type(descriptor, type_ref, {}, /*allow_layout=*/true);
                 if (!node.type) { return false; }
             }
             if (source.value != no_schema_id) {
@@ -192,7 +200,7 @@ namespace hgl::descriptor
             }
             const auto child = [&](SchemaId id, std::uint32_t &slot) {
                 if (id == no_schema_id) { return true; }
-                return imported_constraints(descriptor, id, arena, seen, slot);
+                return imported_constraints(descriptor, id, arena, seen, slot, depth + 1U);
             };
             if (!child(source.lhs, node.lhs) || !child(source.rhs, node.rhs) || !child(source.operand, node.operand) ||
                 !child(source.source, node.source) || !child(source.body, node.body)) {
@@ -200,12 +208,12 @@ namespace hgl::descriptor
             }
             for (const SchemaId element : source.elements) {
                 std::uint32_t slot = semantics::no_imported_constraint;
-                if (!imported_constraints(descriptor, element, arena, seen, slot)) { return false; }
+                if (!imported_constraints(descriptor, element, arena, seen, slot, depth + 1U)) { return false; }
                 node.elements.push_back(slot);
             }
             for (const SchemaId argument : source.arguments) {
                 std::uint32_t slot = semantics::no_imported_constraint;
-                if (!imported_constraints(descriptor, argument, arena, seen, slot)) { return false; }
+                if (!imported_constraints(descriptor, argument, arena, seen, slot, depth + 1U)) { return false; }
                 node.arguments.push_back(slot);
             }
             arena[index] = std::move(node);
