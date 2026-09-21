@@ -5,6 +5,7 @@ import pyarrow as pa
 import inspect
 import json
 import pytest
+import sys
 import threading
 import time
 import tornado.web
@@ -120,6 +121,24 @@ def test_publish_table_operates_against_the_supported_perspective_client():
     finally:
         view.delete()
         manager.close()
+
+
+def test_publish_table_clamps_history_to_perspective_limit_range():
+    client = _Client()
+    manager = PerspectiveTablesManager(client)
+
+    @hg.graph
+    def app(rows: hg.TSD[int, hg.TS[int]]):
+        register_perspective_adaptors()
+        publish_table("bounded", rows, index_col_name="id", history=sys.maxsize)
+        publish_table("unlimited", rows, index_col_name="id", history=0)
+
+    with hg.GlobalContext(hg.GlobalState()):
+        PerspectiveTablesManager.set_current(manager)
+        hg.eval_node(app, [{1: 10}])
+
+    assert client.tables["bounded_history"][1]["limit"] == 4294967295
+    assert client.tables["unlimited_history"][1]["limit"] is None
 
 
 def test_manager_edit_callbacks_do_not_require_perspective_to_be_installed():

@@ -404,7 +404,7 @@ def _start_publish_table_node(
     if history is not None:
         manager.create_table(
             {"time": datetime, **schema},
-            limit=history if history > 0 else None,
+            limit=min(history, 4294967295) if history > 0 else None,
             name=f"{name}_history", user=False,
         )
 
