@@ -1179,3 +1179,45 @@ export struct Tick: shapes::Base
     CHECK(tick->fields[3].name == "bid");
     CHECK(tick->fields[3].origin_identity == tick->identity);
 }
+
+// The importer re-describes the owner's layout (ADR 0013), so a struct another
+// module exports appears as a contract of its own in hgraph IR -- that is the
+// record both backends register the schema from, under the OWNER's identity.
+TEST_CASE("hgraph IR emits a contract for an imported struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_contract
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    // The whole imported ancestry is described, each under its own identity.
+    const hgl::hgraph_ir::StructContract *base = structure(*lowered.graph, "checks.shapes.Base");
+    REQUIRE(base != nullptr);
+    CHECK(base->abstract);
+    // This module declares nothing for it and must not re-export it: doing so
+    // would claim ownership of another module's type.
+    CHECK_FALSE(base->exported);
+    REQUIRE(base->fields.size() == 1);
+    CHECK(base->fields[0].name == "at");
+    CHECK(base->fields[0].origin_identity == "checks.shapes.Base");
+
+    const hgl::hgraph_ir::StructContract *root = structure(*lowered.graph, "checks.shapes.Root");
+    REQUIRE(root != nullptr);
+    CHECK(root->abstract);
+    CHECK_FALSE(root->exported);
+
+    // The local struct is still its own contract, and IS exported.
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_contract.Tick");
+    REQUIRE(tick != nullptr);
+    CHECK(tick->exported);
+}
