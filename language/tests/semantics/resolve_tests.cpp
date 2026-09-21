@@ -868,6 +868,21 @@ TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct
         REQUIRE(resolved.result.imported_structs.size() == 1U);
         CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
     }
+    SECTION("the unqualified use form binds the name") {
+        // ADR 0013: a struct imports exactly as a function does, so
+        // `use m::{Quote}` must work and not only the alias spelling.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Quote}\nstruct Book { top: Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("an unqualified imported generic checks its arity too") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Pair}\nstruct Book { top: Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
     SECTION("repeated mentions share one binding") {
         const ModuleCatalog catalog = struct_catalog();
         Resolved            resolved{"module t\nuse checks.shapes as shapes\n"

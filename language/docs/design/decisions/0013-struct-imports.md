@@ -89,14 +89,26 @@ struct ImportedStruct
 `public_headers` follows `ImportedFunction`: an imported entity carries what a
 consumer needs in order to use it.
 
-**Construction metadata does not cross yet.** A descriptor records a field's
-default and a generic struct's `where` requirement; `ImportedStruct` carries
-neither. So an imported constructor cannot reproduce the calls the exporting
-module accepts — an omitted argument with a default, or an inherited default a
-child overrides — and an imported generic family cannot be constraint-checked
-when applied. Both are recorded as support errors rather than silently
-dropped, so such a struct is unavailable rather than wrong, and slice 3 must
-either reconstruct the metadata or keep refusing these structs by name.
+**Whatever crosses a module boundary crosses whole, or is refused by name.**
+A partial record is worse than an absent one, because it still looks complete:
+a short layout registers under the owner's name while disagreeing with the
+exporter, a dropped field default rebuilds the parent's, a skipped generic
+argument admits an unchecked specialization, and half a `where` requirement is
+weaker than the one the exporting module declared. Each of those was a real
+defect in this work. So a record that cannot be rebuilt whole records a
+support error naming what failed, and carries nothing partial.
+
+**Construction metadata does not cross yet.** A descriptor records a field's default, which
+`ImportedStruct` does not carry, so an imported constructor cannot yet
+reproduce the calls the exporting module accepts — an omitted argument with a
+default, or an inherited default a child overrides. Such a struct records a
+support error and is unavailable rather than wrong.
+
+A generic struct's `where` requirement **does** cross (owner's ruling): the
+descriptor's normalized constraint graph rebuilds into `ImportedStruct::
+constraints`, whose shape mirrors both the descriptor's and the typed HIR's,
+so lowering reconstructs it for the **existing** solver rather than a second
+checker. It crosses whole or not at all.
 
 `ImportedType` was built to describe **signatures**, and a layout is a richer
 thing: a parameter list never names a nominal struct and never carries an
@@ -113,9 +125,15 @@ wherever a later slice asks a layout to say something a signature cannot.
 A qualified `Named` type resolves through the catalog to an `ImportedStruct`,
 bound as a new `BindingKind::ImportedStruct` whose `index` names
 `ResolvedModule::imported_structs`, mirroring `ImportedFunction`. The
-prototype rejection is removed. An unqualified name still resolves locally
-first; a `use` of a struct name makes the unqualified spelling available the
-way a `use` of a function does.
+prototype rejection is removed.
+
+**Both spellings, through one path.** `use m::{Quote}` binds the name in the
+importing module and `m::Quote` names it through an alias; an unqualified name
+still resolves locally first. The two forms share the binding, the arity check
+and the per-argument role checks, so they cannot drift — the unqualified form
+needs the `use` to bind it *and* the bare name to resolve as a type, and
+missing either half makes the documented spelling fail while the alias one
+works.
 
 ### The shared passes
 

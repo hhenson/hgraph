@@ -165,6 +165,44 @@ namespace hgl::semantics
         std::string                            support_error{};
     };
 
+    /// No constraint; an absent child of an imported requirement.
+    inline constexpr std::uint32_t no_imported_constraint = 0xFFFFFFFFU;
+
+    enum class ImportedConstraintKind : std::uint8_t {
+        Symbol,
+        Type,
+        Value,
+        Set,
+        Call,
+        Each,
+        Operator,
+        Relation,
+        Not,
+        Logic,
+    };
+
+    /// One node of an imported `where` requirement (ADR 0013). The shape
+    /// mirrors the descriptor's normalized constraint and the typed HIR's, so
+    /// lowering rebuilds it for the existing solver rather than a second
+    /// checker. Children index the owning record's `constraints` arena.
+    struct ImportedConstraint
+    {
+        ImportedConstraintKind      kind{ImportedConstraintKind::Symbol};
+        std::string                 identity{};           ///< Symbol, Call, Operator, Each binding
+        std::string                 registry_name{};      ///< Operator
+        std::string                 operator_spelling{};  ///< Relation, Logic
+        std::string                 relation_category{};  ///< Relation
+        std::optional<ImportedType> type{};               ///< Type, Operator result
+        ImportedConstant            value{};              ///< Value
+        std::uint32_t               lhs{no_imported_constraint};
+        std::uint32_t               rhs{no_imported_constraint};
+        std::uint32_t               operand{no_imported_constraint};
+        std::uint32_t               source{no_imported_constraint};
+        std::uint32_t               body{no_imported_constraint};
+        std::vector<std::uint32_t>  elements{};
+        std::vector<std::uint32_t>  arguments{};
+    };
+
     /// One field of an imported struct's layout. A recursive edge (ADR 0012)
     /// names its target by identity through `type`, exactly as the descriptor
     /// records it.
@@ -191,6 +229,10 @@ namespace hgl::semantics
         std::vector<ImportedStructField> fields{};
         std::vector<ImportedType>        parents{};
         std::vector<std::string>         public_headers{};
+        /// The `where` requirement, rebuilt for the solver when this family is
+        /// applied (ADR 0013). `requirements` indexes `constraints`.
+        std::vector<ImportedConstraint>  constraints{};
+        std::uint32_t                    requirements{no_imported_constraint};
         std::string                      descriptor_fingerprint{};
         std::string                      support_error{};
     };
