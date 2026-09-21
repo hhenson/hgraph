@@ -1,6 +1,9 @@
 # Dynamic-case validation
 
 Status: completed 2026-09-21, with accepted variations and one user ruling.
+The owner reviewed the variation reports and accepted all proposed choices
+on 2026-09-21. These are the implementation baseline; the deviations remain
+recorded for corrections to the reference implementations.
 This validates expectations, not conformance of the whole Rust prototype.
 
 Fourteen bounded cases ran three times each on Python hgraph 0.5.41 and the
