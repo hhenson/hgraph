@@ -301,13 +301,33 @@ namespace hgl::descriptor
                 // the override lives only here, so dropping the field silently
                 // would rebuild the parent's default instead of the child's.
                 if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
-                    if (field.default_value != no_schema_id && !null_default(descriptor, field.default_value)) {
+                    // The null exemption does NOT apply here. This field is
+                    // dropped and rebuilt from the parent's record, so a child
+                    // that overrides an inherited default with null would lose
+                    // the override -- the parent's requiredness would win, and
+                    // the rebuilt constructor would refuse a call the exporting
+                    // module accepts.
+                    if (field.default_value != no_schema_id) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;
                 }
-                if (field.default_value != no_schema_id && !null_default(descriptor, field.default_value)) {
-                    unsupported("imported struct field defaults require catalog constant reconstruction");
+                if (field.default_value != no_schema_id) {
+                    // A null default is carried by `optional` alone, so there
+                    // is nothing to reconstruct -- but only when the descriptor
+                    // AGREES the field is optional. A descriptor is an external
+                    // input: `hgl` derives one flag from the other, another
+                    // writer need not. Null-on-required is not an unsupported
+                    // feature, it is a descriptor that contradicts itself, and
+                    // taking the default's word for it would rebuild the field
+                    // as required while the exporting module's own constructor
+                    // accepts omitting it.
+                    if (!null_default(descriptor, field.default_value)) {
+                        unsupported("imported struct field defaults require catalog constant reconstruction");
+                    } else if (!field.optional) {
+                        unsupported("imported struct field '" + field.name +
+                                    "' has a null default but is not optional");
+                    }
                 }
                 const auto type = imported_type(descriptor, field.type, {}, /*allow_layout=*/true, /*allow_atomic=*/true);
                 if (!type) {

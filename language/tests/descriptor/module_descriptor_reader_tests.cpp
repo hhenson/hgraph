@@ -1563,4 +1563,70 @@ TEST_CASE("an applied generic parent does not cross the catalog", "[descriptor][
     const auto *imported = catalog.find_struct("checks.reader", "Child");
     REQUIRE(imported != nullptr);
     CHECK_FALSE(imported->support_error.empty());
+// A null default is the one default the catalog carries: it has no value to
+// reconstruct, and `optional` already says what it means. ADR 0012 rule 2
+// requires a recursive edge to be declared `= null`, so refusing it would make
+// every recursive struct unimportable.
+TEST_CASE("catalog carries a null default only where the descriptor agrees", "[descriptor][catalog][structs]") {
+    const auto build = [](bool optional, bool inherited, bool literal_null) {
+        auto source  = minimal_descriptor();
+        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .category = descriptor::ConstantExpressionCategory::Literal,
+            .literal  = literal_null ? hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}
+                                     : hgl::ir::hir::Constant{std::int64_t{7}}}};
+        descriptor::InterfaceDeclaration node;
+        node.category = descriptor::DeclarationCategory::Structure;
+        node.identity = "checks.reader.Node";
+        node.fields   = {{"next", 0U, 0U, inherited ? "checks.reader.Other" : "checks.reader.Node", optional, false}};
+        source.interface = {std::move(node)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        return source;
+    };
+
+    SECTION("a null default on an optional field crosses") {
+        auto                          source = build(/*optional=*/true, /*inherited=*/false, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error.empty());
+        REQUIRE(imported->fields.size() == 1);
+        CHECK(imported->fields[0].optional);
+    }
+
+    SECTION("a null default on a REQUIRED field is a descriptor that contradicts itself") {
+        // Taking the default's word for it would rebuild the field as
+        // required while the exporting module's own constructor accepts
+        // omitting it -- a silent mismatch, which is what this catalog exists
+        // to refuse by name.
+        auto                          source = build(/*optional=*/false, /*inherited=*/false, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field 'next' has a null default but is not optional");
+    }
+
+    SECTION("a null default on an INHERITED field cannot travel") {
+        // The field is dropped and rebuilt from the parent's record, so a
+        // child overriding an inherited default with null would lose the
+        // override: the parent's requiredness would win.
+        auto                          source = build(/*optional=*/true, /*inherited=*/true, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+
+    SECTION("any other default still refuses by name") {
+        auto                          source = build(/*optional=*/true, /*inherited=*/false, /*literal_null=*/false);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field defaults require catalog constant reconstruction");
+    }
 }
