@@ -27,6 +27,16 @@ namespace hgl::semantics
         using syntax::Category;
         using syntax::SourceRange;
 
+        /// Lets a `std::string`-keyed map be looked up by `std::string_view`
+        /// without materialising a key.
+        struct TransparentStringHash
+        {
+            using is_transparent = void;
+            [[nodiscard]] std::size_t operator()(std::string_view value) const noexcept {
+                return std::hash<std::string_view>{}(value);
+            }
+        };
+
         constexpr std::string_view kernel_std       = "hgraph.std";
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
@@ -1684,7 +1694,7 @@ namespace hgl::semantics
                     }
                 }
 
-                std::unordered_map<std::string_view, std::size_t> &field_index = field_indices_[id];
+                auto &field_index = field_indices_[id];
                 std::unordered_set<std::string_view>               local_names;
                 std::unordered_set<std::string_view>               overridden;
                 for (const ast::StructMember &member : structure.members) {
@@ -2444,7 +2454,7 @@ namespace hgl::semantics
                            "abstract struct '" + std::string{structure.name.text} + "' is not constructible");
                     return;
                 }
-                const std::unordered_map<std::string_view, std::size_t> &field_index = field_indices_[decl];
+                const auto &field_index = field_indices_[decl];
                 std::vector<bool>                                        supplied(info.fields.size(), false);
                 for (const ast::Argument &argument : arguments) {
                     if (argument.name.empty()) { continue; }
@@ -2541,9 +2551,16 @@ namespace hgl::semantics
             /// What each bare-name argument of an applied type names, indexed
             /// by TypeId and argument position; empty for other types.
             std::vector<std::vector<Binding>> argument_bindings_{};
-            /// Each struct's effective field names, keyed by the declaring source
-            /// spelling, to their position in StructInfo::fields; by DeclId.
-            std::vector<std::unordered_map<std::string_view, std::size_t>> field_indices_{};
+            /// Each struct's effective field names to their position in
+            /// StructInfo::fields; by DeclId.
+            ///
+            /// The keys OWN their spelling. A locally declared field's name is
+            /// a view into the source text and would outlive anything, but a
+            /// field seeded from an imported parent (ADR 0013) is named by a
+            /// catalog record this resolver holds by value -- a view into that
+            /// dangles the moment the seeding call returns, and the lookup then
+            /// reads freed memory and reports a field the struct plainly has.
+            std::vector<std::unordered_map<std::string, std::size_t, TransparentStringHash, std::equal_to<>>> field_indices_{};
         };
     }  // namespace
 

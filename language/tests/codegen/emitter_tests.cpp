@@ -131,6 +131,41 @@ namespace
         return result;
     }
 
+    [[nodiscard]] hgl::semantics::ImportedType nominal(std::string identity) {
+        hgl::semantics::ImportedType type;
+        type.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        type.nominal_identity = std::move(identity);
+        return type;
+    }
+
+    /// A module that exports a struct family, with the headers a consumer
+    /// needs in order to refer to its generated types (ADR 0013 slice 6).
+    ModuleCatalog exported_struct_catalog() {
+        ModuleCatalog                    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.public_headers  = {"checks/shapes.h"};
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.public_headers  = {"checks/shapes.h"};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", nominal("checks.shapes.Venue"), false, false}};
+
+        module.structs = {std::move(base), std::move(venue)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -3187,4 +3222,40 @@ export struct Node {
     REQUIRE(fields.size() == 2U);
     CHECK_FALSE(fields[0].recursive);
     CHECK(fields[1].recursive);
+}
+
+TEST_CASE("generated C++ refers to an imported struct rather than re-declaring it", "[codegen][struct-imports]") {
+    // ADR 0013: one C++ definition per struct. A value then passes between two
+    // generated modules as itself -- no conversion, and no chance of two
+    // definitions drifting apart.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_cpp
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+
+export fn reading(tick: atomic<Tick>, venue: atomic<shapes::Venue>) -> atomic<Tick> => tick
+)",
+                             catalog};
+    const std::optional<EmittedModule> emitted = unit.emit();
+    REQUIRE(emitted);
+
+    // The local struct IS declared here ...
+    CHECK(contains(emitted->header, "struct Tick"));
+    // ... and the imported ones are not, at all, in either artefact.
+    CHECK(occurrences(emitted->header, "struct Venue") == 0);
+    CHECK(occurrences(emitted->header, "struct Base") == 0);
+    CHECK(occurrences(emitted->source, "struct Venue") == 0);
+    CHECK(occurrences(emitted->source, "struct Base") == 0);
+
+    // They are referred to by the OWNER's C++ name ...
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Venue"));
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Base"));
+    // ... which only compiles because the exporter's header comes with it.
+    CHECK(contains(emitted->header, "#include <checks/shapes.h>"));
 }

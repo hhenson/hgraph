@@ -142,6 +142,9 @@ namespace hgl::ir::detail
                                           std::span<const ConstraintPremise> premises);
 
         [[nodiscard]] bool                             is_struct(hir::TypeId type) const noexcept;
+        /// The re-description of a struct another module exports, when
+        /// `type` names one (ADR 0013): it has no declaration here.
+        [[nodiscard]] const hir::ImportedStructDecl   *imported_struct(hir::TypeId type) const noexcept;
         [[nodiscard]] const hir::Parameter            *pack_parameter(hir::SymbolId symbol) const noexcept;
         [[nodiscard]] Operand                          pack_operand(hir::SymbolId symbol, GenericSubstitution &substitution);
         [[nodiscard]] const EffectiveFields           &effective_fields(hir::TypeId type);

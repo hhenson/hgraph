@@ -290,7 +290,23 @@ records.
 *Generated C++* refers to the exporting module's generated type and includes
 its `public_headers`. **It does not re-declare the struct.** One C++
 definition per struct means a value passes between two generated modules as
-itself, with no conversion and no chance of two definitions drifting.
+itself, with no conversion and no chance of two definitions drifting. The
+reference is spelled with the **owner's** C++ namespace, derived from the
+struct's identity the same way a module derives its own; a bare local name
+would have nothing to bind to, which is the point.
+
+**Reading a field of an imported struct is a type-checker concern, not only a
+backend one.** The effective-field walk reaches a struct through its
+`StructDecl`, and an imported struct has none, so it answers from the
+re-description instead — whose fields are already the whole layout, so they
+are the effective list as they stand.
+
+**Constructing** a value of an imported struct — `m::Quote(...)` — is not
+part of this: a qualified reference resolves to an operator or a function, and
+a constructor needs its own binding and its own validation against the
+re-described layout rather than a local declaration. Constructing a **local
+child** of an imported family does work, and is the case that matters for
+extending a library. Acceptance 1's "constructs a value" is what remains.
 
 ## Slices
 
@@ -351,7 +367,22 @@ itself, with no conversion and no chance of two definitions drifting.
 6. **Generated C++.** Refer to the exporter's type and include its headers,
    never re-declaring; the two backends agree tick for tick on an imported
    shape, including a local child of an imported family.
-7. **Docs and example.** The guide's "Structured values" section gains the
+
+   Two things the earlier slices left short surfaced here, both of them
+   front-half rather than backend. Reading a field of an imported struct did
+   not type-check at all, because the effective-field walk reaches a struct
+   through its `StructDecl`. And a local child of an imported family could not
+   be *constructed*: the field index is keyed by the declaring spelling, which
+   for a local field is a view into the source text and outlives everything,
+   but for a field seeded from a catalog record is a view into a record held
+   by value -- so the lookup read freed memory and reported a field the struct
+   plainly had. The keys own their spelling now.
+7. **Constructing an imported struct.** `m::Quote(...)`: the qualified
+   reference binds to the imported struct, and the constructor validates
+   against the re-described layout rather than a local declaration. Split out
+   of slice 6, which proved everything around it; this is what acceptance 1's
+   "constructs a value" still needs.
+8. **Docs and example.** The guide's "Structured values" section gains the
    import; an example module pair exports and imports a struct and extends an
    imported family, asserted on both backends. ADR 0012's acceptance item
    closes.
