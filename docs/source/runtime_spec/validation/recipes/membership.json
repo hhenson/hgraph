@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "runtime-membership",
+  "description": "Runtime specification membership",
+  "template": "runtime_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "parameters": {
+    "mode": "membership"
+  },
+  "features": []
+}

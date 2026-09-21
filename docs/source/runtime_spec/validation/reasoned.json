@@ -1,0 +1,837 @@
+{
+  "status": "expectations recorded before execution",
+  "time": "integer multiples of MIN_TD from MIN_ST; null means no output tick",
+  "membership": {
+    "actions": [
+      "idle",
+      "insert X invalid",
+      "publish X=7",
+      "invalidate X",
+      "remove X",
+      "idle",
+      "publish X=9",
+      "idle"
+    ],
+    "live_keys": [
+      [],
+      [
+        "X"
+      ],
+      [
+        "X"
+      ],
+      [
+        "X"
+      ],
+      [],
+      [],
+      [
+        "X"
+      ],
+      [
+        "X"
+      ]
+    ],
+    "valid": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "all_valid": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "modified": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    ],
+    "added": [
+      [],
+      [
+        "X"
+      ],
+      [],
+      [],
+      [],
+      [],
+      [
+        "X"
+      ],
+      []
+    ],
+    "removed": [
+      [],
+      [],
+      [],
+      [],
+      [
+        "X"
+      ],
+      [],
+      [],
+      []
+    ],
+    "key_set_modified": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "quote": {
+    "actions": [
+      "idle",
+      "X.bid=7",
+      "X.ask=9",
+      "X.bid=7",
+      "idle",
+      "remove X",
+      "idle",
+      "X.bid=7"
+    ],
+    "root_last": [
+      "never",
+      1,
+      2,
+      3,
+      3,
+      5,
+      5,
+      7
+    ],
+    "row_last": [
+      null,
+      1,
+      2,
+      3,
+      3,
+      null,
+      null,
+      7
+    ],
+    "bid_last": [
+      null,
+      1,
+      1,
+      3,
+      3,
+      null,
+      null,
+      7
+    ],
+    "ask_last": [
+      null,
+      "never",
+      2,
+      2,
+      2,
+      null,
+      null,
+      "never"
+    ],
+    "removed_at_5": {
+      "bid": 7,
+      "ask": 9,
+      "row_last": 3,
+      "bid_last": 3,
+      "ask_last": 2
+    }
+  },
+  "scalar_ref": {
+    "a": [
+      7,
+      null,
+      8,
+      null,
+      null,
+      null,
+      9,
+      null
+    ],
+    "b": [
+      20,
+      null,
+      null,
+      21,
+      null,
+      null,
+      null,
+      null
+    ],
+    "selector": [
+      2,
+      0,
+      null,
+      1,
+      null,
+      2,
+      0,
+      null
+    ],
+    "selected_value": [
+      null,
+      7,
+      8,
+      21,
+      21,
+      null,
+      9,
+      9
+    ],
+    "selected_modified": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false
+    ],
+    "ref_modified": [
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ],
+    "ref_router_evals": [
+      0,
+      1,
+      3,
+      5,
+      6
+    ]
+  },
+  "dictionary_ref": {
+    "a": [
+      {
+        "X": 1,
+        "Z": 9
+      },
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "b": [
+      {
+        "Y": 2,
+        "Z": 3
+      },
+      {
+        "Y": 4
+      },
+      null,
+      null,
+      null,
+      null
+    ],
+    "selector": [
+      0,
+      null,
+      1,
+      2,
+      0,
+      null
+    ],
+    "live_keys": [
+      [
+        "X",
+        "Z"
+      ],
+      [
+        "X",
+        "Z"
+      ],
+      [
+        "Y",
+        "Z"
+      ],
+      [],
+      [
+        "X",
+        "Z"
+      ],
+      [
+        "X",
+        "Z"
+      ]
+    ],
+    "added": [
+      [
+        "X",
+        "Z"
+      ],
+      [],
+      [
+        "Y"
+      ],
+      [],
+      [
+        "X",
+        "Z"
+      ],
+      []
+    ],
+    "removed": [
+      [],
+      [],
+      [
+        "X"
+      ],
+      [
+        "Y",
+        "Z"
+      ],
+      [],
+      []
+    ],
+    "valid": [
+      true,
+      true,
+      true,
+      false,
+      true,
+      true
+    ],
+    "modified": [
+      true,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "restore": {
+    "actions": [
+      "X=7",
+      "remove X; inspect twice; restore X",
+      "remove X",
+      "X=9"
+    ],
+    "values": [
+      {
+        "X": 7
+      },
+      {
+        "X": 7
+      },
+      {},
+      {
+        "X": 9
+      }
+    ],
+    "added": [
+      [
+        "X"
+      ],
+      [],
+      [],
+      [
+        "X"
+      ]
+    ],
+    "removed": [
+      [],
+      [],
+      [
+        "X"
+      ],
+      []
+    ],
+    "retained_value": 7,
+    "restored_child_last": 0
+  },
+  "timer": {
+    "input": [
+      {
+        "X": 2
+      },
+      null,
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 3
+      },
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": [
+      {
+        "X": 2
+      },
+      null,
+      {
+        "X": -1
+      },
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 3
+      },
+      null,
+      null,
+      {
+        "X": -1
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 2,
+      "stop": 2
+    }
+  },
+  "cancel_timer": {
+    "input": [
+      {
+        "X": 4
+      },
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      null,
+      {
+        "X": 2
+      },
+      null,
+      null,
+      null
+    ],
+    "output": [
+      {
+        "X": 4
+      },
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      null,
+      {
+        "X": 2
+      },
+      null,
+      {
+        "X": -1
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 2,
+      "stop": 2
+    }
+  },
+  "decision": "Reasoning agrees with either runtime: accept and record other variation. Both runtimes agree against reasoning: reconsider derivation. Three different outcomes: ask user. Unavailable or unobservable results remain unvalidated.",
+  "mapped_ref": {
+    "selectors": [
+      {
+        "X": "A"
+      },
+      null,
+      {
+        "X": "B"
+      },
+      null,
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": "A"
+      },
+      null,
+      null,
+      null
+    ],
+    "prices": [
+      {
+        "A": 2,
+        "B": 10
+      },
+      {
+        "A": 3
+      },
+      null,
+      {
+        "A": 4
+      },
+      null,
+      null,
+      {
+        "A": 5
+      },
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": [
+      {
+        "X": 2
+      },
+      {
+        "X": 5
+      },
+      {
+        "X": 15
+      },
+      null,
+      {
+        "X": -15
+      },
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 5
+      },
+      null,
+      {
+        "X": -5
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 2,
+      "stop": 2
+    },
+    "reason": "Two-tick tagged timer replaces the previous deadline; REF repoint samples B; unselected A cannot tick the child; removal cancels child work; new membership starts new state."
+  },
+  "nested_mapped_ref": {
+    "selectors": [
+      {
+        "X": "A"
+      },
+      null,
+      {
+        "X": "B"
+      },
+      null,
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": "A"
+      },
+      null,
+      null,
+      null
+    ],
+    "prices": [
+      {
+        "A": 2,
+        "B": 10
+      },
+      {
+        "A": 3
+      },
+      null,
+      {
+        "A": 4
+      },
+      null,
+      null,
+      {
+        "A": 5
+      },
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": [
+      {
+        "X": 2
+      },
+      {
+        "X": 5
+      },
+      {
+        "X": 15
+      },
+      null,
+      {
+        "X": -15
+      },
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 5
+      },
+      null,
+      {
+        "X": -5
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 2,
+      "stop": 2
+    },
+    "reason": "Two-tick tagged timer replaces the previous deadline; REF repoint samples B; unselected A cannot tick the child; removal cancels child work; new membership starts new state."
+  },
+  "parallel_children": {
+    "input": [
+      {
+        "X": 3,
+        "Y": 2
+      },
+      null,
+      {
+        "Y": 4
+      },
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      {
+        "X": 2
+      },
+      null,
+      null,
+      {
+        "X": {
+          "$remove": true
+        },
+        "Y": {
+          "$remove": true
+        }
+      },
+      null
+    ],
+    "output": [
+      {
+        "X": 3,
+        "Y": 2
+      },
+      null,
+      {
+        "Y": 4
+      },
+      {
+        "X": -1
+      },
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      {
+        "X": 2
+      },
+      {
+        "Y": -1
+      },
+      {
+        "X": -1
+      },
+      {
+        "X": {
+          "$remove": true
+        },
+        "Y": {
+          "$remove": true
+        }
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 3,
+      "stop": 3
+    },
+    "reason": "Sibling deadlines remain independent. At t2 an input publication coincides with Y timer; one eval publishes 4 and replaces its tagged timer."
+  },
+  "child_failure": {
+    "input": [
+      {
+        "X": 1
+      },
+      {
+        "X": -1
+      },
+      null
+    ],
+    "events": [
+      "start",
+      [
+        "eval",
+        1
+      ],
+      [
+        "eval",
+        -1
+      ],
+      "stop"
+    ],
+    "failure": true,
+    "reason": "An uncaptured child eval failure leaves the root; every started child stops exactly once."
+  },
+  "child_start_failure": {
+    "input": [
+      {
+        "X": 1
+      },
+      null
+    ],
+    "events": [
+      "start"
+    ],
+    "failure": true,
+    "reason": "A child whose start fails never receives stop."
+  },
+  "expired_ref": {
+    "input": [
+      {
+        "X": 7
+      },
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 9
+      },
+      null,
+      null
+    ],
+    "republish_saved_reference_at": [
+      0,
+      3,
+      5
+    ],
+    "selected_value": [
+      7,
+      7,
+      7,
+      null,
+      null,
+      null,
+      null
+    ],
+    "selected_modified": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "status": "proposal requiring validation: stored references expire; reuse must not retarget them",
+    "reason": "TS-11 retains removed child through t2; at the next cycle the old child is gone. The saved reference must not designate the new X."
+  },
+  "nested_timer": {
+    "input": [
+      {
+        "X": 2
+      },
+      null,
+      null,
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 3
+      },
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": [
+      {
+        "X": 2
+      },
+      null,
+      {
+        "X": -1
+      },
+      {
+        "X": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "X": 3
+      },
+      null,
+      null,
+      {
+        "X": -1
+      },
+      null
+    ],
+    "lifecycle_counts": {
+      "start": 2,
+      "stop": 2
+    },
+    "reason": "Same timer trace with map enclosed in switch(True); enclosing owner propagates child deadlines."
+  }
+}
