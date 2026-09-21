@@ -108,7 +108,7 @@ classDiagram
     TimeSeriesInput "0..*" --> "0..1" TimeSeriesOutput : bound to
     TimeSeriesOutput "1" --> "0..*" TimeSeriesInput : notifies
     Node "1" *-- "0..1" TimeSeriesOutput : ordinary output
-    Node "1" *-- "0..*" TimeSeriesInput
+    Node "1" *-- "0..1" TimeSeriesInput : input bundle
     Reference ..> TimeSeriesOutput : designates
 ```
 

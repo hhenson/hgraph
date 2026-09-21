@@ -47,8 +47,9 @@ are empty. Read after each action below; 40 is idle.
 | 50: observe again | false | —, — | — | empty / X | 50 / — / — / — |
 | 60: publish bid 7 | true | 7, — | bid 7 | X / empty | 60 / 60 / 60 / never |
 
-After removal, `—` means no current child. TS-11 still keeps the removed child
-readable for that cycle.
+After removal, `—` means no current child. Both reads at 50 see the removed
+child `{bid: 7, ask: 9}`, with row/bid/ask times `30 / 30 / 20` (TS-11).
+That removed view expires at the cycle boundary; reinsertion at 60 is fresh.
 
 Initially all flags are false. Thereafter the root is valid and all_valid,
 including when empty; modified is true except at 40. A present row is valid;

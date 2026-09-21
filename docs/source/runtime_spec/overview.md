@@ -72,7 +72,7 @@ classDiagram
     Graph "0..*" ..> "1" GraphDescription : instantiated from
     Graph "1" *-- "0..*" Node : in rank order
     Node "1" *-- "0..*" Graph : nested graphs
-    Node "1" *-- "0..*" TimeSeriesInput
+    Node "1" *-- "0..1" TimeSeriesInput : input bundle
     Node "1" *-- "0..1" TimeSeriesOutput
     Node "1" *-- "0..1" RecordableState
     Node "1" *-- "0..1" State
