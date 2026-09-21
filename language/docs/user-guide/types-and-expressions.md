@@ -368,6 +368,37 @@ stable schema metadata, but construction uses names rather than positions.
 `export struct` exposes the name to other modules in the same way that
 `export fn` exposes an ordinary function.
 
+### Importing a struct
+
+Another module imports the name the same way it imports anything else, and the
+type it gets **is** the exporting module's type — not a copy under the
+importing module's namespace:
+
+```hgl
+module trading.book
+
+use market.data as market
+use market.data::{Quote}
+
+fn spread(quote: atomic<Quote>) -> f64 => quote.ask - quote.bid
+fn empty(venue: str) -> atomic<Quote> => market::Quote(bid: 0.0, ask: 0.0, venue: venue)
+```
+
+Both spellings name one type, so a value built here crosses back to
+`market.data` without conversion and both modules see one schema. The
+importing module never re-declares the struct: generated C++ refers to the
+exporter's own definition and includes its header.
+
+An importing module needs the exporting module's descriptor, which the build
+supplies (`hgl check --module-descriptor`, or the `LINK_LIBRARIES` of
+`hgl_add_module`). A struct an importer cannot rebuild whole — one whose field
+default or generic argument the descriptor cannot carry — is refused by name
+rather than rebuilt short.
+
+`examples/struct-imports/` is the pair end to end: `market-data.hgl` publishes
+the shape and `instrument-book.hgl` imports it, extends the family and builds
+values of it.
+
 ### Abstract data families
 
 An abstract struct defines common data for a polymorphic family. Only an
@@ -388,6 +419,22 @@ export struct EuropeanInstrument: Instrument {
 
 export struct GenericInstrument: Instrument {}
 ```
+
+A family crosses a module boundary as a family: a struct may inherit an
+abstract parent **another module exports**, which is how a library publishes a
+shape for its consumers to extend.
+
+```hgl
+use market.data as market
+
+export struct Future: market::Instrument {
+    expiry: date
+}
+```
+
+`Future` keeps this module's namespace while its parent keeps `market.data`'s,
+and it carries the whole inherited layout — `symbol` is the same field for
+`Future` as for any other child of `Instrument`.
 
 An abstract struct cannot be constructed. A concrete child may add no fields,
 as `GenericInstrument` does, when its nominal identity is the only additional

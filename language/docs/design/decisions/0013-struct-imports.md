@@ -130,11 +130,19 @@ weaker than the one the exporting module declared. Each of those was a real
 defect in this work. So a record that cannot be rebuilt whole records a
 support error naming what failed, and carries nothing partial.
 
-**Construction metadata does not cross yet.** A descriptor records a field's default, which
-`ImportedStruct` does not carry, so an imported constructor cannot yet
-reproduce the calls the exporting module accepts — an omitted argument with a
-default, or an inherited default a child overrides. Such a struct records a
-support error and is unavailable rather than wrong.
+**Construction metadata does not cross yet, except a null default.** A
+descriptor records a field's default, which `ImportedStruct` does not carry,
+so an imported constructor cannot yet reproduce the calls the exporting module
+accepts — an omitted argument with a default, or an inherited default a child
+overrides. Such a struct records a support error and is unavailable rather
+than wrong.
+
+A **null** default is the exception, and has to be: it carries no value to
+reconstruct — it says the field is optional, which the record already states —
+and ADR 0012 rule 2 requires a recursive edge to be declared `= null`, so
+refusing it would make every recursive struct unimportable. That is the
+opposite of what ADR 0012's own acceptance asks for, and it was the state of
+this work until the example pair tried it.
 
 A generic struct's `where` requirement **does** cross (owner's ruling): the
 descriptor's normalized constraint graph rebuilds into `ImportedStruct::

@@ -228,6 +228,19 @@ namespace hgl::descriptor
         /// field type, parent and generic has to survive the crossing; whatever
         /// does not is recorded as a support error rather than silently dropped,
         /// the same discipline imported operators follow.
+        /// A NULL default carries no value to reconstruct: it says the field is
+        /// optional, which `ImportedStructField::optional` already records. It
+        /// is also the one default that MUST cross -- ADR 0012 rule 2 requires
+        /// a recursive edge to be declared `= null`, so refusing it would make
+        /// every recursive struct unimportable, which is the opposite of what
+        /// ADR 0012's own acceptance asks for.
+        [[nodiscard]] bool null_default(const ModuleDescriptor &descriptor, SchemaId id) {
+            if (id == no_schema_id || id >= descriptor.constant_expressions.size()) { return false; }
+            const ConstantExpressionRecord &record = descriptor.constant_expressions[id];
+            return record.category == ConstantExpressionCategory::Literal && record.literal.has_value() &&
+                   std::holds_alternative<ir::hir::NullValue>(*record.literal);
+        }
+
         [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
                                                                 const InterfaceDeclaration &declaration) {
             semantics::ImportedStruct result;
@@ -288,12 +301,12 @@ namespace hgl::descriptor
                 // the override lives only here, so dropping the field silently
                 // would rebuild the parent's default instead of the child's.
                 if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
-                    if (field.default_value != no_schema_id) {
+                    if (field.default_value != no_schema_id && !null_default(descriptor, field.default_value)) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;
                 }
-                if (field.default_value != no_schema_id) {
+                if (field.default_value != no_schema_id && !null_default(descriptor, field.default_value)) {
                     unsupported("imported struct field defaults require catalog constant reconstruction");
                 }
                 const auto type = imported_type(descriptor, field.type, {}, /*allow_layout=*/true, /*allow_atomic=*/true);
