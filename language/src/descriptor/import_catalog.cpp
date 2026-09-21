@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 #include <string>
 #include <string_view>
@@ -145,6 +146,81 @@ namespace hgl::descriptor
             std::unreachable();
         }
 
+        /// Rebuilds the constraint graph reachable from `root` into the
+        /// catalog's arena, so an imported family can be checked by the
+        /// existing solver when it is applied (ADR 0013). Returns false when
+        /// any node cannot cross, since a partial requirement would be weaker
+        /// than the one the exporting module declared.
+        [[nodiscard]] bool imported_constraints(const ModuleDescriptor &descriptor, SchemaId root,
+                                                std::vector<semantics::ImportedConstraint> &arena,
+                                                std::unordered_map<SchemaId, std::uint32_t> &seen,
+                                                std::uint32_t &out, std::uint32_t depth = 0) {
+            // Validation checks reference bounds, not graph depth, so an
+            // arbitrarily deep acyclic chain would exhaust the stack. The same
+            // budget imported_type uses.
+            if (depth >= 256U) { return false; }
+            if (root == no_schema_id || root >= descriptor.constraints.size()) { return false; }
+            if (const auto found = seen.find(root); found != seen.end()) {
+                out = found->second;
+                return true;
+            }
+            const ConstraintRecord &source = descriptor.constraints[root];
+            const auto              index  = static_cast<std::uint32_t>(arena.size());
+            seen.emplace(root, index);
+            arena.emplace_back();
+            semantics::ImportedConstraint node;
+            switch (source.category) {
+                case ConstraintCategory::Symbol: node.kind = semantics::ImportedConstraintKind::Symbol; break;
+                case ConstraintCategory::Type: node.kind = semantics::ImportedConstraintKind::Type; break;
+                case ConstraintCategory::Value: node.kind = semantics::ImportedConstraintKind::Value; break;
+                case ConstraintCategory::Set: node.kind = semantics::ImportedConstraintKind::Set; break;
+                case ConstraintCategory::Call: node.kind = semantics::ImportedConstraintKind::Call; break;
+                case ConstraintCategory::Each: node.kind = semantics::ImportedConstraintKind::Each; break;
+                case ConstraintCategory::Operator: node.kind = semantics::ImportedConstraintKind::Operator; break;
+                case ConstraintCategory::Relation: node.kind = semantics::ImportedConstraintKind::Relation; break;
+                case ConstraintCategory::Not: node.kind = semantics::ImportedConstraintKind::Not; break;
+                case ConstraintCategory::Logic: node.kind = semantics::ImportedConstraintKind::Logic; break;
+            }
+            node.identity          = source.identity;
+            node.registry_name     = source.registry_name;
+            node.operator_spelling = source.operator_spelling;
+            node.relation_category = source.relation_category;
+            // An Operator requirement stores the return type it demands in
+            // `result`, not `type`; reading only `type` would drop it and leave
+            // a requirement weaker than the exporting module declared.
+            const SchemaId type_ref = source.category == ConstraintCategory::Operator ? source.result : source.type;
+            if (type_ref != no_schema_id) {
+                node.type = imported_type(descriptor, type_ref, {}, /*allow_layout=*/true);
+                if (!node.type) { return false; }
+            }
+            if (source.value != no_schema_id) {
+                const auto constant = imported_constant(descriptor, source.value);
+                if (!constant) { return false; }
+                node.value = *constant;
+            }
+            const auto child = [&](SchemaId id, std::uint32_t &slot) {
+                if (id == no_schema_id) { return true; }
+                return imported_constraints(descriptor, id, arena, seen, slot, depth + 1U);
+            };
+            if (!child(source.lhs, node.lhs) || !child(source.rhs, node.rhs) || !child(source.operand, node.operand) ||
+                !child(source.source, node.source) || !child(source.body, node.body)) {
+                return false;
+            }
+            for (const SchemaId element : source.elements) {
+                std::uint32_t slot = semantics::no_imported_constraint;
+                if (!imported_constraints(descriptor, element, arena, seen, slot, depth + 1U)) { return false; }
+                node.elements.push_back(slot);
+            }
+            for (const SchemaId argument : source.arguments) {
+                std::uint32_t slot = semantics::no_imported_constraint;
+                if (!imported_constraints(descriptor, argument, arena, seen, slot, depth + 1U)) { return false; }
+                node.arguments.push_back(slot);
+            }
+            arena[index] = std::move(node);
+            out          = index;
+            return true;
+        }
+
         /// One exported struct's layout (ADR 0013). The importer rebuilds the
         /// type from this and registers it under the owner's identity, so every
         /// field type, parent and generic has to survive the crossing; whatever
@@ -171,7 +247,16 @@ namespace hgl::descriptor
                 if (result.support_error.empty()) { result.support_error = std::move(message); }
             };
             if (declaration.signature.requirements != no_schema_id) {
-                unsupported("imported struct constraints require catalog constraint reconstruction");
+                // A `where` requirement crosses whole or not at all: a partial
+                // one would be weaker than the exporting module declared, and
+                // would admit specializations it rejects.
+                std::unordered_map<SchemaId, std::uint32_t> seen;
+                if (!imported_constraints(descriptor, declaration.signature.requirements, result.constraints, seen,
+                                          result.requirements)) {
+                    result.constraints.clear();
+                    result.requirements = semantics::no_imported_constraint;
+                    unsupported("imported struct requirements are not supported by the catalog");
+                }
             }
             for (const GenericParameter &generic : declaration.signature.generics) {
                 semantics::ImportedGeneric lowered{
