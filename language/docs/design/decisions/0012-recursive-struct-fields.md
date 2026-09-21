@@ -179,5 +179,7 @@ answers.
   `eval` in the parity corpus, with identical ticks from direct wiring and
   generated C++;
 - a module descriptor carrying a recursive struct is written, validated by
-  `hgl check` without loading code, and imported by a second module;
+  `hgl check` without loading code, and imported by a second module
+  (`examples/struct-imports/`, ADR 0013 slice 8: the edge's mandatory
+  `= null` is the one default the catalog carries, precisely so this closes);
 - an example under `examples/` and a user-guide section.

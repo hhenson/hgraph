@@ -1,0 +1,32 @@
+# Publishing a data SHAPE (ADR 0013). A module can export a struct, and an
+# abstract one at the root of a family invites another module to extend it.
+# The pair with instrument-book.hgl is the whole story: this side declares,
+# that side imports, and both name one type.
+
+module examples.market_data
+
+export abstract struct Instrument {
+    symbol: str
+}
+
+export struct Equity: Instrument {
+    lot: i64
+}
+
+export struct Quote {
+    bid: f64
+    ask: f64
+}
+
+# A recursive struct (ADR 0012) crosses a module boundary too: the descriptor
+# records the edge, and the importer rebuilds it.
+export struct Leg {
+    tenor: str
+    next: atomic<Leg> = null
+}
+
+export fn mid(quote: atomic<Quote>) -> f64 => (quote.bid + quote.ask) / 2.0
+
+test mid_is_the_average {
+    assert eval(mid, quote: [Quote(bid: 1.0, ask: 3.0)]) == [2.0]
+}
