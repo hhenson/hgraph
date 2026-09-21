@@ -1557,6 +1557,8 @@ TEST_CASE("an applied generic parent does not cross the catalog", "[descriptor][
     const auto *imported = catalog.find_struct("checks.reader", "Child");
     REQUIRE(imported != nullptr);
     CHECK_FALSE(imported->support_error.empty());
+}
+
 // A null default is the one default the catalog carries: it has no value to
 // reconstruct, and `optional` already says what it means. ADR 0012 rule 2
 // requires a recursive edge to be declared `= null`, so refusing it would make
