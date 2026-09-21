@@ -144,6 +144,16 @@ refusing it would make every recursive struct unimportable. That is the
 opposite of what ADR 0012's own acceptance asks for, and it was the state of
 this work until the example pair tried it.
 
+The exception is narrow on both sides, because a descriptor is an external
+input and need not derive one flag from the other the way `hgl` does. A null
+default on a field the descriptor calls **required** is not an unsupported
+feature but a descriptor that contradicts itself — rebuilding the field as
+required would refuse a call the exporting module accepts — so it is refused
+by name. And it does not apply to an **inherited** field at all: that field is
+dropped and rebuilt from the parent's record, so a child overriding an
+inherited default with null would lose the override and inherit the parent's
+requiredness instead.
+
 A generic struct's `where` requirement **does** cross (owner's ruling): the
 descriptor's normalized constraint graph rebuilds into `ImportedStruct::
 constraints`, whose shape mirrors both the descriptor's and the typed HIR's,
