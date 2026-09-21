@@ -425,17 +425,28 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
 hgl_apply_warnings(hgl_parameter_pack_fixture)
 
-# The guide's struct-import example pair (ADR 0013). The exporter builds like
-# any module and yields the descriptor the importer is checked against; the
-# importer is not in the examples glob because checking it needs that
-# descriptor.
-hgl_add_module(hgl_example_market_data STATIC HGL ../examples/struct-imports/market-data.hgl)
-hgl_apply_warnings(hgl_example_market_data)
+# The guide's struct-import example pair (ADR 0013). The importer is not in the
+# examples glob because checking it needs the exporter's descriptor, so the
+# pair carries its own: a CTest fixture emits it, and the importer requires
+# that fixture. Depending on a build target instead would tie the test to a
+# target nothing links -- which CI's explicit target list would not build.
+# The generated backend for this shape is compiled and run by the fixture pair
+# in codegen/imported-structs; the example is here to read, and to be correct.
+set(_hgl_struct_import_examples "${CMAKE_CURRENT_SOURCE_DIR}/../examples/struct-imports")
+set(_hgl_struct_import_out "${CMAKE_CURRENT_BINARY_DIR}/examples/struct-imports")
 add_test(NAME hgraph_language_example_market_data
-    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/../examples/struct-imports/market-data.hgl")
+    COMMAND hgl test "${_hgl_struct_import_examples}/market-data.hgl")
+add_test(NAME hgraph_language_example_market_data_descriptor
+    COMMAND hgl emit-cpp "${_hgl_struct_import_examples}/market-data.hgl" --out-dir "${_hgl_struct_import_out}")
+set_tests_properties(hgraph_language_example_market_data_descriptor
+    PROPERTIES FIXTURES_SETUP hgl_example_market_data_descriptor)
 add_test(NAME hgraph_language_example_instrument_book
-    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/../examples/struct-imports/instrument-book.hgl"
-        --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_example_market_data/src/market-data.hgl-module.json")
+    COMMAND hgl test "${_hgl_struct_import_examples}/instrument-book.hgl"
+        --module-descriptor "${_hgl_struct_import_out}/market-data.hgl-module.json")
+set_tests_properties(hgraph_language_example_instrument_book
+    PROPERTIES FIXTURES_REQUIRED hgl_example_market_data_descriptor)
+unset(_hgl_struct_import_examples)
+unset(_hgl_struct_import_out)
 
 # ADR 0013: a module that exports a struct family, and one that imports it and
 # extends it. Generated C++ refers to the exporter's type and includes its
