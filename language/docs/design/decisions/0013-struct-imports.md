@@ -57,6 +57,15 @@ in slice 5 — describe, then compare against the registered schema before
 reusing it — or a registry change. The earlier claim that the existing closure
 already provided this was wrong.
 
+**The comparison is over the whole description, not its shape.** Renaming a
+field's *type* is what a version bump usually looks like, and it leaves the
+field count and every field name unchanged — so kind, arity and names would
+call two different schemas a match. The preflight compares each field's
+realized type, the parents, abstractness and the generic arguments, and names
+the part that disagrees. A recursive field is compared structurally rather
+than realized, because realizing the edge would need the very type being
+checked.
+
 ### Catalog
 
 `ImportableModule` gains `structs`, filled by `add_to_catalog` from the
@@ -141,6 +150,13 @@ Typed HIR and hgraph IR name an imported struct **by identity**, never by
 expansion — the rule ADR 0002 already sets for the backend boundary and ADR
 0012 already follows for a recursive edge's target. `ImportedTypeKind::Symbol`
 with `binding_identity` is the existing representation and is reused.
+
+**The whole closure is bound with the struct.** A parent is never spelled in
+the importing module, and neither is a struct that only a *field* reaches, so
+binding just the named struct leaves a backend with no layout for part of the
+shape it has to register — it reports an unknown nominal type, at a name the
+source never mentions. Reachability is over parents and field types alike,
+which is the same closure the exporting module's export check walks.
 
 **A re-described struct's fields are its whole layout, ancestors first**, the
 same as a local declaration's. A *catalog record* holds only the fields it

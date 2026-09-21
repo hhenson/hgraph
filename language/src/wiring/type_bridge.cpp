@@ -205,17 +205,66 @@ namespace hgl::wiring
         return target == nullptr ? nullptr : registry_.owned(target);
     }
 
+    /// The recursive path's preflight (ADR 0013, acceptance 4).
+    ///
+    /// It cannot rely on the registry refusing a disagreement the way the
+    /// plain path does: `recursive_bundle_closure` answers from the registered
+    /// type as soon as the name is known and never calls the describer, so an
+    /// importer built against a changed layout would silently receive the
+    /// other one's. Comparing names and arity is not enough either -- renaming
+    /// a field's TYPE is ordinary version skew and leaves both unchanged -- so
+    /// the description is compared field type by field type, plus the parents,
+    /// abstractness and generic arguments that make two same-shaped bundles
+    /// different schemas.
+    ///
+    /// A RECURSIVE field is compared structurally rather than by realizing it:
+    /// realizing the edge would need the very type being checked. The edge
+    /// must be an owner, and of a bundle of the declared schema.
     const hgraph::ValueTypeMetaData *TypeBridge::registered(const Specialization &specialization, syntax::SourceRange range) {
         const hgraph::ValueTypeMetaData *existing = registry_.value_type(specialization.qualified());
         if (existing == nullptr) { return nullptr; }
-        const std::vector<hgraph_ir::StructField> &fields  = specialization.contract->fields;
-        bool                                       matches = existing->is_named_bundle() && existing->field_count == fields.size();
-        for (std::size_t index = 0; matches && index < fields.size(); ++index) {
-            matches = existing->fields[index].name != nullptr && fields[index].name == existing->fields[index].name;
+        const std::vector<hgraph_ir::StructField> &fields = specialization.contract->fields;
+        const auto                                 disagrees = [&](std::string_view what) {
+            report(range, "cannot register struct '" + specialization.local_name + "': a different schema is already " +
+                              "registered under that name (" + std::string{what} + ")");
+            return existing;
+        };
+        if (!existing->is_named_bundle() || existing->field_count != fields.size()) { return disagrees("field count"); }
+        if (existing->is_abstract_bundle() != specialization.contract->abstract) { return disagrees("abstract"); }
+
+        const auto *hierarchy = existing->bundle_hierarchy;
+        if (hierarchy == nullptr) { return disagrees("hierarchy"); }
+        if (hierarchy->parents.size() != specialization.contract->parents.size()) { return disagrees("parents"); }
+        for (std::size_t index = 0; index < specialization.contract->parents.size(); ++index) {
+            const hgraph::ValueTypeMetaData *parent = value(specialization.contract->parents[index], specialization.applied);
+            if (parent == nullptr) { return existing; }
+            if (parent != hierarchy->parents[index]) { return disagrees("parent '" + std::string{parent->name()} + "'"); }
         }
-        if (!matches) {
-            report(range, "cannot register struct '" + specialization.local_name +
-                              "': a different schema is already registered under that name");
+        if (hierarchy->generic_arguments.size() != specialization.generic_types.size()) {
+            return disagrees("generic arguments");
+        }
+        for (std::size_t index = 0; index < specialization.generic_types.size(); ++index) {
+            if (hierarchy->generic_arguments[index] != specialization.generic_types[index]) {
+                return disagrees("generic arguments");
+            }
+        }
+
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            const hgraph_ir::StructField    &field    = fields[index];
+            const hgraph::ValueTypeMetaData *declared = existing->fields[index].type;
+            if (existing->fields[index].name == nullptr || field.name != existing->fields[index].name) {
+                return disagrees("field '" + field.name + "'");
+            }
+            if (field.recursive) {
+                if (declared == nullptr || !declared->is_owned() || declared->element_type == nullptr ||
+                    !declared->element_type->is_named_bundle()) {
+                    return disagrees("recursive field '" + field.name + "'");
+                }
+                continue;
+            }
+            const hgraph::ValueTypeMetaData *described = field_value(field, specialization.applied);
+            if (described == nullptr) { return existing; }
+            if (described != declared) { return disagrees("field '" + field.name + "'"); }
         }
         return existing;
     }

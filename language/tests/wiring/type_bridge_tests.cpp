@@ -477,7 +477,10 @@ struct Tick: shapes::Base
     bid: f64
 }
 
-fn reading(tick: atomic<Tick>, base: atomic<shapes::Base>, venue: atomic<shapes::Venue>) -> atomic<Tick> => tick
+# ONLY the local child is wired. Base arrives through its parent, Root through
+# Base's, and Venue only through Root's `venue` FIELD -- none is spelled here,
+# and a backend cannot register a family whose shape it has part of.
+fn reading(tick: atomic<Tick>) -> atomic<Tick> => tick
 )",
                                              catalog};
     INFO(unit.diagnostics.render(unit.file));
@@ -502,19 +505,18 @@ fn reading(tick: atomic<Tick>, base: atomic<shapes::Base>, venue: atomic<shapes:
 
     // The imported ancestry registered under checks.shapes, not here: the
     // parents had to be realized before the local child could name them.
-    const auto *base = bridge.value(unit.graph.types[unit.parameter("reading", "base").value].children.front());
+    const auto *base = registry.named_bundle("checks.shapes", "Base");
     REQUIRE(base != nullptr);
     CHECK(base->bundle_namespace() == "checks.shapes");
     CHECK(base->bundle_local_name() == "Base");
-    CHECK(base == registry.named_bundle("checks.shapes", "Base"));
     CHECK(registry.named_bundle("checks.import_wiring", "Base") == nullptr);
+    // Root is reached only through Base's parent link ...
     CHECK(registry.named_bundle("checks.shapes", "Root") != nullptr);
 
-    // A field that names an imported struct resolves to that same schema.
-    const auto *venue = bridge.value(unit.graph.types[unit.parameter("reading", "venue").value].children.front());
+    // ... and Venue only through Root's FIELD. Nothing here spells either.
+    const auto *venue = registry.named_bundle("checks.shapes", "Venue");
     REQUIRE(venue != nullptr);
     CHECK(venue == tick->fields[1].type);
-    CHECK(venue->bundle_namespace() == "checks.shapes");
     REQUIRE(venue->field_count == 1);
     CHECK(venue->fields[0].type == types.int_type);
 }
@@ -608,4 +610,36 @@ fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
     const std::string rendered = unit.diagnostics.render(unit.file);
     INFO(rendered);
     CHECK(rendered.find("Node") != std::string::npos);
+}
+
+TEST_CASE("a recursive imported struct whose field TYPE changed is rejected", "[wiring][types][struct-imports][recursive]") {
+    // The shape a version bump actually takes: same field names, same arity,
+    // one field's type changed. Comparing kind, count and names would call
+    // that a match and hand back the other build's schema -- and the recursive
+    // closure never asks the describer afterwards, so nothing downstream would
+    // notice.
+    auto      &registry = hgraph::TypeRegistry::instance();
+    const auto types    = hgraph::stdlib::register_standard_types();
+    // Stands in for the exporting module having been built with `label: str`.
+    REQUIRE(registry.bundle("checks.tskew", "Node", {{"label", types.str_type}, {"next", types.str_type}}) != nullptr);
+
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes("checks.tskew");
+    Unit                                unit{R"(
+module checks.import_tskew
+
+use checks.tskew as shapes
+
+fn walking(node: atomic<shapes::Node>) -> atomic<shapes::Node> => node
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    static_cast<void>(bridge.value(unit.graph.types[unit.parameter("walking", "node").value].children.front()));
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    // Pointed at the field that disagrees, not just at the struct.
+    CHECK(rendered.find("field 'label'") != std::string::npos);
 }

@@ -403,9 +403,35 @@ namespace hgl::semantics
                 Binding binding;
                 binding.kind  = BindingKind::ImportedStruct;
                 binding.index = static_cast<std::uint32_t>(result_.imported_structs.size());
-                result_.imported_structs.push_back(structure);
-                imported_struct_bindings_.emplace(structure.identity, binding);
+                // By value: binding the closure below appends to this very
+                // vector, and `structure` may be a reference into it.
+                const ImportedStruct record = structure;
+                result_.imported_structs.push_back(record);
+                // Memoized BEFORE the closure, so a struct that reaches itself
+                // terminates here rather than recurring.
+                imported_struct_bindings_.emplace(record.identity, binding);
+                // **The whole closure travels with the struct.** A parent is
+                // never spelled in this module, and neither is a struct only a
+                // FIELD reaches, so binding just the named struct leaves a
+                // backend with no layout for part of the shape it has to
+                // register -- it reports an unknown nominal type, at a name the
+                // source never mentions. Reachability is over parents and
+                // field types alike, which is the same closure the exporting
+                // module's export check walks.
+                for (const ImportedType &parent : record.parents) { bind_imported_closure(parent, range); }
+                for (const ImportedStructField &field : record.fields) { bind_imported_closure(field.type, range); }
                 return binding;
+            }
+
+            /// Binds every struct `type` reaches, at any depth (ADR 0013).
+            void bind_imported_closure(const ImportedType &type, SourceRange range) {
+                if (!type.nominal_identity.empty()) {
+                    if (const ImportedStruct *reached = catalog_.find_struct_by_identity(type.nominal_identity)) {
+                        const ImportedStruct reached_copy = *reached;
+                        (void)imported_struct_binding(reached_copy, range);
+                    }
+                }
+                for (const ImportedType &child : type.children) { bind_imported_closure(child, range); }
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
