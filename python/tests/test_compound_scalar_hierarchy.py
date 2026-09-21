@@ -1711,3 +1711,54 @@ def test_materialized_subclass_keeps_inherited_frozen_hashability():
     assert [name for name, _ in _value_type(DerivedFrozen).fields] == ["first", "second"]
     assert DerivedFrozen.__dataclass_params__.frozen is True
     assert len({DerivedFrozen(1, 2), DerivedFrozen(1, 2)}) == 1
+
+
+def test_emit_over_map_preserves_unset_polymorphic_field():
+    # A KeyValue bundle assembled by emit(TSD) is built against the output's
+    # published value binding, but the builder's storage IS that binding's
+    # OWNING representation - a different realization whose polymorphic
+    # fields are distinct closed-Bundle entries. Writing the fields through
+    # one and reading them back through the other left every polymorphic
+    # field carrying a record the reader had never seen ("closed Bundle
+    # source alternative '<invalid>' is outside this graph snapshot").
+    # The unset `detail` is what makes it visible: it stays on the declared
+    # base, so it is the field whose realization has to survive the round
+    # trip rather than being replaced by a concrete leaf.
+    @dataclass
+    class Detail(CompoundScalar, namespace="tests.emit_unset"):
+        pass
+
+    @dataclass
+    class FilledDetail(Detail, namespace="tests.emit_unset"):
+        value: int = 0
+
+    @dataclass
+    class Event(CompoundScalar, namespace="tests.emit_unset"):
+        value: int
+        detail: Detail = None
+
+    @dataclass
+    class ChildEvent(Event, namespace="tests.emit_unset"):
+        pass
+
+    @compute_node
+    def make_event(value: TS[int]) -> TS[tuple[Event, ...]]:
+        return (ChildEvent(value.value),)
+
+    @graph
+    def event_for(value: TS[int]) -> TS[Event]:
+        return hg.emit(make_event(value))
+
+    @graph
+    def emitted_events(values: TSD[str, TS[int]]) -> TS[Event]:
+        return hg.emit(hg.map_(event_for, values)).value
+
+    # The concrete leaf survives the nested emit and the unset base-typed
+    # field stays unset - not flattened to the base, not dropped.
+    assert eval_node(emitted_events, [{"a": 1}, {"a": 2}]) == [
+        ChildEvent(value=1, detail=None),
+        ChildEvent(value=2, detail=None),
+    ]
+    # FilledDetail is what makes Detail polymorphic in the first place; a
+    # base with no concrete subclass never reached the failing path.
+    assert FilledDetail(value=1).value == 1

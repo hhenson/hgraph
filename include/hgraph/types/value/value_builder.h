@@ -1156,11 +1156,19 @@ namespace hgraph
         {
             ensure_not_built();
             built_ = true;
-            if (target_binding_ == binding_) { return std::move(value_); }
+            // ``binding_`` is already the owning representation
+            // (``owning_assembly``), so the target needs no conversion when
+            // it owns as the assembly does — the caller receives the portable
+            // value either way.
+            if (value_owning_type(target_binding_) == binding_) { return std::move(value_); }
 
             Value result{target_binding_};
-            target_binding_.ops_ref().move_assign_from(
-                target_binding_,
+            // Dispatch on what ``result`` IS, not on what it was asked for:
+            // ``Value`` materialises the owning representation, so
+            // ``target_binding_``'s ops would run over its owner's memory.
+            const auto result_binding = result.view().binding();
+            result_binding.ops_ref().move_assign_from(
+                result_binding,
                 const_cast<void *>(result.view().data()),
                 binding_,
                 const_cast<void *>(value_.view().data()));
@@ -1174,7 +1182,7 @@ namespace hgraph
             {
                 throw std::invalid_argument("BundleBuilder requires a bound target");
             }
-            if (target.checked_plan().is_composite()) { return target; }
+            if (target.checked_plan().is_composite()) { return owning_assembly(target); }
             const auto *schema = target.schema();
             if (schema == nullptr || schema->try_value_kind() != ValueTypeKind::Bundle ||
                 schema->wrapped_un_named == nullptr)
@@ -1205,7 +1213,33 @@ namespace hgraph
                 throw std::logic_error(
                     "BundleBuilder structural assembly binding is unavailable");
             }
-            return structural;
+            return owning_assembly(structural);
+        }
+
+        /** The representation the builder's own storage will be.
+
+            ``Value`` always materialises the OWNING representation of the
+            binding it is handed (``value_owning_type``): a graph-local
+            realization publishes an external owner, and the two are
+            plan-compatible but NOT interchangeable — their polymorphic
+            fields are distinct closed-Bundle entries with their own
+            ``TypeRecord``s. Deriving the field bindings from the binding the
+            caller passed while writing into storage of its owner leaves each
+            field carrying a record the reader's entry has never seen, and the
+            first consumer to ask for the field's concrete type fails with
+            "closed Bundle source alternative ... is outside this graph
+            snapshot". So the assembly binding IS the owning representation,
+            and ``build`` converts to the caller's target from there. */
+        [[nodiscard]] static ValueTypeRef owning_assembly(ValueTypeRef assembly)
+        {
+            const auto owning = value_owning_type(assembly);
+            if (!owning || owning == assembly) { return assembly; }
+            if (!owning.checked_plan().is_composite())
+            {
+                throw std::logic_error(
+                    "BundleBuilder target's owning representation is not composite storage");
+            }
+            return owning;
         }
 
         [[nodiscard]] const MemoryUtils::CompositeState &state() const
