@@ -2039,8 +2039,15 @@ class _TsExpr:
                 # combine[TS[Tuple...]](a, b, ...): pack a non-reference
                 # structural TSB. Each original child edge is retained, while
                 # its declared field shape is the value observed through any
-                # REF, matching legacy TSB.from_ts vararg packing.
-                raw_ports = [_unwrap(p) for p in ports]
+                # REF, matching legacy TSB.from_ts vararg packing. Positional
+                # scalar values are const-lifted before building the bundle.
+                raw_ports = []
+                for value in ports:
+                    unwrapped = _unwrap(value)
+                    if not isinstance(unwrapped, _m.Port):
+                        value = wire("const", value)
+                        unwrapped = _unwrap(value)
+                    raw_ports.append(unwrapped)
                 structural = WiringPort(
                     _m.bundle_port(raw_ports, [False] * len(raw_ports)))
                 if strict_cs is False:

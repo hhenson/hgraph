@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Tuple, Set
 
 
@@ -142,6 +143,15 @@ def test_combine_tuple_nonuniform():
         return combine[TS[Tuple[int, str]]](a, b, __strict__=False)
 
     assert eval_node(g, [None, 1], "2") == [(None, "2"), (1, "2")]
+
+
+def test_combine_tuple_nonuniform_lifts_scalar_elements():
+    @graph
+    def g(value: TS[date]) -> TS[Tuple[str, str, object]]:
+        return combine[TS[Tuple[str, str, object]]]("date", ">=", value)
+
+    value = date(2026, 9, 21)
+    assert eval_node(g, value) == [("date", ">=", value)]
 
 
 def test_combine_tuple_dereferences_each_structural_input():
