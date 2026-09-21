@@ -685,6 +685,46 @@ namespace hgl::hgraph_ir
                     }
                     result_.structures.push_back(std::move(target));
                 }
+                lower_imported_structures();
+            }
+
+            /// Emits a contract for each struct another module exports that
+            /// this module names (ADR 0013). The importer re-described the
+            /// owner's layout, so both backends register the same schema under
+            /// the owner's identity -- generated C++ additionally needs the
+            /// exporter's headers, which travel on the record.
+            void lower_imported_structures() {
+                for (const hir::ImportedStructDecl &source : source_.imported_structs) {
+                    StructContract target;
+                    target.identity = source.identity;
+                    // Exported from its own module by definition; this module
+                    // declares nothing for it and re-exports nothing.
+                    target.exported       = false;
+                    target.imported       = true;
+                    target.public_headers = source.public_headers;
+                    target.abstract       = source.abstract;
+                    target.requirements = lower_constraint(source.requirements);
+                    target.range        = source.range;
+                    for (const hir::GenericParameter &generic : source.generics) {
+                        target.generics.push_back(lower_generic(generic));
+                    }
+                    for (const hir::TypeId parent : source.parents) {
+                        target.parents.push_back(lower_type(parent, source.range));
+                    }
+                    for (const hir::StructField &field : source.fields) {
+                        target.fields.push_back(StructField{
+                            .name             = field.name,
+                            .type             = lower_type(field.type, AppliedBindings{}, field.range),
+                            .default_value    = lower_const_expr(field.default_value, AppliedBindings{}, field.range,
+                                                                 "a struct field default"),
+                            .origin_identity  = field.origin_identity,
+                            .optional         = field.optional,
+                            .recursive        = field.recursive,
+                            .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                            .range            = field.range});
+                    }
+                    result_.structures.push_back(std::move(target));
+                }
             }
 
             [[nodiscard]] static CallableVisibility lower_visibility(hir::Visibility source) noexcept {

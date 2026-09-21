@@ -232,6 +232,13 @@ namespace hgl::hgraph_ir
     {
         std::string                   identity{};
         bool                          exported{false};
+        /// Described by this module but declared by another (ADR 0013): the
+        /// importer re-described the owner's layout so a backend can register
+        /// the same schema. It is not a declaration of this module, so it has
+        /// no source-order handle, and generated C++ includes the exporter's
+        /// headers rather than re-declaring the type.
+        bool                          imported{false};
+        std::vector<std::string>      public_headers{};
         bool                          abstract{false};
         std::vector<GenericParameter> generics{};
         std::vector<TypeId>           parents{};

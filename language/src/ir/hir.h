@@ -635,6 +635,22 @@ namespace hgl::ir::hir
         ConstraintId                  requirements{};
         std::vector<StructField>      fields{};
     };
+
+    /// A struct another module exports, re-described for this module's IR
+    /// (ADR 0013). Its identity is the owner's; nothing here declares it, so
+    /// it is a record beside the imports rather than a Declaration.
+    struct ImportedStructDecl
+    {
+        std::string                   identity{};
+        SymbolId                      symbol{};
+        bool                          abstract{false};
+        std::vector<GenericParameter> generics{};
+        std::vector<TypeId>           parents{};
+        ConstraintId                  requirements{};
+        std::vector<StructField>      fields{};
+        std::vector<std::string>      public_headers{};
+        syntax::SourceRange           range{};
+    };
     struct OperatorProperty
     {
         std::string         name{};
@@ -724,6 +740,10 @@ namespace hgl::ir::hir
         std::vector<std::string>      cpp_includes{};
         std::vector<NativeFunction>   native_functions{};
         std::vector<ImportedOperator> imported_operators{};
+        /// Structs other modules export, re-described here so both backends
+        /// register the owner's schema and the solver can check an applied
+        /// family's requirements (ADR 0013). This module declares none of them.
+        std::vector<ImportedStructDecl> imported_structs{};
         std::vector<Declaration>      declarations{};
         std::vector<DeclarationId>    source_order{};
 

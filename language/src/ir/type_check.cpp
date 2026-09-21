@@ -467,16 +467,34 @@ namespace hgl::ir
                     const Type &application = type(application_id);
                     if (application.kind != TypeKind::Symbol || !application.symbol.valid()) { continue; }
                     const Symbol &symbol = module_.symbol(application.symbol);
-                    if (symbol.kind != SymbolKind::Struct || !symbol.owner.valid()) { continue; }
-                    const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node);
-                    if (structure == nullptr || structure->generics.size() != application.arguments.size()) { continue; }
+                    // A struct another module exports is checked exactly as a
+                    // local one (ADR 0013): the importer rebuilt the `where`
+                    // the exporter declared, so the SAME solver decides whether
+                    // this specialization is admissible. Reading only local
+                    // declarations would leave an imported family unchecked.
+                    const std::vector<GenericParameter> *generics     = nullptr;
+                    ConstraintId                         requirements = {};
+                    if (symbol.kind == SymbolKind::Struct && symbol.owner.valid()) {
+                        if (const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node)) {
+                            generics     = &structure->generics;
+                            requirements = structure->requirements;
+                        }
+                    } else if (symbol.kind == SymbolKind::ImportedStruct) {
+                        const auto imported = std::ranges::find(module_.imported_structs, symbol.canonical_name,
+                                                                &ImportedStructDecl::identity);
+                        if (imported != module_.imported_structs.end()) {
+                            generics     = &imported->generics;
+                            requirements = imported->requirements;
+                        }
+                    }
+                    if (generics == nullptr || generics->size() != application.arguments.size()) { continue; }
 
                     if (!checked_type_applications_.insert(application_key(owner, application_id)).second) { continue; }
-                    if (!structure->requirements.valid()) { continue; }
+                    if (!requirements.valid()) { continue; }
                     detail::GenericSubstitution substitution{module_, canonical_types_};
                     bool                        complete = true;
-                    for (std::size_t argument = 0; argument < structure->generics.size(); ++argument) {
-                        const GenericParameter &generic = structure->generics[argument];
+                    for (std::size_t argument = 0; argument < generics->size(); ++argument) {
+                        const GenericParameter &generic = (*generics)[argument];
                         const TypeArgument     &value   = application.arguments[argument];
                         if (generic.is_const && value.kind == TypeArgumentKind::Value) {
                             complete = substitution.bind_value(generic.symbol, value.value) && complete;
@@ -488,7 +506,7 @@ namespace hgl::ir
                     }
                     if (!complete) { continue; }
                     const auto premises = active_constraint_premises();
-                    (void)constraint_solver_.solve(structure->requirements, substitution, source.range,
+                    (void)constraint_solver_.solve(requirements, substitution, source.range,
                                                    "generic struct '" + symbol.name + "'", true, premises);
                 }
             }

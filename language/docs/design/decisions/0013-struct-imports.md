@@ -237,12 +237,27 @@ itself, with no conversion and no chance of two definitions drifting.
    Losing any one of them leaves the field typeless, or anonymous, in the IR
    both backends realize from.
 
-   Still owed here: the requirement lowering slice 3c reconstructed. An
-   imported struct is a symbol and a type, not yet an HIR *declaration*, so a
-   rebuilt `where` has nothing to attach to. Inheriting a **generic** imported
-   struct refuses by name meanwhile, because its parameters would have to map
-   into this module's symbols and typing those fields against the wrong scope
-   would be silently wrong.
+   **An imported struct is a record, not a declaration.** `hir::Module` gains
+   `imported_structs` beside `native_functions` and `imported_operators` —
+   this module declares nothing for it — and hgraph IR emits a
+   `StructContract` from each, which is what both backends register the
+   schema from. That record is the re-description the decision above calls
+   for, carried once rather than rebuilt independently by each backend, and it
+   is where the `where` slice 3c reconstructed finally attaches, so the
+   existing solver checks an applied family.
+
+   The contract is **not** marked exported: the struct is exported by its own
+   module, and re-exporting it would make this module's descriptor claim a
+   type it does not declare — which its own export closure would then reject.
+
+   The whole **ancestry** is re-described, not only the struct the source
+   names. An ancestor is reached through a parent and never spelled here, so
+   it would otherwise go undescribed, and a backend cannot register a family
+   whose ancestors it has no layout for.
+
+   Inheriting a **generic** imported struct still refuses by name, because its
+   parameters would have to map into this module's symbols and typing those
+   fields against the wrong scope would be silently wrong.
 5. **Direct wiring.** Realize an imported struct through the type bridge under
    the owner's identity, imported parents ahead of local children; conflict
    detection when a description disagrees with a registered schema; recursive
