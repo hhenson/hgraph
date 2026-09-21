@@ -1086,7 +1086,13 @@ namespace hgl::semantics
                         } else if constexpr (std::is_same_v<T, ast::Construct>) {
                             resolve_type(node.type, context);
                             const Binding &target = result_.type_bindings[node.type];
-                            if (target.kind != BindingKind::Struct) {
+                            // `m::Quote<i64>(...)` reaches here as a Construct
+                            // rather than a Call: a struct another module
+                            // exports is as constructible as a local one
+                            // (ADR 0013), and refusing it here would leave the
+                            // applied spelling working only when the expected
+                            // type happened to supply the arguments.
+                            if (target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
                                 report(Category::Type, module_.type(node.type).range,
                                        "a struct constructor target is a concrete struct type");
                             }
