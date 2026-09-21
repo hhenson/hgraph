@@ -2328,7 +2328,10 @@ namespace hgl::ir
                         check_intrinsic_call(expression, call, reference->symbol, expected);
                         return;
                     }
-                    if (symbol.kind == SymbolKind::Struct) {
+                    // A struct another module exports is constructible exactly
+                    // as a local one is (ADR 0013); only its declaration lives
+                    // elsewhere, which is what the argument check accounts for.
+                    if (symbol.kind == SymbolKind::Struct || symbol.kind == SymbolKind::ImportedStruct) {
                         check_struct_call(expression, call, reference->symbol, expected);
                         return;
                     }
@@ -2731,6 +2734,60 @@ namespace hgl::ir
                 return complete ? intern(std::move(inferred)) : applied;
             }
 
+            /// The re-description of a struct another module exports, when
+            /// `symbol` names one (ADR 0013): it has no declaration here.
+            [[nodiscard]] const ImportedStructDecl *imported_struct_decl(SymbolId symbol) const noexcept {
+                if (!symbol.valid() || module_.symbol(symbol).kind != SymbolKind::ImportedStruct) { return nullptr; }
+                for (const ImportedStructDecl &candidate : module_.imported_structs) {
+                    if (candidate.symbol == symbol) { return &candidate; }
+                }
+                return nullptr;
+            }
+
+            /// Constructing an imported struct checks against the re-described
+            /// layout rather than a `StructDecl`. Its fields are already the
+            /// whole layout, ancestors first, and a generic imported family
+            /// still refuses by name -- so there is no application to infer and
+            /// no generic scope to substitute through.
+            void check_imported_constructor_arguments(Expr &expression, TypeId unwrapped, const ImportedStructDecl &imported,
+                                                      const std::vector<Argument> &arguments, bool delta) {
+                if (imported.abstract) {
+                    type_error(expression.range, "abstract struct '" + imported.identity + "' is not constructible");
+                    return;
+                }
+                std::size_t positional = 0;
+                for (const Argument &argument : arguments) {
+                    const StructField *field = nullptr;
+                    if (argument.name.empty()) {
+                        if (positional < imported.fields.size()) { field = &imported.fields[positional++]; }
+                    } else {
+                        for (const StructField &candidate : imported.fields) {
+                            if (candidate.name == argument.name) { field = &candidate; }
+                        }
+                        if (field == nullptr) {
+                            type_error(argument.range,
+                                       "struct '" + imported.identity + "' has no field named '" + argument.name + "'");
+                            continue;
+                        }
+                    }
+                    if (!field) { continue; }
+                    const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
+                    if (!expected) {
+                        type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
+                        continue;
+                    }
+                    Expr &value = check_expr(argument.value, *expected);
+                    if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
+                        if (!delta && !field->optional) {
+                            type_error(value.range, "null is only valid for an optional field or sparse delta");
+                        }
+                    } else {
+                        require_assignable(*expected, value, "constructor field");
+                    }
+                    expression.effects |= value.effects;
+                }
+            }
+
             [[nodiscard]] TypeId check_constructor_arguments(Expr &expression, TypeId applied,
                                                              const std::vector<Argument> &arguments, bool delta) {
                 TypeId unwrapped = unwrap_atomic(applied);
@@ -2738,6 +2795,10 @@ namespace hgl::ir
                 const Type &nominal = type(unwrapped);
                 if (nominal.kind != TypeKind::Symbol || !nominal.symbol.valid()) {
                     type_error(expression.range, "constructor requires a struct type");
+                    return applied;
+                }
+                if (const ImportedStructDecl *imported = imported_struct_decl(nominal.symbol)) {
+                    check_imported_constructor_arguments(expression, unwrapped, *imported, arguments, delta);
                     return applied;
                 }
                 const DeclarationId owner     = module_.symbol(nominal.symbol).owner;
