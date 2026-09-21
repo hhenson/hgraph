@@ -318,6 +318,17 @@ namespace
         }
     };
 
+    struct FixedToVariadicTupleGraph
+    {
+        static constexpr auto name = "fixed_to_variadic_tuple_graph";
+
+        static Port<TS<HomogeneousTuple<Int>>> compose(
+            Wiring &w, Port<TS<Tuple<Int, Int>>> ts)
+        {
+            return wire<stdlib::convert, TS<HomogeneousTuple<Int>>>(w, ts);
+        }
+    };
+
     using PolymorphicEvent = polymorphic_emit_repro::Event;
 
     using PolymorphicExplain = polymorphic_tsb_conversion_repro::Explain;
@@ -4041,6 +4052,19 @@ TEST_CASE("std operators: convert copies an Arrow Series into a native variadic 
                                     int_series({Int{2}, std::nullopt, Int{3}}))),
                  values<Value>(int_tuple({}), int_tuple({Int{1}}),
                                nullable_int_tuple({Int{2}, std::nullopt, Int{3}})));
+}
+
+TEST_CASE("std operators: convert rebuilds a homogeneous fixed tuple as a variadic tuple")
+{
+    stdlib::register_standard_operators();
+
+    const auto *meta = scalar_descriptor<Tuple<Int, Int>>::value_meta();
+    BundleBuilder input{ValuePlanFactory::instance().type_for(meta)};
+    input.set(0, Value{Int{3}});
+    input.set(1, Value{Int{5}});
+
+    CHECK_OUTPUT(eval_node<FixedToVariadicTupleGraph>(values<Value>(input.build())),
+                 values<Value>(int_tuple({Int{3}, Int{5}})));
 }
 
 TEST_CASE("std operators: Arrow Series arithmetic and access use public typed wiring")

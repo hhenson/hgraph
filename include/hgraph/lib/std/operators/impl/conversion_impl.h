@@ -1052,7 +1052,7 @@ namespace hgraph::stdlib
             const auto *out         = output_ts_value_schema(resolution);
             const auto *in          = ts_value_schema_at(context, 0);
             const auto *out_element = collection_element_schema(out);
-            const auto *in_element  = collection_element_schema(in);
+            const auto *in_element  = tuple_element_schema(in);
             return out != nullptr && in != nullptr && out != in &&
                    out_element != nullptr && out_element == in_element;
         }

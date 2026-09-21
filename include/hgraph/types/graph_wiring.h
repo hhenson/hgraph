@@ -2004,6 +2004,18 @@ namespace hgraph
             // says nothing about whether it derives from the declared input.
             const auto *produced = value_schema_without_storage(output->value_schema);
             const auto *expected = value_schema_without_storage(input->value_schema);
+            if (produced != nullptr && expected != nullptr &&
+                produced->try_value_kind() == ValueTypeKind::Tuple &&
+                expected->try_value_kind() == ValueTypeKind::List &&
+                expected->has(ValueTypeFlags::VariadicTuple) &&
+                expected->element_type != nullptr && produced->field_count > 0)
+            {
+                return std::all_of(
+                    produced->fields, produced->fields + produced->field_count,
+                    [expected](const ValueFieldMetaData &field) {
+                        return field.type == expected->element_type;
+                    });
+            }
             return produced != nullptr && expected != nullptr &&
                    registry.value_is_a(produced, expected);
         }
@@ -2607,7 +2619,7 @@ namespace hgraph
                         throw std::logic_error(
                             "wire<G>: erased input port schema does not match the sub-graph's time-series input");
                     }
-                    return P{w, arg.erased()};
+                    return P{w, adapt_source_for_input(w, expected, arg.erased())};
                 }
                 else
                 {
