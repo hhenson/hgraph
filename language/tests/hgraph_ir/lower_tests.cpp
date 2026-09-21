@@ -85,6 +85,23 @@ namespace
         return nullptr;
     }
 
+    /// A module that exports an abstract struct, so a local struct can extend
+    /// an imported family (ADR 0013).
+    hgl::semantics::ModuleCatalog imported_family_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        module.structs       = {std::move(base)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     hgl::semantics::ModuleCatalog native_catalog(bool throws = false) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
@@ -1090,4 +1107,36 @@ fn latest(node: atomic<Node>) -> i64 {
     }
     INFO(later.render(lowered.file));
     CHECK_FALSE(later.has_errors());
+}
+
+// A field inherited from a struct another module exports has no declaration
+// in this module to point at, so it carries its source as an identity through
+// both IRs (ADR 0013). Losing it would leave the outermost IR unable to say
+// which module declares the field, and both backends realize from that IR.
+TEST_CASE("hgraph IR keeps an imported field's declaring struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_origin
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_origin.Tick");
+    REQUIRE(tick != nullptr);
+    REQUIRE(tick->fields.size() == 2);
+    // The inherited field names the EXPORTING struct, not this module's.
+    CHECK(tick->fields[0].name == "at");
+    CHECK(tick->fields[0].origin_identity == "checks.shapes.Base");
+    // The locally declared one names this struct.
+    CHECK(tick->fields[1].name == "bid");
+    CHECK(tick->fields[1].origin_identity == tick->identity);
 }

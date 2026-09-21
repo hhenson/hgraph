@@ -638,6 +638,23 @@ namespace hgl::hgraph_ir
                     for (hir::TypeId parent : source->parents) { target.parents.push_back(lower_type(parent, declaration.range)); }
                     std::unordered_map<std::uint32_t, AppliedBindings> origin_bindings;
                     for (const hir::StructField &field : source->fields) {
+                        // A field inherited from a struct another module exports
+                        // has no declaration here to walk to, and no local
+                        // generic scope to map through: its type was lowered
+                        // from the owner's layout already (ADR 0013).
+                        if (!field.origin_identity.empty() && !field.origin.valid()) {
+                            target.fields.push_back(StructField{
+                                .name             = field.name,
+                                .type             = lower_type(field.type, AppliedBindings{}, field.range),
+                                .default_value    = lower_const_expr(field.default_value, AppliedBindings{}, field.range,
+                                                                     "a struct field default"),
+                                .origin_identity  = field.origin_identity,
+                                .optional         = field.optional,
+                                .recursive        = field.recursive,
+                                .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                                .range            = field.range});
+                            continue;
+                        }
                         if (!origin_bindings.contains(field.origin.value)) {
                             std::optional<AppliedBindings> applied =
                                 bindings_for_origin(declaration.id, field.origin, AppliedBindings{});
@@ -653,7 +670,13 @@ namespace hgl::hgraph_ir
                             .name          = field.name,
                             .type          = lower_type(field.type, applied, field.range),
                             .default_value = lower_const_expr(field.default_value, applied, field.range, "a struct field default"),
-                            .origin_identity  = declaration_identity(field.origin),
+                            // A field inherited from another module's struct has no
+                            // declaration here, so it carries its source as an
+                            // identity (ADR 0013); losing it would leave the
+                            // outermost IR unable to say which module declares
+                            // the field.
+                            .origin_identity  = field.origin_identity.empty() ? declaration_identity(field.origin)
+                                                                              : field.origin_identity,
                             .optional         = field.optional,
                             .recursive        = field.recursive,
                             .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},

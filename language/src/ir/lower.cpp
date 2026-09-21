@@ -609,6 +609,30 @@ namespace hgl::ir
                 }
             }
 
+            /// A field's HIR type. A field this module declares has an AST type;
+            /// one inherited from a struct another module exports does not --
+            /// its type lives in the owner's layout (ADR 0013), so it is
+            /// lowered from there rather than left absent, which would leave
+            /// the field typeless in both IRs.
+            [[nodiscard]] hir::TypeId imported_field_type(const semantics::StructField &field, syntax::SourceRange range) {
+                if (!field.origin.is_imported()) { return id<hir::TypeId>(field.type); }
+                const semantics::ImportedStruct &owner = resolved_.imported_structs[field.origin.imported];
+                const auto found = std::ranges::find(owner.fields, field.name, &semantics::ImportedStructField::name);
+                if (found == owner.fields.end()) { return hir::no_type; }
+                if (!owner.generics.empty()) {
+                    // A generic imported family needs its parameters mapped
+                    // into this module's symbols, which applying an imported
+                    // family will establish; until then the field would be
+                    // typed against the wrong scope.
+                    diagnostics_.report(syntax::Category::Type, range,
+                                        "inheriting a generic imported struct is not supported yet: '" + owner.identity +
+                                            "' declares generic parameters");
+                    return hir::no_type;
+                }
+                static const std::unordered_map<std::string, hir::SymbolId> none;
+                return imported_type(found->type, none, range);
+            }
+
             [[nodiscard]] hir::SymbolId external_symbol(hir::SymbolKind kind, std::string_view name, std::string_view external_name,
                                                         std::string_view canonical_name, syntax::SourceRange range) {
                 const std::string identity = canonical_name.empty() ? std::string{external_name} : std::string{canonical_name};
@@ -814,12 +838,15 @@ namespace hgl::ir
                             return symbol;
                         }
                         break;
-                    case BindingKind::ImportedStruct:
-                        // A struct another module exports is a type, never a
-                        // value symbol (ADR 0013). Slice 4 carries it through
-                        // the shared passes by identity; until then a mention
-                        // in value position falls through to the report below.
-                        break;
+                    case BindingKind::ImportedStruct: {
+                        // A struct another module exports has no declaration
+                        // here, so it is an external symbol interned by the
+                        // owner's identity (ADR 0013) -- the same way an
+                        // imported function or operator is.
+                        const semantics::ImportedStruct &structure = resolved_.imported_structs[binding.index];
+                        return external_symbol(hir::SymbolKind::ImportedStruct, spelling, structure.identity,
+                                               structure.identity, range);
+                    }
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
@@ -1304,13 +1331,20 @@ namespace hgl::ir
                                 for (const semantics::StructField &field : resolved_.structure(index).fields) {
                                     structure.fields.push_back(
                                         // A field inherited from another module's struct has no
-                                        // declaration here to point at (ADR 0013); it keeps its
-                                        // source in the layout the importer references, not in a
-                                        // local declaration id.
-                                        hir::StructField{field.name, id<hir::TypeId>(field.type),
+                                        // An inherited field keeps the struct that declares
+                                        // it. When that is another module's struct there is
+                                        // no declaration here to point at, so it travels as
+                                        // an identity and its type comes from that owner's
+                                        // layout (ADR 0013).
+                                        hir::StructField{field.name,
+                                                         imported_field_type(field, field_range(field.origin.decl, field.name)),
                                                          id<hir::ExprId>(field.default_value),
-                                                         id<hir::DeclarationId>(field.origin.decl), field.optional,
-                                                         field_range(field.origin.decl, field.name), field.recursive});
+                                                         id<hir::DeclarationId>(field.origin.decl),
+                                                         field.origin.is_imported()
+                                                             ? resolved_.imported_structs[field.origin.imported].identity
+                                                             : std::string{},
+                                                         field.optional, field_range(field.origin.decl, field.name),
+                                                         field.recursive});
                                 }
                             }
                             target.node = std::move(structure);

@@ -83,6 +83,9 @@ namespace hgl::ir::hir
         LambdaParameter,
         ImportedFunction,
         ImportedOperator,
+        /// A struct another module exports (ADR 0013). Its identity is the
+        /// owner's qualified name; this module declares nothing for it.
+        ImportedStruct,
         Intrinsic,
         ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
@@ -588,7 +591,13 @@ namespace hgl::ir::hir
         std::string         name{};
         TypeId              type{};
         ExprId              default_value{};
+        /// The declaration that declares this field, when it is one of this
+        /// module's. A field inherited from a struct another module exports
+        /// has none (ADR 0013), and names its source in `origin_identity`.
         DeclarationId       origin{};
+        /// The identity of the struct that declares this field when it is not
+        /// a declaration here. Empty for a local origin, which `origin` names.
+        std::string         origin_identity{};
         bool                optional{false};
         syntax::SourceRange range{};
         /// An admitted recursive edge (ADR 0012): an optional `atomic<T>` through
