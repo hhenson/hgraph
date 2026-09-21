@@ -91,13 +91,38 @@ namespace
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
         module.identity = "checks.shapes";
+        // A three-level family: Root <- Mid <- (local child), plus a struct a
+        // field can name, so the nominal-symbol path is exercised too.
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedType venue_ref;
+        venue_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        venue_ref.nominal_identity = "checks.shapes.Venue";
+
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", venue_ref, false, false}};
+
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+
         hgl::semantics::ImportedStruct base;
         base.module_identity = module.identity;
         base.name            = "Base";
         base.identity        = "checks.shapes.Base";
         base.abstract        = true;
+        base.parents         = {root_ref};
         base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
-        module.structs       = {std::move(base)};
+        module.structs       = {std::move(base), std::move(root), std::move(venue)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -1132,11 +1157,25 @@ export struct Tick: shapes::Base
 
     const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_origin.Tick");
     REQUIRE(tick != nullptr);
-    REQUIRE(tick->fields.size() == 2);
-    // The inherited field names the EXPORTING struct, not this module's.
-    CHECK(tick->fields[0].name == "at");
-    CHECK(tick->fields[0].origin_identity == "checks.shapes.Base");
+    REQUIRE(tick->fields.size() == 4);
+
+    // A grandparent's fields name the ANCESTOR that declares them, not the
+    // immediate parent: each catalog record holds only what it declares, so a
+    // field stamped with the wrong source has no findable type.
+    CHECK(tick->fields[0].name == "id");
+    CHECK(tick->fields[0].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[0].type.valid());
+
+    // A layout field naming another struct resolves by identity rather than
+    // through the generic-binding path, which would leave it symbol-less.
+    CHECK(tick->fields[1].name == "venue");
+    CHECK(tick->fields[1].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[1].type.valid());
+    CHECK(lowered.graph->types[tick->fields[1].type.value].nominal_identity == "checks.shapes.Venue");
+
+    CHECK(tick->fields[2].name == "at");
+    CHECK(tick->fields[2].origin_identity == "checks.shapes.Base");
     // The locally declared one names this struct.
-    CHECK(tick->fields[1].name == "bid");
-    CHECK(tick->fields[1].origin_identity == tick->identity);
+    CHECK(tick->fields[3].name == "bid");
+    CHECK(tick->fields[3].origin_identity == tick->identity);
 }

@@ -680,12 +680,24 @@ namespace hgl::ir
                 target.value_position = true;
                 target.unbounded      = source.unbounded;
                 if (source.kind == semantics::ImportedTypeKind::Symbol) {
-                    const auto found = generics.find(source.binding_identity);
-                    if (found == generics.end()) {
-                        diagnostics_.report(syntax::Category::Name, range,
-                                            "native type pattern names unknown type generic '" + source.binding_identity + "'");
+                    if (source.binding_identity.empty() && !source.nominal_identity.empty()) {
+                        // A layout's Symbol may name a STRUCT rather than a
+                        // generic parameter (ADR 0013) -- a field type, or an
+                        // ADR 0012 edge's target. It interns by identity, the
+                        // way the struct itself does; the generic-only path
+                        // would report an unknown generic and leave the type
+                        // without a symbol.
+                        target.symbol = external_symbol(hir::SymbolKind::ImportedStruct, source.nominal_identity,
+                                                        source.nominal_identity, source.nominal_identity, range);
                     } else {
-                        target.symbol = found->second;
+                        const auto found = generics.find(source.binding_identity);
+                        if (found == generics.end()) {
+                            diagnostics_.report(syntax::Category::Name, range,
+                                                "native type pattern names unknown type generic '" + source.binding_identity +
+                                                    "'");
+                        } else {
+                            target.symbol = found->second;
+                        }
                     }
                 }
                 for (const semantics::ImportedType &child : source.children) {
