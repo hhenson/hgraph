@@ -481,7 +481,10 @@ namespace hgl::ir::detail
                                        .variable = node.symbol,
                                        .symbolic = "value:" + std::to_string(node.symbol.value)};
                     }
-                    if (symbol.kind == SymbolKind::Struct) {
+                    // A struct another module exports is a type operand the
+                    // same way a local one is (ADR 0013); only its declaration
+                    // lives elsewhere.
+                    if (symbol.kind == SymbolKind::Struct || symbol.kind == SymbolKind::ImportedStruct) {
                         return Operand{
                             .kind = OperandKind::Type, .known = true, .type = types_.make(TypeKind::Symbol, {}, node.symbol)};
                     }
