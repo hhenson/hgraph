@@ -131,10 +131,28 @@ Its [three identical runs](native_observed.txt) show a full native sampled
 parent value but unsampled child times, plus the C++ invalidation-time result. These endpoint observations are distinct from graph-level
 recursive sampling and are not counted as another voting implementation.
 
+[Native nested wiring](native_nested_probe.cpp) also runs all eight
+`*_invalidate` shapes through public C++ `eval_node`, including peered owned
+outputs and leaf-bound assemblies. It records every level at all nine cycles.
+The [three stable runs](native_nested_observed.json) have 2,979 observations
+matching the contract and 197 variations; 95 value/delta observations differ
+from Python-authored C++. Native aggregate reads retain zero/default list slots,
+nil bundle delta fields, and stale deltas after invalidation. The
+[native assessment](native_nested_assessment.json) records each difference.
+Validity, modification, time and peering match the Python-authored C++ traces.
+These are two authoring paths into one runtime, not another vote.
+
+The registered CTest checks native replay against the recorded trace and its
+source/runtime identities; a passing replay does not mean TS-26 conforms.
+`native_nested.py` checks evidence and regenerates the separate assessment.
+To replace its evidence after reviewing changes, pass `--record --executable`
+and `--candidate-python`; recording checks candidate identity before and after.
+
 ```sh
 cmake -S /path/to/fixed -B /tmp/fixed-native-build \
   -Dhgraph_DIR=/path/to/sdk/lib/cmake/hgraph \
   -DPython_EXECUTABLE=/path/to/cpp-hgraph/bin/python
 cmake --build /tmp/fixed-native-build --parallel 2
+ctest --test-dir /tmp/fixed-native-build --output-on-failure
 /tmp/fixed-native-build/runtime_contract_probe
 ```
