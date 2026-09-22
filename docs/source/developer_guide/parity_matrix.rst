@@ -39,13 +39,15 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The seventeen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The eighteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
 two residual renderings on the same day; the mixed-numeric ordering comparison
 joined on 2026-09-16, ruled out of the #818 call-shape review rather than
-reported by the campaign, which cannot draw the shape at all.
+reported by the campaign, which cannot draw the shape at all. A bundle field
+re-pointed at the ``map_`` reference it already holds joined on 2026-09-22,
+when ``switch_`` began publishing the references its branches pass through.
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
