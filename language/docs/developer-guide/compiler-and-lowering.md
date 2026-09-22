@@ -807,9 +807,10 @@ A module descriptor records an exported struct's layout. Format 6 (ADR 0004)
 marks each field's `recursive` edge, so no reader takes an edge for an
 ordinary field; the reader checks that an edge is an optional `atomic` record
 over a struct of the same module, and `hgl check <module>.hgl-module.json`
-validates it without loading code. No module can import another module's
-struct type yet, recursive or not, so the mark is recorded for the importer
-that will read it.
+validates it without loading code. A second module imports that struct and
+rebuilds its edges from the mark (ADR 0013); the edge's mandatory `= null` is
+the one field default the catalog carries, which is what lets a recursive
+struct cross at all.
 
 ## Generic constraint IR and lowering
 

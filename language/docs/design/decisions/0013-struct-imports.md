@@ -144,15 +144,20 @@ refusing it would make every recursive struct unimportable. That is the
 opposite of what ADR 0012's own acceptance asks for, and it was the state of
 this work until the example pair tried it.
 
-The exception is narrow on both sides, because a descriptor is an external
-input and need not derive one flag from the other the way `hgl` does. A null
-default on a field the descriptor calls **required** is not an unsupported
-feature but a descriptor that contradicts itself — rebuilding the field as
-required would refuse a call the exporting module accepts — so it is refused
-by name. And it does not apply to an **inherited** field at all: that field is
-dropped and rebuilt from the parent's record, so a child overriding an
-inherited default with null would lose the override and inherit the parent's
-requiredness instead.
+The exception is narrow, because a descriptor is an external input and need
+not derive one flag from the other the way `hgl` does. A null default on a
+field the descriptor calls **required** is not an unsupported feature but a
+descriptor that contradicts itself — rebuilding the field as required would
+refuse a call the exporting module accepts — so it is refused by name.
+
+On an **inherited** field the question is whether the child is overriding.
+That field is dropped and rebuilt from the parent's record, so an override
+would be lost; but a null the *declaring* struct already carries is not an
+override, and refusing it would make every child of a family with an optional
+field unimportable — which is most families worth publishing. So an inherited
+null crosses when the struct that declares the field marks it optional too,
+and is refused otherwise, including when that declaration is in another
+module's descriptor and cannot be consulted.
 
 A generic struct's `where` requirement **does** cross (owner's ruling): the
 descriptor's normalized constraint graph rebuilds into `ImportedStruct::
