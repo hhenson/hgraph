@@ -1622,22 +1622,6 @@ struct op_harness_record
     : Operator<"__harness_record", In<"ts", TsVar<"S">>, Scalar<"key", Str>,
                Scalar<"sparse", Bool>> {};
 
-/** Materialize a STRUCTURAL port through a real node output (child
-    sub-graph outputs must be node outputs - a python function returning
-    combine[TSB[...]](...) produces a structural source). Canonical
-    delta capture/apply keeps every kind's granularity. */
-struct materialize_node {
-  static constexpr auto name = "__materialize";
-
-  static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"S">> out) {
-    const Value delta = capture_delta(ts.base());
-    apply_delta(static_cast<const TSOutputView &>(out), delta.view());
-  }
-};
-
-struct op_materialize
-    : Operator<"__materialize", In<"ts", TsVar<"S">>, Out<TsVar<"S">>> {};
-
 /** Python-authored const fallback. The ordinary const overload keeps its
     fully typed wiring-time value; this overload preserves legacy generator
     semantics only when the binding layer supplies an opaque PyObj. */
@@ -1887,7 +1871,6 @@ void register_python_overloads() {
   register_python_object_wire_form();
   TypeRegistry::instance().register_value_type_alias(
       "object", TypeRegistry::instance().any());
-  register_overload<op_materialize, materialize_node>();
   register_overload<op_py_compute, py_fast_compute_node>();
   register_overload<op_py_compute, py_compute_node>();
   register_overload<op_py_compute_recordable, py_compute_recordable_node>();
