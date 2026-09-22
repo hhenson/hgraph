@@ -1488,18 +1488,24 @@ TEST_CASE("a descriptor's identities must be identifiers", "[descriptor][catalog
     SECTION("a struct whose local name is not an identifier is not admitted") {
         auto source  = minimal_descriptor();
         source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        // Kept before the move: reading it back off `bad` afterwards would
+        // look up a moved-from string, and the lookup would "pass" by finding
+        // nothing whatever the catalog had done with the real identity.
+        const std::string        identity = "checks.reader.Venue {}; struct Evil";
         descriptor::InterfaceDeclaration bad;
-        bad.category = descriptor::DeclarationCategory::Structure;
-        bad.identity = "checks.reader.Venue {}; struct Evil";
-        bad.fields   = {{"code", 0U, descriptor::no_schema_id, bad.identity, false, false}};
+        bad.category     = descriptor::DeclarationCategory::Structure;
+        bad.identity     = identity;
+        bad.fields       = {{"code", 0U, descriptor::no_schema_id, identity, false, false}};
         source.interface = {std::move(bad)};
         source.descriptor_fingerprint.clear();
         descriptor::seal(source);
         hgl::semantics::ModuleCatalog catalog;
         const auto                    error = descriptor::add_to_catalog(source, catalog);
-        // Either refused outright, or admitted under no name at all -- never
-        // under a name that reaches the emitter.
-        if (!error.has_value()) { CHECK(catalog.find_struct_by_identity(bad.identity) == nullptr); }
+        // Refused outright, and never admitted under a name that reaches the
+        // emitter.
+        REQUIRE(error.has_value());
+        CHECK(error->path == "$.interface[0].identity");
+        CHECK(catalog.find_struct_by_identity(identity) == nullptr);
     }
 
     SECTION("an ordinary identity still crosses") {
