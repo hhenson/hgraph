@@ -779,16 +779,23 @@ fn reading(order: atomic<shapes::Order>) -> atomic<shapes::Order> => order
     CHECK(rendered.find("package target") != std::string::npos);
 }
 
-TEST_CASE("a deep imported struct chain imports whole", "[wiring][types][struct-imports]") {
+TEST_CASE("a deep imported struct chain lowers whole, and realization says where its limit is",
+          "[wiring][types][struct-imports]") {
     // A descriptor is an input: `A0` holding `A1` holding `A2` ... is as deep
     // as the supplying module chose, and each hop is a SHALLOW type, so the
     // per-type depth budget never fires -- only the number of hops grows.
     //
-    // This pins the behaviour, not a crash. The depth at which a per-struct
-    // recursion would actually exhaust a stack is platform-dependent, and a
-    // test tuned to overflow one machine's is a flaky test, so the walk is
-    // iterative on the argument rather than on a reproduction.
-    constexpr std::size_t             depth = 1000;
+    // Deep enough to matter: both walks that follow this closure -- the
+    // resolver's binding and typed HIR's lowering -- are iterative, so the
+    // chain costs heap rather than stack. A per-struct recursion at this depth
+    // does not survive a default stack.
+    //
+    // REALIZING it is a different question, and this case used to leave it
+    // unasked: `Unit` stops after hgraph IR, so a green result said nothing
+    // about the bridge. The bridge still descends one frame per nominal, and
+    // measured against this very chain it died somewhere past ten thousand
+    // links -- so it now reports a bound instead, and this asks it to.
+    constexpr std::size_t             depth = 20000;
     hgl::semantics::ModuleCatalog     catalog;
     hgl::semantics::ImportableModule  module;
     module.identity = "checks.chain";
@@ -811,9 +818,79 @@ module checks.import_chain
 use checks.chain as shapes
 
 fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
+fn shallow(near: atomic<shapes::A19990>) -> atomic<shapes::A19990> => near
 )",
               catalog};
     INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    [[maybe_unused]] const auto standard = hgraph::stdlib::register_standard_types();
+
+    // The tail is only ten links from the end, so realization reaches it.
+    CHECK(bridge.value(unit.parameter("shallow", "near")) != nullptr);
+    CHECK_FALSE(unit.diagnostics.has_errors());
+
+    // The head is 20,000 links from the end. Reported, not a stack fault.
+    CHECK(bridge.value(unit.parameter("reading", "head")) == nullptr);
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("structs deep, which this bridge cannot realize") != std::string::npos);
+}
+
+TEST_CASE("an imported family is lowered ancestors first however its members are named",
+          "[wiring][types][struct-imports]") {
+    // The ordering trap. `Holder` names EVERY member of an inheritance chain
+    // as a field, ancestor-to-descendant, so lowering queues them all as roots
+    // and then takes the deepest first. A single "have we started this one"
+    // set cannot tell a root that is merely WAITING from one already lowered,
+    // so the deepest descendant skipped each of its parents as "started" and
+    // was flattened against an ancestry nothing had described yet.
+    //
+    // A descendant carries its parents' fields (hgraph's `bundle()` rule), so
+    // getting this wrong is not a crash -- it is a struct that silently loses
+    // every inherited field.
+    constexpr std::size_t            depth = 64;
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.family";
+    for (std::size_t index = 0; index < depth; ++index) {
+        const std::string              suffix = std::to_string(index);
+        hgl::semantics::ImportedStruct link;
+        link.module_identity = module.identity;
+        link.name            = "A" + suffix;
+        link.identity        = module.identity + ".A" + suffix;
+        link.fields          = {{"f" + suffix, hgl::semantics::ImportedScalarType::I64, false, false}};
+        if (index > 0) { link.parents = {symbol(module.identity + ".A" + std::to_string(index - 1))}; }
+        module.structs.push_back(std::move(link));
+    }
+    hgl::semantics::ImportedStruct holder;
+    holder.module_identity = module.identity;
+    holder.name            = "Holder";
+    holder.identity        = module.identity + ".Holder";
+    // Ancestor-to-descendant: the driver queues roots in this order and pops
+    // the LAST one first, so the deepest descendant is lowered while every
+    // one of its parents is queued-but-not-lowered.
+    for (std::size_t index = 0; index < depth; ++index) {
+        holder.fields.push_back(
+            {"m" + std::to_string(index), symbol(module.identity + ".A" + std::to_string(index)), false, false});
+    }
+    module.structs.push_back(std::move(holder));
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_family
+
+use checks.family as shapes
+
+fn reading(held: atomic<shapes::Holder>) -> atomic<shapes::Holder> => held
+fn inherited(held: atomic<shapes::Holder>) -> i64 => held.m63.f0
+)",
+              catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    // `f0` is declared by the chain's ROOT and read off its deepest
+    // descendant: it is only there if every ancestor was described before the
+    // descendant that flattens it.
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
@@ -903,3 +980,59 @@ fn reading(l: atomic<shapes::Leaf>) -> atomic<shapes::Leaf> => l
     INFO(rendered);
     CHECK(rendered.find("layout cycle") != std::string::npos);
 }
+
+TEST_CASE("an ordinary link inside an otherwise-owned component is still rejected",
+          "[wiring][types][struct-imports]") {
+    // `A -owned-> C`, `A -> B`, `C -owned-> B`, `B -owned-> A`. Judged by back
+    // edge, the all-owned path closes `B` first and the ordinary `A -> B` then
+    // looks at a finished node and says nothing -- so the answer depended on
+    // field order. Judged per component, the ordinary link is inside a cyclic
+    // one and the layout is unbounded however the fields are ordered.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.scc";
+
+    const auto edge_to = [](const std::string &identity) {
+        hgl::semantics::ImportedType type;
+        type.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+        type.children = {symbol(identity)};
+        return type;
+    };
+
+    hgl::semantics::ImportedStruct a;
+    a.module_identity = module.identity;
+    a.name            = "A";
+    a.identity        = "checks.scc.A";
+    // The OWNED edge first, so the all-owned path is explored first.
+    a.fields = {{"c", edge_to("checks.scc.C"), true, /*recursive=*/true},
+                {"b", symbol("checks.scc.B"), false, /*recursive=*/false}};
+
+    hgl::semantics::ImportedStruct b;
+    b.module_identity = module.identity;
+    b.name            = "B";
+    b.identity        = "checks.scc.B";
+    b.fields          = {{"a", edge_to("checks.scc.A"), true, /*recursive=*/true}};
+
+    hgl::semantics::ImportedStruct c;
+    c.module_identity = module.identity;
+    c.name            = "C";
+    c.identity        = "checks.scc.C";
+    c.fields          = {{"b", edge_to("checks.scc.B"), true, /*recursive=*/true}};
+
+    module.structs = {std::move(a), std::move(b), std::move(c)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_scc
+
+use checks.scc as shapes
+
+fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
+)",
+              catalog};
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("layout cycle") != std::string::npos);
+}
+

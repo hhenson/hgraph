@@ -207,11 +207,40 @@ shape it has to register — it reports an unknown nominal type, at a name the
 source never mentions. Reachability is over parents and field types alike,
 which is the same closure the exporting module's export check walks.
 
-**A cycle the layout cannot bound is refused.** An owned edge bounds a cycle,
-so one made entirely of edges is the ADR 0012 shape; any other is an infinite
-value. The edges therefore stay in the graph and the *cycle* is judged —
-removing them before looking missed one that runs through an edge and back
-through inheritance, which the local resolver rejects.
+**A cycle the layout cannot bound is refused, judged per strongly connected
+component.** An owned edge bounds a cycle, so a component whose internal links
+are all owned is the ADR 0012 shape; a cyclic component containing any
+ordinary internal link is an infinite value. Two weaker versions of this check
+were wrong in ways worth recording: removing owned edges before looking missed
+a cycle running through an edge and back through inheritance, and judging each
+back edge as it was found made the answer depend on field order — an all-owned
+path can finish a node before the ordinary link into it is examined, and a
+finished node says nothing.
+
+**Nothing walks the closure recursively.** A descriptor is an input, so its
+chain length is not this compiler's to put on a stack: the resolver's binding,
+the cycle search, and typed HIR's lowering all use an explicit worklist.
+Lowering orders ancestors before descendants — a descendant's flattening reads
+its ancestors' fields — and queues what a field *names* as a root of its own
+rather than descending into it. The worklist keeps *queued* and *lowered*
+apart: a parent one field had already queued as a root is still not described
+when a later field's descendant inherits it, and treating the two as one answer
+let that descendant skip its own ancestry. Describing the struct is therefore
+the only place the distinction is enforced — it reads an ancestor's flattened
+fields and never describes one itself, so an ordering slip is a diagnostic
+rather than a re-descent, and the alternative is a struct that silently loses
+every inherited field.
+
+**Realizing a chain is bounded and reported, not yet iterative.** Resolving,
+cycle-searching and lowering an imported closure all use a worklist, so the
+chain's length costs heap. Direct wiring's type bridge still descends one frame
+per nominal struct, and measured against a 20,000-link chain it exhausted the
+stack somewhere past ten thousand. Until realization follows the same worklist
+discipline, the bridge caps nominal nesting at 512 and reports the type it
+stopped on — the rule an untrusted descriptor's type nesting already follows.
+512 is far beyond any layout a schema would describe and safe on the smallest
+stack a supported platform gives. Making realization iterative is the standing
+follow-up; the cap is what stops a valid input crashing in the meantime.
 
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
