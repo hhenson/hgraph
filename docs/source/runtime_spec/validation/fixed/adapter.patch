@@ -26,7 +26,7 @@
      if recipe.template == "scalar_expression":
 --- /dev/null
 +++ b/tools/parity/fixed_contracts.py
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,204 @@
 +"""Fixed, bounded collection graphs; observations use public runtime APIs."""
 +import json
 +from collections.abc import Mapping
@@ -39,6 +39,7 @@
 +         **{f'{s}_ref_{r}': 9 for s in ('tsl', 'tsb') for r in ('whole', 'items')},
 +         'tsl_passive': 7, 'tsb_passive': 7, 'tsl_latest_invalid': 6, 'tsb_latest_invalid': 6}
 +
++MODES.update({f'{a}_{b}_{r}_invalidate': 9 for a in ('tsl', 'tsb') for b in ('tsl', 'tsb') for r in ('owned', 'assembled')})
 +MODES.update(fixed_complex.MODES)
 +
 +
@@ -170,12 +171,15 @@
 +        trace = eval_node(graph, [None, 1, None, None, 4, None, 6], [None, 7, None, 8, None, None, None], [None, None, 9, None, None, 10, None])
 +    else:
 +        nested = inner is not None
-+        role = names[-1]
++        invalidate_nested = nested and names[-1] == 'invalidate'
++        role = names[-2] if invalidate_nested else names[-1]
 +        # Each source's permitted actions are fixed here, never supplied as code.
 +        def action(t, index):
 +            if names[1] == 'latest':
 +                return {(0, 0): 7, (1, 1): 9, (2, 1): 'invalidate', (4, 1): 11}.get((t, index))
 +            if nested:
++                if invalidate_nested and t == 7:
++                    return 'invalidate'
 +                return {(1, 0): 7, (2, 2): 9, (3, 1): 8, (5, 3): 10, (6, 0): 11}.get((t, index))
 +            if (t, index) in ((4, 0), (5, 1), (7, 0)):
 +                return 'invalidate'
@@ -193,7 +197,7 @@
 +        def owned_source(step: hg.TS[int], _output: hg.OUT = None) -> shape:
 +            cs = children(_output, outer)
 +            leaves = [c for parent in cs for c in children(parent, inner)] if nested else cs
-+            if not nested and step.value == 7:
++            if (not nested or invalidate_nested) and step.value == 7:
 +                _output.invalidate()
 +            else:
 +                for i, c in enumerate(leaves):

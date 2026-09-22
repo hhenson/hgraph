@@ -157,6 +157,17 @@ Two structural rules keep the package importable:
   ``._types`` ↔ the wiring layer). When moving code, preserve the lazy edge —
   promoting one to module top is how import-order bugs are born.
 
+**One result path for Python graph bodies.** A ``@graph`` function and a
+Python graph registered as an operator overload (the wire trampoline) both
+return through ``_graph_result_port`` in ``_graph.py``. A structural result
+stays structural, so the C++ sub-graph finalization gives it the zero-copy
+structural-REF terminal, and a projected result keeps its endpoint path. The
+trampoline used to copy both shapes through a ``__materialize`` value node
+instead. The copy gave every passed-through field a new identity, so a
+``dispatch`` branch returning ``state.copy_with(done=True)`` re-ticked any
+consumer later re-pointed back to ``state`` (:doc:`nested_graphs`,
+"Pass-through outputs").
+
 Teardown and immortality
 ------------------------
 

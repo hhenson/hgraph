@@ -220,13 +220,19 @@ void evaluate_structural_ref_node(const NodeView &view,
     A REF-typed child keeps its REF schema so an emptied reference is
     an ordinary VALUE tick on this node's input (hgraph parity:
     UNBIND IS SILENT, so notification must not depend on the deref'd
-    write-through - linking_strategies.rst). Falls back to the deref'd
-    target schema when the source shape cannot be preserved. */
+    write-through - linking_strategies.rst). A whole REF source keeps
+    its REF schema for the same reason, and so the node republishes the
+    upstream token itself: read through the value schema, the input would
+    land on its from-REF alternative and the published reference would
+    name that adapter instead. Falls back to the deref'd target schema
+    when the source shape cannot be preserved. */
 [[nodiscard]] const TSValueTypeMetaData *
 structural_ref_input_ts_schema(const TSValueTypeMetaData *target_schema,
                                const WiringPortRef &source) {
   if (!source.is_structural_source()) {
-    return target_schema;
+    return source.schema != nullptr && source.schema->kind == TSTypeKind::REF
+               ? source.schema
+               : target_schema;
   }
   const auto &children = source.structural_children();
   if (children.empty()) {
@@ -1048,6 +1054,12 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
 WiringPortRef graph_wiring_detail::adapt_source_for_input(
     Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source) {
   return adapt_source_for_input_impl(w, input_schema, std::move(source), true);
+}
+
+NodeBuilder graph_wiring_detail::reference_terminal_builder(
+    const TSValueTypeMetaData *schema, const WiringPortRef &source) {
+  return structural_ref_node_builder(TypeRegistry::instance().dereference(schema),
+                                     source);
 }
 
 namespace {
