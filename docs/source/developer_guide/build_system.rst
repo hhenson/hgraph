@@ -197,7 +197,13 @@ with the same expression (the matrix jobs also require
 
 The build steps in those jobs use every core when ``runner.environment`` is
 ``self-hosted`` and keep the hosted ``--parallel`` values otherwise. Test
-parallelism is the same on both.
+parallelism is the same on both. Self-hosted jobs use sccache 0.16 or newer:
+older clients create a CPU-sized thread pool per compiler invocation and can
+exhaust the process limit on a many-core host. Start the cache server before
+parallel compilation so concurrent clients do not each try to start a server.
+Micromamba's binary and root
+prefix live under ``RUNNER_TEMP`` so a later job can install them afresh even
+when an earlier job was cancelled.
 
 Release artifacts never come from the self-hosted host. ``release-wheels.yml``
 is not routed at all, because a tag publishes the wheels that the push run of
@@ -213,6 +219,13 @@ expression. The host therefore also runs a job-started hook
 ``push``, ``workflow_dispatch`` or ``schedule`` event of this repository, or
 a pull request whose head branch is in this repository. The repository also
 requires approval before workflows run for any outside contributor.
+
+The hook entry point must be a ``.sh``, ``.js`` or ``.ps1`` file supported by
+the runner. A shell wrapper may delegate its policy check to Python. On a
+rejected event, terminate that job's ``Runner.Worker`` process before workflow
+steps can execute: returning a nonzero status alone still permits steps using
+``failure()`` or ``always()``. Validate both permitted events and rejected
+fork events, including an unconditional follow-up step.
 
 The runner account cannot install software, so the host provides:
 

@@ -40,7 +40,10 @@ jobs:
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
-          version: v0.15.0
+          version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
+      - name: Start compiler cache before parallel compilation
+        if: runner.environment == 'self-hosted'
+        run: sccache --show-stats
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -284,7 +287,10 @@ jobs:
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
-          version: v0.15.0
+          version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
+      - name: Start compiler cache before parallel compilation
+        if: runner.environment == 'self-hosted'
+        run: sccache --show-stats
       - name: Configure GCC 14
         shell: bash
         run: |
@@ -296,6 +302,10 @@ jobs:
           "$cxx_path" --version
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
+          # A persistent runner must not reuse a previous job's installer paths.
+          micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+          micromamba-root-path: ${{ runner.temp }}/micromamba-root
+          post-cleanup: all
           environment-name: hgraph-native
           cache-environment: true
           create-args: >-
