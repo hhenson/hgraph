@@ -137,7 +137,7 @@ fingerprinted.
   and they agree again on the field's next real tick. ``if_then_else`` already
   behaved this way. ``switch_`` / ``dispatch_`` joined it when their branches
   started publishing the references they pass through (:doc:`nested_graphs`,
-  "switch_ output modes"), which fixed the far more common scalar case, where
+  "``switch_`` output modes"), which fixed the far more common scalar case, where
   a consumer re-pointed back to the upstream field re-ticked a stale value.
   Pinned by ``python/tests/ported/_wiring/test_tsd_wiring.py::test_tsd_in_bundle_ref``.
 - **``setattr_`` with an attribute the schema does not declare.** Released

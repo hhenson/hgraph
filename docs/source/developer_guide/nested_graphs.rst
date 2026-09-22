@@ -127,7 +127,7 @@ node over the returned input (``graph_wiring_detail::reference_terminal_builder`
 It publishes a reference to whatever the input is bound to: the upstream output,
 a composite over the upstream fields, or the upstream token when the input is
 itself a ``REF``. The switch then republishes that reference (``RefCopy``, see
-"switch_ output modes"). A value-copying terminal would give the passed-through
+"``switch_`` output modes"). A value-copying terminal would give the passed-through
 series a new identity. A consumer re-pointed between the switch and the input it
 passed through would then see a different reference and re-tick a stale value;
 hgraph sees the same reference and does not.
