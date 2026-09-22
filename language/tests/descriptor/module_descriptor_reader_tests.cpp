@@ -1639,7 +1639,10 @@ TEST_CASE("catalog carries a null default only where the descriptor agrees", "[d
 TEST_CASE("an inherited null the parent already declares crosses", "[descriptor][catalog][structs]") {
     const auto build = [](bool parent_optional) {
         auto source  = minimal_descriptor();
-        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        source.types = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Base"},
+        };
         source.constant_expressions = {descriptor::ConstantExpressionRecord{
             .category = descriptor::ConstantExpressionCategory::Literal,
             .literal  = hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}}};
@@ -1652,6 +1655,9 @@ TEST_CASE("an inherited null the parent already declares crosses", "[descriptor]
         descriptor::InterfaceDeclaration leaf;
         leaf.category = descriptor::DeclarationCategory::Structure;
         leaf.identity = "checks.reader.Leaf";
+        // A REAL parent link: naming `Base` as the field's origin proves
+        // nothing on its own, and the exemption checks the ancestry.
+        leaf.parents  = {1U};
         leaf.fields   = {{"note", 0U, 0U, "checks.reader.Base", true, false},
                          {"extra", 0U, descriptor::no_schema_id, "checks.reader.Leaf", false, false}};
 
@@ -1681,4 +1687,35 @@ TEST_CASE("an inherited null the parent already declares crosses", "[descriptor]
         CHECK(imported->support_error ==
               "imported struct inherited field defaults require catalog constant reconstruction");
     }
+}
+
+// The exemption rests on the parent being able to rebuild the field, so the
+// origin has to be a real ancestor -- a struct that merely shares a name-space
+// and happens to declare a same-named optional field proves nothing.
+TEST_CASE("an inherited null whose origin is not an ancestor is refused", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+    source.constant_expressions = {descriptor::ConstantExpressionRecord{
+        .category = descriptor::ConstantExpressionCategory::Literal,
+        .literal  = hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}}};
+    descriptor::InterfaceDeclaration stranger;
+    stranger.category = descriptor::DeclarationCategory::Structure;
+    stranger.identity = "checks.reader.Stranger";
+    stranger.fields   = {{"note", 0U, 0U, "checks.reader.Stranger", true, false}};
+
+    descriptor::InterfaceDeclaration leaf;
+    leaf.category = descriptor::DeclarationCategory::Structure;
+    leaf.identity = "checks.reader.Leaf";
+    // No parents at all, yet the field claims to originate in `Stranger`.
+    leaf.fields = {{"note", 0U, 0U, "checks.reader.Stranger", true, false}};
+
+    source.interface = {std::move(stranger), std::move(leaf)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error ==
+          "imported struct inherited field defaults require catalog constant reconstruction");
 }
