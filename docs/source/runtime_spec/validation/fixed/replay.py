@@ -47,6 +47,19 @@ def run_json(interpreter, script):
         [str(interpreter), '-I', str(script)], text=True, shell=False, timeout=30))
 
 
+def candidate_identity(interpreter):
+    identity = run_json(interpreter, ROOT / 'native_identity.py')
+    identity['candidate_python_identity'] = run_json(interpreter, ROOT / 'reference_identity.py')
+    return identity
+
+
+def verify_identities(args, reference, candidate):
+    if candidate_identity(args.candidate_python) != candidate:
+        raise RuntimeError('Candidate installation changed during replay')
+    if run_json(args.reference_python, ROOT / 'reference_identity.py') != reference:
+        raise RuntimeError('Reference installation changed during replay')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--harness', type=trusted_directory, required=True)
@@ -60,6 +73,7 @@ def main():
 
 def replay(args, harness, identity):
     reference = run_json(args.reference_python, ROOT / 'reference_identity.py')
+    candidate = candidate_identity(args.candidate_python)
     sys.path.insert(0, str(harness))
     from tools.parity.catalog import validate_recipe
     from tools.parity.model import Recipe
@@ -94,14 +108,13 @@ def replay(args, harness, identity):
         for future in as_completed(pending):
             case, side, result = future.result()
             cases.setdefault(case, {})[side] = result
-    provenance = run_json(args.candidate_python, ROOT / 'native_identity.py')
-    if run_json(args.reference_python, ROOT / 'reference_identity.py') != reference:
-        raise RuntimeError('Reference installation changed during replay')
+    verify_identities(args, reference, candidate)
+    provenance = candidate.copy()
     provenance.update(**identity,
                       reference_identity=reference,
                       reasoning_sha256=hashlib.sha256((ROOT / 'reasoned.json').read_bytes()).hexdigest(),
                       reference='Python reference environment; installed sources and distribution artifacts are hashed, excluding bytecode caches.',
-                      candidate='Installed C++ runtime with Python authoring surface; native hashes identify the binaries, source HEAD is context.',
+                      candidate='Installed C++ runtime and Python authoring surface; native and package hashes identify the tested installation, source HEAD is context.',
                       replays=3, recorded=datetime.now(timezone.utc).date().isoformat())
     output = ROOT / 'observed.json'
     output.write_text(render({'provenance': provenance, 'cases': dict(sorted(cases.items()))}) + '\n')
