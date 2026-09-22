@@ -1,5 +1,7 @@
 #include "descriptor/import_catalog.h"
 
+#include "descriptor/module_descriptor_reader.h"
+
 #include <algorithm>
 #include <optional>
 #include <unordered_map>
@@ -226,6 +228,70 @@ namespace hgl::descriptor
         /// field type, parent and generic has to survive the crossing; whatever
         /// does not is recorded as a support error rather than silently dropped,
         /// the same discipline imported operators follow.
+        /// A NULL default carries no value to reconstruct: it says the field is
+        /// optional, which `ImportedStructField::optional` already records. It
+        /// is also the one default that MUST cross -- ADR 0012 rule 2 requires
+        /// a recursive edge to be declared `= null`, so refusing it would make
+        /// every recursive struct unimportable, which is the opposite of what
+        /// ADR 0012's own acceptance asks for.
+        [[nodiscard]] bool null_default(const ModuleDescriptor &descriptor, SchemaId id) {
+            if (id == no_schema_id || id >= descriptor.constant_expressions.size()) { return false; }
+            const ConstantExpressionRecord &record = descriptor.constant_expressions[id];
+            return record.category == ConstantExpressionCategory::Literal && record.literal.has_value() &&
+                   std::holds_alternative<ir::hir::NullValue>(*record.literal);
+        }
+
+        /// Whether the struct that DECLARES `field` already marks it optional.
+        /// Only a same-module declaration can be consulted here; a cross-module
+        /// ancestor's record lives in another descriptor, and an inherited
+        /// default is refused rather than guessed at.
+        [[nodiscard]] const InterfaceDeclaration *structure_named(const ModuleDescriptor &descriptor,
+                                                                  std::string_view        identity) {
+            for (const InterfaceDeclaration &candidate : descriptor.interface) {
+                if (candidate.category == DeclarationCategory::Structure && candidate.identity == identity) {
+                    return &candidate;
+                }
+            }
+            return nullptr;
+        }
+
+        /// Whether `origin` is genuinely an ancestor of `declaration`, walking
+        /// the parents this descriptor records. A struct that merely shares a
+        /// name-space and happens to declare a same-named optional field
+        /// proves nothing: dropping the child's field would leave no parent
+        /// able to rebuild it.
+        [[nodiscard]] bool inherits_from(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
+                                         std::string_view origin) {
+            std::vector<const InterfaceDeclaration *> work{&declaration};
+            std::unordered_set<std::string_view>      seen{declaration.identity};
+            while (!work.empty()) {
+                const InterfaceDeclaration *current = work.back();
+                work.pop_back();
+                for (const SchemaId parent : current->parents) {
+                    if (parent == no_schema_id || parent >= descriptor.types.size()) { continue; }
+                    const std::string &identity = descriptor.types[parent].nominal_identity;
+                    if (identity.empty()) { continue; }
+                    if (identity == origin) { return true; }
+                    if (!seen.emplace(identity).second) { continue; }
+                    if (const InterfaceDeclaration *next = structure_named(descriptor, identity)) {
+                        work.push_back(next);
+                    }
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
+                                             std::string_view origin, std::string_view field) {
+            if (!inherits_from(descriptor, declaration, origin)) { return false; }
+            const InterfaceDeclaration *owner = structure_named(descriptor, origin);
+            if (owner == nullptr) { return false; }
+            for (const StructField &declared : owner->fields) {
+                if (declared.name == field) { return declared.optional && declared.origin_identity == origin; }
+            }
+            return false;
+        }
+
         [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
                                                                 const InterfaceDeclaration &declaration) {
             semantics::ImportedStruct result;
@@ -240,8 +306,11 @@ namespace hgl::descriptor
             result.public_headers         = descriptor.build.public_headers;
             const std::string prefix      = descriptor.module_identity + ".";
             if (declaration.identity.starts_with(prefix)) {
+                // The local name is spelled straight into generated C++, so it
+                // has to BE an identifier -- "contains no dot or colon" leaves
+                // every other character through.
                 const std::string name = declaration.identity.substr(prefix.size());
-                if (!name.empty() && name.find_first_of(".:") == std::string::npos) { result.name = name; }
+                if (is_identifier(name)) { result.name = name; }
             }
             const auto unsupported = [&](std::string message) {
                 if (result.support_error.empty()) { result.support_error = std::move(message); }
@@ -283,13 +352,37 @@ namespace hgl::descriptor
                 // the override lives only here, so dropping the field silently
                 // would rebuild the parent's default instead of the child's.
                 if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
-                    if (field.default_value != no_schema_id) {
+                    // This field is dropped and rebuilt from the parent's
+                    // record, so a child that OVERRIDES an inherited default
+                    // would lose the override. A null default that the
+                    // declaring struct already carries is not an override: the
+                    // parent's record says the same thing, so nothing is lost
+                    // by dropping it -- and refusing it would make every child
+                    // of a family with an optional field unimportable, which
+                    // is most families worth publishing.
+                    if (field.default_value != no_schema_id &&
+                        !(null_default(descriptor, field.default_value) && field.optional &&
+                          declares_optional(descriptor, declaration, field.origin_identity, field.name))) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;
                 }
                 if (field.default_value != no_schema_id) {
-                    unsupported("imported struct field defaults require catalog constant reconstruction");
+                    // A null default is carried by `optional` alone, so there
+                    // is nothing to reconstruct -- but only when the descriptor
+                    // AGREES the field is optional. A descriptor is an external
+                    // input: `hgl` derives one flag from the other, another
+                    // writer need not. Null-on-required is not an unsupported
+                    // feature, it is a descriptor that contradicts itself, and
+                    // taking the default's word for it would rebuild the field
+                    // as required while the exporting module's own constructor
+                    // accepts omitting it.
+                    if (!null_default(descriptor, field.default_value)) {
+                        unsupported("imported struct field defaults require catalog constant reconstruction");
+                    } else if (!field.optional) {
+                        unsupported("imported struct field '" + field.name +
+                                    "' has a null default but is not optional");
+                    }
                 }
                 const auto type = imported_type(descriptor, field.type, {}, /*allow_layout=*/true, /*allow_atomic=*/true);
                 if (!type) {

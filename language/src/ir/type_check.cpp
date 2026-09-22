@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -2328,7 +2329,10 @@ namespace hgl::ir
                         check_intrinsic_call(expression, call, reference->symbol, expected);
                         return;
                     }
-                    if (symbol.kind == SymbolKind::Struct) {
+                    // A struct another module exports is constructible exactly
+                    // as a local one is (ADR 0013); only its declaration lives
+                    // elsewhere, which is what the argument check accounts for.
+                    if (symbol.kind == SymbolKind::Struct || symbol.kind == SymbolKind::ImportedStruct) {
                         check_struct_call(expression, call, reference->symbol, expected);
                         return;
                     }
@@ -2670,12 +2674,19 @@ namespace hgl::ir
                 return found == entry->second.end() ? nullptr : &structure.fields[found->second];
             }
 
-            [[nodiscard]] TypeId infer_struct_application(TypeId applied, DeclarationId owner, const StructDecl &structure,
-                                                          const std::vector<Argument> &arguments, syntax::SourceRange range) {
+            /// Infer the generic arguments a constructor did not spell, from
+            /// the types of the arguments it did. Local and imported structs
+            /// differ only in where the generics and fields come from, and how
+            /// a named field is found -- the inference is the same, and stays
+            /// one implementation so the two cannot drift.
+            template <typename FindField>
+            [[nodiscard]] TypeId infer_application(TypeId applied, std::span<const GenericParameter> generics,
+                                                   std::span<const StructField> fields, FindField &&find,
+                                                   const std::vector<Argument> &arguments, syntax::SourceRange range) {
                 const TypeId unwrapped = unwrap_atomic(applied);
                 if (!unwrapped.valid()) { return applied; }
                 const Type nominal = type(unwrapped);
-                if (nominal.arguments.size() >= structure.generics.size()) { return applied; }
+                if (nominal.arguments.size() >= generics.size()) { return applied; }
 
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, bindings);
@@ -2683,9 +2694,9 @@ namespace hgl::ir
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
                     if (argument.name.empty()) {
-                        if (positional < structure.fields.size()) { field = &structure.fields[positional++]; }
+                        if (positional < fields.size()) { field = &fields[positional++]; }
                     } else {
-                        field = named_field(owner, structure, argument.name);
+                        field = find(argument.name);
                     }
                     if (!field) { continue; }
                     const Expr &source = module_.expr(argument.value);
@@ -2702,7 +2713,7 @@ namespace hgl::ir
                 Type inferred = nominal;
                 inferred.arguments.clear();
                 bool complete = true;
-                for (const GenericParameter &generic : structure.generics) {
+                for (const GenericParameter &generic : generics) {
                     TypeArgument argument;
                     argument.range = range;
                     if (generic.is_const) {
@@ -2731,6 +2742,93 @@ namespace hgl::ir
                 return complete ? intern(std::move(inferred)) : applied;
             }
 
+            [[nodiscard]] TypeId infer_struct_application(TypeId applied, DeclarationId owner, const StructDecl &structure,
+                                                          const std::vector<Argument> &arguments, syntax::SourceRange range) {
+                return infer_application(
+                    applied, structure.generics, structure.fields,
+                    [&](const std::string &name) { return named_field(owner, structure, name); }, arguments, range);
+            }
+
+            /// The re-description of a struct another module exports, when
+            /// `symbol` names one (ADR 0013): it has no declaration here.
+            [[nodiscard]] const ImportedStructDecl *imported_struct_decl(SymbolId symbol) const noexcept {
+                if (!symbol.valid() || module_.symbol(symbol).kind != SymbolKind::ImportedStruct) { return nullptr; }
+                for (const ImportedStructDecl &candidate : module_.imported_structs) {
+                    if (candidate.symbol == symbol) { return &candidate; }
+                }
+                return nullptr;
+            }
+
+            /// Constructing an imported struct checks against the re-described
+            /// layout rather than a `StructDecl`. Its fields are already the
+            /// whole layout, ancestors first, and a generic imported family
+            /// still refuses by name -- so there is no application to infer and
+            /// no generic scope to substitute through.
+            void check_imported_constructor_arguments(Expr &expression, TypeId unwrapped, const ImportedStructDecl &imported,
+                                                      const std::vector<Argument> &arguments, bool delta) {
+                if (imported.abstract) {
+                    type_error(expression.range, "abstract struct '" + imported.identity + "' is not constructible");
+                    return;
+                }
+                // The completeness this module's own constructors get, held
+                // here rather than in the resolver: a catalog record carries
+                // only the fields it DECLARES, and this is the flattened
+                // layout. Without it a missing required field surfaces only as
+                // a backend failure, and a field given twice is resolved
+                // silently to whichever the backend happens to keep.
+                std::vector<bool> supplied(imported.fields.size(), false);
+                std::size_t       positional = 0;
+                for (const Argument &argument : arguments) {
+                    const StructField *field = nullptr;
+                    std::size_t        position = imported.fields.size();
+                    if (argument.name.empty()) {
+                        if (positional < imported.fields.size()) {
+                            position = positional;
+                            field    = &imported.fields[positional++];
+                        }
+                    } else {
+                        for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                            if (imported.fields[index].name == argument.name) {
+                                position = index;
+                                field    = &imported.fields[index];
+                            }
+                        }
+                        if (field == nullptr) {
+                            type_error(argument.range,
+                                       "struct '" + imported.identity + "' has no field named '" + argument.name + "'");
+                            continue;
+                        }
+                    }
+                    if (!field) { continue; }
+                    if (position < supplied.size()) {
+                        if (supplied[position]) {
+                            type_error(argument.range, "field '" + field->name + "' is given twice");
+                        }
+                        supplied[position] = true;
+                    }
+                    const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
+                    if (!expected) {
+                        type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
+                        continue;
+                    }
+                    Expr &value = check_expr(argument.value, *expected);
+                    if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
+                        if (!delta && !field->optional) {
+                            type_error(value.range, "null is only valid for an optional field or sparse delta");
+                        }
+                    } else {
+                        require_assignable(*expected, value, "constructor field");
+                    }
+                    expression.effects |= value.effects;
+                }
+                if (delta) { return; }
+                for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                    if (supplied[index] || imported.fields[index].optional) { continue; }
+                    type_error(expression.range,
+                               "struct '" + imported.identity + "' needs field '" + imported.fields[index].name + "'");
+                }
+            }
+
             [[nodiscard]] TypeId check_constructor_arguments(Expr &expression, TypeId applied,
                                                              const std::vector<Argument> &arguments, bool delta) {
                 TypeId unwrapped = unwrap_atomic(applied);
@@ -2738,6 +2836,23 @@ namespace hgl::ir
                 const Type &nominal = type(unwrapped);
                 if (nominal.kind != TypeKind::Symbol || !nominal.symbol.valid()) {
                     type_error(expression.range, "constructor requires a struct type");
+                    return applied;
+                }
+                if (const ImportedStructDecl *imported = imported_struct_decl(nominal.symbol)) {
+                    // An imported generic infers its arguments, or says which
+                    // one it could not -- the same answer a local struct
+                    // gives. Returning it unapplied let the program pass type
+                    // checking and fail in the backend instead, against
+                    // generated code the author never wrote.
+                    applied = infer_application(
+                        applied, imported->generics, imported->fields,
+                        [&](const std::string &name) -> const StructField * {
+                            const auto found = std::ranges::find(imported->fields, name, &StructField::name);
+                            return found == imported->fields.end() ? nullptr : &*found;
+                        },
+                        arguments, expression.range);
+                    unwrapped = unwrap_atomic(applied);
+                    check_imported_constructor_arguments(expression, unwrapped, *imported, arguments, delta);
                     return applied;
                 }
                 const DeclarationId owner     = module_.symbol(nominal.symbol).owner;

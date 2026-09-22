@@ -1,6 +1,6 @@
 # ADR 0013: struct imports
 
-Status: proposed (2026-09-20).
+Status: accepted (2026-09-20); implemented (2026-09-22), slices 1 to 8.
 
 ## Context
 
@@ -57,6 +57,38 @@ in slice 5 — describe, then compare against the registered schema before
 reusing it — or a registry change. The earlier claim that the existing closure
 already provided this was wrong.
 
+**The comparison is over the whole description, not its shape.** Renaming a
+field's *type* is what a version bump usually looks like, and it leaves the
+field count and every field name unchanged — so kind, arity and names would
+call two different schemas a match. The preflight compares each field's
+realized type, the parents, abstractness and the generic arguments, and names
+the part that disagrees. A recursive field is compared by the **target it
+names** rather than realized, because realizing the edge would need the very
+type being checked; "an owner of some named bundle" would accept an edge that
+owns a different struct.
+
+**A disagreement fails; it does not merely report.** The backend aborts on a
+null result, so returning the registered-but-incompatible metadata would let a
+run continue against the wrong field layout and print the diagnostic
+afterwards.
+
+**Every member of the closure is compared, on the way in and on the way out.**
+Two things make a root-only check insufficient. The registry describes only
+what is *not* already registered, so a member that is already there is never
+described and never compared — registering `A { next: atomic<B> }` against
+somebody else's `B` is as wrong as registering somebody else's `A`, and
+comparing an edge by the target it *names* is only sufficient because that
+target is checked as a member in its own right. And
+`recursive_bundle_closure` accepts whichever batch closed first, under its own
+lock and without comparing descriptions, so a bridge that loses that race
+finds nothing to compare on the way in and would cache the winner's layout.
+The closure is therefore collected whole before anything is decided, every
+registered member is compared before the close, and every member again after
+it. **Every return goes through that comparison, including the one that finds
+the root already registered** — another bridge can register between the
+comparison and the lookup, so finding the root there is not evidence that it
+agrees.
+
 ### Catalog
 
 `ImportableModule` gains `structs`, filled by `add_to_catalog` from the
@@ -98,11 +130,37 @@ weaker than the one the exporting module declared. Each of those was a real
 defect in this work. So a record that cannot be rebuilt whole records a
 support error naming what failed, and carries nothing partial.
 
-**Construction metadata does not cross yet.** A descriptor records a field's default, which
-`ImportedStruct` does not carry, so an imported constructor cannot yet
-reproduce the calls the exporting module accepts — an omitted argument with a
-default, or an inherited default a child overrides. Such a struct records a
-support error and is unavailable rather than wrong.
+**Construction metadata does not cross yet, except a null default.** A
+descriptor records a field's default, which `ImportedStruct` does not carry,
+so an imported constructor cannot yet reproduce the calls the exporting module
+accepts — an omitted argument with a default, or an inherited default a child
+overrides. Such a struct records a support error and is unavailable rather
+than wrong.
+
+A **null** default is the exception, and has to be: it carries no value to
+reconstruct — it says the field is optional, which the record already states —
+and ADR 0012 rule 2 requires a recursive edge to be declared `= null`, so
+refusing it would make every recursive struct unimportable. That is the
+opposite of what ADR 0012's own acceptance asks for, and it was the state of
+this work until the example pair tried it.
+
+The exception is narrow, because a descriptor is an external input and need
+not derive one flag from the other the way `hgl` does. A null default on a
+field the descriptor calls **required** is not an unsupported feature but a
+descriptor that contradicts itself — rebuilding the field as required would
+refuse a call the exporting module accepts — so it is refused by name.
+
+On an **inherited** field the question is whether the child is overriding.
+That field is dropped and rebuilt from the parent's record, so an override
+would be lost; but a null the *declaring* struct already carries is not an
+override, and refusing it would make every child of a family with an optional
+field unimportable — which is most families worth publishing. So an inherited
+null crosses when the struct that declares the field is a genuine **ancestor**
+and marks the field optional too, and is refused otherwise — including when
+that declaration is in another module's descriptor and cannot be consulted.
+The ancestry matters on its own: an origin that merely shares a name-space and
+happens to declare a same-named optional field leaves no parent able to
+rebuild the dropped field.
 
 A generic struct's `where` requirement **does** cross (owner's ruling): the
 descriptor's normalized constraint graph rebuilds into `ImportedStruct::
@@ -141,6 +199,49 @@ Typed HIR and hgraph IR name an imported struct **by identity**, never by
 expansion — the rule ADR 0002 already sets for the backend boundary and ADR
 0012 already follows for a recursive edge's target. `ImportedTypeKind::Symbol`
 with `binding_identity` is the existing representation and is reused.
+
+**The whole closure is bound with the struct.** A parent is never spelled in
+the importing module, and neither is a struct that only a *field* reaches, so
+binding just the named struct leaves a backend with no layout for part of the
+shape it has to register — it reports an unknown nominal type, at a name the
+source never mentions. Reachability is over parents and field types alike,
+which is the same closure the exporting module's export check walks.
+
+**A cycle the layout cannot bound is refused.** An owned edge bounds a cycle,
+so one made entirely of edges is the ADR 0012 shape; any other is an infinite
+value. The edges therefore stay in the graph and the *cycle* is judged —
+removing them before looking missed one that runs through an edge and back
+through inheritance, which the local resolver rejects.
+
+**A cycle through ordinary fields or parents is refused.** It is not a layout
+but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
+edge must be an optional `atomic`, which bounds it). An imported layout is not
+exempt because another module wrote it — a backend realizing one recurses
+`register_value(A)` → `value(B)` → `register_value(A)` and takes the process
+with it, and two records are enough to build one.
+
+A name the closure cannot find is **reported where the import is**, not
+skipped: the module declaring it is missing from the supplied package target,
+so this module's layout cannot be rebuilt whole. That is the transitive-supply
+case under Unresolved, and it belongs to the driver to satisfy — but the
+resolver has to say so rather than let a half-bound shape reach a backend.
+
+**A re-described struct's fields are its whole layout, ancestors first**, the
+same as a local declaration's. A *catalog record* holds only the fields it
+declares, which is right for a descriptor; typed HIR is where the two meet,
+so the ancestry is flattened when the struct is re-described and every later
+consumer — the type checker, hgraph IR, and through it both backends — reads
+one shape. hgraph's registry holds the same rule from the other side:
+`bundle()` refuses a child that does not preserve its parents' fields, so a
+short layout is not a subtler description, it is a registration failure. A
+diamond dedupes by name; each field keeps the identity of the ancestor that
+declares it.
+
+The description is guarded against **re-entry, not just repetition**: a
+recursive edge (ADR 0012) names its own struct, and the record is complete
+only once its fields are lowered, so the guard covers a struct that is still
+being described. A guard that only skipped already-recorded structs would not
+terminate on the first recursive import.
 
 ### Inheriting an imported family
 
@@ -204,7 +305,29 @@ records.
 *Generated C++* refers to the exporting module's generated type and includes
 its `public_headers`. **It does not re-declare the struct.** One C++
 definition per struct means a value passes between two generated modules as
-itself, with no conversion and no chance of two definitions drifting.
+itself, with no conversion and no chance of two definitions drifting. The
+reference is spelled with the **owner's** C++ namespace, derived from the
+struct's identity the same way a module derives its own; a bare local name
+would have nothing to bind to, which is the point.
+
+**Reading a field of an imported struct is a type-checker concern, not only a
+backend one.** The effective-field walk reaches a struct through its
+`StructDecl`, and an imported struct has none, so it answers from the
+re-description instead — whose fields are already the whole layout, so they
+are the effective list as they stand.
+
+**Constructing** a value of an imported struct — `m::Quote(...)` or
+`use m::{Quote}` then `Quote(...)` — checks against the re-described layout
+rather than a `StructDecl`, and refers to the struct as a struct rather than
+as a binding, so both backends see a construction of the owner's type. The
+two spellings share one binding and cannot drift.
+
+**The ancestry travels with the struct, at binding time.** An ancestor is
+reached only through a parent and is never spelled in the importing module, so
+binding just the named struct leaves its inherited fields with nowhere to come
+from. Binding the family was previously reached only when a local struct
+inherited an imported parent, which left `m::Quote(...)` short of the fields
+`Quote` inherits.
 
 ## Slices
 
@@ -265,7 +388,23 @@ itself, with no conversion and no chance of two definitions drifting.
 6. **Generated C++.** Refer to the exporter's type and include its headers,
    never re-declaring; the two backends agree tick for tick on an imported
    shape, including a local child of an imported family.
-7. **Docs and example.** The guide's "Structured values" section gains the
+
+   Two things the earlier slices left short surfaced here, both of them
+   front-half rather than backend. Reading a field of an imported struct did
+   not type-check at all, because the effective-field walk reaches a struct
+   through its `StructDecl`. And a local child of an imported family could not
+   be *constructed*: the field index is keyed by the declaring spelling, which
+   for a local field is a view into the source text and outlives everything,
+   but for a field seeded from a catalog record is a view into a record held
+   by value -- so the lookup read freed memory and reported a field the struct
+   plainly had. The keys own their spelling now.
+7. **Constructing an imported struct.** `m::Quote(...)` and
+   `use m::{Quote}` then `Quote(...)`: the qualified reference binds to the
+   imported struct, the constructor validates against the re-described layout
+   rather than a local declaration, and the struct is referred to as a struct
+   rather than as a binding so both backends construct the owner's type. The
+   ancestry is bound with the struct, not only when a local child inherits it.
+8. **Docs and example.** The guide's "Structured values" section gains the
    import; an example module pair exports and imports a struct and extends an
    imported family, asserted on both backends. ADR 0012's acceptance item
    closes.
@@ -316,6 +455,13 @@ also contradicts how `use` already works for functions.
   identity differently are a conflict. Slice 5 reports it at registration;
   whether the driver should refuse the catalog earlier, on fingerprints
   alone, is left open.
+- **Passing an imported value back to a function of the exporting module**,
+  the last clause of acceptance 1. This is not a struct question: an ordinary
+  HGL `export fn` is not importable at all, because behaviour crosses a module
+  boundary through an operator contract. A module that wants to publish both a
+  shape and something to do with it declares an operator whose signature names
+  the struct, which already works. Whether a plain exported function should
+  also be importable belongs to its own decision.
 
 ## Acceptance
 

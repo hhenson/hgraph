@@ -524,6 +524,8 @@ namespace hgl::codegen
             [[nodiscard]] const gir::OperatorContract &operator_decl(gir::OperatorId id, SourceRange fallback = {});
             [[nodiscard]] const gir::StructContract   &struct_contract(gir::StructId id, SourceRange fallback = {});
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
+            [[nodiscard]] static std::string           identity_namespace(std::string_view identity);
+            [[nodiscard]] std::string                  struct_cpp_type(std::string_view identity, SourceRange range);
             [[nodiscard]] std::string_view             callable_name(gir::CallableId id);
             [[nodiscard]] std::string                  callable_cpp_name(gir::CallableId id);
             [[nodiscard]] std::string                  native_cpp_symbol(gir::NativeFunctionId id);
@@ -723,6 +725,38 @@ namespace hgl::codegen
         std::string_view Emitter::local_identity(std::string_view identity) noexcept {
             const std::size_t separator = identity.find_last_of('.');
             return separator == std::string_view::npos ? identity : identity.substr(separator + 1);
+        }
+
+        /// The C++ namespace of the module that owns `identity`, spelled the
+        /// way `module_namespace` spells this module's own.
+        std::string Emitter::identity_namespace(std::string_view identity) {
+            const std::size_t separator = identity.find_last_of('.');
+            if (separator == std::string_view::npos) { return {}; }
+            std::string result;
+            std::string part;
+            for (const char c : identity.substr(0, separator)) {
+                if (c == '.') {
+                    result += cpp_name(part) + "::";
+                    part.clear();
+                } else {
+                    part += c;
+                }
+            }
+            return result + cpp_name(part);
+        }
+
+        /// How generated C++ spells a struct's type. One this module declares
+        /// is a plain name in this module's namespace; one another module
+        /// exports is referred to by ITS name (ADR 0013). There is no local
+        /// declaration for an imported struct to bind to -- that is the point:
+        /// one C++ definition per struct, so a value passes between two
+        /// generated modules as itself.
+        std::string Emitter::struct_cpp_type(std::string_view identity, SourceRange range) {
+            const std::string name = cpp_name(std::string{local_identity(identity)});
+            const gir::StructContract &contract = planned_structure(identity, range);
+            if (!contract.imported) { return name; }
+            const std::string owner = identity_namespace(identity);
+            return owner.empty() ? name : "::" + owner + "::" + name;
         }
 
         std::string_view Emitter::callable_name(gir::CallableId decl) {
@@ -1247,7 +1281,7 @@ namespace hgl::codegen
                         HType result;
                         result.kind             = HType::Kind::Struct;
                         result.nominal_identity = type.nominal_identity;
-                        result.cpp_type         = cpp_name(local_identity(type.nominal_identity));
+                        result.cpp_type         = struct_cpp_type(type.nominal_identity, range);
                         std::vector<std::string> arguments;
                         arguments.reserve(type.arguments.size());
                         for (const gir::TypeArgument &argument : type.arguments) {
@@ -4899,6 +4933,14 @@ namespace hgl::codegen
                     if (!field.recursive) { continue; }
                     const auto target = by_identity.find(field.recursive_target);
                     if (target == by_identity.end()) {
+                        // An edge inherited from a family another module
+                        // exports names that module's struct (ADR 0013). It is
+                        // already declared, by the exporter's header, so there
+                        // is nothing to forward-declare here -- and nothing
+                        // wrong either.
+                        const auto imported = std::ranges::find(graph_.structures, field.recursive_target,
+                                                                &gir::StructContract::identity);
+                        if (imported != graph_.structures.end() && imported->imported) { continue; }
                         backend(field.range, "hgraph IR recursive edge '" + field.name + "' names no local struct");
                     }
                     if (position[target->second.value] <= index || declared[target->second.value]) { continue; }
@@ -5252,6 +5294,20 @@ namespace hgl::codegen
                 cmake_packages.insert(native.cmake_packages.begin(), native.cmake_packages.end());
                 imported_targets.insert(native.imported_targets.begin(), native.imported_targets.end());
                 runtime_images.insert(native.runtime_images.begin(), native.runtime_images.end());
+            }
+            // A struct another module exports is referred to, never
+            // re-declared (ADR 0013), so the exporter's headers are what make
+            // the reference compile -- the same contribution a native
+            // function's headers make.
+            for (const gir::StructContract &structure : graph_.structures) {
+                if (!structure.imported) { continue; }
+                for (const std::string &header : structure.public_headers) {
+                    if (!is_public_header_name(header)) {
+                        backend(structure.range,
+                                "imported struct '" + structure.identity + "' names an unsafe public header '" + header + "'");
+                    }
+                    native_headers.insert(header);
+                }
             }
 
             // Bodies first: they discover which kernels (analytics) the

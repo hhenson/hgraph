@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::ir
@@ -877,10 +878,12 @@ namespace hgl::ir
             /// its identity stays the owner's.
             void lower_imported_struct(const semantics::ImportedStruct &source, hir::SymbolId symbol,
                                        syntax::SourceRange range) {
-                if (std::ranges::any_of(result_.imported_structs,
-                                        [&](const auto &entry) { return entry.identity == source.identity; })) {
-                    return;
-                }
+                // The guard covers a struct still BEING described, not only
+                // one already recorded: a recursive edge (ADR 0012) names its
+                // own struct, and the record is pushed only once its fields
+                // are lowered -- so a scan of `result_.imported_structs`
+                // would never see it and the description would not terminate.
+                if (!described_imported_structs_.insert(source.identity).second) { return; }
                 hir::ImportedStructDecl target;
                 target.identity       = source.identity;
                 target.symbol         = symbol;
@@ -920,7 +923,38 @@ namespace hgl::ir
                                         ancestor_copy.identity, range);
                     lower_imported_struct(ancestor_copy, ancestor_symbol, range);
                 }
+                // A catalog record holds only the fields it DECLARES, while
+                // every consumer of `hir::StructField` -- the type checker,
+                // hgraph IR, and through it both backends -- reads a struct's
+                // fields as its WHOLE layout, the way a local declaration's
+                // are (`seed_imported_fields` seeds a local child the same
+                // way). hgraph's registry holds the same rule from the other
+                // side: `bundle()` refuses a child that does not preserve its
+                // parents' fields. So the ancestry is flattened here,
+                // ancestors first, each field still naming the ancestor that
+                // declares it. The ancestors were lowered just above, and
+                // theirs are flattened already, so a diamond dedupes by name.
+                std::unordered_set<std::string> present;
+                for (const semantics::ImportedType &parent : source.parents) {
+                    if (parent.nominal_identity.empty()) { continue; }
+                    const auto ancestor = std::ranges::find(result_.imported_structs, parent.nominal_identity,
+                                                            &hir::ImportedStructDecl::identity);
+                    if (ancestor == result_.imported_structs.end()) { continue; }
+                    // By value: lowering a field's type below can describe a
+                    // further struct and grow the vector this points into.
+                    const std::vector<hir::StructField> inherited = ancestor->fields;
+                    for (const hir::StructField &field : inherited) {
+                        // Indexed, not scanned: an ancestor's fields are
+                        // already flattened, so a chain of N structs copies
+                        // O(N) fields into each descendant and a linear dedupe
+                        // per copied field makes the whole flattening cubic in
+                        // the chain length (CLAUDE.md guardrail iv).
+                        if (!present.insert(field.name).second) { continue; }
+                        target.fields.push_back(field);
+                    }
+                }
                 for (const semantics::ImportedStructField &field : source.fields) {
+                    if (!present.insert(field.name).second) { continue; }
                     target.fields.push_back(hir::StructField{field.name, imported_type(field.type, generics, range),
                                                              hir::no_expr, hir::no_declaration, source.identity,
                                                              field.optional, range, field.recursive});
@@ -1682,6 +1716,9 @@ namespace hgl::ir
             std::unordered_map<std::string, hir::SymbolId>   global_symbols_{};
             std::unordered_map<std::string, hir::SymbolId>   external_symbols_{};
             std::unordered_map<std::uint32_t, hir::SymbolId> imported_function_symbols_{};
+            /// Imported struct identities already described OR in progress
+            /// (see `lower_imported_struct`).
+            std::unordered_set<std::string>                  described_imported_structs_{};
             std::unordered_map<std::uint8_t, hir::TypeId>    literal_types_{};
             hir::TypeId                                      void_type_{};
         };

@@ -131,6 +131,64 @@ namespace
         return result;
     }
 
+    [[nodiscard]] hgl::semantics::ImportedType nominal(std::string identity) {
+        hgl::semantics::ImportedType type;
+        type.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        type.nominal_identity = std::move(identity);
+        return type;
+    }
+
+    /// A module that exports a struct family, with the headers a consumer
+    /// needs in order to refer to its generated types (ADR 0013 slice 6).
+    ModuleCatalog exported_struct_catalog() {
+        ModuleCatalog                    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.public_headers  = {"checks/shapes.h"};
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.public_headers  = {"checks/shapes.h"};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", nominal("checks.shapes.Venue"), false, false}};
+
+        // A generic family, so an APPLIED imported struct is exercised too.
+        hgl::semantics::ImportedType parameter;
+        parameter.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        parameter.binding_identity = "checks.shapes.Box::T";
+
+        hgl::semantics::ImportedStruct box;
+        box.module_identity = module.identity;
+        box.name            = "Box";
+        box.identity        = "checks.shapes.Box";
+        box.public_headers  = {"checks/shapes.h"};
+        box.generics        = {{"T", "checks.shapes.Box::T", false, {}}};
+        box.fields          = {{"value", parameter, false, false}};
+
+        // A parameter NO field constrains, so a bare constructor has nothing
+        // to infer from.
+        hgl::semantics::ImportedStruct tag;
+        tag.module_identity = module.identity;
+        tag.name            = "Tag";
+        tag.identity        = "checks.shapes.Tag";
+        tag.public_headers  = {"checks/shapes.h"};
+        tag.generics        = {{"T", "checks.shapes.Tag::T", false, {}}};
+        tag.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        module.structs = {std::move(base), std::move(venue), std::move(box), std::move(tag)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -3187,4 +3245,208 @@ export struct Node {
     REQUIRE(fields.size() == 2U);
     CHECK_FALSE(fields[0].recursive);
     CHECK(fields[1].recursive);
+}
+
+TEST_CASE("generated C++ refers to an imported struct rather than re-declaring it", "[codegen][struct-imports]") {
+    // ADR 0013: one C++ definition per struct. A value then passes between two
+    // generated modules as itself -- no conversion, and no chance of two
+    // definitions drifting apart.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_cpp
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+
+export fn reading(tick: atomic<Tick>, venue: atomic<shapes::Venue>) -> atomic<Tick> => tick
+)",
+                             catalog};
+    const std::optional<EmittedModule> emitted = unit.emit();
+    REQUIRE(emitted);
+
+    // The local struct IS declared here ...
+    CHECK(contains(emitted->header, "struct Tick"));
+    // ... and the imported ones are not, at all, in either artefact.
+    CHECK(occurrences(emitted->header, "struct Venue") == 0);
+    CHECK(occurrences(emitted->header, "struct Base") == 0);
+    CHECK(occurrences(emitted->source, "struct Venue") == 0);
+    CHECK(occurrences(emitted->source, "struct Base") == 0);
+
+    // They are referred to by the OWNER's C++ name ...
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Venue"));
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Base"));
+    // ... which only compiles because the exporter's header comes with it.
+    CHECK(contains(emitted->header, "#include <checks/shapes.h>"));
+}
+
+TEST_CASE("an applied imported generic substitutes its arguments into field types", "[codegen][struct-imports]") {
+    // The field types were lowered in the OWNER's generic scope, so
+    // `Box<i64>.value` reads as `T` unless the application's arguments are
+    // bound into it -- and `T` is loosely assignable, so the mistake is
+    // silent rather than loud.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_generic
+
+use checks.shapes as shapes
+
+export fn unbox(boxed: atomic<shapes::Box<i64>>) -> str => boxed.value
+)",
+                             catalog};
+    CHECK(unit.has(Category::Type, "has type i64"));
+}
+
+TEST_CASE("an imported struct satisfies struct reflection", "[codegen][struct-imports]") {
+    // `U is struct`, `fields(U)` and `field_type(U, ...)` reach a struct
+    // through its declaration; a struct another module exports has none here,
+    // and the re-description is what stands in for it.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_reflection
+
+use checks.shapes as shapes
+
+fn code_of<U>(value: atomic<U>) -> i64
+requires U is struct && has_fields(U, {"code"}) && field_type(U, "code") == i64
+=> value.code
+
+export fn venue_code(venue: atomic<shapes::Venue>) -> i64 => code_of(venue)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported struct can be named directly in a reflection constraint", "[codegen][struct-imports]") {
+    // `use m::{Venue}` then `Venue is struct` / `fields(Venue)` /
+    // `field_type(Venue, "code")`. Two gates excluded it: the resolver's
+    // constraint-name check and the solver's type-operand conversion, both of
+    // which accepted only a LOCAL struct symbol -- so the imported branch in
+    // the field walk was never reached for this spelling, although the
+    // qualified one worked.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_named_constraint
+
+use checks.shapes::{Venue}
+
+fn coded<U>(value: atomic<U>) -> i64
+requires Venue is struct
+      && has_fields(Venue, {"code"})
+      && field_type(Venue, "code") == i64
+      && U is struct
+=> 1
+
+export fn go(v: atomic<Venue>) -> i64 => coded(v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported constructor is checked for completeness", "[codegen][struct-imports]") {
+    // A catalog record carries only the fields it DECLARES, so the check has
+    // to run against the flattened layout: `Venue` declares `code`, and a
+    // child of an imported family inherits more.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("a missing required field") {
+        Unit unit{R"(
+module checks.import_missing
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue()
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "needs field 'code'"));
+    }
+    SECTION("a field given twice") {
+        Unit unit{R"(
+module checks.import_twice
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, code: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "is given twice"));
+    }
+    SECTION("an unknown field") {
+        Unit unit{R"(
+module checks.import_unknown
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, nope: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "has no field named 'nope'"));
+    }
+    SECTION("a positional argument") {
+        // The local rule, applied to an imported struct: accepting this in the
+        // front end only moved the failure to the backend, which reports it
+        // against generated code the author never wrote.
+        Unit unit{R"(
+module checks.import_positional
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(1)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "struct construction uses named arguments"));
+    }
+}
+
+TEST_CASE("an applied imported generic constructs with its arguments spelled", "[codegen][struct-imports]") {
+    // `m::Box<i64>(...)` reaches the resolver as a Construct rather than a
+    // Call, and was refused there -- so the applied spelling worked only when
+    // the expected type happened to supply the arguments.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_applied
+
+use checks.shapes as shapes
+
+export fn build(v: i64) -> atomic<shapes::Box<i64>> => shapes::Box<i64>(value: v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported generic constructor infers its arguments, or says which it cannot",
+          "[codegen][struct-imports]") {
+    // The same answer a local struct gives. Returning the constructor
+    // unapplied let the program pass type checking and fail in the backend
+    // with "constructed type ... is missing a generic type argument" --
+    // against generated code the author never wrote.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("inferred from an argument") {
+        Unit unit{R"(
+module checks.import_infer
+
+use checks.shapes as shapes
+
+export fn make(v: i64) -> i64 => shapes::Box(value: v).value
+)",
+                  catalog};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    SECTION("no field constrains the parameter, so it is rejected here") {
+        Unit unit{R"(
+module checks.import_uninferable
+
+use checks.shapes as shapes
+
+export fn make() -> i64 => shapes::Tag(id: 1).id
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "cannot infer generic 'T' for struct constructor"));
+    }
 }

@@ -1207,9 +1207,18 @@ export struct Tick: shapes::Base
     // This module declares nothing for it and must not re-export it: doing so
     // would claim ownership of another module's type.
     CHECK_FALSE(base->exported);
-    REQUIRE(base->fields.size() == 1);
-    CHECK(base->fields[0].name == "at");
-    CHECK(base->fields[0].origin_identity == "checks.shapes.Base");
+    // A contract carries the WHOLE layout, ancestors first, exactly as a local
+    // declaration's does. A catalog record holds only the fields it declares,
+    // so the ancestry is flattened when the struct is re-described; hgraph's
+    // registry holds the same rule from the other side -- `bundle()` refuses a
+    // child that does not preserve its parents' fields (ADR 0013 slice 5).
+    REQUIRE(base->fields.size() == 3);
+    CHECK(base->fields[0].name == "id");
+    CHECK(base->fields[0].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[1].name == "venue");
+    CHECK(base->fields[1].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[2].name == "at");
+    CHECK(base->fields[2].origin_identity == "checks.shapes.Base");
 
     const hgl::hgraph_ir::StructContract *root = structure(*lowered.graph, "checks.shapes.Root");
     REQUIRE(root != nullptr);

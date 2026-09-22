@@ -1,0 +1,52 @@
+# The importing side of the pair with market-data.hgl (ADR 0013).
+#
+# The imported type IS the exporting module's type: there is no copy under
+# this module's namespace, so a value built here crosses back to
+# examples.market_data without conversion and both modules see one schema.
+# Generated C++ refers to that module's own definition and includes its
+# header rather than re-declaring the struct.
+#
+# Checking this module needs the exporter's descriptor:
+#     hgl test instrument-book.hgl --module-descriptor market-data.hgl-module.json
+
+module examples.instrument_book
+
+use examples.market_data as market
+use examples.market_data::{Quote}
+
+# Extending a family the library publishes -- the reason to publish one.
+export struct Future: market::Instrument {
+    expiry: i64
+}
+
+# `symbol` is inherited from the imported parent; `expiry` is declared here.
+export fn future_symbol(future: atomic<Future>) -> str => future.symbol
+export fn future_expiry(future: atomic<Future>) -> i64 => future.expiry
+
+# Constructing the imported struct, in either spelling. Both name one type.
+export fn flat(price: f64) -> atomic<Quote> => Quote(bid: price, ask: price)
+export fn widened(price: f64) -> atomic<market::Quote> =>
+    market::Quote(bid: price - 0.5, ask: price + 0.5)
+
+export fn spread(quote: atomic<Quote>) -> f64 => quote.ask - quote.bid
+
+# The imported recursive struct rebuilds its edge here (ADR 0012).
+export fn next_tenor(leg: atomic<market::Leg>) -> str => leg.next.tenor
+
+test a_local_child_carries_the_inherited_field {
+    assert eval(future_symbol, future: [Future(symbol: "ESZ5", expiry: 3)]) == ["ESZ5"]
+    assert eval(future_expiry, future: [Future(symbol: "ESZ5", expiry: 3)]) == [3]
+}
+
+test an_imported_struct_is_constructed_and_read_back {
+    assert eval(flat, price: [10.0]) == [Quote(bid: 10.0, ask: 10.0)]
+    assert eval(spread, quote: [market::Quote(bid: 9.5, ask: 10.5)]) == [1.0]
+}
+
+test either_spelling_names_one_type {
+    assert eval(widened, price: [10.0]) == [Quote(bid: 9.5, ask: 10.5)]
+}
+
+test an_imported_recursive_struct_keeps_its_edge {
+    assert eval(next_tenor, leg: [market::Leg(tenor: "1Y", next: market::Leg(tenor: "2Y"))]) == ["2Y"]
+}

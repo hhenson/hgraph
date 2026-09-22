@@ -34,6 +34,13 @@ namespace hgl::descriptor
     /// Validate a descriptor assembled by another producer. This applies the
     /// same semantic integrity rules as read_json after JSON decoding.
     [[nodiscard]] std::optional<ReadError> validate(const ModuleDescriptor &descriptor);
+
+    /// A single HGL identifier, and a dot-separated run of them. An identity is
+    /// not just a label: generated C++ derives a namespace from it and spells
+    /// it into the source, so a descriptor's identities are validated before
+    /// anything is built from them.
+    [[nodiscard]] bool is_identifier(std::string_view text) noexcept;
+    [[nodiscard]] bool is_qualified_identifier(std::string_view text) noexcept;
 }  // namespace hgl::descriptor
 
 #endif  // HGL_DESCRIPTOR_MODULE_DESCRIPTOR_READER_H

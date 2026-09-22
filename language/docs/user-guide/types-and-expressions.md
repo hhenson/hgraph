@@ -368,6 +368,62 @@ stable schema metadata, but construction uses names rather than positions.
 `export struct` exposes the name to other modules in the same way that
 `export fn` exposes an ordinary function.
 
+### Importing a struct
+
+Another module imports the name the same way it imports anything else, and the
+type it gets **is** the exporting module's type — not a copy under the
+importing module's namespace. Given an exported struct whose fields carry no
+defaults:
+
+```hgl
+module market.data
+
+export struct Tick {
+    symbol: str
+    bid: f64
+    ask: f64
+}
+```
+
+both spellings of the import name that one type:
+
+```hgl
+module trading.book
+
+use market.data as market
+use market.data::{Tick}
+
+fn spread(tick: atomic<Tick>) -> f64 => tick.ask - tick.bid
+fn flat(symbol: str, price: f64) -> atomic<Tick> =>
+    market::Tick(symbol: symbol, bid: price, ask: price)
+```
+
+A value built here crosses back to `market.data` without conversion and both
+modules see one schema. The importing module never re-declares the struct:
+generated C++ refers to the exporter's own definition and includes its header.
+
+An importing module needs the exporting module's descriptor, which the build
+supplies (`hgl check --module-descriptor`, or the `LINK_LIBRARIES` of
+`hgl_add_module`).
+
+**What cannot be imported yet.** A struct an importer cannot rebuild whole is
+refused by name rather than rebuilt short, and today that includes any struct
+with a **field default other than `null`** — the descriptor records the
+default, but the catalog cannot yet reconstruct its value, so `Quote` above,
+with `currency: str = "USD"`, is not importable.
+
+`= null` does cross, because it says the field is optional and carries no
+value to rebuild — and that is what lets a recursive struct import, since its
+edge must be declared `= null`. It crosses on the struct that **declares** the
+field, and on a child that merely inherits it. What does not cross is a child
+**overriding** an inherited default: the child's copy of the field is rebuilt
+from the parent's record, so an override would be lost rather than rebuilt
+short.
+
+`examples/struct-imports/` is the pair end to end: `market-data.hgl` publishes
+the shape and `instrument-book.hgl` imports it, extends the family and builds
+values of it.
+
 ### Abstract data families
 
 An abstract struct defines common data for a polymorphic family. Only an
@@ -388,6 +444,36 @@ export struct EuropeanInstrument: Instrument {
 
 export struct GenericInstrument: Instrument {}
 ```
+
+A family crosses a module boundary as a family: a struct may inherit an
+abstract parent **another module exports**, which is how a library publishes a
+shape for its consumers to extend. Given an exported family whose fields carry
+no defaults:
+
+```hgl
+module market.data
+
+export abstract struct Listing {
+    symbol: str
+}
+```
+
+an importing module extends it:
+
+```hgl
+use market.data as market
+
+export struct Future: market::Listing {
+    expiry: date
+}
+```
+
+`Future` keeps this module's namespace while its parent keeps `market.data`'s,
+and it carries the whole inherited layout — `symbol` is the same field for
+`Future` as for any other child of `Listing`. The same restriction applies as
+above: `Instrument`, with its `currency = "USD"` default, could not be
+imported, so a family meant to be extended across a module boundary avoids
+non-null defaults for now.
 
 An abstract struct cannot be constructed. A concrete child may add no fields,
 as `GenericInstrument` does, when its nominal identity is the only additional

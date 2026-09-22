@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -1071,6 +1072,17 @@ namespace hgl::descriptor
                 if (descriptor_.module_identity.empty()) {
                     return ReadError{"$.module.identity", "module identity must not be empty"};
                 }
+                // An identity is not just a label: generated C++ derives a
+                // namespace from it and spells it into the source. A
+                // descriptor is an input, so anything not shaped like a
+                // dot-separated HGL identifier is refused here rather than
+                // interpolated -- otherwise a descriptor could carry
+                // characters that close the generated templates and reopen
+                // them around code of its own.
+                if (!is_qualified_identifier(descriptor_.module_identity)) {
+                    return ReadError{"$.module.identity",
+                                     "module identity must be dot-separated identifiers: '" + descriptor_.module_identity + "'"};
+                }
                 if (!descriptor_.descriptor_fingerprint.empty() && descriptor_.descriptor_fingerprint != fingerprint(descriptor_)) {
                     return ReadError{"$.module.descriptor_fingerprint", "descriptor fingerprint does not match canonical contents"};
                 }
@@ -1950,6 +1962,27 @@ namespace hgl::descriptor
             return ReadResult{.error = std::move(duplicate)};
         }
         return Decoder{}.run(root);
+    }
+
+    bool is_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        const auto head = static_cast<unsigned char>(text.front());
+        if (!(std::isalpha(head) != 0 || head == '_')) { return false; }
+        return std::ranges::all_of(text, [](char c) {
+            const auto value = static_cast<unsigned char>(c);
+            return std::isalnum(value) != 0 || value == '_';
+        });
+    }
+
+    bool is_qualified_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        std::size_t begin = 0;
+        while (true) {
+            const std::size_t dot = text.find('.', begin);
+            if (!is_identifier(text.substr(begin, dot == std::string_view::npos ? dot : dot - begin))) { return false; }
+            if (dot == std::string_view::npos) { return true; }
+            begin = dot + 1;
+        }
     }
 
     std::optional<ReadError> validate(const ModuleDescriptor &descriptor) { return Validator{descriptor}.run(); }

@@ -1432,3 +1432,284 @@ TEST_CASE("module descriptor validation scales linearly in declaration count",
                   << " us_per_declaration=" << elapsed_us / static_cast<double>(count) << '\n';
     }
 }
+
+// Pinned deliberately (ADR 0013). An APPLIED generic in a layout -- a field
+// typed `Box<Leaf>` -- does not cross: the catalog refuses the record rather
+// than rebuild it wrong. That is why the closure walk in `resolve.cpp` may
+// treat a nominal head's arguments defensively rather than having to resolve
+// them; if this refusal ever lifts, that walk and `imported_type`'s
+// children-to-arguments mapping both need revisiting.
+TEST_CASE("an applied generic field type does not cross the catalog", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Leaf"},
+        descriptor::TypeRecord{.category         = descriptor::TypeCategory::Symbol,
+                               .nominal_identity = "checks.reader.Box",
+                               .arguments        = {descriptor::TypeArgument{.reference = 1U}}},
+    };
+    descriptor::InterfaceDeclaration leaf;
+    leaf.category = descriptor::DeclarationCategory::Structure;
+    leaf.identity = "checks.reader.Leaf";
+    leaf.fields   = {{"code", 0U, descriptor::no_schema_id, "checks.reader.Leaf", false, false}};
+
+    descriptor::InterfaceDeclaration holder;
+    holder.category = descriptor::DeclarationCategory::Structure;
+    holder.identity = "checks.reader.Holder";
+    holder.fields   = {{"boxed", 2U, descriptor::no_schema_id, "checks.reader.Holder", false, false}};
+
+    source.interface = {std::move(leaf), std::move(holder)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Holder");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error == "imported struct field type is not supported by the catalog");
+}
+
+// An identity is not just a label: generated C++ derives a namespace from it
+// and spells it into the source (`::checks::shapes::Venue`). A descriptor is
+// an input, so anything not shaped like an identifier is refused before
+// anything is built from it.
+TEST_CASE("a descriptor's identities must be identifiers", "[descriptor][catalog][security]") {
+    SECTION("a module identity that is not dot-separated identifiers is refused") {
+        auto source            = minimal_descriptor();
+        source.module_identity = "checks.reader {}; \n#define EVIL 1\nnamespace x";
+        source.provider_identity = source.module_identity;
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    error = descriptor::add_to_catalog(source, catalog);
+        REQUIRE(error.has_value());
+        CHECK(error->path == "$.module.identity");
+    }
+
+    SECTION("a struct whose local name is not an identifier is not admitted") {
+        auto source  = minimal_descriptor();
+        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        descriptor::InterfaceDeclaration bad;
+        bad.category = descriptor::DeclarationCategory::Structure;
+        bad.identity = "checks.reader.Venue {}; struct Evil";
+        bad.fields   = {{"code", 0U, descriptor::no_schema_id, bad.identity, false, false}};
+        source.interface = {std::move(bad)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    error = descriptor::add_to_catalog(source, catalog);
+        // Either refused outright, or admitted under no name at all -- never
+        // under a name that reaches the emitter.
+        if (!error.has_value()) { CHECK(catalog.find_struct_by_identity(bad.identity) == nullptr); }
+    }
+
+    SECTION("an ordinary identity still crosses") {
+        auto source = minimal_descriptor();
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        hgl::semantics::ModuleCatalog catalog;
+        CHECK_FALSE(descriptor::add_to_catalog(source, catalog).has_value());
+    }
+}
+
+// Pinned deliberately (ADR 0013). `Child<U>: Base<U>` would need the parent's
+// parameters mapped into the child's scope before its inherited fields mean
+// anything, and the catalog refuses the record rather than rebuild it wrong --
+// the flattening in `lower_imported_struct` copies an ancestor's field types
+// as they stand. If this ever starts crossing, that flattening has to remap
+// them through the parent application first.
+
+
+// Pinned deliberately (ADR 0013). `Child<U>: Base<U>` would need the parent's
+// parameters mapped into the child's scope before its inherited fields mean
+// anything, and the catalog refuses the record rather than rebuild it wrong --
+// the flattening in `lower_imported_struct` copies an ancestor's field types
+// as they stand. If this ever starts crossing, that flattening has to remap
+// them through the parent application first.
+TEST_CASE("an applied generic parent does not cross the catalog", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category         = descriptor::TypeCategory::Symbol,
+                               .nominal_identity = "T",
+                               .binding_identity = "checks.reader.Base::T"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Base",
+                               .arguments = {descriptor::TypeArgument{.reference = 0U}}},
+    };
+    descriptor::InterfaceDeclaration base;
+    base.category           = descriptor::DeclarationCategory::Structure;
+    base.identity           = "checks.reader.Base";
+    base.abstract           = true;
+    base.signature.generics = {{"T", "checks.reader.Base::T", false, descriptor::no_schema_id}};
+    base.fields             = {{"value", 1U, descriptor::no_schema_id, "checks.reader.Base", false, false}};
+
+    descriptor::InterfaceDeclaration child;
+    child.category = descriptor::DeclarationCategory::Structure;
+    child.identity = "checks.reader.Child";
+    child.parents  = {2U};
+    child.fields   = {{"value", 1U, descriptor::no_schema_id, "checks.reader.Base", false, false},
+                      {"extra", 0U, descriptor::no_schema_id, "checks.reader.Child", false, false}};
+
+    source.interface = {std::move(base), std::move(child)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Child");
+    REQUIRE(imported != nullptr);
+    CHECK_FALSE(imported->support_error.empty());
+}
+
+// A null default is the one default the catalog carries: it has no value to
+// reconstruct, and `optional` already says what it means. ADR 0012 rule 2
+// requires a recursive edge to be declared `= null`, so refusing it would make
+// every recursive struct unimportable.
+TEST_CASE("catalog carries a null default only where the descriptor agrees", "[descriptor][catalog][structs]") {
+    const auto build = [](bool optional, bool inherited, bool literal_null) {
+        auto source  = minimal_descriptor();
+        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .category = descriptor::ConstantExpressionCategory::Literal,
+            .literal  = literal_null ? hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}
+                                     : hgl::ir::hir::Constant{std::int64_t{7}}}};
+        descriptor::InterfaceDeclaration node;
+        node.category = descriptor::DeclarationCategory::Structure;
+        node.identity = "checks.reader.Node";
+        node.fields   = {{"next", 0U, 0U, inherited ? "checks.reader.Other" : "checks.reader.Node", optional, false}};
+        source.interface = {std::move(node)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        return source;
+    };
+
+    SECTION("a null default on an optional field crosses") {
+        auto                          source = build(/*optional=*/true, /*inherited=*/false, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error.empty());
+        REQUIRE(imported->fields.size() == 1);
+        CHECK(imported->fields[0].optional);
+    }
+
+    SECTION("a null default on a REQUIRED field is a descriptor that contradicts itself") {
+        // Taking the default's word for it would rebuild the field as
+        // required while the exporting module's own constructor accepts
+        // omitting it -- a silent mismatch, which is what this catalog exists
+        // to refuse by name.
+        auto                          source = build(/*optional=*/false, /*inherited=*/false, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field 'next' has a null default but is not optional");
+    }
+
+    SECTION("a null default on an INHERITED field cannot travel") {
+        // The field is dropped and rebuilt from the parent's record, so a
+        // child overriding an inherited default with null would lose the
+        // override: the parent's requiredness would win.
+        auto                          source = build(/*optional=*/true, /*inherited=*/true, /*literal_null=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+
+    SECTION("any other default still refuses by name") {
+        auto                          source = build(/*optional=*/true, /*inherited=*/false, /*literal_null=*/false);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Node");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error == "imported struct field defaults require catalog constant reconstruction");
+    }
+}
+
+// A child that merely INHERITS an optional field is not overriding anything,
+// so dropping its copy of the default loses nothing -- and refusing it would
+// make every child of a family with an optional field unimportable.
+TEST_CASE("an inherited null the parent already declares crosses", "[descriptor][catalog][structs]") {
+    const auto build = [](bool parent_optional) {
+        auto source  = minimal_descriptor();
+        source.types = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Base"},
+        };
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .category = descriptor::ConstantExpressionCategory::Literal,
+            .literal  = hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}}};
+        descriptor::InterfaceDeclaration base;
+        base.category = descriptor::DeclarationCategory::Structure;
+        base.identity = "checks.reader.Base";
+        base.abstract = true;
+        base.fields   = {{"note", 0U, 0U, "checks.reader.Base", parent_optional, false}};
+
+        descriptor::InterfaceDeclaration leaf;
+        leaf.category = descriptor::DeclarationCategory::Structure;
+        leaf.identity = "checks.reader.Leaf";
+        // A REAL parent link: naming `Base` as the field's origin proves
+        // nothing on its own, and the exemption checks the ancestry.
+        leaf.parents  = {1U};
+        leaf.fields   = {{"note", 0U, 0U, "checks.reader.Base", true, false},
+                         {"extra", 0U, descriptor::no_schema_id, "checks.reader.Leaf", false, false}};
+
+        source.interface = {std::move(base), std::move(leaf)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        return source;
+    };
+
+    SECTION("the declaring struct marks it optional, so nothing is overridden") {
+        auto                          source = build(/*parent_optional=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error.empty());
+    }
+
+    SECTION("the declaring struct marks it REQUIRED, so the child is overriding") {
+        // Dropping the child's field here would rebuild the parent's
+        // requiredness and refuse a call the exporting module accepts.
+        auto                          source = build(/*parent_optional=*/false);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error ==
+              "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+}
+
+// The exemption rests on the parent being able to rebuild the field, so the
+// origin has to be a real ancestor -- a struct that merely shares a name-space
+// and happens to declare a same-named optional field proves nothing.
+TEST_CASE("an inherited null whose origin is not an ancestor is refused", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+    source.constant_expressions = {descriptor::ConstantExpressionRecord{
+        .category = descriptor::ConstantExpressionCategory::Literal,
+        .literal  = hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}}};
+    descriptor::InterfaceDeclaration stranger;
+    stranger.category = descriptor::DeclarationCategory::Structure;
+    stranger.identity = "checks.reader.Stranger";
+    stranger.fields   = {{"note", 0U, 0U, "checks.reader.Stranger", true, false}};
+
+    descriptor::InterfaceDeclaration leaf;
+    leaf.category = descriptor::DeclarationCategory::Structure;
+    leaf.identity = "checks.reader.Leaf";
+    // No parents at all, yet the field claims to originate in `Stranger`.
+    leaf.fields = {{"note", 0U, 0U, "checks.reader.Stranger", true, false}};
+
+    source.interface = {std::move(stranger), std::move(leaf)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error ==
+          "imported struct inherited field defaults require catalog constant reconstruction");
+}

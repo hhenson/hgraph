@@ -205,17 +205,91 @@ namespace hgl::wiring
         return target == nullptr ? nullptr : registry_.owned(target);
     }
 
+    /// The recursive path's preflight (ADR 0013, acceptance 4).
+    ///
+    /// It cannot rely on the registry refusing a disagreement the way the
+    /// plain path does: `recursive_bundle_closure` answers from the registered
+    /// type as soon as the name is known and never calls the describer, so an
+    /// importer built against a changed layout would silently receive the
+    /// other one's. Comparing names and arity is not enough either -- renaming
+    /// a field's TYPE is ordinary version skew and leaves both unchanged -- so
+    /// the description is compared field type by field type, plus the parents,
+    /// abstractness and generic arguments that make two same-shaped bundles
+    /// different schemas.
+    ///
+    /// A RECURSIVE field is compared structurally rather than by realizing it:
+    /// realizing the edge would need the very type being checked. The edge
+    /// must be an owner, and of a bundle of the declared schema.
     const hgraph::ValueTypeMetaData *TypeBridge::registered(const Specialization &specialization, syntax::SourceRange range) {
         const hgraph::ValueTypeMetaData *existing = registry_.value_type(specialization.qualified());
         if (existing == nullptr) { return nullptr; }
-        const std::vector<hgraph_ir::StructField> &fields  = specialization.contract->fields;
-        bool                                       matches = existing->is_named_bundle() && existing->field_count == fields.size();
-        for (std::size_t index = 0; matches && index < fields.size(); ++index) {
-            matches = existing->fields[index].name != nullptr && fields[index].name == existing->fields[index].name;
+        const std::vector<hgraph_ir::StructField> &fields = specialization.contract->fields;
+        // Reporting is not enough: `value()` caches whatever this returns and
+        // the backend aborts only on a NULL result, so handing back the
+        // incompatible metadata would let a run continue against the wrong
+        // field layout and merely print a diagnostic afterwards.
+        const auto disagrees = [&](std::string_view what) -> const hgraph::ValueTypeMetaData * {
+            report(range, "cannot register struct '" + specialization.local_name + "': a different schema is already " +
+                              "registered under that name (" + std::string{what} + ")");
+            return nullptr;
+        };
+        if (!existing->is_named_bundle() || existing->field_count != fields.size()) { return disagrees("field count"); }
+        if (existing->is_abstract_bundle() != specialization.contract->abstract) { return disagrees("abstract"); }
+
+        const auto *hierarchy = existing->bundle_hierarchy;
+        if (hierarchy == nullptr) { return disagrees("hierarchy"); }
+        if (hierarchy->parents.size() != specialization.contract->parents.size()) { return disagrees("parents"); }
+        for (std::size_t index = 0; index < specialization.contract->parents.size(); ++index) {
+            const hgraph::ValueTypeMetaData *parent = value(specialization.contract->parents[index], specialization.applied);
+            if (parent == nullptr) { return nullptr; }
+            if (parent != hierarchy->parents[index]) { return disagrees("parent '" + std::string{parent->name()} + "'"); }
         }
-        if (!matches) {
-            report(range, "cannot register struct '" + specialization.local_name +
-                              "': a different schema is already registered under that name");
+        // The bridge never sets these, so a registered schema that carries
+        // anything but the defaults is a different schema: it tags its
+        // polymorphic alternatives differently, which the non-recursive
+        // `bundle()` path already refuses.
+        if (existing->bundle_discriminator() != std::string_view{"__type__"}) { return disagrees("discriminator"); }
+        if (hierarchy->discriminator_value != nullptr &&
+            std::string_view{hierarchy->discriminator_value} != std::string_view{existing->name()}) {
+            return disagrees("discriminator value");
+        }
+        if (hierarchy->generic_arguments.size() != specialization.generic_types.size()) {
+            return disagrees("generic arguments");
+        }
+        for (std::size_t index = 0; index < specialization.generic_types.size(); ++index) {
+            if (hierarchy->generic_arguments[index] != specialization.generic_types[index]) {
+                return disagrees("generic arguments");
+            }
+        }
+
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            const hgraph_ir::StructField    &field    = fields[index];
+            const hgraph::ValueTypeMetaData *declared = existing->fields[index].type;
+            if (existing->fields[index].name == nullptr || field.name != existing->fields[index].name) {
+                return disagrees("field '" + field.name + "'");
+            }
+            if (field.recursive) {
+                // The edge is compared by the TARGET IT NAMES rather than
+                // realized: realizing it would need the very type being
+                // checked. "An owner of some named bundle" is not enough --
+                // an edge that owns a different struct is exactly the skew
+                // this preflight exists to catch, and the closure never asks
+                // the describer once the name is registered.
+                if (declared == nullptr || !declared->is_owned() || declared->element_type == nullptr ||
+                    !declared->element_type->is_named_bundle()) {
+                    return disagrees("recursive field '" + field.name + "'");
+                }
+                const std::optional<Specialization> target = recursive_target(field, specialization.applied);
+                if (!target) { return nullptr; }
+                if (std::string{declared->element_type->name()} != target->qualified()) {
+                    return disagrees("recursive field '" + field.name + "' targets '" +
+                                     std::string{declared->element_type->name()} + "'");
+                }
+                continue;
+            }
+            const hgraph::ValueTypeMetaData *described = field_value(field, specialization.applied);
+            if (described == nullptr) { return nullptr; }
+            if (described != declared) { return disagrees("field '" + field.name + "'"); }
         }
         return existing;
     }
@@ -263,13 +337,53 @@ namespace hgl::wiring
     /// generated C++, so both backends register identical schemas. This bridge
     /// only describes each specialization when the registry asks for it.
     const hgraph::ValueTypeMetaData *TypeBridge::recursive_value(Specialization root, syntax::SourceRange range) {
-        if (registry_.value_type(root.qualified()) != nullptr) { return registered(root, range); }
         // A realization failure is already reported; this unwinds the closure.
         struct Reported
         {};
+        const std::string root_name = root.qualified();
+
+        // The WHOLE closure, collected before anything is decided: the root and
+        // every specialization its edges reach. The registry describes only
+        // what is not yet registered, so a member that is already there would
+        // never be compared -- and registering `A { next: atomic<B> }` against
+        // somebody else's `B` is as wrong as registering somebody else's `A`.
+        // Comparing an edge by the target it NAMES is only sufficient because
+        // the target is checked as a member in its own right.
         std::unordered_map<std::string, Specialization> pending;
-        const std::string                               root_name = root.qualified();
-        pending.emplace(root_name, std::move(root));
+        {
+            std::vector<Specialization> work;
+            work.push_back(std::move(root));
+            while (!work.empty()) {
+                Specialization    current = std::move(work.back());
+                const std::string name    = current.qualified();
+                work.pop_back();
+                if (pending.contains(name)) { continue; }
+                const Specialization &member = pending.emplace(name, std::move(current)).first->second;
+                for (const hgraph_ir::StructField &field : member.contract->fields) {
+                    if (!field.recursive) { continue; }
+                    std::optional<Specialization> target = recursive_target(field, member.applied);
+                    if (!target) { return nullptr; }
+                    work.push_back(std::move(*target));
+                }
+            }
+        }
+
+        // Every member that is already registered has to agree with this
+        // module's description of it, whether or not the root is one of them.
+        const auto members_agree = [&]() {
+            return std::ranges::all_of(pending, [&](const auto &entry) {
+                return registry_.value_type(entry.first) == nullptr || registered(entry.second, range) != nullptr;
+            });
+        };
+        if (!members_agree()) { return nullptr; }
+        if (const hgraph::ValueTypeMetaData *existing = registry_.value_type(root_name)) {
+            // Another bridge may have registered the closure between the
+            // comparison above and this lookup, so the root being there is not
+            // evidence that it agrees. Every return goes through the same
+            // comparison; none is a shortcut past it.
+            return members_agree() ? existing : nullptr;
+        }
+
         const auto describe = [&](std::string_view name) -> hgraph::RecursiveBundleRequest {
             const auto found = pending.find(std::string{name});
             if (found == pending.end()) { throw std::logic_error("undescribed recursive struct '" + std::string{name} + "'"); }
@@ -301,7 +415,17 @@ namespace hgl::wiring
             return request;
         };
         try {
-            return registry_.recursive_bundle_closure(root_name, describe);
+            const hgraph::ValueTypeMetaData *closed = registry_.recursive_bundle_closure(root_name, describe);
+            if (closed == nullptr) { return nullptr; }
+            // Describing a closure is not the same as agreeing with what got
+            // registered. The closure accepts whichever batch closed first,
+            // under its own lock, without comparing descriptions -- so a
+            // bridge that loses that race would cache the other's layout even
+            // though nothing was registered to compare against on the way in.
+            // Re-running the same comparison over every member makes the check
+            // total: first or not, what is registered has to be what was
+            // described.
+            return members_agree() ? closed : nullptr;
         } catch (const Reported &) { return nullptr; } catch (const std::exception &error) {
             report(range, "cannot register recursive struct '" + root_name + "': " + error.what());
             return nullptr;
