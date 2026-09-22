@@ -203,7 +203,9 @@ exhaust the process limit on a many-core host. Start the cache server before
 parallel compilation so concurrent clients do not each try to start a server.
 Micromamba's binary and root
 prefix live under ``RUNNER_TEMP`` so a later job can install them afresh even
-when an earlier job was cancelled.
+when an earlier job was cancelled. Native and language jobs also set ``TMPDIR``
+to ``RUNNER_TEMP`` on self-hosted runners, keeping test files separate from
+other host users and clearing them between jobs.
 
 Release artifacts never come from the self-hosted host. ``release-wheels.yml``
 is not routed at all, because a tag publishes the wheels that the push run of
