@@ -761,6 +761,13 @@ if(UNIX)
 endif()
 unset(_hgl_runtime_example_tests)
 
+add_test(NAME hgraph_language_emit_split_cleanup
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/split-cleanup
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/split_cleanup.cmake)
+
 # The command itself: representative composition and runtime modules emit.
 add_test(
     NAME hgraph_language_emit_midpoint

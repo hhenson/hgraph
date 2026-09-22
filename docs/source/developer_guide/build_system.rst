@@ -205,10 +205,12 @@ without a cap they use the available CPU count. The native shared-install job
 uses the same cap. ``HGRAPH_TEST_PARALLELISM`` controls their test concurrency,
 with self-hosted defaults of eight native tests and six language tests.
 Hosted jobs retain their existing limits. ``CMAKE_BUILD_PARALLEL_LEVEL`` carries
-the build cap into nested SDK consumer builds. Self-hosted jobs use sccache 0.16 or newer:
-older clients create a CPU-sized thread pool per compiler invocation and can
-exhaust the process limit on a many-core host. Start the cache server before
-parallel compilation so concurrent clients do not each try to start a server.
+the build cap into nested SDK consumer builds. Self-hosted native and language
+jobs use sccache 0.16 or newer and set ``TOKIO_WORKER_THREADS=2``. The released
+Linux client can otherwise create a CPU-sized thread pool for every compiler
+invocation, exhausting the shared account's task limit when builds overlap. This limit bounds cache-client threads, not compiler workers. Start the
+cache server before parallel compilation so concurrent clients do not each
+try to start a server.
 Micromamba's binary and root
 prefix live under ``RUNNER_TEMP`` so a later job can install them afresh even
 when an earlier job was cancelled. Native and language jobs also set ``TMPDIR``
