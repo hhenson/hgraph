@@ -181,6 +181,13 @@ shape it has to register — it reports an unknown nominal type, at a name the
 source never mentions. Reachability is over parents and field types alike,
 which is the same closure the exporting module's export check walks.
 
+**A cycle through ordinary fields or parents is refused.** It is not a layout
+but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
+edge must be an optional `atomic`, which bounds it). An imported layout is not
+exempt because another module wrote it — a backend realizing one recurses
+`register_value(A)` → `value(B)` → `register_value(A)` and takes the process
+with it, and two records are enough to build one.
+
 A name the closure cannot find is **reported where the import is**, not
 skipped: the module declaring it is missing from the supplied package target,
 so this module's layout cannot be rebuilt whole. That is the transitive-supply

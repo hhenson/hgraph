@@ -426,6 +426,7 @@ namespace hgl::semantics
                 // per-type depth budget never fires; only the number of hops
                 // grows, and that would be the compiler's stack.
                 std::vector<ImportedStruct> work{record};
+                std::vector<ImportedStruct> closure{record};
                 while (!work.empty()) {
                     const ImportedStruct current = std::move(work.back());
                     work.pop_back();
@@ -449,9 +450,76 @@ namespace hgl::semantics
                         result_.imported_structs.push_back(next);
                         imported_struct_bindings_.emplace(next.identity, reached_binding);
                         work.push_back(next);
+                        closure.push_back(next);
                     }
                 }
+                // A cycle through ORDINARY fields or parents is not a layout,
+                // it is an infinite value. The local rule rejects one
+                // (`check_recursive_fields`, ADR 0012 rule 2: an edge must be
+                // an optional `atomic`), and an imported layout is not exempt
+                // just because another module wrote it -- a backend realizing
+                // it recurses `register_value(A) -> value(B) -> register_value(A)`
+                // and takes the process with it. Two records are enough.
+                if (const std::optional<std::string> cycle = imported_layout_cycle(closure)) {
+                    report(Category::Type, range,
+                           "imported struct '" + *cycle +
+                               "' is part of a layout cycle through fields that are not recursive edges, so it "
+                               "describes a value of unbounded size");
+                }
                 return binding;
+            }
+
+            /// The nominal identities `type` names directly, not through a
+            /// recursive edge -- an edge is an owner, so it bounds the value.
+            static void layout_references(const ImportedType &type, std::vector<std::string> &out) {
+                if (!type.nominal_identity.empty()) { out.push_back(type.nominal_identity); }
+                for (const ImportedType &child : type.children) { layout_references(child, out); }
+            }
+
+            /// An identity on a cycle of ordinary (non-edge) references, if the
+            /// closure has one. Iterative DFS with colours: the graph is the
+            /// closure's, so this is linear in its references.
+            [[nodiscard]] static std::optional<std::string> imported_layout_cycle(
+                const std::vector<ImportedStruct> &closure) {
+                std::unordered_map<std::string_view, const ImportedStruct *> by_identity;
+                for (const ImportedStruct &member : closure) { by_identity.emplace(member.identity, &member); }
+                std::unordered_map<std::string_view, int> colour;  // 0 unseen, 1 on the stack, 2 done
+                for (const ImportedStruct &start : closure) {
+                    if (colour[start.identity] != 0) { continue; }
+                    std::vector<std::pair<std::string_view, std::size_t>> stack{{start.identity, 0}};
+                    std::vector<std::string> edges;
+                    colour[start.identity] = 1;
+                    while (!stack.empty()) {
+                        auto &[identity, index] = stack.back();
+                        const auto found        = by_identity.find(identity);
+                        if (found == by_identity.end()) {
+                            colour[identity] = 2;
+                            stack.pop_back();
+                            continue;
+                        }
+                        edges.clear();
+                        for (const ImportedType &parent : found->second->parents) { layout_references(parent, edges); }
+                        for (const ImportedStructField &field : found->second->fields) {
+                            if (field.recursive) { continue; }
+                            layout_references(field.type, edges);
+                        }
+                        if (index >= edges.size()) {
+                            colour[identity] = 2;
+                            stack.pop_back();
+                            continue;
+                        }
+                        const std::string next = edges[index++];
+                        const auto        seen = colour.find(next);
+                        if (seen != colour.end() && seen->second == 1) { return next; }
+                        if (seen == colour.end() || seen->second == 0) {
+                            const auto inserted = by_identity.find(next);
+                            if (inserted == by_identity.end()) { continue; }
+                            colour[inserted->first] = 1;
+                            stack.emplace_back(inserted->first, 0);
+                        }
+                    }
+                }
+                return std::nullopt;
             }
 
             /// Collects every struct `type` reaches, at any depth (ADR 0013),
@@ -477,7 +545,11 @@ namespace hgl::semantics
                         return;
                     }
                     found.push_back(*reached);
-                    return;
+                    // NOT a return: `Box<Leaf>` names `Box` at the head and
+                    // `Leaf` only as an argument, and `Box`'s own record
+                    // mentions nothing but its parameter. Stopping here left
+                    // `Leaf` undescribed and a backend reporting an unknown
+                    // nominal type.
                 }
                 for (const ImportedType &child : type.children) { reached_structs(child, owner, range, found); }
             }

@@ -1432,3 +1432,38 @@ TEST_CASE("module descriptor validation scales linearly in declaration count",
                   << " us_per_declaration=" << elapsed_us / static_cast<double>(count) << '\n';
     }
 }
+
+// Pinned deliberately (ADR 0013). An APPLIED generic in a layout -- a field
+// typed `Box<Leaf>` -- does not cross: the catalog refuses the record rather
+// than rebuild it wrong. That is why the closure walk in `resolve.cpp` may
+// treat a nominal head's arguments defensively rather than having to resolve
+// them; if this refusal ever lifts, that walk and `imported_type`'s
+// children-to-arguments mapping both need revisiting.
+TEST_CASE("an applied generic field type does not cross the catalog", "[descriptor][catalog][structs]") {
+    auto source  = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.Leaf"},
+        descriptor::TypeRecord{.category         = descriptor::TypeCategory::Symbol,
+                               .nominal_identity = "checks.reader.Box",
+                               .arguments        = {descriptor::TypeArgument{.reference = 1U}}},
+    };
+    descriptor::InterfaceDeclaration leaf;
+    leaf.category = descriptor::DeclarationCategory::Structure;
+    leaf.identity = "checks.reader.Leaf";
+    leaf.fields   = {{"code", 0U, descriptor::no_schema_id, "checks.reader.Leaf", false, false}};
+
+    descriptor::InterfaceDeclaration holder;
+    holder.category = descriptor::DeclarationCategory::Structure;
+    holder.identity = "checks.reader.Holder";
+    holder.fields   = {{"boxed", 2U, descriptor::no_schema_id, "checks.reader.Holder", false, false}};
+
+    source.interface = {std::move(leaf), std::move(holder)};
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Holder");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error == "imported struct field type is not supported by the catalog");
+}

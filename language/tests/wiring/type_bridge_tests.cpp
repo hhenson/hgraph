@@ -866,3 +866,43 @@ fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
+
+TEST_CASE("an imported layout cycle through ordinary fields is rejected", "[wiring][types][struct-imports]") {
+    // Two records are enough. A cycle through fields that are not recursive
+    // edges is not a layout, it is an infinite value -- the local rule rejects
+    // one (ADR 0012 rule 2: an edge must be an optional `atomic`), and an
+    // imported layout is not exempt because another module wrote it. Realizing
+    // it recurses `register_value(A) -> value(B) -> register_value(A)` and
+    // takes the process with it.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.cycle";
+
+    hgl::semantics::ImportedStruct a;
+    a.module_identity = module.identity;
+    a.name            = "A";
+    a.identity        = "checks.cycle.A";
+    a.fields          = {{"b", symbol("checks.cycle.B"), false, /*recursive=*/false}};
+
+    hgl::semantics::ImportedStruct b;
+    b.module_identity = module.identity;
+    b.name            = "B";
+    b.identity        = "checks.cycle.B";
+    b.fields          = {{"a", symbol("checks.cycle.A"), false, /*recursive=*/false}};
+
+    module.structs = {std::move(a), std::move(b)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_cycle
+
+use checks.cycle as shapes
+
+fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
+)",
+              catalog};
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("layout cycle") != std::string::npos);
+}
