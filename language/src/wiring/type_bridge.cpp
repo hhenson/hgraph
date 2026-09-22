@@ -366,7 +366,16 @@ namespace hgl::wiring
             return request;
         };
         try {
-            return registry_.recursive_bundle_closure(root_name, describe);
+            const hgraph::ValueTypeMetaData *closed = registry_.recursive_bundle_closure(root_name, describe);
+            if (closed == nullptr) { return nullptr; }
+            // Describing a closure is not the same as agreeing with what got
+            // registered. The closure accepts whichever batch closed first,
+            // under its own lock, without comparing descriptions -- so a
+            // bridge that loses that race would cache the other's layout even
+            // though the preflight above found nothing to compare against.
+            // Re-running the comparison on the way out makes the check total:
+            // first or not, the registered schema has to be the one described.
+            return registered(pending.at(root_name), range);
         } catch (const Reported &) { return nullptr; } catch (const std::exception &error) {
             report(range, "cannot register recursive struct '" + root_name + "': " + error.what());
             return nullptr;

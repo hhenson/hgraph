@@ -72,6 +72,14 @@ null result, so returning the registered-but-incompatible metadata would let a
 run continue against the wrong field layout and print the diagnostic
 afterwards.
 
+**The comparison runs on the way out as well as the way in.** Describing a
+closure is not agreeing with what got registered: `recursive_bundle_closure`
+accepts whichever batch closed first, under its own lock and without comparing
+descriptions, so a bridge that loses that race finds nothing at the preflight
+and would then cache the winner's layout. Re-running the comparison against
+what is actually registered makes the check total — first or not, the
+registered schema has to be the one described.
+
 ### Catalog
 
 `ImportableModule` gains `structs`, filled by `add_to_catalog` from the
