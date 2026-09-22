@@ -101,6 +101,9 @@ schema name are excluded; the recorded final adapter replays from a clean base.
 Logical reads guard invalid values and idle deltas; empty modified deltas and
 all timestamps remain visible. Maps change only their JSON key representation.
 
+A graph replay omits prior native-probe provenance; rebuild and rerun the
+supplement for a new candidate.
+
 The supplementary [native probe](native_probe.cpp) bypasses the Python bridge.
 Its [three identical runs](native_observed.txt) show a full native sampled
 parent value but unsampled child times, plus the C++ invalidation-time result. These endpoint observations are distinct from graph-level

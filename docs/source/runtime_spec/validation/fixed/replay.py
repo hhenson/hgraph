@@ -99,9 +99,6 @@ def main():
                       candidate='Installed C++ runtime with Python authoring surface; native hashes identify the binaries, source HEAD is context.',
                       replays=3, recorded=datetime.now(timezone.utc).date().isoformat())
     output = ROOT / 'observed.json'
-    previous = json.loads(output.read_text()) if output.exists() else {}
-    if 'native_probe' in previous.get('provenance', {}):
-        provenance['native_probe'] = previous['provenance']['native_probe']
     output.write_text(render({'provenance': provenance, 'cases': dict(sorted(cases.items()))}) + '\n')
 
 
