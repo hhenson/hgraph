@@ -6,6 +6,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
 
 #include <algorithm>
@@ -1443,4 +1445,61 @@ TEST_CASE("TSDProxy all_valid checks live projected children and excludes remove
         static_cast<void>(mutation.at(key.view()));
     }
     REQUIRE_FALSE(proxy.view().all_valid());
+}
+
+TEST_CASE("TSDProxy saved child references expire without forcing slot reclamation", "[runtime-contract][proxy]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *tsd = registry.tsd(integer, ts);
+    const auto element_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSOutput source{tsd};
+    TSOutput proxy{tsd_proxy_output_type_for(*tsd, element_type.as_role(),
+        ValuePlanFactory::instance().type_for(integer))};
+    Value key{std::int32_t{1}}, value{std::int32_t{7}};
+    const auto t0 = MIN_ST;
+    const auto removed_at = t0 + TimeDelta{1};
+    const auto expired_at = removed_at + TimeDelta{1};
+    auto source_view = source.view(t0);
+    source_view.as_dict().begin_mutation(t0).set(key.view(), value.view());
+    auto proxy_data = proxy.data_view();
+    bind_tsd_proxy(proxy_data, source_view.data_view().as_dict(), &key_value_ops, nullptr, t0);
+    auto proxy_view = proxy.view(t0);
+    auto dict = proxy_view.as_dict();
+    const auto slot = dict.find_slot(key.view());
+    const auto address = dict.at_slot(slot).data_view().data();
+    TimeSeriesReference saved{dict.at_slot(slot)};
+    REQUIRE(saved.is_valid(t0));
+
+    auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_data.data()));
+    RecordingSlotObserver lifecycle;
+    dict.key_set().data_view().as_set().subscribe_slot_observer(&lifecycle);
+    auto removed_view = source.view(removed_at);
+    REQUIRE(removed_view.as_dict().begin_mutation(removed_at).erase(key.view()));
+    REQUIRE(saved.is_valid(removed_at));
+    REQUIRE(storage.has_child(slot));
+    REQUIRE(storage.owned_child_memory(slot) == address);
+    REQUIRE(lifecycle.events == std::vector<std::string>{"remove:" + std::to_string(slot)});
+
+    SECTION("same-cycle restoration preserves the saved child identity")
+    {
+        auto restored_view = source.view(removed_at);
+        static_cast<void>(restored_view.as_dict().begin_mutation(removed_at).at(key.view()));
+        REQUIRE(saved.is_valid(expired_at));
+        REQUIRE(storage.owned_child_memory(slot) == address);
+    }
+    SECTION("later insertion never retargets the saved reference")
+    {
+        CHECK_FALSE(saved.is_valid(expired_at));
+        REQUIRE(storage.has_child(slot));
+        REQUIRE(storage.owned_child_memory(slot) == address);
+        auto later = source.view(expired_at + TimeDelta{1});
+        later.as_dict().begin_mutation(later.evaluation_time()).set(key.view(), value.view());
+        REQUIRE_FALSE(saved.is_valid(later.evaluation_time()));
+        auto current = proxy.view(later.evaluation_time());
+        REQUIRE(current.as_dict().at(key.view()).valid());
+    }
+    dict.key_set().data_view().as_set().unsubscribe_slot_observer(&lifecycle);
 }

@@ -2952,6 +2952,18 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(range_size(dict.added_keys()) == 1);
     REQUIRE(range_size(dict.removed_keys()) == 1);
     REQUIRE(range_size(dict.removed_items()) == 1);
+    const auto previous_target = a.view(rebind);
+    const auto current_target = b.view(rebind);
+    const auto x_slot = previous_target.as_dict().find_slot(x.view());
+    const auto z_slot = previous_target.as_dict().find_slot(z.view());
+    const auto y_slot = current_target.as_dict().find_slot(y.view());
+    CHECK(dict.slot_removed(x_slot));
+    CHECK_FALSE(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto rebound_data = dict.data_view();
+    CHECK(rebound_data.next_membership_removed_slot() == x_slot);
+    CHECK(rebound_data.next_membership_removed_slot(x_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(rebound_data.next_membership_added_slot() == y_slot);
     for (const auto &[key, child] : dict.removed_items())
     {
         REQUIRE(key.checked_as<int>() == 1);
@@ -2975,9 +2987,18 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
     REQUIRE(dict.empty());
     REQUIRE(range_size(dict.removed_keys()) == 2);
     REQUIRE(range_size(dict.removed_items()) == 2);
+    CHECK(dict.slot_removed(y_slot));
+    CHECK(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto withdrawn_data = dict.data_view();
+    CHECK(withdrawn_data.next_membership_removed_slot() == y_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(y_slot) == z_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(z_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(withdrawn_data.next_membership_added_slot() == TS_DATA_NO_CHILD_ID);
     REQUIRE(capture_delta(view).view().as_bundle().at(0).as_set().size() == 2);
     view = input.view(nullptr, withdrawal + TimeDelta{1});
     dict = view.as_dict();
     REQUIRE_FALSE(view.modified());
     REQUIRE(range_size(dict.removed_items()) == 0);
+    CHECK_FALSE(dict.slot_removed(0));
 }

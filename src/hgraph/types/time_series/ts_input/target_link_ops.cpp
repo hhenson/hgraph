@@ -846,16 +846,37 @@ namespace hgraph::detail
         [[nodiscard]] bool target_link_dict_membership_added(const void *context, const void *memory, std::size_t slot)
         {
             const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
             return link != nullptr && link->sampled_structural_transition()
                        ? target_link_set_slot_added(context, memory, slot)
-                       : target_link_dict_view(context, memory).membership_slot_added(slot);
+                       : target.as_dict().membership_slot_added(slot);
         }
         [[nodiscard]] bool target_link_dict_membership_removed(const void *context, const void *memory, std::size_t slot)
-        { return target_link_dict_view(context, memory).membership_slot_removed(slot); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            // Removal ordinals belong to the retained previous target during a
+            // transition, exactly as they do in removed_items()/removed_values().
+            return link != nullptr && link->structural_transition_active()
+                       ? target_link_previous_slot_removed(context, memory, slot)
+                       : target.as_dict().membership_slot_removed(slot);
+        }
         [[nodiscard]] std::size_t target_link_dict_next_membership_added(const void *context, const void *memory, std::size_t previous)
-        { return target_link_dict_view(context, memory).next_membership_added_slot(previous); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            return link != nullptr && link->sampled_structural_transition()
+                       ? target_link_set_next_delta_slot<true>(context, memory, previous)
+                       : target.as_dict().next_membership_added_slot(previous);
+        }
         [[nodiscard]] std::size_t target_link_dict_next_membership_removed(const void *context, const void *memory, std::size_t previous)
-        { return target_link_dict_view(context, memory).next_membership_removed_slot(previous); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            return link != nullptr && link->structural_transition_active()
+                       ? target_link_set_next_delta_slot<false>(context, memory, previous)
+                       : target.as_dict().next_membership_removed_slot(previous);
+        }
 
         [[nodiscard]] const void *target_link_dict_child_at_slot(const void *context,
                                                                  const void *memory,

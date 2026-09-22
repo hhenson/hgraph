@@ -579,6 +579,15 @@ namespace hgraph
                     .stop = [](const void *, void *memory) noexcept {
                         if (memory != nullptr) proxy_storage(memory).stop();
                     },
+                    .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
+                        const auto &proxy = proxy_storage(memory);
+                        if (!proxy.source_available() || !proxy.has_child(slot)) { return false; }
+                        const auto source = proxy.source_dict();
+                        // Stop retains the child for removal-cycle observations;
+                        // later reads must not wait for the source's lazy erase.
+                        return source.slot_live(slot) ||
+                               (source.slot_occupied(slot) && source.structural_delta_current(time));
+                    },
                 };
                 return ops;
             }
