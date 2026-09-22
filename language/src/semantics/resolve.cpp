@@ -485,20 +485,23 @@ namespace hgl::semantics
                 bool        owned{false};
             };
 
-            /// An identity on a cycle the layout cannot bound, if the closure
-            /// has one.
+            /// An identity in a component the layout cannot bound, if the
+            /// closure has one.
             ///
-            /// Owned edges stay IN the graph and the cycle is judged instead:
-            /// removing them first missed a cycle that runs through an edge
-            /// and back through inheritance (`Base { child: atomic<Leaf> }`
-            /// with `Leaf: Base`), which the local resolver rejects and which
-            /// sends direct wiring round `recursive_value` and `value` until
-            /// the stack is gone. A cycle made ENTIRELY of owned edges is the
-            /// ADR 0012 shape and is bounded; any other is an infinite value.
+            /// Judged per strongly connected component, not per back edge. An
+            /// owned edge (ADR 0012) bounds a cycle, so a component whose
+            /// internal links are all owned is the recursive-struct shape; a
+            /// component that is cyclic and contains ANY ordinary internal
+            /// link describes a value of unbounded size. Walking back edges
+            /// instead made the answer depend on field order -- with
+            /// `A -owned-> C`, `A -> B`, `C -owned-> B`, `B -owned-> A`, the
+            /// all-owned path completes `B` first and the ordinary `A -> B`
+            /// then looks at a finished node and says nothing.
             ///
-            /// Adjacency is built once per member. Rebuilding a member's
-            /// references each time the walk resumed it was quadratic in a
-            /// wide struct's field count (CLAUDE.md guardrail iv).
+            /// Tarjan, iteratively: a descriptor is an input, so neither the
+            /// component search nor the walk that feeds it may put the
+            /// closure's size on the stack. Adjacency is built once per
+            /// member (CLAUDE.md guardrail iv).
             [[nodiscard]] static std::optional<std::string> imported_layout_cycle(
                 const std::vector<ImportedStruct> &closure) {
                 std::unordered_map<std::string_view, std::vector<LayoutLink>> adjacency;
@@ -519,41 +522,78 @@ namespace hgl::semantics
                     adjacency.emplace(member.identity, std::move(links));
                 }
 
+                struct Node
+                {
+                    std::size_t index{0};
+                    std::size_t low{0};
+                    bool        on_stack{false};
+                    bool        visited{false};
+                };
+                std::unordered_map<std::string_view, Node> nodes;
+                nodes.reserve(adjacency.size());
+                std::vector<std::string_view>              component_stack;
+                std::size_t                                next_index = 0;
+
                 struct Frame
                 {
                     std::string_view identity{};
-                    std::size_t      index{0};
-                    bool             entered_owned{false};
+                    std::size_t      edge{0};
                 };
-                std::unordered_map<std::string_view, int> colour;  // 0 unseen, 1 on the path, 2 done
-                for (const ImportedStruct &start : closure) {
-                    if (colour[start.identity] != 0) { continue; }
-                    std::vector<Frame> stack{Frame{start.identity, 0, false}};
-                    colour[start.identity] = 1;
+                for (const auto &[root, _] : adjacency) {
+                    if (nodes[root].visited) { continue; }
+                    std::vector<Frame> stack{Frame{root, 0}};
+                    nodes[root] = Node{next_index, next_index, true, true};
+                    ++next_index;
+                    component_stack.push_back(root);
                     while (!stack.empty()) {
                         const std::string_view identity = stack.back().identity;
-                        const auto             found    = adjacency.find(identity);
-                        if (found == adjacency.end() || stack.back().index >= found->second.size()) {
-                            colour[identity] = 2;
-                            stack.pop_back();
-                            continue;
-                        }
-                        const LayoutLink &link = found->second[stack.back().index++];
-                        const auto        seen = colour.find(link.target);
-                        if (seen != colour.end() && seen->second == 1) {
-                            bool bounded = link.owned;
-                            for (auto frame = stack.rbegin(); bounded && frame != stack.rend(); ++frame) {
-                                if (frame->identity == link.target) { break; }
-                                bounded = frame->entered_owned;
+                        const std::vector<LayoutLink> &links = adjacency.at(identity);
+                        if (stack.back().edge < links.size()) {
+                            const std::string_view target = links[stack.back().edge++].target;
+                            const auto             known  = adjacency.find(target);
+                            if (known == adjacency.end()) { continue; }
+                            Node &node = nodes[known->first];
+                            if (!node.visited) {
+                                node = Node{next_index, next_index, true, true};
+                                ++next_index;
+                                component_stack.push_back(known->first);
+                                stack.push_back(Frame{known->first, 0});
+                            } else if (node.on_stack) {
+                                nodes[identity].low = std::min(nodes[identity].low, node.index);
                             }
-                            if (!bounded) { return link.target; }
                             continue;
                         }
-                        if (seen != colour.end() && seen->second == 2) { continue; }
-                        const auto member = adjacency.find(link.target);
-                        if (member == adjacency.end()) { continue; }
-                        colour[member->first] = 1;
-                        stack.push_back(Frame{member->first, 0, link.owned});
+                        // Finished: close the component, or fold into the parent.
+                        const Node finished = nodes[identity];
+                        stack.pop_back();
+                        if (!stack.empty()) {
+                            Node &parent = nodes[stack.back().identity];
+                            parent.low   = std::min(parent.low, finished.low);
+                        }
+                        if (finished.low != finished.index) { continue; }
+                        std::unordered_set<std::string_view> component;
+                        while (!component_stack.empty()) {
+                            const std::string_view member = component_stack.back();
+                            component_stack.pop_back();
+                            nodes[member].on_stack = false;
+                            component.insert(member);
+                            if (member == identity) { break; }
+                        }
+                        // Cyclic when it has more than one member, or one with
+                        // a link back to itself.
+                        bool cyclic = component.size() > 1U;
+                        for (const std::string_view member : component) {
+                            for (const LayoutLink &link : adjacency.at(member)) {
+                                if (!component.contains(link.target)) { continue; }
+                                if (link.target == member) { cyclic = true; }
+                            }
+                        }
+                        if (!cyclic) { continue; }
+                        for (const std::string_view member : component) {
+                            for (const LayoutLink &link : adjacency.at(member)) {
+                                if (!link.owned && component.contains(link.target)) { return std::string{member}; }
+                            }
+                        }
                     }
                 }
                 return std::nullopt;
