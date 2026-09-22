@@ -1,5 +1,7 @@
 """Acceptance must distinguish agreement, missing evidence and instability."""
 import unittest
+import json
+from pathlib import Path
 import check
 
 
@@ -85,6 +87,31 @@ class AcceptanceTests(unittest.TestCase):
     def test_scalar_types_are_preserved(self):
         self.assertEqual(self.classify(False, side(0), side(0)), 'recheck-reasoning')
         self.assertEqual(self.classify(0, side(False), side(0)), 'accepted-with-variation')
+
+
+class NestedInvalidationCoverageTests(unittest.TestCase):
+    def test_all_nested_shapes_reset_every_level_and_stay_reset_while_idle(self):
+        cases = json.loads((Path(__file__).parent / 'reasoned.json').read_text())['cases']
+        for outer in ('tsl', 'tsb'):
+            for inner in ('tsl', 'tsb'):
+                for role in ('owned', 'assembled'):
+                    case = f'{outer}_{inner}_{role}_invalidate'
+                    states = cases[case]['expected']
+                    self.assertEqual(len(states), 9)
+                    def descendants(state):
+                        yield state
+                        for child in state.get('children', {}).values():
+                            yield from descendants(child)
+                    before = list(descendants(states[6]))
+                    self.assertEqual(len(before), 7)
+                    self.assertTrue(all(state['valid'] for state in before), case)
+                    for tick in (7, 8):
+                        after = list(descendants(states[tick]))
+                        self.assertEqual(len(after), 7)
+                        for state in after:
+                            self.assertEqual({k: state[k] for k in ('valid', 'modified', 'last', 'value', 'delta')},
+                                             {'valid': False, 'modified': False, 'last': 'never', 'value': None, 'delta': None},
+                                             (case, tick))
 
 
 if __name__ == '__main__':

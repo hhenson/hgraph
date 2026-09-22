@@ -1,5 +1,22 @@
 """Keep complete tick records on single lines without altering their JSON."""
 import json
+import os
+from pathlib import Path
+import tempfile
+
+
+def atomic_write(path, content):
+    """Publish only a complete, closed file; leave previous evidence on failure."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix=path.name + '.', delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def render(value, depth=0, key=''):

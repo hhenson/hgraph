@@ -2302,6 +2302,19 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef adapt_source_for_input(
             Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source);
 
+        /** The structural-REF node over ``source``: it publishes
+            ``REF<value of schema>`` (``schema`` may itself be a ``REF``) for
+            what ``source`` is bound to, without copying a value. A
+            structural source becomes a composite reference over its leaves,
+            a peered source a reference to its output, and a REF source
+            republishes its token. Sub-graph finalization uses it as the
+            terminal of a composed structure; ``switch_`` / ``dispatch_`` use
+            it for a branch that returns a boundary input unchanged
+            (nested_graphs.rst, "Pass-through outputs"). The caller binds the
+            node's ``ts`` input. */
+        [[nodiscard]] HGRAPH_EXPORT NodeBuilder reference_terminal_builder(
+            const TSValueTypeMetaData *schema, const WiringPortRef &source);
+
         // ---- context scopes (see *Contexts* in services.rst) ----
         // The wiring-time context stack lives on the OperatorRegistry singleton
         // (mesh-scope precedent); these free functions keep operator_dispatch.h

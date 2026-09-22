@@ -125,6 +125,21 @@ These need call shapes the recipe templates cannot express, or produce values
 that are not comparable across the boundary, so they are documented rather than
 fingerprinted.
 
+- **A bundle field re-pointed at the reference it already holds, when that
+  field is a ``map_`` result.** Two ``switch_`` branches (or two
+  ``if_then_else`` inputs) that both pass the same ``map_`` output through as
+  one field of a composed bundle re-point that field at the same reference on
+  a flip. Released hgraph re-reports the whole unchanged dictionary, because
+  its ``map_`` output is reference-valued and a consumer re-binds it element
+  by element. This runtime treats the re-point as no change and ticks only the
+  fields whose series changed, under the no-change-means-no-tick ruling (see
+  :doc:`roadmap`). Both sides agree for a field backed by any other output,
+  and they agree again on the field's next real tick. ``if_then_else`` already
+  behaved this way. ``switch_`` / ``dispatch_`` joined it when their branches
+  started publishing the references they pass through (:doc:`nested_graphs`,
+  "``switch_`` output modes"), which fixed the far more common scalar case, where
+  a consumer re-pointed back to the upstream field re-ticked a stale value.
+  Pinned by ``python/tests/ported/_wiring/test_tsd_wiring.py::test_tsd_in_bundle_ref``.
 - **``setattr_`` with an attribute the schema does not declare.** Released
   hgraph succeeds and leaves the value unchanged; this runtime raises a
   ``WiringError``. Rejecting a write to an undeclared field is the better

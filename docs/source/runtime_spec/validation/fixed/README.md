@@ -1,6 +1,6 @@
 # Fixed-collection comparisons
 
-Status: 36 scenarios recorded on 2026-09-22; user rulings recorded the same
+Status: 44 scenarios recorded on 2026-09-22; user rulings recorded the same
 day. The contract decisions are settled; runtime implementation is unchanged.
 
 Each scenario ran three times in separate Python and C++ processes. All replay
@@ -10,9 +10,9 @@ with Python observer nodes. [observed.json](observed.json) records binary
 hashes and source context. Original expectations and measurements are retained;
 [decisions.json](decisions.json) records the rulings and changed expectations.
 
-Of 8,966 observations, 8,621 match both runtimes, 283 match one, and eight are
+Of 12,142 observations, 11,375 match both runtimes, 439 match one, and ten are
 accepted by explicit ruling despite neither runtime matching. Python's bundle-
-invalidation exception leaves 54 observations unvalidated. Acceptance is per
+invalidation exceptions leave 318 observations unvalidated. Acceptance is per
 observation; these counts do not establish whole-case conformance.
 
 ## Accepted contracts and variations
@@ -42,6 +42,14 @@ Whole invalidation and rebinding to invalid targets still reset cached state.
 
 ## Invalidation boundary
 
+Eight `*_invalidate` cases cover every two-level TSL/TSB shape, owned and
+assembled. After all four leaves are valid, t7 invalidates the owned root or
+all independently bound leaves; t8 is idle. Both cycles assert reset state at
+the root, both children and all four grandchildren. The existing TS-26 ruling
+supplies the expectation; no runtime result was used to generate it.
+Python stops at t7 in the three owned shapes containing TSB. Their 264 missing
+observations join the original 54; C++'s later observations do not fill them.
+
 In `*_assembled`, left becomes invalid at t4 while right stays valid. The
 invalid child view and parent read modified at t4; the parent delta is empty.
 At t5 right also becomes invalid: the whole structure and all local child
@@ -63,7 +71,7 @@ exception remain missing, even where C++ matches the chosen contract.
   extra fields as well as missing ones. It can print the full assertion list.
 - [observed.json](observed.json), [assessment.json](assessment.json): raw
   logical states, comparison counts and every non-unanimous observation. `python check.py`
-  regenerates the assessment and exits 1 for the 54 missing observations.
+  regenerates the assessment and exits 1 for the 318 missing observations.
 - [decisions.json](decisions.json): explicit user rulings, rule IDs and prior/new
   expectations. The checker retains the raw comparison and cannot use a ruling
   to fill absent evidence.
@@ -78,10 +86,12 @@ base plus adapter, including contents and file modes. It then runs an isolated
 copy of that exact tree; ignored files in the supplied checkout cannot enter
 its imports. The resulting tree and file-manifest identities are recorded.
 
-The reference probe hashes the actual package sources, including editable
-sources, and installed distribution artifacts. Version alone does not identify
-the baseline. Bytecode caches are excluded. Identity is checked before and
-after replay; an identity change rejects the replay.
+Both interpreters hash the actual hgraph package sources, including editable
+sources, and installed distribution artifacts. The candidate also hashes its
+native binaries. Version or Git HEAD alone does not identify either runtime.
+Bytecode caches are excluded. Both identities are captured before and after
+replay; a change rejects the run before replacing the published evidence.
+Publication atomically replaces the file after a complete temporary write.
 
 Interpreter and harness paths are trusted local configuration: they select code
 to execute, never recipe data. Paths are made absolute without resolving venv
@@ -114,16 +124,41 @@ all timestamps remain visible. Maps change only their JSON key representation.
 
 A graph replay omits prior native-probe provenance; rebuild and rerun the
 supplement for a new candidate.
+When present, its source and output hashes and three-run stability must verify.
 
 The supplementary [native probe](native_probe.cpp) bypasses the Python bridge.
 Its [three identical runs](native_observed.txt) show a full native sampled
 parent value but unsampled child times, plus the C++ invalidation-time result. These endpoint observations are distinct from graph-level
 recursive sampling and are not counted as another voting implementation.
 
+[Native nested wiring](native_nested_probe.cpp) also runs all eight
+`*_invalidate` shapes through public C++ `eval_node`, including peered owned
+outputs and leaf-bound assemblies. It records every level at all nine cycles.
+The [three stable runs](native_nested_observed.json) have 2,979 observations
+matching the contract and 197 variations; 95 value/delta observations differ
+from Python-authored C++. Native aggregate reads retain zero/default list slots,
+nil bundle delta fields, and stale deltas after invalidation. The
+[native assessment](native_nested_assessment.json) records each difference.
+Validity, modification, time and peering match the Python-authored C++ traces.
+These are two authoring paths into one runtime, not another vote.
+
+The registered CTest checks the executable hash, embedded source/core-SDK-header
+identity, actual loaded hgraph library hashes, and recorded trace. Loader paths
+are used locally; only library names and hashes are recorded. A passing replay
+does not mean TS-26 conforms.
+`native_nested.py` checks evidence and regenerates the separate assessment.
+To replace its evidence after reviewing changes, pass `--record --executable`
+and `--candidate-python`; recording checks candidate identity before and after.
+Rebuilt executables must be explicitly recorded before normal replay.
+
 ```sh
 cmake -S /path/to/fixed -B /tmp/fixed-native-build \
   -Dhgraph_DIR=/path/to/sdk/lib/cmake/hgraph \
   -DPython_EXECUTABLE=/path/to/cpp-hgraph/bin/python
 cmake --build /tmp/fixed-native-build --parallel 2
+python /path/to/fixed/native_nested.py --record \
+  --executable /tmp/fixed-native-build/runtime_nested_probe \
+  --candidate-python /path/to/cpp-hgraph/bin/python
+ctest --test-dir /tmp/fixed-native-build --output-on-failure
 /tmp/fixed-native-build/runtime_contract_probe
 ```

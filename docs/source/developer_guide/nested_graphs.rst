@@ -120,8 +120,17 @@ return a boundary input directly. This compiles to the ``ParentInput`` output
 binding kind: at runtime the outer node's forwarding output aliases whatever
 upstream output the outer *input* is bound to (re-resolved each cycle, cleared
 while the upstream is unbound). This is the RFC's ``alias_parent_input`` mode
-and is what identity branches of ``switch_`` / ``map_`` and component-style
-wrappers rely on.
+and is what identity children of ``map_`` and component-style wrappers rely
+on. ``switch_`` / ``dispatch_`` branches instead get a child terminal, so every
+branch uses the same terminal protocol. That terminal is the structural-REF
+node over the returned input (``graph_wiring_detail::reference_terminal_builder``).
+It publishes a reference to whatever the input is bound to: the upstream output,
+a composite over the upstream fields, or the upstream token when the input is
+itself a ``REF``. The switch then republishes that reference (``RefCopy``, see
+"``switch_`` output modes"). A value-copying terminal would give the passed-through
+series a new identity. A consumer re-pointed between the switch and the input it
+passed through would then see a different reference and re-tick a stale value;
+hgraph sees the same reference and does not.
 
 **Forwarding links are transparent parents.** Views projected THROUGH a
 forwarding link (a nested map's output operating on its element, a child
@@ -565,6 +574,22 @@ ts…)``).
   or compiles into a child graph; the caller chooses). All branches must
   produce the same output schema after dereferencing. If branches differ only
   in root ``REF``-ness, the switch output takes the ``REF`` shape.
+- **A branch that passes series through publishes their reference**
+  (``switch_branch_published_schema``, shared by ``switch_`` and
+  ``dispatch_``). This covers a boundary input returned unchanged, and a
+  composed structure whose structural-REF adapter references its fields
+  (``state.copy_with(done=True)``). Such a branch contributes ``REF<output>`` to
+  the rule above, so the switch takes the ``REF`` shape and copies that token.
+  This is the hgraph contract, where a ``switch_`` output is always
+  ``as_reference(output)``. A field passed straight through keeps the identity
+  of its upstream output, and a branch change ticks only the fields whose
+  series changed. A switch whose branches all compute values in nodes they own
+  keeps a value output (below), as does one whose branch ends in an
+  operator-authored REF terminal under a value declaration: that output
+  forwards to the terminal (the request/reply branch-flip contract, issues
+  #105/#117/#119/#133/#145, depends on it). A value terminal that already owns
+  forwarding topology, such as a ``map_`` result, keeps it under a REF-shaped
+  switch, which publishes a reference to that endpoint.
 - **The key is just a boundary input.** The outer switch node's inputs are
   ``[key, ts…]``. A branch consumes outer input ``0`` as the key only when its
   first parameter is named ``key``; non-key branch binding paths simply shift
@@ -589,10 +614,11 @@ ts…)``).
   runtime never re-derives it from a schema kind):
 
   ``RefCopy``
-     the output schema is a ``REF``: the switch copies the selected
-     terminal's reference token (a VALUE terminal is published as a peered
-     reference to it; whether a terminal is a reference is recorded on the
-     branch as ``output_terminal_is_reference``).
+     the output schema is a ``REF`` (some branch publishes a reference, see
+     above): the switch copies the selected terminal's reference token (a
+     VALUE terminal is published as a peered reference to it; whether a
+     terminal is a reference is recorded on the branch as
+     ``output_terminal_is_reference``).
   ``Forwarding``
      a value output where some branch needs its terminal preserved (a
      terminal at a sub-path): the switch output forwards to the active
@@ -644,7 +670,7 @@ ts…)``).
   sampled-input and lifecycle rules. This outputless path is covered alongside
   value-producing switches in ``tests/cpp/test_switch.cpp``.
 
-Tests: ``tests/cpp/test_switch.cpp``.
+Tests: ``tests/cpp/test_switch.cpp``, ``python/tests/test_switch_reference_identity.py``.
 
 
 ``map_``
