@@ -244,6 +244,15 @@ namespace hgl::wiring
             if (parent == nullptr) { return nullptr; }
             if (parent != hierarchy->parents[index]) { return disagrees("parent '" + std::string{parent->name()} + "'"); }
         }
+        // The bridge never sets these, so a registered schema that carries
+        // anything but the defaults is a different schema: it tags its
+        // polymorphic alternatives differently, which the non-recursive
+        // `bundle()` path already refuses.
+        if (existing->bundle_discriminator() != std::string_view{"__type__"}) { return disagrees("discriminator"); }
+        if (hierarchy->discriminator_value != nullptr &&
+            std::string_view{hierarchy->discriminator_value} != std::string_view{existing->name()}) {
+            return disagrees("discriminator value");
+        }
         if (hierarchy->generic_arguments.size() != specialization.generic_types.size()) {
             return disagrees("generic arguments");
         }

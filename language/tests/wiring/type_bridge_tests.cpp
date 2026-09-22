@@ -828,3 +828,41 @@ fn reading(order: atomic<shapes::Order>) -> atomic<shapes::Order> => order
     CHECK(rendered.find("checks.elsewhere.Venue") != std::string::npos);
     CHECK(rendered.find("package target") != std::string::npos);
 }
+
+TEST_CASE("a deep imported struct chain imports whole", "[wiring][types][struct-imports]") {
+    // A descriptor is an input: `A0` holding `A1` holding `A2` ... is as deep
+    // as the supplying module chose, and each hop is a SHALLOW type, so the
+    // per-type depth budget never fires -- only the number of hops grows.
+    //
+    // This pins the behaviour, not a crash. The depth at which a per-struct
+    // recursion would actually exhaust a stack is platform-dependent, and a
+    // test tuned to overflow one machine's is a flaky test, so the walk is
+    // iterative on the argument rather than on a reproduction.
+    constexpr std::size_t             depth = 1000;
+    hgl::semantics::ModuleCatalog     catalog;
+    hgl::semantics::ImportableModule  module;
+    module.identity = "checks.chain";
+    for (std::size_t index = 0; index < depth; ++index) {
+        hgl::semantics::ImportedStruct link;
+        link.module_identity = module.identity;
+        link.name            = "A" + std::to_string(index);
+        link.identity        = module.identity + ".A" + std::to_string(index);
+        link.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+        if (index + 1 < depth) {
+            link.fields.push_back({"next", symbol(module.identity + ".A" + std::to_string(index + 1)), false, false});
+        }
+        module.structs.push_back(std::move(link));
+    }
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_chain
+
+use checks.chain as shapes
+
+fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
+)",
+              catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}

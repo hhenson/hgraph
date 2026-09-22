@@ -418,14 +418,46 @@ namespace hgl::semantics
                 // source never mentions. Reachability is over parents and
                 // field types alike, which is the same closure the exporting
                 // module's export check walks.
-                for (const ImportedType &parent : record.parents) { bind_imported_closure(parent, record.identity, range); }
-                for (const ImportedStructField &field : record.fields) {
-                    bind_imported_closure(field.type, record.identity, range);
+                //
+                // Driven by a worklist rather than by recursing through this
+                // function: a descriptor is an input, and a valid acyclic
+                // chain `A0` holding `A1` holding `A2` ... is as deep as the
+                // supplying module chose. Each hop is shallow, so the
+                // per-type depth budget never fires; only the number of hops
+                // grows, and that would be the compiler's stack.
+                std::vector<ImportedStruct> work{record};
+                while (!work.empty()) {
+                    const ImportedStruct current = std::move(work.back());
+                    work.pop_back();
+                    std::vector<ImportedStruct> reached;
+                    for (const ImportedType &parent : current.parents) {
+                        reached_structs(parent, current.identity, range, reached);
+                    }
+                    for (const ImportedStructField &field : current.fields) {
+                        reached_structs(field.type, current.identity, range, reached);
+                    }
+                    for (const ImportedStruct &next : reached) {
+                        if (!next.support_error.empty()) {
+                            report(Category::Module, range,
+                                   "struct '" + next.identity + "' is unavailable: " + next.support_error);
+                            continue;
+                        }
+                        if (imported_struct_bindings_.contains(next.identity)) { continue; }
+                        Binding reached_binding;
+                        reached_binding.kind  = BindingKind::ImportedStruct;
+                        reached_binding.index = static_cast<std::uint32_t>(result_.imported_structs.size());
+                        result_.imported_structs.push_back(next);
+                        imported_struct_bindings_.emplace(next.identity, reached_binding);
+                        work.push_back(next);
+                    }
                 }
                 return binding;
             }
 
-            /// Binds every struct `type` reaches, at any depth (ADR 0013).
+            /// Collects every struct `type` reaches, at any depth (ADR 0013),
+            /// onto `found` rather than binding it here -- the inter-struct
+            /// walk is driven by a worklist in `imported_struct_binding`, so
+            /// the two recursions do not compound.
             ///
             /// A name it cannot find is REPORTED, not skipped: the module that
             /// declares it is missing from the supplied package target, so this
@@ -433,7 +465,8 @@ namespace hgl::semantics
             /// let `hgl check` finish against a field whose type nothing
             /// describes, and left direct wiring to fail later at an unknown
             /// nominal type -- a name the source never mentions.
-            void bind_imported_closure(const ImportedType &type, std::string_view owner, SourceRange range) {
+            void reached_structs(const ImportedType &type, std::string_view owner, SourceRange range,
+                                 std::vector<ImportedStruct> &found) {
                 if (!type.nominal_identity.empty()) {
                     const ImportedStruct *reached = catalog_.find_struct_by_identity(type.nominal_identity);
                     if (reached == nullptr) {
@@ -443,10 +476,10 @@ namespace hgl::semantics
                                    "rebuilt");
                         return;
                     }
-                    const ImportedStruct reached_copy = *reached;
-                    (void)imported_struct_binding(reached_copy, range);
+                    found.push_back(*reached);
+                    return;
                 }
-                for (const ImportedType &child : type.children) { bind_imported_closure(child, owner, range); }
+                for (const ImportedType &child : type.children) { reached_structs(child, owner, range, found); }
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
