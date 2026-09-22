@@ -245,14 +245,24 @@ namespace hgl::descriptor
         /// Only a same-module declaration can be consulted here; a cross-module
         /// ancestor's record lives in another descriptor, and an inherited
         /// default is refused rather than guessed at.
-        [[nodiscard]] const InterfaceDeclaration *structure_named(const ModuleDescriptor &descriptor,
-                                                                  std::string_view        identity) {
+        using StructureIndex = std::unordered_map<std::string_view, const InterfaceDeclaration *>;
+
+        /// Every structure declaration by identity. Built ONCE per descriptor:
+        /// scanning the interface per ancestry hop, per inherited field, per
+        /// declaration grew to O(N^4) identity comparisons on a long
+        /// single-inheritance chain (CLAUDE.md guardrail iv).
+        [[nodiscard]] StructureIndex structures_by_identity(const ModuleDescriptor &descriptor) {
+            StructureIndex index;
+            index.reserve(descriptor.interface.size());
             for (const InterfaceDeclaration &candidate : descriptor.interface) {
-                if (candidate.category == DeclarationCategory::Structure && candidate.identity == identity) {
-                    return &candidate;
-                }
+                if (candidate.category == DeclarationCategory::Structure) { index.emplace(candidate.identity, &candidate); }
             }
-            return nullptr;
+            return index;
+        }
+
+        [[nodiscard]] const InterfaceDeclaration *structure_named(const StructureIndex &index, std::string_view identity) {
+            const auto found = index.find(identity);
+            return found == index.end() ? nullptr : found->second;
         }
 
         /// Whether `origin` is genuinely an ancestor of `declaration`, walking
@@ -260,10 +270,13 @@ namespace hgl::descriptor
         /// name-space and happens to declare a same-named optional field
         /// proves nothing: dropping the child's field would leave no parent
         /// able to rebuild it.
-        [[nodiscard]] bool inherits_from(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
-                                         std::string_view origin) {
+        /// Every ancestor of `declaration`, walked once. A field's origin is
+        /// checked against this rather than re-walking the ancestry per field.
+        [[nodiscard]] std::unordered_set<std::string_view> ancestors_of(const ModuleDescriptor     &descriptor,
+                                                                       const StructureIndex       &index,
+                                                                       const InterfaceDeclaration &declaration) {
+            std::unordered_set<std::string_view>     seen;
             std::vector<const InterfaceDeclaration *> work{&declaration};
-            std::unordered_set<std::string_view>      seen{declaration.identity};
             while (!work.empty()) {
                 const InterfaceDeclaration *current = work.back();
                 work.pop_back();
@@ -271,20 +284,22 @@ namespace hgl::descriptor
                     if (parent == no_schema_id || parent >= descriptor.types.size()) { continue; }
                     const std::string &identity = descriptor.types[parent].nominal_identity;
                     if (identity.empty()) { continue; }
-                    if (identity == origin) { return true; }
-                    if (!seen.emplace(identity).second) { continue; }
-                    if (const InterfaceDeclaration *next = structure_named(descriptor, identity)) {
-                        work.push_back(next);
+                    const InterfaceDeclaration *next = structure_named(index, identity);
+                    if (!seen.emplace(next != nullptr ? std::string_view{next->identity} : std::string_view{identity})
+                             .second) {
+                        continue;
                     }
+                    if (next != nullptr) { work.push_back(next); }
                 }
             }
-            return false;
+            return seen;
         }
 
-        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
+        [[nodiscard]] bool declares_optional(const StructureIndex &index,
+                                             const std::unordered_set<std::string_view> &ancestors,
                                              std::string_view origin, std::string_view field) {
-            if (!inherits_from(descriptor, declaration, origin)) { return false; }
-            const InterfaceDeclaration *owner = structure_named(descriptor, origin);
+            if (!ancestors.contains(origin)) { return false; }
+            const InterfaceDeclaration *owner = structure_named(index, origin);
             if (owner == nullptr) { return false; }
             for (const StructField &declared : owner->fields) {
                 if (declared.name == field) { return declared.optional && declared.origin_identity == origin; }
@@ -293,6 +308,7 @@ namespace hgl::descriptor
         }
 
         [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
+                                                                const StructureIndex       &index,
                                                                 const InterfaceDeclaration &declaration) {
             semantics::ImportedStruct result;
             result.module_identity        = descriptor.module_identity;
@@ -345,6 +361,7 @@ namespace hgl::descriptor
                 }
                 result.parents.push_back(*type);
             }
+            const std::unordered_set<std::string_view> ancestors = ancestors_of(descriptor, index, declaration);
             for (const StructField &field : declaration.fields) {
                 // An inherited field arrives with the parent, which the importer
                 // rebuilds first; carrying it twice would duplicate it. A child
@@ -362,7 +379,7 @@ namespace hgl::descriptor
                     // is most families worth publishing.
                     if (field.default_value != no_schema_id &&
                         !(null_default(descriptor, field.default_value) && field.optional &&
-                          declares_optional(descriptor, declaration, field.origin_identity, field.name))) {
+                          declares_optional(index, ancestors, field.origin_identity, field.name))) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;
@@ -458,6 +475,7 @@ namespace hgl::descriptor
     std::optional<ReadError> add_to_catalog(const ModuleDescriptor &descriptor, semantics::ModuleCatalog &catalog) {
         if (const std::optional<ReadError> invalid = validate(descriptor)) { return invalid; }
 
+        const StructureIndex        structures = structures_by_identity(descriptor);
         semantics::ImportableModule module;
         module.identity               = descriptor.module_identity;
         module.descriptor_fingerprint = descriptor.descriptor_fingerprint;
@@ -474,7 +492,7 @@ namespace hgl::descriptor
         for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
             const InterfaceDeclaration &declaration = descriptor.interface[index];
             if (declaration.category != DeclarationCategory::Structure) { continue; }
-            auto structure = imported_struct(descriptor, declaration);
+            auto structure = imported_struct(descriptor, structures, declaration);
             if (structure.name.empty()) {
                 return ReadError{"$.interface[" + std::to_string(index) + "].identity",
                                  "struct identity must be '" + descriptor.module_identity + ".<name>'"};
