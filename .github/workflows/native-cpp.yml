@@ -43,7 +43,9 @@ jobs:
           version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
       - name: Start compiler cache before parallel compilation
         if: runner.environment == 'self-hosted'
-        run: sccache --show-stats
+        run: |
+          sccache --stop-server || true
+          sccache --start-server
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -290,7 +292,9 @@ jobs:
           version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
       - name: Start compiler cache before parallel compilation
         if: runner.environment == 'self-hosted'
-        run: sccache --show-stats
+        run: |
+          sccache --stop-server || true
+          sccache --start-server
       - name: Configure GCC 14
         shell: bash
         run: |
