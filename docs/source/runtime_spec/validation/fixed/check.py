@@ -67,15 +67,27 @@ def apply_decisions(assertions, decisions):
             assertion['rationale'] = decision['rationale']
 
 
+def verify_native_probe(provenance, root):
+    if 'native_probe' not in provenance:
+        return
+    probe = provenance['native_probe']
+    source = hashlib.sha256((root / 'native_probe.cpp').read_bytes()).hexdigest()
+    output = hashlib.sha256((root / 'native_observed.txt').read_bytes()).hexdigest()
+    assert probe['source_sha256'] == source, 'Native probe source changed after recording'
+    assert probe['stable'] is True and probe['replay_digests'] == [output] * 3, 'Native probe evidence is changed or unstable'
+
+
 def main():
     assertions = expand_assertions()
     evidence = json.loads((ROOT / 'observed.json').read_text())
     observed = evidence['cases']
     provenance = evidence['provenance']
+    verify_native_probe(provenance, ROOT)
     assert provenance['harness_base'] == BASE, 'Unexpected harness base'
-    reference = provenance['reference_identity']
-    content = {k: v for k, v in reference.items() if k != 'identity_sha256'}
-    assert hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest() == reference['identity_sha256'], 'Reference identity fingerprint differs'
+    for name in ('reference_identity', 'candidate_python_identity'):
+        package = provenance[name]
+        content = {k: v for k, v in package.items() if k != 'identity_sha256'}
+        assert hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest() == package['identity_sha256'], name + ' fingerprint differs'
     for field, filename in (('adapter_sha256', 'adapter.patch'), ('reasoning_sha256', 'reasoned.json')):
         assert provenance[field] == hashlib.sha256((ROOT / filename).read_bytes()).hexdigest(), filename + ' changed after recording'
     for case, sides in observed.items():

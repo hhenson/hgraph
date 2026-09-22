@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_tsl_owned_invalidate",
+  "description": "TS-24, TS-26: after valid publication, invalidate the entire owned output or every leaf of the assembled input. At t7 and idle t8 the root, children and grandchildren are invalid, unmodified, time never, nil value and nil delta; fixed bindings remain. Expectations written before this case was executed, using the user-ratified reset rule.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_tsl_owned_invalidate"
+  },
+  "features": []
+}

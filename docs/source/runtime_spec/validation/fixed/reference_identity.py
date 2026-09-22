@@ -1,4 +1,4 @@
-"""Fingerprint the selected Python reference's installed sources and artifacts."""
+"""Fingerprint an interpreter's installed hgraph sources and distribution artifacts."""
 import hashlib
 import importlib.metadata
 import json
@@ -20,10 +20,10 @@ def reference_identity(package, distribution):
             continue
         path = Path(distribution.locate_file(entry))
         if not path.is_file():
-            raise ValueError('Missing reference artifact: ' + str(entry))
+            raise ValueError('Missing package artifact: ' + str(entry))
         artifacts[entry.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     if not sources or not artifacts:
-        raise ValueError('Reference package sources and distribution artifacts are required')
+        raise ValueError('Package sources and distribution artifacts are required')
     content = {'version': distribution.version, 'sources_sha256': sources, 'artifacts_sha256': artifacts}
     return {**content, 'identity_sha256': hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()}
 
