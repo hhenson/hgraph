@@ -261,7 +261,9 @@ that runs it independently of an interactive login. Use the same root-owned
 repository event guard described above, including terminating rejected workers
 before unconditional workflow steps can run. On macOS, inspect worker ancestry
 through ``ps`` rather than Linux's ``/proc`` filesystem. Validate the rejection
-path on the actual host before enabling routing.
+path on the actual host before enabling routing. Keep the configured hook path
+free of spaces: the runner invokes it as shell text. A root-owned alias can
+provide a suitable path to a script in a directory containing spaces.
 
 The host needs a supported macOS version, a matching current Apple compiler and
 SDK, Python 3.12 in its writable Actions tool cache, and permission to debug its
