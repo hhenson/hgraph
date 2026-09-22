@@ -231,16 +231,40 @@ fields and never describes one itself, so an ordering slip is a diagnostic
 rather than a re-descent, and the alternative is a struct that silently loses
 every inherited field.
 
-**Realizing a chain is bounded and reported, not yet iterative.** Resolving,
-cycle-searching and lowering an imported closure all use a worklist, so the
-chain's length costs heap. Direct wiring's type bridge still descends one frame
-per nominal struct, and measured against a 20,000-link chain it exhausted the
-stack somewhere past ten thousand. Until realization follows the same worklist
-discipline, the bridge caps nominal nesting at 512 and reports the type it
-stopped on — the rule an untrusted descriptor's type nesting already follows.
-512 is far beyond any layout a schema would describe and safe on the smallest
-stack a supported platform gives. Making realization iterative is the standing
-follow-up; the cap is what stops a valid input crashing in the meantime.
+**Realization walks the chain on the heap too.** Resolving, cycle-searching,
+lowering and realizing an imported closure all use a worklist, so a chain's
+length costs heap at every stage. Direct wiring's type bridge used to descend
+one frame per nominal struct and exhausted the stack past ten thousand links.
+
+It now holds one invariant: **a struct is realized only once everything it can
+reach outside its own cycle is realized.** Describing it -- `bundle()`, or the
+batch describer a recursive closure calls -- then finds every nominal it asks
+for already realized, and no realization nests inside another. Reverse
+topological order over strongly connected components is exactly that order, so
+the bridge runs Tarjan's algorithm on an explicit stack over every edge
+`value()` follows: fields, parents, owned edges, and a nominal application's
+type arguments, which come *before* the application because specializing it
+realizes them. A component of more than one struct is a cycle, which only
+owned edges may form, so it is registered as one recursive batch; the
+registry's own closure stops at members already registered, so each batch
+touches only itself.
+
+The unit has to be the component. Each narrower unit left a chain that nested
+one frame per link: plain structs only (a link that owns an edge to itself
+recursed through the batch describer); then everything a batch's owned edges
+reach (an ordinary field pointing *into* that reach was skipped as already
+open); and argument edges were missing entirely (specializing `Box<A1>`
+realized `A1` from inside).
+
+The temporal schema walks the same closure on a worklist of its own, since it
+asks for the value type first and that has finished before it reaches a
+field's schema. It follows only the edges `schema()` follows with `schema()`:
+an `atomic<T>`, a set element, a map key and a rolling element take `value()`,
+so a struct there needs its value type only -- building its temporal bundle is
+not merely wasted, it fails for any struct holding a tuple. The memo holds only
+what the bridge itself registered, so it never replaces `bundle()`'s agreement
+check, and a realization that finds a struct it still has open reports it by
+name rather than recursing.
 
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an

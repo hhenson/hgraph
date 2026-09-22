@@ -7,30 +7,15 @@
 #include <chrono>
 #include <cstddef>
 #include <exception>
+#include <limits>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace hgl::wiring
 {
-    /// Counts the nominal structs currently being realized, so the chain's
-    /// length is answered by a diagnostic rather than by the stack. It is a
-    /// member of the bridge, not a thread-local: two bridges realize
-    /// independently, and nothing here is per-thread.
-    struct TypeBridge::NominalDepth
-    {
-        explicit NominalDepth(TypeBridge &bridge) : bridge_{bridge} { ++bridge_.nominal_depth_; }
-        NominalDepth(const NominalDepth &)            = delete;
-        NominalDepth &operator=(const NominalDepth &) = delete;
-        ~NominalDepth() { --bridge_.nominal_depth_; }
-
-        [[nodiscard]] bool within_bound() const { return bridge_.nominal_depth_ <= TypeBridge::max_nominal_depth; }
-
-      private:
-        TypeBridge &bridge_;
-    };
-
     namespace
     {
         namespace hir = ir::hir;
@@ -73,6 +58,10 @@ namespace hgl::wiring
         if (generation_ == current) { return; }
         values_.clear();
         schemas_.clear();
+        // The memos hold registry pointers, so a reset invalidates them along
+        // with everything else this bridge cached.
+        realized_.clear();
+        realized_schemas_.clear();
         types_      = hgraph::stdlib::register_standard_types(registry_);
         generation_ = registry_.reset_generation();
     }
@@ -337,20 +326,259 @@ namespace hgl::wiring
         }
     }
 
-    const hgraph::ValueTypeMetaData *TypeBridge::nominal_value(const hgraph_ir::Type &type, const Bindings &outer) {
-        const NominalDepth depth{*this};
-        if (!depth.within_bound()) {
-            report(type.range, "nominal type '" + type.nominal_identity + "' nests more than " +
-                                   std::to_string(max_nominal_depth) + " structs deep, which this bridge cannot realize");
-            return nullptr;
+    void TypeBridge::value_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
+                                 std::size_t depth) const {
+        if (!id.valid() || id.value >= module_.types.size()) { return; }
+        // Guards the walk over ONE type expression, which is all this
+        // descends. It is not the chain limit: a chain is hops between
+        // expressions, and the driver takes those on the heap.
+        if (depth >= 256U) { return; }
+        const hgraph_ir::Type &type = module_.types[id.value];
+        switch (type.kind) {
+            case hir::TypeKind::Symbol:
+                if (type.binding.valid()) {
+                    const auto generic = bindings.types.find(type.binding.value);
+                    if (generic != bindings.types.end() && generic->second != id) {
+                        value_edges(generic->second, bindings, out, depth + 1U);
+                        return;
+                    }
+                }
+                if (type.nominal_identity.empty()) { return; }
+                // ARGUMENTS FIRST: specializing `Box<A1>` realizes `A1` to name
+                // it, so `A1` has to be done before `Box<A1>` is reached, or
+                // specializing nests one realization per link.
+                for (const hgraph_ir::TypeArgument &argument : type.arguments) {
+                    if (argument.type) { value_edges(*argument.type, bindings, out, depth + 1U); }
+                }
+                out.push_back(id);
+                return;
+            // Exactly the kinds `value()` recurses into with `value()`.
+            case hir::TypeKind::Tuple:
+            case hir::TypeKind::List:
+            case hir::TypeKind::Set:
+            case hir::TypeKind::Map:
+            case hir::TypeKind::Atomic:
+                for (hgraph_ir::TypeId child : type.children) { value_edges(child, bindings, out, depth + 1U); }
+                return;
+            default: return;
         }
+    }
+
+    void TypeBridge::schema_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
+                                  std::size_t depth) const {
+        if (!id.valid() || id.value >= module_.types.size() || depth >= 256U) { return; }
+        const hgraph_ir::Type &type = module_.types[id.value];
+        switch (type.kind) {
+            case hir::TypeKind::Symbol:
+                if (type.binding.valid()) {
+                    const auto generic = bindings.types.find(type.binding.value);
+                    if (generic != bindings.types.end() && generic->second != id) {
+                        schema_edges(generic->second, bindings, out, depth + 1U);
+                        return;
+                    }
+                }
+                if (!type.nominal_identity.empty()) { out.push_back(id); }
+                return;
+            // Exactly the positions `schema()` recurses into with `schema()`.
+            // An `atomic<T>`, a set element, a map KEY and a rolling element
+            // take `value()` instead, so a struct there needs its value type
+            // only -- building its temporal bundle as well is not merely
+            // wasted, it fails for any struct holding a tuple.
+            case hir::TypeKind::List:
+            case hir::TypeKind::Reference:
+                if (!type.children.empty()) { schema_edges(type.children.front(), bindings, out, depth + 1U); }
+                return;
+            case hir::TypeKind::Map:
+                if (type.children.size() == 2U) { schema_edges(type.children[1], bindings, out, depth + 1U); }
+                return;
+            default: return;
+        }
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::realize_value_closure(Specialization root, syntax::SourceRange range) {
+        // THE INVARIANT: a struct is realized only once everything it can
+        // reach outside its own cycle is realized. Then describing it --
+        // `register_value`, or the batch describer inside `recursive_value` --
+        // finds every nominal it asks for in the memo, and no realization ever
+        // nests inside another. Reverse topological order over strongly
+        // connected components is exactly that order, so this is Tarjan's
+        // algorithm on an explicit stack, over every edge `value()` follows.
+        //
+        // A component with more than one member is a cycle, and only owned
+        // edges may form one (ADR 0012 rule 2 locally, ADR 0013's layout-cycle
+        // check for imports), so it is registered as one recursive batch. The
+        // earlier shapes of this driver approximated the invariant -- plain
+        // structs only, then whole reachability batches -- and each left a
+        // chain that nested one frame per link.
+        constexpr std::uint32_t unvisited = std::numeric_limits<std::uint32_t>::max();
+        struct Node
+        {
+            Specialization                 specialization{};
+            std::vector<hgraph_ir::TypeId> edges{};
+            std::uint32_t                  order{unvisited};
+            std::uint32_t                  low{unvisited};
+            bool                           on_stack{false};
+        };
+        struct Frame
+        {
+            std::uint32_t node{0};
+            std::size_t   next{0};
+        };
+        // Names this call has opened, released on every exit. Reaching one of
+        // them from a NESTED call means a nominal was needed before its own
+        // component closed -- only a cycle through a generic argument does
+        // that, which the checker refuses -- so it fails here, by name, instead
+        // of recursing without end.
+        struct Opened
+        {
+            std::unordered_set<std::string> &in_progress;
+            std::vector<std::string>         names{};
+            explicit Opened(std::unordered_set<std::string> &set) : in_progress{set} {}
+            Opened(const Opened &)            = delete;
+            Opened &operator=(const Opened &) = delete;
+            ~Opened() {
+                for (const std::string &name : names) { in_progress.erase(name); }
+            }
+        } opened{in_progress_};
+
+        std::vector<Node>                              nodes;
+        std::unordered_map<std::string, std::uint32_t> index;
+        std::vector<std::uint32_t>                     stack;
+        std::vector<Frame>                             frames;
+        std::uint32_t                                  next_order = 0;
+
+        const auto enter = [&](Specialization specialization) {
+            const auto id   = static_cast<std::uint32_t>(nodes.size());
+            std::string name = specialization.qualified();
+            Node        node{.specialization = std::move(specialization), .order = next_order, .low = next_order, .on_stack = true};
+            for (const hgraph_ir::StructField &field : node.specialization.contract->fields) {
+                value_edges(field.type, node.specialization.applied, node.edges);
+            }
+            for (hgraph_ir::TypeId parent : node.specialization.contract->parents) {
+                value_edges(parent, node.specialization.applied, node.edges);
+            }
+            index.emplace(name, id);
+            in_progress_.insert(name);
+            opened.names.push_back(std::move(name));
+            nodes.push_back(std::move(node));
+            ++next_order;
+            stack.push_back(id);
+            frames.push_back(Frame{id, 0});
+        };
+        // Registers one closed component. Everything it reaches outside
+        // itself is already in the memo.
+        const auto close = [&](const std::vector<std::uint32_t> &members) -> bool {
+            const Specialization &first     = nodes[members.front()].specialization;
+            const bool            recursive = members.size() > 1U || std::ranges::any_of(first.contract->fields, [](const hgraph_ir::StructField &field) {
+                                       return field.recursive;
+                                   });
+            if (!recursive) {
+                const hgraph::ValueTypeMetaData *meta = register_value(first, range);
+                if (meta == nullptr) { return false; }
+                realized_.insert_or_assign(first.qualified(), meta);
+                return true;
+            }
+            if (recursive_value(first, range) == nullptr) { return false; }
+            // `recursive_value` compared every member against the registry
+            // before and after the close, so none of these skips that check.
+            for (const std::uint32_t member : members) {
+                std::string                      name = nodes[member].specialization.qualified();
+                const hgraph::ValueTypeMetaData *meta = registry_.value_type(name);
+                if (meta == nullptr) {
+                    report(range, "recursive struct '" + name + "' was not registered with its batch");
+                    return false;
+                }
+                realized_.insert_or_assign(std::move(name), meta);
+            }
+            return true;
+        };
+
+        const std::string root_name = root.qualified();
+        enter(std::move(root));
+        while (!frames.empty()) {
+            const std::uint32_t current = frames.back().node;
+            if (const std::size_t next = frames.back().next++; next < nodes[current].edges.size()) {
+                const hgraph_ir::Type &type = module_.types[nodes[current].edges[next].value];
+                // Arguments come before their application in the edge list, so
+                // specializing here finds them in the memo.
+                std::optional<Specialization> target = specialize(type, nodes[current].specialization.applied);
+                if (!target) { return nullptr; }
+                const std::string name = target->qualified();
+                if (realized_.contains(name)) { continue; }
+                if (const auto found = index.find(name); found != index.end()) {
+                    // On the stack: a back edge into the open component. Off
+                    // it: a component this call already closed.
+                    if (nodes[found->second].on_stack) {
+                        nodes[current].low = std::min(nodes[current].low, nodes[found->second].order);
+                    }
+                    continue;
+                }
+                if (in_progress_.contains(name)) {
+                    report(type.range, "struct '" + name + "' is needed before its own layout is complete");
+                    return nullptr;
+                }
+                enter(std::move(*target));
+                continue;
+            }
+            frames.pop_back();
+            if (!frames.empty()) {
+                const std::uint32_t parent = frames.back().node;
+                nodes[parent].low          = std::min(nodes[parent].low, nodes[current].low);
+            }
+            if (nodes[current].low != nodes[current].order) { continue; }
+            std::vector<std::uint32_t> members;
+            std::uint32_t              member = unvisited;
+            do {
+                member = stack.back();
+                stack.pop_back();
+                nodes[member].on_stack = false;
+                members.push_back(member);
+            } while (member != current);
+            if (!close(members)) { return nullptr; }
+        }
+        const auto found = realized_.find(root_name);
+        return found == realized_.end() ? nullptr : found->second;
+    }
+
+    const hgraph::ValueTypeMetaData *TypeBridge::nominal_value(const hgraph_ir::Type &type, const Bindings &outer) {
         std::optional<Specialization> specialization = specialize(type, outer);
         if (!specialization) { return nullptr; }
-        if (std::ranges::any_of(specialization->contract->fields,
-                                [](const hgraph_ir::StructField &field) { return field.recursive; })) {
-            return recursive_value(std::move(*specialization), type.range);
+        if (const auto found = realized_.find(specialization->qualified()); found != realized_.end()) {
+            return found->second;
         }
-        return register_value(*specialization, type.range);
+        // Plain or recursive alike: both go through the driver, so neither
+        // kind of struct can take the chain's length onto the stack.
+        return realize_value_closure(std::move(*specialization), type.range);
+    }
+
+    /// The members of a recursive batch: `root` and every specialization its
+    /// recursive edges reach, root first. ONE walk, shared by the driver that
+    /// orders the batch's dependencies and by `recursive_value` that closes it,
+    /// so the two cannot disagree about what the batch is.
+    std::optional<std::vector<TypeBridge::Specialization>> TypeBridge::recursive_members(Specialization root) {
+        std::vector<Specialization>     members;
+        std::unordered_set<std::string> seen;
+        std::vector<Specialization>     work;
+        work.push_back(std::move(root));
+        while (!work.empty()) {
+            Specialization current = std::move(work.back());
+            work.pop_back();
+            if (!seen.insert(current.qualified()).second) { continue; }
+            // Realized already, by this bridge and against the registry: the
+            // driver closes components in reverse topological order, so what
+            // lies downstream of this batch is done. Collecting it again would
+            // make each batch pay for everything after it -- quadratic along a
+            // chain of batches.
+            if (!members.empty() && realized_.contains(current.qualified())) { continue; }
+            for (const hgraph_ir::StructField &field : current.contract->fields) {
+                if (!field.recursive) { continue; }
+                std::optional<Specialization> target = recursive_target(field, current.applied);
+                if (!target) { return std::nullopt; }
+                work.push_back(std::move(*target));
+            }
+            members.push_back(std::move(current));
+        }
+        return members;
     }
 
     /// Realizes a struct with recursive edges (ADR 0012) through hgraph's
@@ -372,23 +600,13 @@ namespace hgl::wiring
         // somebody else's `B` is as wrong as registering somebody else's `A`.
         // Comparing an edge by the target it NAMES is only sufficient because
         // the target is checked as a member in its own right.
+        std::optional<std::vector<Specialization>> members = recursive_members(std::move(root));
+        if (!members) { return nullptr; }
         std::unordered_map<std::string, Specialization> pending;
-        {
-            std::vector<Specialization> work;
-            work.push_back(std::move(root));
-            while (!work.empty()) {
-                Specialization    current = std::move(work.back());
-                const std::string name    = current.qualified();
-                work.pop_back();
-                if (pending.contains(name)) { continue; }
-                const Specialization &member = pending.emplace(name, std::move(current)).first->second;
-                for (const hgraph_ir::StructField &field : member.contract->fields) {
-                    if (!field.recursive) { continue; }
-                    std::optional<Specialization> target = recursive_target(field, member.applied);
-                    if (!target) { return nullptr; }
-                    work.push_back(std::move(*target));
-                }
-            }
+        pending.reserve(members->size());
+        for (Specialization &member : *members) {
+            std::string name = member.qualified();
+            pending.emplace(std::move(name), std::move(member));
         }
 
         // Every member that is already registered has to agree with this
@@ -455,16 +673,82 @@ namespace hgl::wiring
         }
     }
 
-    const hgraph::TSValueTypeMetaData *TypeBridge::nominal_schema(const hgraph_ir::Type &type, const Bindings &outer) {
-        // The temporal side descends the same chain independently -- it asks
-        // `nominal_value` first, but that guard has unwound by the time this
-        // recurses into a field's schema -- so it shares the counter.
-        const NominalDepth depth{*this};
-        if (!depth.within_bound()) {
-            report(type.range, "nominal type '" + type.nominal_identity + "' nests more than " +
-                                   std::to_string(max_nominal_depth) + " structs deep, which this bridge cannot realize");
-            return nullptr;
+    const hgraph::TSValueTypeMetaData *TypeBridge::realize_schema_closure(const hgraph_ir::Type &type, const Bindings &outer) {
+        // The temporal side descends a chain independently: it asks for the
+        // value type first, but that has finished by the time it reaches a
+        // field's schema, so it needs its own worklist. It follows only the
+        // edges `schema()` follows with `schema()`; everything else it touches
+        // is a value type, which realizing the root's value closure already did.
+        //
+        // No cycle can reach here -- a recursive field is an owner endpoint and
+        // is skipped, and an ordinary cycle is refused upstream -- so a
+        // post-order walk is enough; the value side needs components, this
+        // does not.
+        struct Frame
+        {
+            const hgraph_ir::Type         *type{nullptr};
+            Bindings                       outer{};
+            Bindings                       applied{};
+            std::string                    name{};
+            std::vector<hgraph_ir::TypeId> edges{};
+            std::size_t                    next{0};
+        };
+        const auto open = [&](const hgraph_ir::Type &source, const Bindings &bindings) -> std::optional<Frame> {
+            const hgraph::ValueTypeMetaData *meta = nominal_value(source, bindings);
+            if (meta == nullptr) { return std::nullopt; }
+            const hgraph_ir::StructContract *contract = structure(source.nominal_identity);
+            if (contract == nullptr) {
+                report(source.range, "unknown nominal type '" + source.nominal_identity + "'");
+                return std::nullopt;
+            }
+            std::optional<Bindings> applied = bind(source, *contract, bindings);
+            if (!applied) { return std::nullopt; }
+            Frame frame{.type = &source, .outer = bindings, .applied = std::move(*applied), .name = std::string{meta->name()}};
+            for (const hgraph_ir::StructField &field : contract->fields) {
+                // A recursive edge is an owner endpoint, not a nested schema.
+                if (field.recursive) { continue; }
+                schema_edges(field.type, frame.applied, frame.edges);
+            }
+            return frame;
+        };
+        std::optional<Frame> root = open(type, outer);
+        if (!root) { return nullptr; }
+        const std::string               root_name = root->name;
+        std::unordered_set<std::string> visiting{root_name};
+        std::vector<Frame>              stack;
+        stack.push_back(std::move(*root));
+        while (!stack.empty()) {
+            if (const std::size_t next = stack.back().next++; next < stack.back().edges.size()) {
+                const hgraph_ir::Type &edge = module_.types[stack.back().edges[next].value];
+                std::optional<Frame>   opened = open(edge, stack.back().applied);
+                if (!opened) { return nullptr; }
+                if (realized_schemas_.contains(opened->name) || !visiting.insert(opened->name).second) { continue; }
+                stack.push_back(std::move(*opened));
+                continue;
+            }
+            const Frame done = std::move(stack.back());
+            stack.pop_back();
+            const hgraph::TSValueTypeMetaData *built = register_schema(*done.type, done.outer);
+            if (built == nullptr) { return nullptr; }
+            realized_schemas_.insert_or_assign(done.name, built);
         }
+        const auto found = realized_schemas_.find(root_name);
+        return found == realized_schemas_.end() ? nullptr : found->second;
+    }
+
+    const hgraph::TSValueTypeMetaData *TypeBridge::nominal_schema(const hgraph_ir::Type &type, const Bindings &outer) {
+        const hgraph::ValueTypeMetaData *value_type = nominal_value(type, outer);
+        if (value_type == nullptr) { return nullptr; }
+        if (const auto found = realized_schemas_.find(std::string{value_type->name()}); found != realized_schemas_.end()) {
+            return found->second;
+        }
+        return realize_schema_closure(type, outer);
+    }
+
+    /// One struct's temporal schema, with every nominal its fields name already
+    /// realized -- so the `schema(field.type, ...)` calls below answer from the
+    /// memo instead of descending the chain again.
+    const hgraph::TSValueTypeMetaData *TypeBridge::register_schema(const hgraph_ir::Type &type, const Bindings &outer) {
         const hgraph_ir::StructContract *contract = structure(type.nominal_identity);
         if (contract == nullptr) {
             report(type.range, "unknown nominal type '" + type.nominal_identity + "'");
