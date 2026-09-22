@@ -327,8 +327,8 @@ implicit node. The generated package tests compile every example and execute a
 native-call fixture as C++.
 
 It reports unsupported forms before writing output: calls to other temporal
-HGL functions from runtime evaluation, non-scalar or opaque state/cache, mixed
-state/cache declarations, lifecycle access to temporal inputs or output,
+HGL functions from runtime evaluation, non-scalar or opaque state/cache,
+lifecycle access to temporal inputs or output,
 optional-field clearing in a sparse delta, generic constructor inference, typed
 `const` generic struct metadata, compound constant literals, runtime-node `if`
 used as a value, and zoned or civil literals. See the

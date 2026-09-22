@@ -1103,9 +1103,11 @@ source `start` and `stop` blocks become the corresponding static hooks and may
 likewise read state and `const` parameters, but not temporal inputs or output.
 All state variables share one typed state schema. Scalar cache variables lower
 separately through one native `State<>`: multiple fields use a generated struct.
-Shared graph-IR planning rejects mixed HGL state/cache declarations until their
-initialization and recovery lowering is implemented. Native static nodes already
-support both selectors.
+A function may declare both, and the two storages are planned independently --
+native static nodes admit one of each. `start` seeds a state field only when it
+is not already valid, so a restored value wins, and assigns every cache field
+its initializer unconditionally; that asymmetry is what separates recordable
+history from reconstructible data.
 
 The shared runtime plan identifies scheduler sources whose complete runtime
 state is their endpoints and pending alarms. Generated C++ gives these sources
@@ -1986,7 +1988,7 @@ deterministic (basenames, no timestamps).
 
 Unsupported forms fail closed before either generated file is written. These
 include calls to another temporal HGL function during runtime evaluation,
-non-scalar or opaque state/cache, mixed state/cache declarations, lifecycle
+non-scalar or opaque state/cache, lifecycle
 access to temporal inputs/output, optional-field clearing, generic constructor
 inference and typed `const` generic struct metadata, compound constant
 literals, runtime-node `if` used as a value, zoned/civil temporal literals, and

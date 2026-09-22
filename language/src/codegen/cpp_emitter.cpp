@@ -324,6 +324,7 @@ namespace hgl::codegen
             "defaults",
             "recordable_state",
             "hgl_state",
+            "hgl_cache",
             "hgl_output",
         };
 
@@ -4755,25 +4756,42 @@ namespace hgl::codegen
                 out.open("");
                 frame.reachable = hook_reachable(true, false, false);
                 prepare_runtime_frame(decl, info, frame, out, false, false, true);
-                for (const RuntimeState &state : info.states) {
-                    const Value &target = frame.planned_bindings.at(state.binding.value);
-                    const Value  init   = eval_planned_expr(state.init, frame);
-                    out.line(
-                        "if (!" + target.selector + ".valid()) { " + target.selector + ".set(" +
-                        as_runtime(init, planned_type(state.type, state.range), init.range, "initializer of '" + state.name + "'") +
-                        "); }");
-                }
-                for (const RuntimeState &cache : info.caches) {
+                // SOURCE ORDER, not states-then-caches. An initializer may name
+                // an earlier declaration of the other kind, and seeding every
+                // state before any cache made `cache seed = 7; state total =
+                // seed` read the cache slot before it was written -- no
+                // diagnostic, just the wrong value. Resolution already requires
+                // a declaration to precede its use, so declaration order is the
+                // order in which each dependency is ready.
+                struct Seeded
+                {
+                    const RuntimeState *entry{};
+                    bool                cache{};
+                };
+                std::vector<Seeded> seeded;
+                seeded.reserve(info.states.size() + info.caches.size());
+                for (const RuntimeState &state : info.states) { seeded.push_back({&state, false}); }
+                for (const RuntimeState &cache : info.caches) { seeded.push_back({&cache, true}); }
+                std::ranges::sort(seeded, {}, [](const Seeded &s) { return s.entry->declaration_order; });
+                for (const auto &[entry, cache_field] : seeded) {
+                    const Value init = eval_planned_expr(entry->init, frame);
+                    const std::string converted =
+                        as_runtime(init, planned_type(entry->type, entry->range), init.range,
+                                   "initializer of '" + entry->name + "'");
+                    if (!cache_field) {
+                        // A restored state field keeps its value; only an
+                        // unset one takes the initializer.
+                        const Value &target = frame.planned_bindings.at(entry->binding.value);
+                        out.line("if (!" + target.selector + ".valid()) { " + target.selector + ".set(" + converted + "); }");
+                        continue;
+                    }
                     // A cache is outside record/replay: every start rebuilds it
                     // from its initializer, restored or not (ADR 0011).
-                    const Value init = eval_planned_expr(cache.init, frame);
                     use("hgl_cache");
-                    const std::string converted =
-                        as_runtime(init, planned_type(cache.type, cache.range), init.range, "initializer of '" + cache.name + "'");
                     if (info.caches.size() == 1) {
                         out.line("hgl_cache.set(" + converted + ");");
                     } else {
-                        out.line(frame.planned_bindings.at(cache.binding.value).assignment_target + " = " + converted + ";");
+                        out.line(frame.planned_bindings.at(entry->binding.value).assignment_target + " = " + converted + ";");
                     }
                 }
                 for (gir::BlockId block : info.start_blocks) { emit_runtime_block(block, frame, out, planned.range); }

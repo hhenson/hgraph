@@ -3151,7 +3151,7 @@ export fn evaluations(value: i64) -> i64 {
     CHECK(contains(emitted->header, "hgl_output.set(hgl_cache.get());"));
 }
 
-TEST_CASE("emit-cpp reports the native limits on cache declarations", "[codegen][runtime][cache]") {
+TEST_CASE("emit-cpp aggregates cache declarations into one native slot", "[codegen][runtime][cache]") {
     Unit second{R"(
 module checks.two_caches
 export fn f(value: i64) -> i64 {
@@ -3171,6 +3171,15 @@ export fn f(value: i64) -> i64 {
     CHECK(contains(emitted->header, "hgraph::State<hgl_cache_fields>"));
     CHECK(contains(emitted->header, "hgl_cache.modify().field_"));
 
+}
+
+// ADR 0008 keeps the two storages apart: `state` is recordable and restored
+// before `start`, `cache` is reconstructible and rebuilt BY `start`. hgraph
+// admits one of each on a node (`static_node.h`, `state_count() <= 1` and
+// `recordable_state_count() <= 1` are separate asserts), so a function
+// declaring both lowers to both selectors rather than being refused.
+TEST_CASE("emit-cpp lowers a function declaring both state and cache to both selectors",
+          "[codegen][runtime][cache]") {
     Unit mixed{R"(
 module checks.cache_beside_state
 export fn f(value: i64) -> i64 {
@@ -3183,8 +3192,83 @@ export fn f(value: i64) -> i64 {
     }
 }
 )"};
-    CHECK_FALSE(mixed.emit());
-    CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
+    const auto emitted = mixed.emit();
+    INFO(mixed.diagnostics.render(mixed.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "using recordable_state = hgraph::TSB<\"checks.cache_beside_state.f.state\""));
+    CHECK(contains(emitted->header,
+                   "static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgraph::Int> hgl_cache)"));
+    // The asymmetry is the contract: a restored state keeps its value, a cache
+    // is rebuilt whatever it held.
+    CHECK(contains(emitted->header, "if (!total.valid()) { total.set(hgraph::Int{0}); }"));
+    CHECK(contains(emitted->header, "hgl_cache.set(hgraph::Int{0});"));
+}
+
+// Initializers run in DECLARATION order, not states-then-caches: a state
+// initializer may name an earlier cache and a cache may be rebuilt from an
+// earlier state, and only source order makes both hold.
+TEST_CASE("emit-cpp seeds state and cache in declaration order", "[codegen][runtime][cache]") {
+    Unit first{R"(
+module checks.cache_before_state
+export fn f(x: i64) -> i64 {
+    cache seed: i64 = 7
+    state total: i64 = seed
+    when modified(x) && valid(x) {
+        total += x
+        return total
+    }
+}
+)"};
+    const auto cache_first = first.emit();
+    INFO(first.diagnostics.render(first.file));
+    REQUIRE(cache_first);
+    const auto seed_at  = cache_first->header.find("hgl_cache.set(hgraph::Int{7});");
+    const auto total_at = cache_first->header.find("if (!total.valid())");
+    REQUIRE(seed_at != std::string::npos);
+    REQUIRE(total_at != std::string::npos);
+    CHECK(seed_at < total_at);
+
+    Unit second{R"(
+module checks.state_before_cache
+export fn f(x: i64) -> i64 {
+    state total: i64 = 3
+    cache derived: i64 = total
+    when modified(x) && valid(x) {
+        total += x
+        return derived
+    }
+}
+)"};
+    const auto state_first = second.emit();
+    INFO(second.diagnostics.render(second.file));
+    REQUIRE(state_first);
+    const auto seeded_at   = state_first->header.find("if (!total.valid())");
+    const auto rebuilt_at  = state_first->header.find("hgl_cache.set(total.value()");
+    REQUIRE(seeded_at != std::string::npos);
+    REQUIRE(rebuilt_at != std::string::npos);
+    CHECK(seeded_at < rebuilt_at);
+}
+
+// `hgl_state` and `hgl_output` were already reserved; `hgl_cache` was not, so
+// a parameter spelled that way emitted two parameters of the same name and the
+// generated C++ did not compile.
+TEST_CASE("emit-cpp renames a source identifier that collides with the cache selector",
+          "[codegen][runtime][cache]") {
+    Unit unit{R"(
+module checks.cache_name_clash
+export fn f(hgl_cache: i64) -> i64 {
+    cache count: i64 = 0
+    when modified(hgl_cache) && valid(hgl_cache) {
+        count += 1
+        return hgl_cache + count
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgl_cache_"));
+    CHECK(contains(emitted->header, "hgraph::State<hgraph::Int> hgl_cache"));
 }
 
 // ADR 0012: an edge is an `Edge<T>` field, and one `TS<Edge<T>>` endpoint in

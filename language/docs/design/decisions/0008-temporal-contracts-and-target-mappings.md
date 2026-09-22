@@ -256,9 +256,11 @@ A node may need both recordable history and a derived cache. The
 [C++ static-node API](../../../../include/hgraph/types/static_node.h) supports one
 `State` and one `RecordableState` together, with independent planned storage.
 Checkpoint restoration precedes `start`, which rebuilds the fresh cache. HGL
-scalar cache declarations and aggregation are implemented; HGL mixed state/cache
-lowering and generic native cache construction remain separate implementation
-work. Shared graph-IR admission continues to reject the mixed HGL case.
+scalar cache declarations, aggregation and mixed state/cache lowering are
+implemented; generic native cache construction remains separate implementation
+work. Shared graph-IR admission no longer rejects the mixed HGL case: a function
+may declare both, and the generated node carries one `RecordableState` and one
+`State` with independent planned storage.
 
 For **HGL-MIG-005**, this settles the reconstructible-cache distinction, not
 generic recordable-state construction. Non-default-constructible generic

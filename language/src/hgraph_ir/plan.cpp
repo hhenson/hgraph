@@ -610,11 +610,12 @@ namespace hgl::hgraph_ir
                                 backend(binding.range, "a generated runtime state field needs an initializer");
                             }
                             (node.cache ? info.caches : info.states)
-                                .push_back(RuntimeState{.binding = node.binding,
-                                                        .name    = binding.name,
-                                                        .type    = node.type,
-                                                        .init    = node.init,
-                                                        .range   = binding.range});
+                                .push_back(RuntimeState{.binding           = node.binding,
+                                                        .name              = binding.name,
+                                                        .type              = node.type,
+                                                        .init              = node.init,
+                                                        .range             = binding.range,
+                                                        .declaration_order = info.states.size() + info.caches.size()});
                         } else if constexpr (std::is_same_v<T, gir::Inject>) {
                             for (gir::BindingId binding_id : node.bindings) {
                                 const gir::Binding &binding = planned_binding(binding_id, statement.range);
@@ -701,11 +702,6 @@ namespace hgl::hgraph_ir
             }
             if (info.uses_scheduled && !info.scheduler_binding.valid()) {
                 backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
-            }
-            if (!info.caches.empty() && !info.states.empty()) {
-                fail(Category::Type, info.caches.front().range,
-                     "'cache' and 'state' cannot be combined in one runtime function yet: HGL mixed state/cache "
-                     "lowering is not implemented");
             }
             if (temporal_count == 0 && !info.scheduler_binding.valid()) {
                 // A source with nothing to activate it never evaluates (ADR 0010).
