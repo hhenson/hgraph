@@ -174,7 +174,17 @@ namespace
         box.generics        = {{"T", "checks.shapes.Box::T", false, {}}};
         box.fields          = {{"value", parameter, false, false}};
 
-        module.structs = {std::move(base), std::move(venue), std::move(box)};
+        // A parameter NO field constrains, so a bare constructor has nothing
+        // to infer from.
+        hgl::semantics::ImportedStruct tag;
+        tag.module_identity = module.identity;
+        tag.name            = "Tag";
+        tag.identity        = "checks.shapes.Tag";
+        tag.public_headers  = {"checks/shapes.h"};
+        tag.generics        = {{"T", "checks.shapes.Tag::T", false, {}}};
+        tag.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        module.structs = {std::move(base), std::move(venue), std::move(box), std::move(tag)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -3407,4 +3417,36 @@ export fn build(v: i64) -> atomic<shapes::Box<i64>> => shapes::Box<i64>(value: v
                              catalog};
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported generic constructor infers its arguments, or says which it cannot",
+          "[codegen][struct-imports]") {
+    // The same answer a local struct gives. Returning the constructor
+    // unapplied let the program pass type checking and fail in the backend
+    // with "constructed type ... is missing a generic type argument" --
+    // against generated code the author never wrote.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("inferred from an argument") {
+        Unit unit{R"(
+module checks.import_infer
+
+use checks.shapes as shapes
+
+export fn make(v: i64) -> i64 => shapes::Box(value: v).value
+)",
+                  catalog};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    SECTION("no field constrains the parameter, so it is rejected here") {
+        Unit unit{R"(
+module checks.import_uninferable
+
+use checks.shapes as shapes
+
+export fn make() -> i64 => shapes::Tag(id: 1).id
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "cannot infer generic 'T' for struct constructor"));
+    }
 }
