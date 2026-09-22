@@ -245,14 +245,49 @@ namespace hgl::descriptor
         /// Only a same-module declaration can be consulted here; a cross-module
         /// ancestor's record lives in another descriptor, and an inherited
         /// default is refused rather than guessed at.
-        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, std::string_view origin,
-                                             std::string_view field) {
+        [[nodiscard]] const InterfaceDeclaration *structure_named(const ModuleDescriptor &descriptor,
+                                                                  std::string_view        identity) {
             for (const InterfaceDeclaration &candidate : descriptor.interface) {
-                if (candidate.category != DeclarationCategory::Structure || candidate.identity != origin) { continue; }
-                for (const StructField &declared : candidate.fields) {
-                    if (declared.name == field) { return declared.optional && declared.origin_identity == origin; }
+                if (candidate.category == DeclarationCategory::Structure && candidate.identity == identity) {
+                    return &candidate;
                 }
-                return false;
+            }
+            return nullptr;
+        }
+
+        /// Whether `origin` is genuinely an ancestor of `declaration`, walking
+        /// the parents this descriptor records. A struct that merely shares a
+        /// name-space and happens to declare a same-named optional field
+        /// proves nothing: dropping the child's field would leave no parent
+        /// able to rebuild it.
+        [[nodiscard]] bool inherits_from(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
+                                         std::string_view origin) {
+            std::vector<const InterfaceDeclaration *> work{&declaration};
+            std::unordered_set<std::string_view>      seen{declaration.identity};
+            while (!work.empty()) {
+                const InterfaceDeclaration *current = work.back();
+                work.pop_back();
+                for (const SchemaId parent : current->parents) {
+                    if (parent == no_schema_id || parent >= descriptor.types.size()) { continue; }
+                    const std::string &identity = descriptor.types[parent].nominal_identity;
+                    if (identity.empty()) { continue; }
+                    if (identity == origin) { return true; }
+                    if (!seen.emplace(identity).second) { continue; }
+                    if (const InterfaceDeclaration *next = structure_named(descriptor, identity)) {
+                        work.push_back(next);
+                    }
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, const InterfaceDeclaration &declaration,
+                                             std::string_view origin, std::string_view field) {
+            if (!inherits_from(descriptor, declaration, origin)) { return false; }
+            const InterfaceDeclaration *owner = structure_named(descriptor, origin);
+            if (owner == nullptr) { return false; }
+            for (const StructField &declared : owner->fields) {
+                if (declared.name == field) { return declared.optional && declared.origin_identity == origin; }
             }
             return false;
         }
@@ -327,7 +362,7 @@ namespace hgl::descriptor
                     // is most families worth publishing.
                     if (field.default_value != no_schema_id &&
                         !(null_default(descriptor, field.default_value) && field.optional &&
-                          declares_optional(descriptor, field.origin_identity, field.name))) {
+                          declares_optional(descriptor, declaration, field.origin_identity, field.name))) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;

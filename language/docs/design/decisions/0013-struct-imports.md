@@ -155,9 +155,12 @@ That field is dropped and rebuilt from the parent's record, so an override
 would be lost; but a null the *declaring* struct already carries is not an
 override, and refusing it would make every child of a family with an optional
 field unimportable — which is most families worth publishing. So an inherited
-null crosses when the struct that declares the field marks it optional too,
-and is refused otherwise, including when that declaration is in another
-module's descriptor and cannot be consulted.
+null crosses when the struct that declares the field is a genuine **ancestor**
+and marks the field optional too, and is refused otherwise — including when
+that declaration is in another module's descriptor and cannot be consulted.
+The ancestry matters on its own: an origin that merely shares a name-space and
+happens to declare a same-named optional field leaves no parent able to
+rebuild the dropped field.
 
 A generic struct's `where` requirement **does** cross (owner's ruling): the
 descriptor's normalized constraint graph rebuilds into `ImportedStruct::
