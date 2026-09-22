@@ -1476,9 +1476,13 @@ namespace hgl::semantics
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::ConstraintName>) {
                             const std::optional<Binding> binding = lookup(node.name.text);
+                            // A struct another module exports names a type in
+                            // a constraint exactly as a local one does
+                            // (ADR 0013) -- `U == Quote`, `fields(Quote)`.
                             if (!binding ||
                                 (binding->kind != BindingKind::Generic && binding->kind != BindingKind::ConstraintLocal &&
-                                 binding->kind != BindingKind::Parameter && binding->kind != BindingKind::Struct)) {
+                                 binding->kind != BindingKind::Parameter && binding->kind != BindingKind::Struct &&
+                                 binding->kind != BindingKind::ImportedStruct)) {
                                 report(Category::Name, node.name.range,
                                        "unknown constraint name '" + std::string{node.name.text} + "'");
                             } else {

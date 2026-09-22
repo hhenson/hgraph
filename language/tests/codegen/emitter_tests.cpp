@@ -3310,3 +3310,30 @@ export fn venue_code(venue: atomic<shapes::Venue>) -> i64 => code_of(venue)
     INFO(unit.diagnostics.render(unit.file));
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
+
+TEST_CASE("an imported struct can be named directly in a reflection constraint", "[codegen][struct-imports]") {
+    // `use m::{Venue}` then `Venue is struct` / `fields(Venue)` /
+    // `field_type(Venue, "code")`. Two gates excluded it: the resolver's
+    // constraint-name check and the solver's type-operand conversion, both of
+    // which accepted only a LOCAL struct symbol -- so the imported branch in
+    // the field walk was never reached for this spelling, although the
+    // qualified one worked.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_named_constraint
+
+use checks.shapes::{Venue}
+
+fn coded<U>(value: atomic<U>) -> i64
+requires Venue is struct
+      && has_fields(Venue, {"code"})
+      && field_type(Venue, "code") == i64
+      && U is struct
+=> 1
+
+export fn go(v: atomic<Venue>) -> i64 => coded(v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
