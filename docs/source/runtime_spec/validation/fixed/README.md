@@ -1,6 +1,6 @@
 # Fixed-collection comparisons
 
-Status: 36 scenarios recorded on 2026-09-22; user rulings recorded the same
+Status: 44 scenarios recorded on 2026-09-22; user rulings recorded the same
 day. The contract decisions are settled; runtime implementation is unchanged.
 
 Each scenario ran three times in separate Python and C++ processes. All replay
@@ -10,9 +10,9 @@ with Python observer nodes. [observed.json](observed.json) records binary
 hashes and source context. Original expectations and measurements are retained;
 [decisions.json](decisions.json) records the rulings and changed expectations.
 
-Of 8,966 observations, 8,621 match both runtimes, 283 match one, and eight are
+Of 12,142 observations, 11,375 match both runtimes, 439 match one, and ten are
 accepted by explicit ruling despite neither runtime matching. Python's bundle-
-invalidation exception leaves 54 observations unvalidated. Acceptance is per
+invalidation exceptions leave 318 observations unvalidated. Acceptance is per
 observation; these counts do not establish whole-case conformance.
 
 ## Accepted contracts and variations
@@ -42,6 +42,14 @@ Whole invalidation and rebinding to invalid targets still reset cached state.
 
 ## Invalidation boundary
 
+Eight `*_invalidate` cases cover every two-level TSL/TSB shape, owned and
+assembled. After all four leaves are valid, t7 invalidates the owned root or
+all independently bound leaves; t8 is idle. Both cycles assert reset state at
+the root, both children and all four grandchildren. The existing TS-26 ruling
+supplies the expectation; no runtime result was used to generate it.
+Python stops at t7 in the three owned shapes containing TSB. Their 264 missing
+observations join the original 54; C++'s later observations do not fill them.
+
 In `*_assembled`, left becomes invalid at t4 while right stays valid. The
 invalid child view and parent read modified at t4; the parent delta is empty.
 At t5 right also becomes invalid: the whole structure and all local child
@@ -63,7 +71,7 @@ exception remain missing, even where C++ matches the chosen contract.
   extra fields as well as missing ones. It can print the full assertion list.
 - [observed.json](observed.json), [assessment.json](assessment.json): raw
   logical states, comparison counts and every non-unanimous observation. `python check.py`
-  regenerates the assessment and exits 1 for the 54 missing observations.
+  regenerates the assessment and exits 1 for the 318 missing observations.
 - [decisions.json](decisions.json): explicit user rulings, rule IDs and prior/new
   expectations. The checker retains the raw comparison and cannot use a ruling
   to fill absent evidence.
