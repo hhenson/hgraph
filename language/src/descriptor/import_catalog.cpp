@@ -241,6 +241,22 @@ namespace hgl::descriptor
                    std::holds_alternative<ir::hir::NullValue>(*record.literal);
         }
 
+        /// Whether the struct that DECLARES `field` already marks it optional.
+        /// Only a same-module declaration can be consulted here; a cross-module
+        /// ancestor's record lives in another descriptor, and an inherited
+        /// default is refused rather than guessed at.
+        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, std::string_view origin,
+                                             std::string_view field) {
+            for (const InterfaceDeclaration &candidate : descriptor.interface) {
+                if (candidate.category != DeclarationCategory::Structure || candidate.identity != origin) { continue; }
+                for (const StructField &declared : candidate.fields) {
+                    if (declared.name == field) { return declared.optional && declared.origin_identity == origin; }
+                }
+                return false;
+            }
+            return false;
+        }
+
         [[nodiscard]] semantics::ImportedStruct imported_struct(const ModuleDescriptor     &descriptor,
                                                                 const InterfaceDeclaration &declaration) {
             semantics::ImportedStruct result;
@@ -301,13 +317,17 @@ namespace hgl::descriptor
                 // the override lives only here, so dropping the field silently
                 // would rebuild the parent's default instead of the child's.
                 if (!field.origin_identity.empty() && field.origin_identity != declaration.identity) {
-                    // The null exemption does NOT apply here. This field is
-                    // dropped and rebuilt from the parent's record, so a child
-                    // that overrides an inherited default with null would lose
-                    // the override -- the parent's requiredness would win, and
-                    // the rebuilt constructor would refuse a call the exporting
-                    // module accepts.
-                    if (field.default_value != no_schema_id) {
+                    // This field is dropped and rebuilt from the parent's
+                    // record, so a child that OVERRIDES an inherited default
+                    // would lose the override. A null default that the
+                    // declaring struct already carries is not an override: the
+                    // parent's record says the same thing, so nothing is lost
+                    // by dropping it -- and refusing it would make every child
+                    // of a family with an optional field unimportable, which
+                    // is most families worth publishing.
+                    if (field.default_value != no_schema_id &&
+                        !(null_default(descriptor, field.default_value) && field.optional &&
+                          declares_optional(descriptor, field.origin_identity, field.name))) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;

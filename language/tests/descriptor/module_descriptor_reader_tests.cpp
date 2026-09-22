@@ -1632,3 +1632,53 @@ TEST_CASE("catalog carries a null default only where the descriptor agrees", "[d
         CHECK(imported->support_error == "imported struct field defaults require catalog constant reconstruction");
     }
 }
+
+// A child that merely INHERITS an optional field is not overriding anything,
+// so dropping its copy of the default loses nothing -- and refusing it would
+// make every child of a family with an optional field unimportable.
+TEST_CASE("an inherited null the parent already declares crosses", "[descriptor][catalog][structs]") {
+    const auto build = [](bool parent_optional) {
+        auto source  = minimal_descriptor();
+        source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+        source.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .category = descriptor::ConstantExpressionCategory::Literal,
+            .literal  = hgl::ir::hir::Constant{hgl::ir::hir::NullValue{}}}};
+        descriptor::InterfaceDeclaration base;
+        base.category = descriptor::DeclarationCategory::Structure;
+        base.identity = "checks.reader.Base";
+        base.abstract = true;
+        base.fields   = {{"note", 0U, 0U, "checks.reader.Base", parent_optional, false}};
+
+        descriptor::InterfaceDeclaration leaf;
+        leaf.category = descriptor::DeclarationCategory::Structure;
+        leaf.identity = "checks.reader.Leaf";
+        leaf.fields   = {{"note", 0U, 0U, "checks.reader.Base", true, false},
+                         {"extra", 0U, descriptor::no_schema_id, "checks.reader.Leaf", false, false}};
+
+        source.interface = {std::move(base), std::move(leaf)};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        return source;
+    };
+
+    SECTION("the declaring struct marks it optional, so nothing is overridden") {
+        auto                          source = build(/*parent_optional=*/true);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error.empty());
+    }
+
+    SECTION("the declaring struct marks it REQUIRED, so the child is overriding") {
+        // Dropping the child's field here would rebuild the parent's
+        // requiredness and refuse a call the exporting module accepts.
+        auto                          source = build(/*parent_optional=*/false);
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto *imported = catalog.find_struct("checks.reader", "Leaf");
+        REQUIRE(imported != nullptr);
+        CHECK(imported->support_error ==
+              "imported struct inherited field defaults require catalog constant reconstruction");
+    }
+}

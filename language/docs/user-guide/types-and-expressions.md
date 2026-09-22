@@ -410,9 +410,15 @@ supplies (`hgl check --module-descriptor`, or the `LINK_LIBRARIES` of
 refused by name rather than rebuilt short, and today that includes any struct
 with a **field default other than `null`** — the descriptor records the
 default, but the catalog cannot yet reconstruct its value, so `Quote` above,
-with `currency: str = "USD"`, is not importable. `= null` does cross, because
-it says the field is optional and carries no value to rebuild; that is also
-what lets a recursive struct import, since its edge must be declared `= null`.
+with `currency: str = "USD"`, is not importable.
+
+`= null` does cross, because it says the field is optional and carries no
+value to rebuild — and that is what lets a recursive struct import, since its
+edge must be declared `= null`. It crosses on the struct that **declares** the
+field, and on a child that merely inherits it. What does not cross is a child
+**overriding** an inherited default: the child's copy of the field is rebuilt
+from the parent's record, so an override would be lost rather than rebuilt
+short.
 
 `examples/struct-imports/` is the pair end to end: `market-data.hgl` publishes
 the shape and `instrument-book.hgl` imports it, extends the family and builds
