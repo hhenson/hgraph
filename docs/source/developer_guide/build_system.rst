@@ -18,6 +18,11 @@ Current Targets
 ``hgraph_core``
     Core runtime target. This is exported publicly as ``hgraph::core``.
 
+With ``BUILD_TESTING`` and ``HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS`` enabled on
+Unix, the runtime also emits debug information. Debugger navigation needs
+endpoint and notification-target types defined outside the test fixture.
+Release optimization and IPO remain enabled; normal builds are unaffected.
+
 Third-Party Dependencies
 ------------------------
 

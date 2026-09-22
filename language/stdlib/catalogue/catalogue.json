@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "scope": "core library with separate extension source inventory",
-  "source_fingerprint": "78f0b6a26d08a48934cf3bfabb8bae288c1e0e048061835059e1c68eaa95ef2f",
+  "source_fingerprint": "67a752eb2e156bba15296b941f95381d5ddfde25f52bb52e3f1d6841626d3680",
   "blockers": {
     "B1": {
       "priority": 1,
@@ -577,53 +577,6 @@
           "kwargs_type": null,
           "output": null,
           "id": "__log_sink:e4b2edbb19f1"
-        }
-      ],
-      "hgl": [],
-      "core_cutover": "deferred"
-    },
-    {
-      "name": "__materialize",
-      "review": {
-        "status": "native-provider",
-        "priority": 3,
-        "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
-        "completed_domains": [],
-        "blockers": [
-          "B2",
-          "B5"
-        ],
-        "evidence": [
-          "include/hgraph/lib/std/operators/impl/stream_impl.h"
-        ]
-      },
-      "declarations": [],
-      "registration_sites": [],
-      "registry_candidates": [
-        {
-          "parameters": [
-            {
-              "name": "ts",
-              "kind": "temporal",
-              "type": "~S",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 1,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "~S",
-          "id": "__materialize:1b455ef796ca"
         }
       ],
       "hgl": [],
@@ -8025,7 +7978,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "downcast_bundle_impl",
+          "implementation": "convert_bundle_downcast_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -43593,7 +43546,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4107
+      "line": 4147
     },
     {
       "operator": "Operator",
@@ -43601,7 +43554,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4108
+      "line": 4148
     },
     {
       "operator": "Operator",
@@ -43609,7 +43562,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4109
+      "line": 4149
     },
     {
       "operator": "Operator",
@@ -43617,7 +43570,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4110
+      "line": 4150
     },
     {
       "operator": "Operator",
@@ -43625,7 +43578,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4117
+      "line": 4157
     },
     {
       "operator": "Operator",
@@ -43633,7 +43586,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4118
+      "line": 4158
     },
     {
       "operator": "Operator",
@@ -43641,7 +43594,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4119
+      "line": 4159
     },
     {
       "operator": "Operator",
@@ -43649,7 +43602,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4120
+      "line": 4160
     },
     {
       "operator": "Operator",
@@ -47181,7 +47134,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "downcast_bundle_impl",
+      "implementation": "convert_bundle_downcast_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
