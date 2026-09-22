@@ -78,10 +78,11 @@ base plus adapter, including contents and file modes. It then runs an isolated
 copy of that exact tree; ignored files in the supplied checkout cannot enter
 its imports. The resulting tree and file-manifest identities are recorded.
 
-The reference probe hashes the actual package sources, including editable
-sources, and installed distribution artifacts. Version alone does not identify
-the baseline. Bytecode caches are excluded. Identity is checked before and
-after replay; an identity change rejects the replay.
+Both interpreters hash the actual hgraph package sources, including editable
+sources, and installed distribution artifacts. The candidate also hashes its
+native binaries. Version or Git HEAD alone does not identify either runtime.
+Bytecode caches are excluded. Both identities are captured before and after
+replay; a change rejects the run before replacing the published evidence.
 
 Interpreter and harness paths are trusted local configuration: they select code
 to execute, never recipe data. Paths are made absolute without resolving venv
