@@ -78,8 +78,8 @@ The agreed extension adds [value-level `const fn`](functions.md#value-level-func
 for direct computations without independent ticks, and
 [reconstructible caches](functions.md#reconstructible-cache) for node-local
 data excluded from record/replay. Local fixed-arity value functions and
-[default lifting](value-functions.md) are implemented, as are scalar caches. Mixed `state`/`cache` and non-scalar
-cache storage remain unsupported.
+[default lifting](value-functions.md) are implemented, as are scalar caches,
+including beside `state`. Non-scalar cache storage remains unsupported.
 `const fn` does not mean compile-time-only or pure; its role is distinct from
 parameter-level `const`.
 

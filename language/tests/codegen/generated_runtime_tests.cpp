@@ -298,6 +298,32 @@ TEST_CASE("a generated node's state schema and cache struct both survive a resto
         values<Int>(none, 19, 30));
 }
 
+// The ordering the two storages depend on, checked by value rather than by
+// reading the emitted text: `total` is seeded from the cache `seed`, and the
+// cache `echo` is rebuilt from `total` AFTER a restore has supplied it.
+TEST_CASE("a generated node seeds its storages in declaration order", "[codegen][runtime][cache][checkpoint]")
+{
+    session();
+    GlobalContext                      context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(),
+                                 {.component_id = "strategy", .commit = [&](const auto &image) { completed = image; }});
+    // seed 7 -> total 7 -> echo 7, so 8*10+7 and 10*10+7. States-first seeding
+    // gave total the cache's default 0 and produced 10 and 30.
+    CHECK_OUTPUT(eval_node_with_options<MixedComponent<runtime::operators::ordered_seed>>(interval(0, 2), values<Int>(1, 2)),
+                 values<Int>(87, 107));
+    REQUIRE(completed);
+    const auto prior = *completed;
+    configure_component_recovery(context.state().view(), {.component_id = "strategy",
+                                                          .load         = [&] { return std::optional{prior}; },
+                                                          .commit = [&](const auto &image) { completed = image; }});
+    // `total` resumes at 10, so `echo` rebuilds to 10 -- a cache taking its
+    // value from restored state, which is the pairing ADR 0011 exists for.
+    CHECK_OUTPUT(
+        eval_node_with_options<MixedComponent<runtime::operators::ordered_seed>>(interval(2, 5), values<Int>(none, 3, 4)),
+        values<Int>(none, 140, 180));
+}
+
 TEST_CASE("a generated mixed node re-initializes both storages on a fresh run", "[codegen][runtime][cache]")
 {
     // No checkpoint: `state` has nothing to restore, so a second run repeats

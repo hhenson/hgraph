@@ -389,11 +389,28 @@ export fn mixed_bundle(value: i64) -> i64 {
     }
 }
 
+# An initializer may name an earlier declaration of the OTHER kind, so the
+# initializers have to run in declaration order. Seeding every state before any
+# cache read `seed` before it was written and silently used its default;
+# rebuilding `echo` from restored state is the pairing ADR 0011 exists for.
+export fn ordered_seed(value: i64) -> i64 {
+    cache seed: i64 = 7
+    state total: i64 = seed
+    cache echo: i64 = total
+    when modified(value) && valid(value) {
+        total += value
+        return total * 10 + echo
+    }
+}
+
 test {
     # Wired through the scripted path, so direct wiring over the generated
     # artifact carries a node holding both storages at once.
     test mixed_state_and_cache {
         assert eval(mixed_total, value: [1, 2]) == [11, 32]
         assert eval(mixed_bundle, value: [1, 2]) == [5, 12]
+        # seed 7 -> total 7 -> echo 7; had the order been states-first, total
+        # would have taken the cache's default 0 and this would read 10, 30.
+        assert eval(ordered_seed, value: [1, 2]) == [87, 107]
     }
 }

@@ -646,6 +646,14 @@ namespace hgl::hgraph_ir
         TypeId              type{};
         ValueId             init{};
         syntax::SourceRange range{};
+        /// Position among ALL state and cache declarations of the function, so
+        /// a backend can run the initializers in source order. Splitting them
+        /// into two vectors loses that, and one initializer may name an
+        /// earlier declaration of the other kind -- rebuilding a cache from
+        /// recordable state is the whole point of the pair (ADR 0011).
+        /// Resolution already requires a declaration to precede its use, so
+        /// source order is the order in which every dependency is ready.
+        std::size_t declaration_order{0};
     };
 
     struct RuntimeActivation

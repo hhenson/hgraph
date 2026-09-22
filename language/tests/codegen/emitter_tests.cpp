@@ -3204,6 +3204,51 @@ export fn f(value: i64) -> i64 {
     CHECK(contains(emitted->header, "hgl_cache.set(hgraph::Int{0});"));
 }
 
+// Initializers run in DECLARATION order, not states-then-caches: a state
+// initializer may name an earlier cache and a cache may be rebuilt from an
+// earlier state, and only source order makes both hold.
+TEST_CASE("emit-cpp seeds state and cache in declaration order", "[codegen][runtime][cache]") {
+    Unit first{R"(
+module checks.cache_before_state
+export fn f(x: i64) -> i64 {
+    cache seed: i64 = 7
+    state total: i64 = seed
+    when modified(x) && valid(x) {
+        total += x
+        return total
+    }
+}
+)"};
+    const auto cache_first = first.emit();
+    INFO(first.diagnostics.render(first.file));
+    REQUIRE(cache_first);
+    const auto seed_at  = cache_first->header.find("hgl_cache.set(hgraph::Int{7});");
+    const auto total_at = cache_first->header.find("if (!total.valid())");
+    REQUIRE(seed_at != std::string::npos);
+    REQUIRE(total_at != std::string::npos);
+    CHECK(seed_at < total_at);
+
+    Unit second{R"(
+module checks.state_before_cache
+export fn f(x: i64) -> i64 {
+    state total: i64 = 3
+    cache derived: i64 = total
+    when modified(x) && valid(x) {
+        total += x
+        return derived
+    }
+}
+)"};
+    const auto state_first = second.emit();
+    INFO(second.diagnostics.render(second.file));
+    REQUIRE(state_first);
+    const auto seeded_at   = state_first->header.find("if (!total.valid())");
+    const auto rebuilt_at  = state_first->header.find("hgl_cache.set(total.value()");
+    REQUIRE(seeded_at != std::string::npos);
+    REQUIRE(rebuilt_at != std::string::npos);
+    CHECK(seeded_at < rebuilt_at);
+}
+
 // `hgl_state` and `hgl_output` were already reserved; `hgl_cache` was not, so
 // a parameter spelled that way emitted two parameters of the same name and the
 // generated C++ did not compile.

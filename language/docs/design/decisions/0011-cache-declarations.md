@@ -26,8 +26,14 @@ state field is seeded only `if (!valid())`, so a restored value wins, while
 every cache field is assigned its initializer unconditionally. Nothing else
 distinguishes them -- one recordable TSB and one cache struct, planned
 independently, exactly as hgraph's two separate `<= 1` selector asserts allow.
-Generated-C++ coverage runs a component across a checkpoint and asserts that
-the state resumes while the cache restarts. Non-scalar caches and generic
+Initializers run in DECLARATION order across both kinds, not states then
+caches: one may name an earlier declaration of the other kind, and resolution
+already requires a declaration to precede its use, so source order is the order
+in which each dependency is ready. `RuntimeState::declaration_order` carries
+that position in the shared IR rather than in one backend. Generated-C++
+coverage runs a component across a checkpoint and asserts that the state
+resumes while the cache restarts, and that a cache seeded from restored state
+sees the restored value. Non-scalar caches and generic
 recordable state without an initializer remain future work.
 
 ## Scheduler recovery contract
