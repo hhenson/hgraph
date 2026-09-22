@@ -380,6 +380,8 @@ Rules
   next engine cycle, a key that remained removed and its child are absent
   from both live and removed observations. This applies to reference-valued
   children too; removing one does not destroy its independently owned target.
+  A retained compound view includes descendant values and timestamps.
+  Peering describes its active binding, not the retained removal record.
 - **TS-12** A growing list shrinks only from its end, and never reports
   positions both added and removed in one cycle.
 - **TS-13** A window is valid from its first value, and all valid once it
