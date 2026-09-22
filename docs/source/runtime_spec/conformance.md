@@ -64,6 +64,8 @@ Compare each observation with isolated Python and C++ runs:
   Record why an expectation changed; never regenerate it from actual output.
 - No pair agrees: ask the user and preserve all three results. A user ruling
   accepts the contract, not a claim that either implementation conforms.
+- An explicit user ruling supersedes an earlier acceptance. Retain the old
+  expectation, the ruling and both measured results; do not rewrite history.
 
 Python has the stronger testing history and is the preferred guide where
 reasoning leaves an interpretation open. Compare fields separately: one

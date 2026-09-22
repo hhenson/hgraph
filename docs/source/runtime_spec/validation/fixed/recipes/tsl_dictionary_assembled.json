@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_dictionary_assembled",
+  "description": "Fixed collections contain dynamic TSD children. Removing a key ticks both ancestors without removing its fixed field or position; an empty dictionary remains valid.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_dictionary_assembled"
+  },
+  "features": []
+}

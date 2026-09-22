@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsb_tsl_assembled",
+  "description": "TS-4, TS-7: every ancestor ticks; all_valid checks immediate children. At t2 root is all_valid while both children are not.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "parameters": {
+    "mode": "tsb_tsl_assembled"
+  },
+  "features": []
+}

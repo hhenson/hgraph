@@ -22,8 +22,10 @@ It is incomplete and does not certify an implementation.
    cases_lifecycle
    cases_references
    cases_nested
+   cases_fixed
    validation
    validation/README
+   validation/fixed/README
    representations
    layout_example
    boundaries

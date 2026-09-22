@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_passive",
+  "description": "TS-2: passive assembled inputs remain readable but child notifications cannot wake the observer. Polling at t4/t6 reads retained values and no delta.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_passive"
+  },
+  "features": []
+}

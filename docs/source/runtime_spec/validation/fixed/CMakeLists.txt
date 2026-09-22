@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.26)
+project(runtime_contract_probe LANGUAGES CXX)
+find_package(hgraph CONFIG REQUIRED)
+find_package(Python REQUIRED COMPONENTS Development.Embed)
+add_executable(runtime_contract_probe native_probe.cpp)
+target_compile_features(runtime_contract_probe PRIVATE cxx_std_23)
+target_link_libraries(runtime_contract_probe PRIVATE hgraph::core Python::Python)
