@@ -9,6 +9,7 @@ import subprocess
 from check import apply_decisions, at, equal
 from evidence import atomic_write, render
 from expand import assertions
+from native_identity import is_native_library
 from replay import candidate_identity, digest, trusted_interpreter
 
 ROOT = Path(__file__).parent
@@ -20,10 +21,43 @@ def runtime_identity(identity):
     return {key: identity[key] for key in ('candidate_native_sha256', 'candidate_python_identity')}
 
 
+def expected_build(bridge):
+    artifacts = bridge['provenance']['candidate_python_identity']['artifacts_sha256']
+    headers = {key: value for key, value in artifacts.items() if key.startswith('include/')}
+    assert headers, 'Candidate SDK header identity is missing'
+    return {'source_sha256': hashlib.sha256((ROOT / 'native_nested_probe.cpp').read_bytes()).hexdigest(),
+            'loader_sha256': hashlib.sha256((ROOT / 'native_loaded_libraries.h').read_bytes()).hexdigest(),
+            'headers_sha256': digest(headers)}
+
+
+def verify_libraries(libraries, bridge):
+    expected = {Path(key).name: value for key, value in bridge['provenance']['candidate_native_sha256'].items()}
+    for name, fingerprint in libraries.items():
+        assert name in expected and fingerprint == expected[name], 'Loaded native library differs from candidate: ' + name
+    for role in ('runtime', 'wiring', 'stdlib'):
+        assert any(name.startswith(('libhgraph_' + role + '.', 'hgraph_' + role + '.')) for name in libraries), 'Missing loaded hgraph ' + role
+
+
+def verify_run(payload, bridge):
+    assert payload['build'] == expected_build(bridge), 'Native executable was built from different source or SDK headers'
+    libraries = {}
+    for filename in payload['libraries']:
+        path = Path(filename)
+        if is_native_library(path.name):
+            assert path.is_absolute(), 'Loaded native library path must be absolute'
+            fingerprint = hashlib.sha256(path.read_bytes()).hexdigest()
+            assert path.name not in libraries or libraries[path.name] == fingerprint, 'Conflicting loaded native libraries'
+            libraries[path.name] = fingerprint
+    verify_libraries(libraries, bridge)
+    return {'build': payload['build'], 'loaded_libraries_sha256': libraries}
+
+
 def verify(recorded, bridge):
     provenance = recorded['provenance']
     assert provenance['source_sha256'] == hashlib.sha256((ROOT / 'native_nested_probe.cpp').read_bytes()).hexdigest(), 'Native wiring source changed'
     assert provenance['candidate_identity_sha256'] == digest(runtime_identity(bridge['provenance'])), 'Native wiring candidate differs'
+    assert provenance['build'] == expected_build(bridge), 'Native wiring build identity differs'
+    verify_libraries(provenance['loaded_libraries_sha256'], bridge)
     assert provenance['graph_evidence_sha256'] == digest({case: bridge['cases'][case] for case in sorted(CASES)}), 'Graph evidence changed'
     assert bridge['provenance']['reasoning_sha256'] == hashlib.sha256((ROOT / 'reasoned.json').read_bytes()).hexdigest(), 'Reasoning changed after graph replay'
     assert set(recorded['cases']) == CASES, 'Native wiring case coverage differs'
@@ -72,13 +106,23 @@ def main():
         if args.record:
             installation = runtime_identity(candidate_identity(args.candidate_python))
             assert installation == runtime_identity(bridge['provenance']), 'Candidate differs from graph evidence'
-        runs = [json.loads(subprocess.check_output([str(executable)], timeout=60)) for _ in range(3)]
+        if not args.record:
+            recorded = json.loads(destination.read_text())
+            assert before == recorded['provenance']['executable_sha256'], 'Native executable differs; rebuild and record its identity explicitly'
+        payloads, identities = [], []
+        for _ in range(3):
+            payload = json.loads(subprocess.check_output([str(executable)], timeout=60))
+            identities.append(verify_run(payload, bridge))
+            payloads.append(payload)
+        assert identities[0] == identities[1] == identities[2], 'Native loaded libraries changed during replay'
+        runs = [payload['cases'] for payload in payloads]
         assert runs[0] == runs[1] == runs[2], 'Native wiring replay is unstable'
         assert before == hashlib.sha256(executable.read_bytes()).hexdigest(), 'Native executable changed during replay'
         assert source_before == hashlib.sha256((ROOT / 'native_nested_probe.cpp').read_bytes()).hexdigest(), 'Native source changed during replay'
         if args.record:
             assert installation == runtime_identity(candidate_identity(args.candidate_python)), 'Candidate changed during replay'
             recorded = {'provenance': {'source_sha256': source_before,
+                                      **identities[0],
                                       'candidate_identity_sha256': digest(installation), 'executable_sha256': before,
                                       'graph_evidence_sha256': digest({case: bridge['cases'][case] for case in sorted(CASES)}),
                                       'stable': True, 'replay_digests': [digest(run) for run in runs]},

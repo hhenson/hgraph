@@ -1,4 +1,6 @@
 // Public C++ wiring for the eight nested whole-invalidation recipes.
+#include "native_build_identity.h"
+#include "native_loaded_libraries.h"
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/static_node.h>
@@ -163,7 +165,7 @@ void run() {
 
 int main() {
     try {
-        std::cout << '{';
+        std::cout << "{\"cases\":{";
         run<false, false, false>(); std::cout << ',';
         run<false, false, true>(); std::cout << ',';
         run<false, true, false>(); std::cout << ',';
@@ -171,7 +173,18 @@ int main() {
         run<true, false, false>(); std::cout << ',';
         run<true, false, true>(); std::cout << ',';
         run<true, true, false>(); std::cout << ',';
-        run<true, true, true>(); std::cout << "}\n";
+        run<true, true, true>();
+        std::cout << "},\"build\":{\"source_sha256\":\"" << probe_source_sha256
+                  << "\",\"loader_sha256\":\"" << probe_loader_sha256
+                  << "\",\"headers_sha256\":\"" << probe_headers_sha256 << "\"},\"libraries\":[";
+        bool first = true;
+        for (const auto &path : loaded_libraries()) {
+            if (!first) std::cout << ',';
+            first = false;
+            Value name{Str{path}};
+            std::cout << to_json_string(name.view());
+        }
+        std::cout << "]}\n";
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

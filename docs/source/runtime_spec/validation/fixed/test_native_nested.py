@@ -1,12 +1,14 @@
 """Keep native wiring evidence complete and separate from runtime voting."""
 import copy
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import native_nested
+from native_nested_build import headers_digest
 
 
 class NativeWiringEvidenceTests(unittest.TestCase):
@@ -57,6 +59,53 @@ class NativeWiringEvidenceTests(unittest.TestCase):
                 self.assertEqual(finding['expected'], 'never')
                 self.assertEqual(finding['native_cpp'], 123)
                 self.assertEqual(finding['status'], 'variation')
+
+    def test_stale_build_source_or_headers_are_rejected(self):
+        build = native_nested.expected_build(self.bridge)
+        for field in build:
+            with self.subTest(field=field), self.assertRaisesRegex(AssertionError, 'different source or SDK'):
+                native_nested.verify_run({'build': {**build, field: 'stale'}, 'libraries': []}, self.bridge)
+
+    def test_actual_loaded_libraries_must_match_and_paths_are_not_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [root / ('libhgraph_' + role + '.so') for role in ('runtime', 'wiring', 'stdlib')]
+            bridge = copy.deepcopy(self.bridge)
+            expected = {}
+            for path in paths:
+                path.write_bytes(path.name.encode())
+                expected['lib/' + path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+            bridge['provenance']['candidate_native_sha256'] = expected
+            payload = {'build': native_nested.expected_build(bridge), 'libraries': list(map(str, paths))}
+            identity = native_nested.verify_run(payload, bridge)
+            self.assertNotIn(str(root), str(identity))
+            paths[0].write_bytes(b'another SDK or loader override')
+            with self.assertRaisesRegex(AssertionError, 'Loaded native library differs'):
+                native_nested.verify_run(payload, bridge)
+            payload['libraries'] = list(map(str, paths[1:]))
+            with self.assertRaisesRegex(AssertionError, 'Missing loaded hgraph runtime'):
+                native_nested.verify_run(payload, bridge)
+
+    def test_build_hashes_actual_core_headers_and_ignores_unrelated_extensions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'core.h').write_bytes(b'core')
+            names = {'include/core.h': 'unused recorded hash'}
+            before = headers_digest(root, names)
+            (root / 'extension.h').write_bytes(b'extension')
+            self.assertEqual(before, headers_digest(root, names))
+            (root / 'core.h').write_bytes(b'older SDK')
+            self.assertNotEqual(before, headers_digest(root, names))
+
+    def test_normal_replay_rejects_another_executable_before_running_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / 'probe'
+            executable.write_bytes(b'another build')
+            with patch('sys.argv', ['native_nested.py', '--executable', str(executable)]), \
+                 patch.object(native_nested.subprocess, 'check_output') as run:
+                with self.assertRaisesRegex(AssertionError, 'Native executable differs'):
+                    native_nested.main()
+                run.assert_not_called()
 
 
 if __name__ == '__main__':

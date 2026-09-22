@@ -142,17 +142,23 @@ nil bundle delta fields, and stale deltas after invalidation. The
 Validity, modification, time and peering match the Python-authored C++ traces.
 These are two authoring paths into one runtime, not another vote.
 
-The registered CTest checks native replay against the recorded trace and its
-source/runtime identities; a passing replay does not mean TS-26 conforms.
+The registered CTest checks the executable hash, embedded source/core-SDK-header
+identity, actual loaded hgraph library hashes, and recorded trace. Loader paths
+are used locally; only library names and hashes are recorded. A passing replay
+does not mean TS-26 conforms.
 `native_nested.py` checks evidence and regenerates the separate assessment.
 To replace its evidence after reviewing changes, pass `--record --executable`
 and `--candidate-python`; recording checks candidate identity before and after.
+Rebuilt executables must be explicitly recorded before normal replay.
 
 ```sh
 cmake -S /path/to/fixed -B /tmp/fixed-native-build \
   -Dhgraph_DIR=/path/to/sdk/lib/cmake/hgraph \
   -DPython_EXECUTABLE=/path/to/cpp-hgraph/bin/python
 cmake --build /tmp/fixed-native-build --parallel 2
+python /path/to/fixed/native_nested.py --record \
+  --executable /tmp/fixed-native-build/runtime_nested_probe \
+  --candidate-python /path/to/cpp-hgraph/bin/python
 ctest --test-dir /tmp/fixed-native-build --output-on-failure
 /tmp/fixed-native-build/runtime_contract_probe
 ```
