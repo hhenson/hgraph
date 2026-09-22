@@ -1,18 +1,24 @@
 """Check native provenance coverage and literal handling of trusted CLI paths."""
 import argparse
 import hashlib
-import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from native_identity import native_hashes, source_head
+from native_identity import is_native_library, native_hashes, source_head
 from replay import run_json, trusted_directory, trusted_interpreter
 
 
 class NativeIdentityTests(unittest.TestCase):
+    def test_library_names_use_simple_suffix_checks(self):
+        for name in ('libhgraph_runtime.so.1.2', 'hgraph_runtime.DLL', 'libhgraph.2.dylib'):
+            self.assertTrue(is_native_library(name), name)
+        for name in ('other.so', 'libhgraph.a', 'hgraph.dll.lib', 'libhgraph.so.',
+                     'libhgraph.so.1..2', 'libhgraph.so.' + '1.' * 10000 + 'invalid'):
+            self.assertFalse(is_native_library(name), name)
+
     def test_platform_libraries_are_hashed_and_content_changes_are_visible(self):
         layouts = (
             ('_hgraph.abi3.so', ['lib/libhgraph_runtime.dylib', 'lib/libhgraph_wiring.dylib']),

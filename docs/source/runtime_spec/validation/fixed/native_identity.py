@@ -2,11 +2,18 @@
 import hashlib
 import json
 from pathlib import Path
-import re
 import subprocess
 
 
-LIBRARY = re.compile(r'(?:lib)?hgraph[^/]*\.(?:dylib|so(?:\.[^/]+)*|dll)$', re.IGNORECASE)
+def is_native_library(name):
+    name = name.lower()
+    if not name.startswith(('hgraph', 'libhgraph')):
+        return False
+    if name.endswith(('.dylib', '.dll', '.so')):
+        return True
+    _, separator, version = name.partition('.so.')
+    return bool(separator) and all(part.isascii() and part.isdecimal()
+                                   for part in version.split('.'))
 
 
 def native_hashes(extension):
@@ -14,7 +21,7 @@ def native_hashes(extension):
     files = {extension}
     for directory in (root, root / 'lib', root / 'bin', root / 'hgraph.libs'):
         if directory.is_dir():
-            files.update(p for p in directory.iterdir() if p.is_file() and LIBRARY.fullmatch(p.name))
+            files.update(p for p in directory.iterdir() if p.is_file() and is_native_library(p.name))
     return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(files)}
 
