@@ -67,6 +67,7 @@ namespace hgl::wiring
         [[nodiscard]] const hgraph::ValueTypeMetaData *register_value(const Specialization &specialization,
                                                                       syntax::SourceRange   range);
         [[nodiscard]] const hgraph::ValueTypeMetaData *recursive_value(Specialization root, syntax::SourceRange range);
+        [[nodiscard]] std::optional<std::vector<Specialization>> recursive_members(Specialization root);
         /// Registers `root` and every struct its fields and parents reach,
         /// dependencies first, on an explicit worklist. A chain of structs is
         /// as long as the supplying module chose (ADR 0013), so it may not be

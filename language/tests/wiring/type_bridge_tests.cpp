@@ -849,6 +849,101 @@ fn temporal(head: shapes::A0) -> shapes::A0 => head
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
+namespace
+{
+    /// A chain of `depth` imported structs. `owned_next` makes each link's
+    /// `next` a recursive edge (one batch for the whole chain); `self_edge`
+    /// adds an owned edge back to the struct itself (one batch PER link, joined
+    /// by ordinary fields).
+    hgl::semantics::ModuleCatalog linked_chain(const std::string &identity, std::size_t depth, bool owned_next,
+                                               bool self_edge) {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = identity;
+        const auto owned = [](std::string target) {
+            hgl::semantics::ImportedType edge;
+            edge.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+            edge.children = {symbol(std::move(target))};
+            return edge;
+        };
+        for (std::size_t index = 0; index < depth; ++index) {
+            const std::string              name = identity + ".A" + std::to_string(index);
+            hgl::semantics::ImportedStruct link;
+            link.module_identity = module.identity;
+            link.name            = "A" + std::to_string(index);
+            link.identity        = name;
+            link.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+            if (self_edge) { link.fields.push_back({"self", owned(name), true, /*recursive=*/true}); }
+            if (index + 1 < depth) {
+                const std::string next = identity + ".A" + std::to_string(index + 1);
+                if (owned_next) {
+                    link.fields.push_back({"next", owned(next), true, /*recursive=*/true});
+                } else {
+                    link.fields.push_back({"next", symbol(next), false, false});
+                }
+            }
+            module.structs.push_back(std::move(link));
+        }
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+}  // namespace
+
+TEST_CASE("a deep chain realizes whatever mix of owned and ordinary edges joins it",
+          "[wiring][types][struct-imports][recursive]") {
+    // A struct with a recursive edge is registered as one batch with what its
+    // edges reach, and the batch's describer reads each member's ORDINARY
+    // fields through `value()`. Realizing only plain structs on the worklist
+    // left this case outside it: every link a batch of its own, joined by an
+    // ordinary `next`, so the describer of one batch opened the next -- one
+    // frame per link, and a fault near 8,000 links.
+    constexpr std::size_t depth = 20000;
+
+    SECTION("an owned self-edge on every link, joined by ordinary fields") {
+        const hgl::semantics::ModuleCatalog catalog = linked_chain("checks.self_linked", depth, false, true);
+        Unit unit{R"(
+module checks.import_self_linked
+
+use checks.self_linked as shapes
+
+fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
+fn temporal(head: shapes::A0) -> shapes::A0 => head
+)",
+                  catalog};
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        hgl::wiring::TypeBridge     bridge{unit.graph, unit.diagnostics};
+        [[maybe_unused]] const auto standard = hgraph::stdlib::register_standard_types();
+        const hgraph::ValueTypeMetaData *head = bridge.value(unit.parameter("reading", "head"));
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(head != nullptr);
+        CHECK(head->field_count == 3);
+        CHECK(bridge.schema(unit.parameter("temporal", "head")) != nullptr);
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+
+    SECTION("owned edges all the way down, so the chain is a single batch") {
+        const hgl::semantics::ModuleCatalog catalog = linked_chain("checks.owned_linked", depth, true, false);
+        Unit unit{R"(
+module checks.import_owned_linked
+
+use checks.owned_linked as shapes
+
+fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
+)",
+                  catalog};
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        hgl::wiring::TypeBridge     bridge{unit.graph, unit.diagnostics};
+        [[maybe_unused]] const auto standard = hgraph::stdlib::register_standard_types();
+        const hgraph::ValueTypeMetaData *head = bridge.value(unit.parameter("reading", "head"));
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(head != nullptr);
+        CHECK(head->field_count == 2);
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+}
+
 TEST_CASE("an imported family is lowered ancestors first however its members are named",
           "[wiring][types][struct-imports]") {
     // The ordering trap. `Holder` names EVERY member of an inheritance chain
@@ -1046,4 +1141,5 @@ fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
     INFO(rendered);
     CHECK(rendered.find("layout cycle") != std::string::npos);
 }
+
 

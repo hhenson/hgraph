@@ -237,7 +237,14 @@ length costs heap at every stage. Direct wiring's type bridge used to descend
 one frame per nominal struct and exhausted the stack past ten thousand links;
 it now registers a struct's field and parent nominals before the struct itself,
 and memoizes what it registered so describing a struct's fields answers from
-the memo instead of descending again. The temporal schema walks the same
+the memo instead of descending again. A struct with recursive edges is one unit
+of that worklist, not an exception to it: the registry registers it as a batch
+with every struct its edges reach, and the batch's describer reads each
+member's ordinary fields and parents, so those are realized first for every
+member before the batch closes. Treating such a struct as a leaf let a chain of
+self-referencing links, joined by ordinary fields, open one batch per link from
+inside the previous batch's describer -- the same stack exhaustion, one frame
+per link, near 8,000. The temporal schema walks the same
 closure on a worklist of its own, since it asks for the value type first and
 that has finished before it reaches a field's schema. Only nominal hops needed
 this: the tuples and collections around them nest within one type expression,

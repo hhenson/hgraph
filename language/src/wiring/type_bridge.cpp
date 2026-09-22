@@ -347,60 +347,105 @@ namespace hgl::wiring
     }
 
     const hgraph::ValueTypeMetaData *TypeBridge::realize_value_closure(Specialization root, syntax::SourceRange range) {
+        // One unit of registration. A plain struct is a unit of one. A struct
+        // with recursive edges is registered by the registry as ONE batch with
+        // every struct those edges reach (RFC 0041), so its unit is that whole
+        // batch -- and the batch's describer reads each member's ordinary
+        // fields and parents through `value()`. Those have to be realized
+        // before the batch closes, or the describer descends into them and the
+        // chain is back on the stack one batch per link.
+        struct Edge
+        {
+            hgraph_ir::TypeId type{};
+            std::size_t       member{0};
+        };
         struct Frame
         {
-            Specialization                 specialization{};
-            std::vector<hgraph_ir::TypeId> edges{};
-            std::size_t                    next{0};
+            std::vector<Specialization> members{};
+            bool                        batch{false};
+            std::vector<Edge>           edges{};
+            std::size_t                 next{0};
         };
-        const auto edges_of = [&](const Specialization &specialization) {
-            std::vector<hgraph_ir::TypeId> edges;
-            for (const hgraph_ir::StructField &field : specialization.contract->fields) {
-                // A recursive edge is an owner, not an inlined member: its
-                // target is registered by the closure, never before it.
-                if (field.recursive) { continue; }
-                nominal_edges(field.type, specialization.applied, edges);
-            }
-            for (hgraph_ir::TypeId parent : specialization.contract->parents) {
-                nominal_edges(parent, specialization.applied, edges);
-            }
-            return edges;
+        const auto has_recursive_field = [](const Specialization &specialization) {
+            return std::ranges::any_of(specialization.contract->fields,
+                                       [](const hgraph_ir::StructField &field) { return field.recursive; });
         };
+        // What is open right now, by member. An ordinary field or parent cycle
+        // is refused upstream (ADR 0013), so this stops a diamond arriving
+        // twice -- and an ordinary field naming another member of the batch it
+        // belongs to, which the batch registers itself.
+        std::unordered_set<std::string> visiting;
+        const auto open = [&](Specialization specialization) -> std::optional<Frame> {
+            Frame frame;
+            frame.batch = has_recursive_field(specialization);
+            if (frame.batch) {
+                std::optional<std::vector<Specialization>> members = recursive_members(std::move(specialization));
+                if (!members) { return std::nullopt; }
+                frame.members = std::move(*members);
+            } else {
+                frame.members.push_back(std::move(specialization));
+            }
+            for (std::size_t index = 0; index < frame.members.size(); ++index) {
+                const Specialization &member = frame.members[index];
+                visiting.insert(member.qualified());
+                std::vector<hgraph_ir::TypeId> found;
+                for (const hgraph_ir::StructField &field : member.contract->fields) {
+                    // A recursive edge is an owner, not an inlined member: the
+                    // batch registers its target, never something before it.
+                    if (field.recursive) { continue; }
+                    nominal_edges(field.type, member.applied, found);
+                }
+                for (hgraph_ir::TypeId parent : member.contract->parents) { nominal_edges(parent, member.applied, found); }
+                for (hgraph_ir::TypeId type : found) { frame.edges.push_back(Edge{type, index}); }
+            }
+            return frame;
+        };
+
         const std::string    root_name = root.qualified();
-        std::vector<Frame>   stack;
-        // What is on the stack right now. An ordinary field or parent cycle is
-        // refused upstream (ADR 0013), so this only stops a diamond arriving
-        // twice before either side is registered.
-        std::unordered_set<std::string> visiting{root_name};
-        stack.push_back(Frame{std::move(root), {}, 0});
-        stack.back().edges = edges_of(stack.back().specialization);
+        std::optional<Frame> first     = open(std::move(root));
+        if (!first) { return nullptr; }
+        std::vector<Frame> stack;
+        stack.push_back(std::move(*first));
         while (!stack.empty()) {
             Frame &top = stack.back();
             if (top.next < top.edges.size()) {
-                const hgraph_ir::Type &edge = module_.types[top.edges[top.next++].value];
+                const Edge             edge = top.edges[top.next++];
+                const hgraph_ir::Type &type = module_.types[edge.type.value];
                 // Specializing needs the generic arguments realized, and those
                 // nest within this expression rather than extending the chain.
-                std::optional<Specialization> next = specialize(edge, top.specialization.applied);
+                std::optional<Specialization> next = specialize(type, top.members[edge.member].applied);
                 if (!next) { return nullptr; }
                 const std::string name = next->qualified();
-                if (realized_.contains(name) || !visiting.insert(name).second) { continue; }
-                if (std::ranges::any_of(next->contract->fields,
-                                        [](const hgraph_ir::StructField &field) { return field.recursive; })) {
-                    // Its own closure, registered as one batch by the registry.
-                    const hgraph::ValueTypeMetaData *closed = recursive_value(std::move(*next), edge.range);
-                    if (closed == nullptr) { return nullptr; }
-                    realized_.emplace(name, closed);
-                    continue;
-                }
-                stack.push_back(Frame{std::move(*next), {}, 0});
-                stack.back().edges = edges_of(stack.back().specialization);
+                if (realized_.contains(name) || visiting.contains(name)) { continue; }
+                std::optional<Frame> opened = open(std::move(*next));
+                if (!opened) { return nullptr; }
+                stack.push_back(std::move(*opened));
                 continue;
             }
-            const Frame done = std::move(stack.back());
+            Frame done = std::move(stack.back());
             stack.pop_back();
-            const hgraph::ValueTypeMetaData *meta = register_value(done.specialization, range);
-            if (meta == nullptr) { return nullptr; }
-            realized_.insert_or_assign(done.specialization.qualified(), meta);
+            if (!done.batch) {
+                const hgraph::ValueTypeMetaData *meta = register_value(done.members.front(), range);
+                if (meta == nullptr) { return nullptr; }
+                realized_.insert_or_assign(done.members.front().qualified(), meta);
+                continue;
+            }
+            // Every ordinary dependency of every member is realized, so the
+            // describer answers each from the memo. `recursive_value` compares
+            // every member before and after the close, so each one it returns
+            // for has been checked against the registry.
+            std::vector<std::string> names;
+            names.reserve(done.members.size());
+            for (const Specialization &member : done.members) { names.push_back(member.qualified()); }
+            if (recursive_value(std::move(done.members.front()), range) == nullptr) { return nullptr; }
+            for (std::string &name : names) {
+                const hgraph::ValueTypeMetaData *meta = registry_.value_type(name);
+                if (meta == nullptr) {
+                    report(range, "recursive struct '" + name + "' was not registered with its batch");
+                    return nullptr;
+                }
+                realized_.insert_or_assign(std::move(name), meta);
+            }
         }
         const auto found = realized_.find(root_name);
         return found == realized_.end() ? nullptr : found->second;
@@ -412,13 +457,33 @@ namespace hgl::wiring
         if (const auto found = realized_.find(specialization->qualified()); found != realized_.end()) {
             return found->second;
         }
-        if (std::ranges::any_of(specialization->contract->fields,
-                                [](const hgraph_ir::StructField &field) { return field.recursive; })) {
-            const hgraph::ValueTypeMetaData *closed = recursive_value(std::move(*specialization), type.range);
-            if (closed != nullptr) { realized_.emplace(std::string{closed->name()}, closed); }
-            return closed;
-        }
+        // Plain or recursive alike: both go through the driver, so neither
+        // kind of struct can take the chain's length onto the stack.
         return realize_value_closure(std::move(*specialization), type.range);
+    }
+
+    /// The members of a recursive batch: `root` and every specialization its
+    /// recursive edges reach, root first. ONE walk, shared by the driver that
+    /// orders the batch's dependencies and by `recursive_value` that closes it,
+    /// so the two cannot disagree about what the batch is.
+    std::optional<std::vector<TypeBridge::Specialization>> TypeBridge::recursive_members(Specialization root) {
+        std::vector<Specialization>     members;
+        std::unordered_set<std::string> seen;
+        std::vector<Specialization>     work;
+        work.push_back(std::move(root));
+        while (!work.empty()) {
+            Specialization current = std::move(work.back());
+            work.pop_back();
+            if (!seen.insert(current.qualified()).second) { continue; }
+            for (const hgraph_ir::StructField &field : current.contract->fields) {
+                if (!field.recursive) { continue; }
+                std::optional<Specialization> target = recursive_target(field, current.applied);
+                if (!target) { return std::nullopt; }
+                work.push_back(std::move(*target));
+            }
+            members.push_back(std::move(current));
+        }
+        return members;
     }
 
     /// Realizes a struct with recursive edges (ADR 0012) through hgraph's
@@ -440,23 +505,13 @@ namespace hgl::wiring
         // somebody else's `B` is as wrong as registering somebody else's `A`.
         // Comparing an edge by the target it NAMES is only sufficient because
         // the target is checked as a member in its own right.
+        std::optional<std::vector<Specialization>> members = recursive_members(std::move(root));
+        if (!members) { return nullptr; }
         std::unordered_map<std::string, Specialization> pending;
-        {
-            std::vector<Specialization> work;
-            work.push_back(std::move(root));
-            while (!work.empty()) {
-                Specialization    current = std::move(work.back());
-                const std::string name    = current.qualified();
-                work.pop_back();
-                if (pending.contains(name)) { continue; }
-                const Specialization &member = pending.emplace(name, std::move(current)).first->second;
-                for (const hgraph_ir::StructField &field : member.contract->fields) {
-                    if (!field.recursive) { continue; }
-                    std::optional<Specialization> target = recursive_target(field, member.applied);
-                    if (!target) { return nullptr; }
-                    work.push_back(std::move(*target));
-                }
-            }
+        pending.reserve(members->size());
+        for (Specialization &member : *members) {
+            std::string name = member.qualified();
+            pending.emplace(std::move(name), std::move(member));
         }
 
         // Every member that is already registered has to agree with this
