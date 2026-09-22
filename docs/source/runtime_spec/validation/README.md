@@ -23,7 +23,7 @@ Use an isolated hgraph checkout at `15e7bf41b` (the harness base), apply
 
 ```sh
 git apply /path/to/validation/adapter.patch
-python -m tools.parity validate
+python -m tools.parity validate /path/to/validation/recipes
 python -m tools.parity replay /path/to/validation/recipes/mapped_ref.json \
   --reference-python /path/to/python-hgraph/bin/python \
   --candidate-python /path/to/cpp-hgraph/bin/python
