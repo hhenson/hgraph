@@ -326,15 +326,9 @@ def _overload_wire_trampoline(impl):
                 return None
             if not isinstance(out, WiringPort):
                 out = wire("const", out)
-            raw = _unwrap(out)
-            if raw.is_structural:
-                if _hgraph.structural_has_ref_children(raw):
-                    raw = _hgraph.ref_port(borrowed_wiring, raw)
-                else:
-                    raw = _unwrap(wire("__materialize", out))
-            elif raw.has_path:
-                raw = _unwrap(wire("__materialize", out))
-            return raw
+            from ._graph import _graph_result_port
+
+            return _graph_result_port(_unwrap(out), signature.return_annotation)
         finally:
             _wiring_stack.pop()
 
