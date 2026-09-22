@@ -14,6 +14,23 @@
 
 namespace hgl::wiring
 {
+    /// Counts the nominal structs currently being realized, so the chain's
+    /// length is answered by a diagnostic rather than by the stack. It is a
+    /// member of the bridge, not a thread-local: two bridges realize
+    /// independently, and nothing here is per-thread.
+    struct TypeBridge::NominalDepth
+    {
+        explicit NominalDepth(TypeBridge &bridge) : bridge_{bridge} { ++bridge_.nominal_depth_; }
+        NominalDepth(const NominalDepth &)            = delete;
+        NominalDepth &operator=(const NominalDepth &) = delete;
+        ~NominalDepth() { --bridge_.nominal_depth_; }
+
+        [[nodiscard]] bool within_bound() const { return bridge_.nominal_depth_ <= TypeBridge::max_nominal_depth; }
+
+      private:
+        TypeBridge &bridge_;
+    };
+
     namespace
     {
         namespace hir = ir::hir;
@@ -321,6 +338,12 @@ namespace hgl::wiring
     }
 
     const hgraph::ValueTypeMetaData *TypeBridge::nominal_value(const hgraph_ir::Type &type, const Bindings &outer) {
+        const NominalDepth depth{*this};
+        if (!depth.within_bound()) {
+            report(type.range, "nominal type '" + type.nominal_identity + "' nests more than " +
+                                   std::to_string(max_nominal_depth) + " structs deep, which this bridge cannot realize");
+            return nullptr;
+        }
         std::optional<Specialization> specialization = specialize(type, outer);
         if (!specialization) { return nullptr; }
         if (std::ranges::any_of(specialization->contract->fields,
@@ -433,6 +456,15 @@ namespace hgl::wiring
     }
 
     const hgraph::TSValueTypeMetaData *TypeBridge::nominal_schema(const hgraph_ir::Type &type, const Bindings &outer) {
+        // The temporal side descends the same chain independently -- it asks
+        // `nominal_value` first, but that guard has unwound by the time this
+        // recurses into a field's schema -- so it shares the counter.
+        const NominalDepth depth{*this};
+        if (!depth.within_bound()) {
+            report(type.range, "nominal type '" + type.nominal_identity + "' nests more than " +
+                                   std::to_string(max_nominal_depth) + " structs deep, which this bridge cannot realize");
+            return nullptr;
+        }
         const hgraph_ir::StructContract *contract = structure(type.nominal_identity);
         if (contract == nullptr) {
             report(type.range, "unknown nominal type '" + type.nominal_identity + "'");

@@ -1719,3 +1719,59 @@ TEST_CASE("an inherited null whose origin is not an ancestor is refused", "[desc
     CHECK(imported->support_error ==
           "imported struct inherited field defaults require catalog constant reconstruction");
 }
+
+// A descriptor is an untrusted input, so its shape decides how much work the
+// importer does. Building every declaration's ancestor SET walked the whole
+// chain once per declaration -- quadratic in the chain's length, and paid in
+// full here, where no field carries a default and nothing ever consults it.
+// The ancestry is searched for a named origin instead, and only when an
+// inherited default asks. Doubling the chain must double the work, not
+// quadruple it (CLAUDE.md guardrail iv).
+TEST_CASE("a long inheritance chain costs nothing when no field carries a default",
+          "[descriptor][catalog][structs][scaling]") {
+    const auto chain = [](std::size_t depth) {
+        auto source = minimal_descriptor();
+        source.types.clear();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"});
+        for (std::size_t index = 0; index < depth; ++index) {
+            source.types.push_back(descriptor::TypeRecord{.category         = descriptor::TypeCategory::Symbol,
+                                                          .nominal_identity = "checks.reader.A" + std::to_string(index)});
+        }
+        source.interface.clear();
+        for (std::size_t index = 0; index < depth; ++index) {
+            const std::string                suffix = std::to_string(index);
+            descriptor::InterfaceDeclaration link;
+            link.category = descriptor::DeclarationCategory::Structure;
+            link.identity = "checks.reader.A" + suffix;
+            link.abstract = index + 1 < depth;
+            // Only its OWN field, the way a descriptor records one: the
+            // declaration list stays linear in the chain's length.
+            link.fields = {{"f" + suffix, 0U, descriptor::no_schema_id, link.identity, false, false}};
+            if (index > 0) { link.parents = {static_cast<descriptor::SchemaId>(index)}; }
+            source.interface.push_back(std::move(link));
+        }
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        return source;
+    };
+    const auto cost_per_link = [&](std::size_t depth) {
+        auto                          source = chain(depth);
+        hgl::semantics::ModuleCatalog catalog;
+        const auto                    start = std::chrono::steady_clock::now();
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        const auto *deepest = catalog.find_struct("checks.reader", "A" + std::to_string(depth - 1));
+        REQUIRE(deepest != nullptr);
+        CHECK(deepest->support_error.empty());
+        return std::chrono::duration<double, std::nano>(elapsed).count() / static_cast<double>(depth);
+    };
+    const double small = cost_per_link(2000);
+    const double large = cost_per_link(8000);
+    std::cout << "  per-link cost: 2000 links " << small << "ns, 8000 links " << large << "ns, ratio "
+              << (large / small) << "\n";
+    // Flat, not rising. Quadratic makes the per-link cost grow WITH the chain,
+    // so 4x the links is 4x the cost per link; the bound is loose enough for a
+    // loaded CI box and nowhere near that.
+    INFO("per-link cost at 2000 = " << small << "ns, at 8000 = " << large << "ns");
+    CHECK(large < small * 2.5);
+}

@@ -231,6 +231,17 @@ fields and never describes one itself, so an ordering slip is a diagnostic
 rather than a re-descent, and the alternative is a struct that silently loses
 every inherited field.
 
+**Realizing a chain is bounded and reported, not yet iterative.** Resolving,
+cycle-searching and lowering an imported closure all use a worklist, so the
+chain's length costs heap. Direct wiring's type bridge still descends one frame
+per nominal struct, and measured against a 20,000-link chain it exhausted the
+stack somewhere past ten thousand. Until realization follows the same worklist
+discipline, the bridge caps nominal nesting at 512 and reports the type it
+stopped on — the rule an untrusted descriptor's type nesting already follows.
+512 is far beyond any layout a schema would describe and safe on the smallest
+stack a supported platform gives. Making realization iterative is the standing
+follow-up; the cap is what stops a valid input crashing in the meantime.
+
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
 edge must be an optional `atomic`, which bounds it). An imported layout is not

@@ -779,7 +779,8 @@ fn reading(order: atomic<shapes::Order>) -> atomic<shapes::Order> => order
     CHECK(rendered.find("package target") != std::string::npos);
 }
 
-TEST_CASE("a deep imported struct chain imports whole", "[wiring][types][struct-imports]") {
+TEST_CASE("a deep imported struct chain lowers whole, and realization says where its limit is",
+          "[wiring][types][struct-imports]") {
     // A descriptor is an input: `A0` holding `A1` holding `A2` ... is as deep
     // as the supplying module chose, and each hop is a SHALLOW type, so the
     // per-type depth budget never fires -- only the number of hops grows.
@@ -788,6 +789,12 @@ TEST_CASE("a deep imported struct chain imports whole", "[wiring][types][struct-
     // resolver's binding and typed HIR's lowering -- are iterative, so the
     // chain costs heap rather than stack. A per-struct recursion at this depth
     // does not survive a default stack.
+    //
+    // REALIZING it is a different question, and this case used to leave it
+    // unasked: `Unit` stops after hgraph IR, so a green result said nothing
+    // about the bridge. The bridge still descends one frame per nominal, and
+    // measured against this very chain it died somewhere past ten thousand
+    // links -- so it now reports a bound instead, and this asks it to.
     constexpr std::size_t             depth = 20000;
     hgl::semantics::ModuleCatalog     catalog;
     hgl::semantics::ImportableModule  module;
@@ -811,10 +818,24 @@ module checks.import_chain
 use checks.chain as shapes
 
 fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
+fn shallow(near: atomic<shapes::A19990>) -> atomic<shapes::A19990> => near
 )",
               catalog};
     INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    [[maybe_unused]] const auto standard = hgraph::stdlib::register_standard_types();
+
+    // The tail is only ten links from the end, so realization reaches it.
+    CHECK(bridge.value(unit.parameter("shallow", "near")) != nullptr);
     CHECK_FALSE(unit.diagnostics.has_errors());
+
+    // The head is 20,000 links from the end. Reported, not a stack fault.
+    CHECK(bridge.value(unit.parameter("reading", "head")) == nullptr);
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("structs deep, which this bridge cannot realize") != std::string::npos);
 }
 
 TEST_CASE("an imported family is lowered ancestors first however its members are named",
@@ -1014,3 +1035,4 @@ fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
     INFO(rendered);
     CHECK(rendered.find("layout cycle") != std::string::npos);
 }
+

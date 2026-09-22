@@ -270,11 +270,15 @@ namespace hgl::descriptor
         /// name-space and happens to declare a same-named optional field
         /// proves nothing: dropping the child's field would leave no parent
         /// able to rebuild it.
-        /// Every ancestor of `declaration`, walked once. A field's origin is
-        /// checked against this rather than re-walking the ancestry per field.
-        [[nodiscard]] std::unordered_set<std::string_view> ancestors_of(const ModuleDescriptor     &descriptor,
-                                                                       const StructureIndex       &index,
-                                                                       const InterfaceDeclaration &declaration) {
+        /// Searched for, not enumerated. Only an inherited field that carries a
+        /// DEFAULT asks this, which is rare, while materializing every
+        /// declaration's ancestor set costs the whole ancestry for every
+        /// declaration -- quadratic on a long chain, and paid even by a
+        /// descriptor with no defaults at all. A descriptor is an untrusted
+        /// input, so that cost is reachable on demand (CLAUDE.md guardrail iv).
+        /// Stopping at `origin` also ends most searches at the first hop.
+        [[nodiscard]] bool is_ancestor(const ModuleDescriptor &descriptor, const StructureIndex &index,
+                                       const InterfaceDeclaration &declaration, std::string_view origin) {
             std::unordered_set<std::string_view>     seen;
             std::vector<const InterfaceDeclaration *> work{&declaration};
             while (!work.empty()) {
@@ -285,20 +289,20 @@ namespace hgl::descriptor
                     const std::string &identity = descriptor.types[parent].nominal_identity;
                     if (identity.empty()) { continue; }
                     const InterfaceDeclaration *next = structure_named(index, identity);
-                    if (!seen.emplace(next != nullptr ? std::string_view{next->identity} : std::string_view{identity})
-                             .second) {
-                        continue;
-                    }
+                    const std::string_view      reached =
+                        next != nullptr ? std::string_view{next->identity} : std::string_view{identity};
+                    if (reached == origin) { return true; }
+                    if (!seen.emplace(reached).second) { continue; }
                     if (next != nullptr) { work.push_back(next); }
                 }
             }
-            return seen;
+            return false;
         }
 
-        [[nodiscard]] bool declares_optional(const StructureIndex &index,
-                                             const std::unordered_set<std::string_view> &ancestors,
-                                             std::string_view origin, std::string_view field) {
-            if (!ancestors.contains(origin)) { return false; }
+        [[nodiscard]] bool declares_optional(const ModuleDescriptor &descriptor, const StructureIndex &index,
+                                             const InterfaceDeclaration &declaration, std::string_view origin,
+                                             std::string_view field) {
+            if (!is_ancestor(descriptor, index, declaration, origin)) { return false; }
             const InterfaceDeclaration *owner = structure_named(index, origin);
             if (owner == nullptr) { return false; }
             for (const StructField &declared : owner->fields) {
@@ -361,7 +365,6 @@ namespace hgl::descriptor
                 }
                 result.parents.push_back(*type);
             }
-            const std::unordered_set<std::string_view> ancestors = ancestors_of(descriptor, index, declaration);
             for (const StructField &field : declaration.fields) {
                 // An inherited field arrives with the parent, which the importer
                 // rebuilds first; carrying it twice would duplicate it. A child
@@ -379,7 +382,7 @@ namespace hgl::descriptor
                     // is most families worth publishing.
                     if (field.default_value != no_schema_id &&
                         !(null_default(descriptor, field.default_value) && field.optional &&
-                          declares_optional(index, ancestors, field.origin_identity, field.name))) {
+                          declares_optional(descriptor, index, declaration, field.origin_identity, field.name))) {
                         unsupported("imported struct inherited field defaults require catalog constant reconstruction");
                     }
                     continue;

@@ -81,6 +81,17 @@ namespace hgl::wiring
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
         /// Contracts by identity, so a nominal type finds its contract without a scan.
         std::unordered_map<std::string_view, const hgraph_ir::StructContract *> structures_{};
+        /// Realizing `A0 { next: A1 }`, `A1 { next: A2 }`, ... descends one
+        /// nominal per link, and an imported chain's length is the SUPPLYING
+        /// module's choice, not this compiler's. Resolving and lowering such a
+        /// chain are iterative and survive it (ADR 0013); realization is not
+        /// yet, and ran out of stack somewhere past ten thousand links. So it
+        /// is bounded and REPORTED, the way an untrusted descriptor's type
+        /// nesting already is -- a limit a schema states is a diagnostic, a
+        /// limit the stack states is a crash.
+        static constexpr std::size_t                                            max_nominal_depth = 512U;
+        std::size_t                                                             nominal_depth_{0};
+        struct NominalDepth;
     };
 }  // namespace hgl::wiring
 
