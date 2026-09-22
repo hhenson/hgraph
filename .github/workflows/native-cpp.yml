@@ -77,6 +77,7 @@ jobs:
           python3.12 -m venv "$RUNNER_TEMP/python"
           echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
           echo "pythonLocation=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
       - name: Configure current Clang on macOS
         if: runner.os == 'macOS'
         shell: bash

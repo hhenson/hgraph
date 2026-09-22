@@ -85,6 +85,7 @@ jobs:
           python3.12 -m venv "$RUNNER_TEMP/python"
           echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
           echo "pythonLocation=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
       # The installed static hgraph SDK deliberately resolves its public C++
       # dependencies from the consuming environment. Give the installed HGL
       # consumer the same real package environment on both platforms rather
