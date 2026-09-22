@@ -21,9 +21,15 @@ env:
 jobs:
   native-cpp:
     name: Native C++ / ${{ matrix.os }}
-    # The Linux leg may run on the opt-in self-hosted runner
-    # (build_system.rst, "Self-hosted Linux runner").
-    runs-on: ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || matrix.os }}
+    # Linux and macOS routing can be enabled independently; see build_system.rst.
+    runs-on: >-
+      ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","linux","x64","hg-build"]')
+          || matrix.os == 'macos-26' && vars.HGRAPH_SELF_HOSTED_MACOS == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","macOS","ARM64","hg-build"]')
+          || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +43,18 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Isolate temporary files from other host users
+      - name: Configure the persistent build environment
         if: runner.environment == 'self-hosted'
         shell: bash
-        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+        run: |
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(sysctl -n hw.logicalcpu)}"
+          else
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(nproc)}"
+          fi
+          [[ "$workers" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid build parallelism" >&2; exit 1; }
+          echo "HGRAPH_BUILD_PARALLELISM=$workers" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
@@ -50,15 +64,27 @@ jobs:
         run: |
           sccache --stop-server || true
           sccache --start-server
+      # setup-python hard-codes a hosted account's tool-cache path on macOS.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: "3.12"
+      - name: Create a job-local Python environment on the macOS runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3.12 -m venv "$RUNNER_TEMP/python"
+          echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
+          echo "pythonLocation=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
       - name: Configure current Clang on macOS
         if: runner.os == 'macOS'
         shell: bash
         run: |
           echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=26.0" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
       - name: Configure GCC 14 on Linux
         if: runner.os == 'Linux'
@@ -88,7 +114,7 @@ jobs:
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
           -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Build native C++ tests
-        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || matrix.parallel }}
+        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }}
       - name: Run native C++ tests
         run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
       - name: Run restartable Kafka broker conformance

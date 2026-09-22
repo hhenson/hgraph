@@ -245,6 +245,54 @@ The runner account cannot install software, so the host provides:
 - CPU, I/O and memory limits on the runner service and the runner account's
   slice, so CI yields to interactive work on the host.
 
+Self-hosted macOS runner
+------------------------
+
+The macOS legs of ``native-cpp`` and ``language`` can use a private Apple Silicon
+build host. Set the repository variable ``HGRAPH_SELF_HOSTED_MACOS`` to ``true``
+to select the labels ``self-hosted``, ``macOS``, ``ARM64`` and ``hg-build``.
+The Linux variable ``HGRAPH_SELF_HOSTED`` remains independent. An unset or false
+macOS variable selects ``macos-26``; fork pull requests always use hosted runners.
+Disable the variable before taking the host offline. Already queued jobs must
+be cancelled and rerun to pick up that change.
+
+Provision a dedicated, unprivileged account and a root-owned ``launchd`` service
+that runs it independently of an interactive login. Use the same root-owned
+repository event guard described above, including terminating rejected workers
+before unconditional workflow steps can run. On macOS, inspect worker ancestry
+through ``ps`` rather than Linux's ``/proc`` filesystem. Validate the rejection
+path on the actual host before enabling routing. Keep the configured hook path
+free of spaces: the runner invokes it as shell text. A root-owned alias can
+provide a suitable path to a script in a directory containing spaces.
+
+The host needs a supported macOS version, a matching current Apple compiler and
+SDK, ``python3.12`` on the service's ``PATH``, and permission to debug its own
+test processes with LLDB. The Mac jobs create a fresh virtual environment under
+``RUNNER_TEMP``; ``setup-python`` assumes a hosted account's cache path on macOS. Validate a breakpoint stop and successful process
+exit from the actual service context before routing jobs. An SSH-only check is
+insufficient: the service needs an audit session owned by the runner account,
+and macOS developer authorization rejects a locked normal account. Use a
+normal account credential with key-only SSH management. Any privileged session
+launcher must drop privileges before executing runner or repository code.
+Pin the service's developer directory and SDK
+together, so login-shell overrides cannot mix incompatible toolchain versions.
+The language job installs its pinned ``clang-format`` Python wheel under the
+runner account; it does not require administrative Homebrew access.
+
+The service may set ``HGRAPH_BUILD_PARALLELISM`` to a positive integer to reserve
+CPU capacity for interactive work. Both native and language jobs honour it;
+otherwise they detect the available CPU count with ``sysctl`` on macOS or
+``nproc`` on Linux. Test parallelism retains the hosted defaults. Configure low
+CPU and I/O priority for the macOS service; these are scheduling preferences,
+not the aggregate resource limits provided by Linux cgroups.
+
+The persistent-runner temporary-directory, sccache startup and micromamba cleanup
+rules above apply to macOS too. Homebrew packaging and release wheel jobs retain
+their hosted environments. In particular, validation on a newer private macOS
+host does not replace release compatibility checks on the hosted target version.
+If FileVault is enabled, a person must unlock the startup volume after reboot
+before the runner service becomes available.
+
 Downstream Native Extensions
 ----------------------------
 
