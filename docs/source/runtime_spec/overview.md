@@ -449,8 +449,9 @@ Settled here, with a detail left for the chapter that owns it.
 
 - **Time-series: output modification and input observation.** An owned
   output derives modified and valid from its last modified time. A child's
-  invalidation marks its parent modified (TS-7). A non-peered input derives
-  validity from its children; sampling adds an input-side observation. Keyed
+  invalidation marks its owned parent modified (TS-7). An assembled input
+  derives validity, modification and time from its current children; notification
+  alone is not a tick. Sampling adds an input-side observation. Keyed
   withdrawal may report removals while unbound (TS-15); the chapter keeps
   that compatibility question explicit.
 - **Time-series: dictionaries.** *Added* and *removed* are about membership.

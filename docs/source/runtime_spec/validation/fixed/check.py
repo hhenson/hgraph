@@ -20,10 +20,12 @@ def equal(a, b):
 
 def classify(assertion, observed):
     sides = {}
+    unavailable = False
     for side in ('python', 'cpp'):
         result = observed[side]
         assert result['stable'] and len(result['replay_digests']) == 3 and len(set(result['replay_digests'])) == 1
         if result.get('observation') is None:
+            unavailable = True
             sides[side] = {'unavailable': result['status']}
         else:
             try:
@@ -34,11 +36,12 @@ def classify(assertion, observed):
                     value = len(value)
                 sides[side] = value
             except (KeyError, IndexError, TypeError, AttributeError):
+                unavailable = True
                 sides[side] = {'unavailable': 'missing observation'}
     matches = [side for side in sides if equal(sides[side], assertion['expected'])]
-    status = ('both-agree' if len(matches) == 2 else
+    status = ('unvalidated' if unavailable else
+              'both-agree' if len(matches) == 2 else
               'accepted-with-variation' if matches else
-              'unvalidated' if any(isinstance(v, dict) and 'unavailable' in v for v in sides.values()) else
               'recheck-reasoning' if equal(sides['python'], sides['cpp']) else
               'needs-decision')
     return {**assertion, **sides, 'status': status}

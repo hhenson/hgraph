@@ -32,6 +32,17 @@ class AcceptanceTests(unittest.TestCase):
         missing['observation'] = None
         self.assertEqual(self.classify(None, missing, missing), 'unvalidated')
 
+    def test_missing_side_cannot_accept_a_matching_side(self):
+        for observation in (None, {'ticks': []}):
+            missing = side(None, 'error')
+            missing['observation'] = observation
+            self.assertEqual(self.classify(7, missing, side(7)), 'unvalidated')
+            self.assertEqual(self.classify(7, side(7), missing), 'unvalidated')
+
+    def test_observed_null_and_unavailable_named_field_are_values(self):
+        for value in (None, {'unavailable': 'a real field'}):
+            self.assertEqual(self.classify(value, side(value), side(value)), 'both-agree')
+
     def test_unstable_replays_cannot_be_accepted(self):
         unstable = side(7)
         unstable['replay_digests'][-1] = 'different'

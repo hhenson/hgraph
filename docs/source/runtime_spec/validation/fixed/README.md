@@ -9,8 +9,8 @@ SDK with Python observer nodes. Binary hashes and source context are recorded
 in [observed.json](observed.json). A runtime failure is preserved, including any
 observed prefix; missing later observations are not agreement.
 
-Of 8,966 asserted observations, 8,621 agree on all three sides and 333 agree
-with reasoning and one runtime. Eight have three different results; four
+Of 8,966 asserted observations, 8,621 agree on all three sides and 283 agree
+with reasoning and one runtime. Eight have three different results; 54
 remain unvalidated after Python's bundle-invalidation exception. Counts are
 per observation, not per accepted scenario. A case with unresolved fields is
 not accepted by combining its individually matching fields.
@@ -53,8 +53,8 @@ Initial expectations remain unchanged in [reasoned.json](reasoned.json).
 | Nested rebind from a valid child to an invalid target | Invalid child has time `never`, is unmodified and contributes no delta | Reports binding time t4; may include empty child delta | Retains old child time t1 |
 
 The first decision also governs TSB invalidation. Python's exception leaves
-four assertions without agreement, including two later value observations.
-Those missing results remain unvalidated; another case is not substituted for
+54 assertions unvalidated, including later observations where C++ alone
+matches reasoning. Another case is not substituted for
 the missing part of this trace. The eight three-way differences are grouped
 by the three decisions above. No user ruling has been recorded yet.
 
@@ -75,6 +75,15 @@ by the three decisions above. No user ruling has been recorded yet.
 
 Use an isolated hgraph checkout at `15e7bf41b2b17145f6e3f2742f08ec2826b30a71`.
 The adapter is standalone; do not apply the earlier dynamic-case adapter first.
+Interpreter and harness paths are trusted local configuration: they select code
+to execute, never recipe data. Paths are made absolute without resolving venv
+interpreter symlinks. The launcher uses argument lists with no shell; the Git
+probe uses a working directory rather than path arguments.
+
+Native provenance hashes the extension and installed hgraph libraries beside
+it or in `lib`, `bin` and `hgraph.libs`: macOS dylibs, Linux shared objects
+(including versioned names) and Windows DLLs. These are artifact hashes, not a
+loaded-library audit.
 
 ```sh
 git apply /path/to/fixed/adapter.patch

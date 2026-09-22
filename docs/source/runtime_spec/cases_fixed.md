@@ -11,9 +11,12 @@ and an assembled child. A whole-output REF can change to child references;
 the input must follow that change without changing its declared shape.
 
 The initial expectations are in [reasoned.json](validation/fixed/reasoned.json).
-Each case observes value, delta, validity, modification and time at every
-level, plus collection peering. Times are engine cycles starting at zero.
-An idle delta is nil; an invalid scalar reads nil. Reading twice must agree.
+Snapshot cases observe value, delta, validity, modification and time through
+the collection levels. Fixed input snapshots include peering; TSD-owned and
+retired subtrees omit it. The four graph-boundary cases record scalar output
+ticks and lifecycle events. Duplicate-read checks cover the ordinary collection
+observers, not the flat REF or dictionary observers. Times are engine cycles
+starting at zero. An idle delta is nil; an invalid scalar reads nil.
 
 | Cases | Required observation |
 |---|---|

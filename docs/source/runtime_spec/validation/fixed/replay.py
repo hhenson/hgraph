@@ -8,8 +8,9 @@ from pathlib import Path
 import subprocess
 import sys
 from evidence import render
+from native_identity import source_head
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).absolute().parent
 
 
 def digest(value):
@@ -26,11 +27,31 @@ def decode(value):
     return value
 
 
+def trusted_directory(value):
+    path = Path(value).absolute()
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError('Expected an existing harness directory')
+    return path
+
+
+def trusted_interpreter(value):
+    # Resolving a venv's interpreter symlink would select the base environment.
+    path = Path(value).absolute()
+    if not path.is_file():
+        raise argparse.ArgumentTypeError('Expected an existing Python executable file')
+    return path
+
+
+def run_json(interpreter, script):
+    return json.loads(subprocess.check_output(
+        [str(interpreter), '-I', str(script)], text=True, shell=False, timeout=30))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--harness', type=Path, required=True)
-    parser.add_argument('--reference-python', type=Path, required=True)
-    parser.add_argument('--candidate-python', type=Path, required=True)
+    parser.add_argument('--harness', type=trusted_directory, required=True)
+    parser.add_argument('--reference-python', type=trusted_interpreter, required=True)
+    parser.add_argument('--candidate-python', type=trusted_interpreter, required=True)
     parser.add_argument('--raw-results', type=Path, required=True)
     args = parser.parse_args()
     sys.path.insert(0, str(args.harness.resolve()))
@@ -67,17 +88,11 @@ def main():
         for future in as_completed(pending):
             case, side, result = future.result()
             cases.setdefault(case, {})[side] = result
-    probe = '''import hashlib,json,subprocess
-from pathlib import Path
-import _hgraph,hgraph
-extension=Path(_hgraph.__file__)
-files=[extension,*sorted((extension.parent/'lib').glob('libhgraph*.dylib'))]
-source=subprocess.run(['git','-C',str(Path(hgraph.__file__).parent),'rev-parse','HEAD'],capture_output=True,text=True)
-print(json.dumps({'candidate_source_head':source.stdout.strip() if source.returncode==0 else None,
-'candidate_native_sha256':{str(p.relative_to(extension.parent)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}))
-'''
-    provenance = json.loads(subprocess.check_output([str(args.candidate_python), '-I', '-c', probe], text=True))
-    provenance.update(harness_base=subprocess.check_output(['git', '-C', str(args.harness), 'rev-parse', 'HEAD'], text=True).strip(),
+    provenance = run_json(args.candidate_python, ROOT / 'native_identity.py')
+    harness_head = source_head(args.harness)
+    if harness_head is None:
+        raise RuntimeError('Harness is not a Git checkout')
+    provenance.update(harness_base=harness_head,
                       adapter_sha256=hashlib.sha256((ROOT / 'adapter.patch').read_bytes()).hexdigest(),
                       reasoning_sha256=hashlib.sha256((ROOT / 'reasoned.json').read_bytes()).hexdigest(),
                       reference='Python reference environment; version is recorded per case.',
