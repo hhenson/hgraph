@@ -170,7 +170,7 @@ owner.
 | Item | What it is |
 |---|---|
 | graph description | The child |
-| input bindings | Pairs: a position in the *owner's* input, and an input inside the child (a node and a path). When the child is instantiated, that child input is bound to **the same output the owner's input is bound to**. There is no intermediate node |
+| input bindings | Pairs: a position in the *owner's* input, and an input inside the child (a node and a path). The child preserves the owner's binding recursively: the same output for a peered subtree, the same child designations for an assembled subtree. Captured REF changes remain live; this is not a snapshot of the current target. There is no intermediate node |
 | output binding | One of: a time-series inside the child (a node and a path) whose values become the owner's output; or a position in the owner's input that is passed straight through as the owner's output |
 
 
@@ -216,7 +216,10 @@ flowchart TD
   An implementation identity that cannot be resolved is a failure, not a
   node left out.
 - **GRF-10** A child graph's bindings name only positions in its owner's
-  input and endpoints inside the child.
+  input and endpoints inside the child. They preserve recursive peering,
+  empty children and live REF routes. Rebinding a captured input reaches
+  existing children without recreating their state; unchanged child
+  designations are preserved (TS-25).
 
 
 Part 2 — The graph instance
