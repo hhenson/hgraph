@@ -1,62 +1,57 @@
 # Fixed-collection comparisons
 
-Status: 36 scenarios recorded on 2026-09-22; acceptance is pending three
-semantic decisions. No runtime implementation has changed.
+Status: 36 scenarios recorded on 2026-09-22; user rulings recorded the same
+day. The contract decisions are settled; runtime implementation is unchanged.
 
 Each scenario ran three times in separate Python and C++ processes. All replay
 fingerprints are stable. Python is released hgraph 0.5.41; C++ uses the installed
-SDK with Python observer nodes. Binary hashes and source context are recorded
-in [observed.json](observed.json). A runtime failure is preserved, including any
-observed prefix; missing later observations are not agreement.
+SDK with Python observer nodes. [observed.json](observed.json) records binary
+hashes and source context. Original expectations and measurements are retained;
+[decisions.json](decisions.json) records the rulings and changed expectations.
 
-Of 8,966 asserted observations, 8,621 agree on all three sides and 283 agree
-with reasoning and one runtime. Eight have three different results; 54
-remain unvalidated after Python's bundle-invalidation exception. Counts are
-per observation, not per accepted scenario. A case with unresolved fields is
-not accepted by combining its individually matching fields.
+Of 8,966 observations, 8,621 match both runtimes, 283 match one, and eight are
+accepted by explicit ruling despite neither runtime matching. Python's bundle-
+invalidation exception leaves 54 observations unvalidated. Acceptance is per
+observation; these counts do not establish whole-case conformance.
 
-## Accepted variations
+## Accepted contracts and variations
 
-| Contract | Agreement | Variation |
+| Contract | Support | Variation |
 |---|---|---|
-| TSB value contains valid fields only, including nested bundles | Reasoning + Python | C++ includes invalid fields with nil values |
-| Invalidating an owned child ticks its owned parent, with no invalid child in the delta | Reasoning + C++ | Python leaves the parent's previous time and no delta |
-| An assembled input derives time and modification from current children | Revised reasoning + Python | C++ records an invalidation time on invalid children and their parent |
-| Sampling a fixed collection reports its valid children's sampled deltas | Reasoning + Python | C++ bridge reports empty deltas at some sampled collection levels |
-| An empty REF leaves a fixed input unbound with time `never` | Reasoning + Python | C++ may report peered and retain previous observed times |
-| Publishing an equal REF value ticks the REF but does not resample its target | Reasoning + Python | C++ suppresses the equal REF publication in this authoring path |
-| Whole TSB invalidation completes | Reasoning + C++ for completion | Python raises `AttributeError: ... has no attribute '_ts_value'`; no later Python observations exist |
+| A valid TSB value preserves every declared field; invalid children occupy nil fields, recursively (TS-24) | User ruling + C++ | Python omits invalid fields |
+| Invalidating an owned child ticks its owned parent, with no invalid child in its delta (TS-7) | Reasoning + C++ | Python retains the parent's previous time and no delta |
+| A still-valid assembled structure retains child-change time; a wholly invalid one resets to `never` (TS-3, TS-26) | User ruling + C++ while valid; Python on whole invalidity | Python loses the change observation; C++ fails to clear it when wholly invalid |
+| Sampling a fixed collection reports its valid children's sampled deltas (TS-14) | Reasoning + Python | C++ reports empty deltas at some sampled collection levels |
+| An empty REF leaves a fixed input unbound with time `never` | Reasoning + Python | C++ may retain peering and previous times |
+| An equal REF designation causes no additional tick or sampling (TS-16) | User ruling + C++ authoring path | Python publishes the equal REF again |
+| Whole TSL/TSB invalidation resets every level: invalid, unmodified, time `never`, nil value/delta (TS-26) | User ruling | Python TSL retains root validity/time; C++ records an invalidation tick; Python TSB raises |
+| Whole A → A.left + B.right preserves left and samples right; parent delta contains right only (TS-25) | User ruling | Python resamples both; C++ preserves left but omits the parent delta |
+| Rebinding to an invalid nested target clears old sample state; no time or sampled delta (TS-14) | User ruling | Python records binding time/empty deltas; C++ retains old binding times |
 
-Equal returned REF values exercise the compute-result publication path. The
-C++ suppression there is recorded separately from target sampling; these
-graphs do not isolate whether suppression occurs before native publication.
+A TSB is a structure, not a sparse map; its delta remains sparse. A REF carries
+routing identity, so repeating it adds no information. Equal ordinary values
+may still be signals. The REF comparison measures compute-result publication;
+it does not isolate where C++ suppresses the duplicate.
 
-Whole versus assembled nesting, immediate-child `all_valid`, heterogeneous
-fields, passive polling, TSD membership around fixed collections and all four
-switch/map timer traces match their reasoned results, subject to the value
-format variations above. Fixed collections containing TSDs also preserve their
-positions while dictionary keys come and go.
+Non-peered collections remove a redundant assembly node and keep local state.
+Caching time and modification is permitted; reads need not scan children.
+One consumer usually favours this arrangement; several may favour sharing a
+node and output. This is a cost choice, not a measured performance claim.
+Whole invalidation and rebinding to invalid targets still reset cached state.
 
-The assembled-time correction is explicit in
-[reasoning_corrections.json](reasoning_corrections.json): notification alone
-is not a tick. Both implementations agree when one child reference becomes
-empty and the remaining child is idle. Separate `latest_invalid` scenarios
-confirm the consequence: Python reveals the older sibling time; C++ varies.
-Initial expectations remain unchanged in [reasoned.json](reasoned.json).
+## Invalidation boundary
 
-## Decisions still required
+In `*_assembled`, left becomes invalid at t4 while right stays valid. The
+invalid child view and parent read modified at t4; the parent delta is empty.
+At t5 right also becomes invalid: the whole structure and all local child
+observations reset to unmodified/time `never`. Revalidating left at t6 must
+not restore right's old cached time. In `*_latest_invalid`, the parent stays
+valid and retains t2 through the idle t3. These are observable rules; caching
+is how an implementation may maintain them.
 
-| Case | Reasoned result | Python | C++ |
-|---|---|---|---|
-| Whole TSL invalidation at t7 | Invalid, unmodified, time `never` | Children invalid; root still valid at t6 | Invalid, modified, time t7 |
-| Whole A changes to child bindings A.left + B.right at t4 | Preserve unchanged left binding; delta contains right only | Resamples both children | Preserves left child but parent delta is empty |
-| Nested rebind from a valid child to an invalid target | Invalid child has time `never`, is unmodified and contributes no delta | Reports binding time t4; may include empty child delta | Retains old child time t1 |
-
-The first decision also governs TSB invalidation. Python's exception leaves
-54 assertions unvalidated, including later observations where C++ alone
-matches reasoning. Another case is not substituted for
-the missing part of this trace. The eight three-way differences are grouped
-by the three decisions above. No user ruling has been recorded yet.
+The earlier [reasoning corrections](reasoning_corrections.json) remain as
+history; user rulings take precedence. Missing Python observations after the
+exception remain missing, even where C++ matches the chosen contract.
 
 ## Evidence and replay
 
@@ -67,8 +62,10 @@ by the three decisions above. No user ruling has been recorded yet.
   extra fields as well as missing ones. It can print the full assertion list.
 - [observed.json](observed.json), [assessment.json](assessment.json): raw
   logical states, comparison counts and every non-unanimous observation. `python check.py`
-  regenerates the assessment and currently exits 1 for unresolved evidence.
-- [decisions.json](decisions.json): reserved for explicit user rulings.
+  regenerates the assessment and exits 1 for the 54 missing observations.
+- [decisions.json](decisions.json): explicit user rulings, rule IDs and prior/new
+  expectations. The checker retains the raw comparison and cannot use a ruling
+  to fill absent evidence.
 - [adapter.patch](adapter.patch): bounded public-API catalogue additions;
   recipes cannot supply executable code. Input and output observation do not
   implement a second runtime model.
@@ -106,8 +103,7 @@ all timestamps remain visible. Maps change only their JSON key representation.
 
 The supplementary [native probe](native_probe.cpp) bypasses the Python bridge.
 Its [three identical runs](native_observed.txt) show a full native sampled
-parent value but unsampled child times. They also confirm the C++ invalidation
-time discrepancy. These endpoint observations are distinct from graph-level
+parent value but unsampled child times, plus the C++ invalidation-time result. These endpoint observations are distinct from graph-level
 recursive sampling and are not counted as another voting implementation.
 
 ```sh

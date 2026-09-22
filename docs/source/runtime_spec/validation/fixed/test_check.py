@@ -49,6 +49,39 @@ class AcceptanceTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.classify(7, unstable, side(7))
 
+    def test_ruling_changes_expectation_but_preserves_measured_disagreement(self):
+        assertions = [{'case': 'test', 'path': '/ticks/0', 'expected': 7}]
+        decisions = [{'id': 'ruling', 'rationale': 'Explicit user choice', 'assertions': [
+            {'case': 'test', 'path': '/ticks/0', 'previous_expected': 7, 'expected': 9}]}]
+        check.apply_decisions(assertions, decisions)
+        result = check.classify(assertions[0], {'python': side(7), 'cpp': side(8)})
+        self.assertEqual(result['status'], 'accepted-by-decision')
+        self.assertEqual(result['comparison'], 'needs-decision')
+        self.assertEqual(result['previous_expected'], 7)
+        self.assertEqual(result['expected'], 9)
+        self.assertEqual((result['python'], result['cpp']), (7, 8))
+        agreed = check.classify(assertions[0], {'python': side(7), 'cpp': side(7)})
+        self.assertEqual(agreed['status'], 'accepted-by-decision')
+        self.assertEqual(agreed['comparison'], 'recheck-reasoning')
+
+    def test_ruling_does_not_fill_missing_evidence(self):
+        assertion = {'case': 'test', 'path': '/ticks/0', 'expected': 7, 'decision': 'ruling'}
+        missing = side(None, 'error')
+        missing['observation'] = None
+        result = check.classify(assertion, {'python': missing, 'cpp': side(7)})
+        self.assertEqual(result['status'], 'unvalidated')
+
+    def test_stale_duplicate_and_unknown_rulings_are_rejected(self):
+        assertion = {'case': 'test', 'path': '/ticks/0', 'expected': 7}
+        change = {'case': 'test', 'path': '/ticks/0', 'previous_expected': 7, 'expected': 9}
+        decision = {'id': 'ruling', 'rationale': 'Explicit user choice', 'assertions': [change]}
+        with self.assertRaises(AssertionError):
+            check.apply_decisions([{**assertion, 'expected': True}], [decision])
+        with self.assertRaises(AssertionError):
+            check.apply_decisions([assertion.copy()], [{**decision, 'assertions': [change, change]}])
+        with self.assertRaises(KeyError):
+            check.apply_decisions([], [decision])
+
     def test_scalar_types_are_preserved(self):
         self.assertEqual(self.classify(False, side(0), side(0)), 'recheck-reasoning')
         self.assertEqual(self.classify(0, side(False), side(0)), 'accepted-with-variation')

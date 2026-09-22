@@ -44,7 +44,26 @@ def classify(assertion, observed):
               'accepted-with-variation' if matches else
               'recheck-reasoning' if equal(sides['python'], sides['cpp']) else
               'needs-decision')
-    return {**assertion, **sides, 'status': status}
+    comparison = status
+    if 'decision' in assertion and status in ('needs-decision', 'recheck-reasoning'):
+        status = 'accepted-by-decision'
+    return {**assertion, **sides, 'status': status, 'comparison': comparison}
+
+
+def apply_decisions(assertions, decisions):
+    indexed = {(a['case'], a['path']): a for a in assertions}
+    applied = set()
+    for decision in decisions:
+        for change in decision['assertions']:
+            key = (change['case'], change['path'])
+            assert key not in applied, 'Duplicate decision: ' + str(key)
+            applied.add(key)
+            assertion = indexed[key]
+            assert equal(assertion['expected'], change['previous_expected']), 'Stale decision: ' + str(key)
+            assertion['previous_expected'] = assertion['expected']
+            assertion['expected'] = change['expected']
+            assertion['decision'] = decision['id']
+            assertion['rationale'] = decision['rationale']
 
 
 def main():
@@ -70,14 +89,8 @@ def main():
                 assertion['initial'] = assertion['expected']
                 assertion['expected'] = correction['expected']
                 assertion['correction'] = correction['reason']
+    apply_decisions(assertions, json.loads((ROOT / 'decisions.json').read_text()))
     results = [classify(a, observed[a['case']]) for a in assertions]
-    decisions = json.loads((ROOT / 'decisions.json').read_text())
-    for result in results:
-        for decision in decisions:
-            if (result['case'], result['path']) == (decision['case'], decision['path']):
-                assert result['expected'] == decision['expected']
-                result['status'] = decision['status']
-                result['rationale'] = decision['rationale']
     print(json.dumps(dict(Counter(r['status'] for r in results)), sort_keys=True))
     for result in results:
         if result['status'] in ('needs-decision', 'recheck-reasoning', 'unvalidated'):

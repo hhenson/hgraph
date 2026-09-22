@@ -103,7 +103,10 @@ flowchart LR
 Not every input is bound. A bundle or list input whose children are bound
 separately, to different outputs, has no output of its own to view: it is
 **non-peered**, exists only on the input side, and holds its own state. Its
-children are the inputs that are bound.
+children are the inputs that are bound. This removes a redundant collection-
+assembly node, usually for a single consumer. With several consumers, sharing
+one node and output may cost less and simplify binding. Local cached state
+is allowed; a child scan on every read is not required.
 
 ```mermaid
 flowchart LR
@@ -135,12 +138,12 @@ persists until changed), a **delta value** (what changed in this cycle), a
 **modified** when its last modified time equals the evaluation time — and
 only then. A modification is a **tick**. Reading the value of a time-series
 that is not valid gives **nil**, the standard representation of no value; so
-does reading the delta of one that is not modified. Inputs can add sampling
-and binding observations; TS-1 and TS-14–TS-15 describe those cases.
+does reading the delta of one that is not modified. Inputs can add child-change,
+sampling and binding observations (TS-7, TS-14–TS-15).
 
 Separately, a time-series **notifies** whoever is watching it when its state
 changes. Every tick notifies. So does *losing* validity, which is not a tick:
-invalidation resets the last modified time to *never*, so the time-series
+output invalidation resets the last modified time to *never*, so the output
 reads neither valid nor modified and its value is nil — yet the nodes
 watching it are woken. A node can therefore be evaluated when none of its
 inputs reads modified.
@@ -449,10 +452,11 @@ Settled here, with a detail left for the chapter that owns it.
 
 - **Time-series: output modification and input observation.** An owned
   output derives modified and valid from its last modified time. A child's
-  invalidation marks its owned parent modified (TS-7). An assembled input
-  derives validity, modification and time from its current children; notification
-  alone is not a tick. Sampling adds an input-side observation. Keyed
-  withdrawal may report removals while unbound (TS-15); the chapter keeps
+  invalidation marks its owned parent modified (TS-7). A still-valid assembled
+  input records child-change time locally; it may cache the result. A wholly
+  invalid structure resets to *never* (TS-26). Sampling adds an input-side
+  observation. Keyed withdrawal may report removals while unbound (TS-15);
+  the chapter keeps
   that compatibility question explicit.
 - **Time-series: dictionaries.** *Added* and *removed* are about membership.
   A key is added when it joins, whether or not its child is valid (TS-19).
@@ -484,5 +488,5 @@ intent; the older `docs/source/specification/` chapters for framing;
 expectations, executed traces and implementation variations.
 
 [Fixed collection cases](cases_fixed.md) validate the next TSL/TSB slice,
-including nesting and whole-output versus child bindings. Three semantic
-decisions remain in its [comparison report](validation/fixed/README.md).
+including nesting and whole-output versus child bindings. User rulings
+and recorded variations are in its [comparison report](validation/fixed/README.md).

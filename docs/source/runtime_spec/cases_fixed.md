@@ -1,7 +1,7 @@
 Fixed collections: validation cases
 ==================================
 
-Status: 36 cases compared with Python and C++; three decisions remain.
+Status: 36 cases compared with Python and C++; user rulings recorded.
 See the [comparison report](validation/fixed/README.md).
 The prototype slice covers fixed-size TSL and TSB. Growing TSL is separate.
 
@@ -27,13 +27,16 @@ starting at zero. An idle delta is nil; an invalid scalar reads nil.
 | TSL / TSB, child REF | Whole A, then A.left + B.right, then empty + B.right, then whole A; unchanged child bindings do not resample |
 | TSL / TSB, passive | Child ticks between polls cause no evaluation; later polls read retained state with no stale delta |
 
-An assembled input derives its observed time from its current children.
-Notification alone is not a tick. The original notification-time expectation
-and its correction remain separate in the evidence.
+An assembled input may cache state driven by child events; it need not scan
+children on each read. It replaces an assembly node, usually for one consumer.
+A child invalidation records the current time while the structure stays valid;
+losing its last valid child resets every local observation time to *never*.
 
 The additional cases cover nested REF targets, heterogeneous bundle fields,
 fixed collections inside TSD and TSD inside fixed collections, and aggregate
 inputs across switch/map boundaries with timers and fresh child state.
 
-Whole invalidation, changing whole bindings to child bindings, and sampling
-invalid nested targets require the decisions in the report before implementation.
+Whole invalidation clears every level (TS-26). Whole-to-child rebinding preserves
+unchanged targets (TS-25). Invalid targets contribute no sample time or delta
+(TS-14). Valid TSB values retain all fields, including nil children (TS-24);
+equal REF designations cause no additional tick (TS-16).
