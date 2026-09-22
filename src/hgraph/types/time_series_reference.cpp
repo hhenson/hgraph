@@ -29,6 +29,22 @@ namespace hgraph
 
     }  // namespace
 
+    struct TimeSeriesReference::PeerLifetime final : Notifiable
+    {
+        explicit PeerLifetime(const TSOutputHandle &target_) : target(target_)
+        {
+            target.data_view().subscribe(this);
+        }
+        ~PeerLifetime() override
+        {
+            if (alive) { target.data_view().unsubscribe(this); }
+        }
+        void notify(DateTime) override {}
+        void source_invalidated(const TSDataTracking *) noexcept override { alive = false; }
+        TSOutputHandle target;
+        bool alive{true};
+    };
+
     TimeSeriesReference::TimeSeriesReference() noexcept = default;
 
     TimeSeriesReference::TimeSeriesReference(const TSValueTypeMetaData *target_schema) noexcept
@@ -47,7 +63,7 @@ namespace hgraph
         {
             throw std::invalid_argument("TimeSeriesReference peered construction requires a typed output handle");
         }
-        std::construct_at(&storage_.target, std::move(target));
+        std::construct_at(&storage_.target, std::make_shared<PeerLifetime>(target));
         kind_ = Kind::PEERED;
     }
 
@@ -191,7 +207,7 @@ namespace hgraph
 
     bool TimeSeriesReference::has_output() const noexcept
     {
-        return kind_ == Kind::PEERED && storage_.target.bound();
+        return kind_ == Kind::PEERED && storage_.target && storage_.target->alive;
     }
 
     bool TimeSeriesReference::is_valid(DateTime evaluation_time) const
@@ -199,7 +215,7 @@ namespace hgraph
         switch (kind_)
         {
             case Kind::EMPTY: return false;
-            case Kind::PEERED: return storage_.target.view(evaluation_time).valid();
+            case Kind::PEERED: return has_output() && storage_.target->target.view(evaluation_time).valid();
             case Kind::NON_PEERED:
                 return std::ranges::any_of(storage_.items,
                                            [](const TimeSeriesReference &item) { return !item.is_empty(); });
@@ -213,7 +229,7 @@ namespace hgraph
         {
             throw std::logic_error("TimeSeriesReference::target_output() requires a PEERED reference with output");
         }
-        return storage_.target;
+        return storage_.target->target;
     }
 
     const std::vector<TimeSeriesReference> &TimeSeriesReference::items() const
@@ -250,7 +266,7 @@ namespace hgraph
     {
         if (kind_ != other.kind_) { return false; }
         if (target_schema_ != other.target_schema_) { return false; }
-        if (kind_ == Kind::PEERED) { return storage_.target.same_as(other.storage_.target); }
+        if (kind_ == Kind::PEERED) { return has_output() == other.has_output() && storage_.target->target.same_as(other.storage_.target->target); }
         if (kind_ == Kind::NON_PEERED) { return storage_.items == other.storage_.items; }
         return true;
     }
@@ -259,7 +275,7 @@ namespace hgraph
     {
         std::size_t seed = static_cast<std::size_t>(kind_);
         seed = hash_combine(seed, std::hash<const void *>{}(static_cast<const void *>(target_schema_)));
-        if (kind_ == Kind::PEERED) { seed = hash_combine(seed, hash_output_handle(storage_.target)); }
+        if (kind_ == Kind::PEERED) { seed = hash_combine(seed, hash_output_handle(storage_.target->target)); }
         if (kind_ == Kind::NON_PEERED)
         {
             for (const auto &item : storage_.items) { seed = hash_combine(seed, item.hash()); }

@@ -1741,7 +1741,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] bool modified() const
         {
-            return key_set_projection ? projected_dict().structure_modified()
+            return key_set_projection ? projected_dict().data_view().key_set().modified(checked().evaluation_time())
                                       : checked().modified();
         }
         [[nodiscard]] bool valid() const

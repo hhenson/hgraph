@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_input/base_view.h>
 
 #include <hgraph/runtime/graph.h>
+#include "../ts_data/ownership.h"
 #include <hgraph/runtime/node.h>
 #include <hgraph/types/time_series/ts_input/view_common.h>
 
@@ -12,6 +13,21 @@ namespace hgraph
 {
     namespace
     {
+        [[nodiscard]] DateTime structural_sample_time(const detail::TSInputTargetLinkStorage *link) noexcept
+        {
+            DateTime sampled = MIN_DT;
+            while (link != nullptr)
+            {
+                if (link->sampled_structural_transition())
+                {
+                    sampled = std::max(sampled, link->structural_transition_time());
+                }
+                auto target = link->target_view();
+                link = detail::target_link_storage(target);
+            }
+            return sampled;
+        }
+
         [[nodiscard]] detail::TSInputTargetActiveNode *target_root_marker() noexcept
         {
             static detail::TSInputTargetActiveNode marker{};
@@ -93,7 +109,7 @@ namespace hgraph
         return detail::target_path_schema(raw_data, target_path_node());
     }
 
-    const TSDataView &TSInputView::InputDataCursor::resolved_value_data() const noexcept
+    const TSDataView &TSInputView::InputDataCursor::resolved_value_data(DateTime evaluation_time) const noexcept
     {
         // Prepared route (RFC 0008 stage 5): the trie node's handle is
         // replaced in place on every topology event, so a TRUSTED handle IS
@@ -108,9 +124,11 @@ namespace hgraph
             route_node->observed.bound())
         {
             value_data = route_node->observed.data_view();
+            if (!detail::ts_data_alive_at(value_data.borrowed_ref(), evaluation_time)) { value_data = {}; }
             return value_data;
         }
         if (is_target_position()) { value_data = detail::target_link_resolve(raw_data, target_path_node()); }
+        if (!detail::ts_data_alive_at(value_data.borrowed_ref(), evaluation_time)) { value_data = {}; }
         return value_data;
     }
 
@@ -119,12 +137,12 @@ namespace hgraph
         return resolved_value_data().valid();
     }
 
-    DateTime TSInputView::InputDataCursor::last_modified_time() const
+    DateTime TSInputView::InputDataCursor::last_modified_time(DateTime evaluation_time) const
     {
-        const auto &data = resolved_value_data();
+        const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
         {
-            if (!data.valid()) { return raw_data.last_modified_time(); }
+            if (!data.valid() || !data.has_current_value()) { return MIN_DT; }
             // BLEND the link's own tracking (the sampled-runtime contract): a
             // from-REF retarget records on the LINK - the position is modified
             // even though the (already-valid) target did not tick. Applies
@@ -135,7 +153,7 @@ namespace hgraph
             {
                 return std::max(raw_data.last_modified_time(), data.last_modified_time());
             }
-            return data.last_modified_time();
+            return std::max(data.last_modified_time(), structural_sample_time(link_storage()));
         }
         return data.last_modified_time();
     }
@@ -143,14 +161,12 @@ namespace hgraph
     bool TSInputView::InputDataCursor::modified(DateTime evaluation_time) const
     {
         if (evaluation_time == MIN_DT) { return false; }
-        const auto &data = resolved_value_data();
+        const auto &data = resolved_value_data(evaluation_time);
         if (is_target_position())
         {
             if (!data.valid()) { return raw_data.modified(evaluation_time); }
             if (is_target_root() && raw_data.modified(evaluation_time)) { return true; }   // rebind (sampled)
-            const auto *link = link_storage();
-            if (link != nullptr && link->sampled_structural_transition() &&
-                link->structural_transition_time() == evaluation_time)
+            if (structural_sample_time(link_storage()) == evaluation_time)
             {
                 return true;
             }
@@ -190,9 +206,9 @@ namespace hgraph
         value_data = detail::target_link_resolve(raw_data, target_path_node());
     }
 
-    void TSInputView::InputDataCursor::unbind_target()
+    void TSInputView::InputDataCursor::unbind_target(DateTime evaluation_time)
     {
-        detail::unbind_target_link(raw_data);
+        detail::unbind_target_link(raw_data, evaluation_time);
         value_data = {};
     }
 
@@ -367,14 +383,14 @@ namespace hgraph
 
     const TSDataView &TSInputView::data_view() const noexcept
     {
-        return data_.resolved_value_data();
+        return data_.resolved_value_data(evaluation_time_);
     }
 
     bool TSInputView::bound() const noexcept
     {
         if (!data_.has_storage()) { return false; }
         if (!is_bindable()) { return true; }
-        return data_.target_bound();
+        return data_.target_bound() && data_view().valid();
     }
 
     bool TSInputView::is_bindable() const noexcept
@@ -426,7 +442,7 @@ namespace hgraph
 
     DateTime TSInputView::last_modified_time() const
     {
-        return data_.last_modified_time();
+        return data_.last_modified_time(evaluation_time_);
     }
 
     bool TSInputView::modified() const
@@ -648,7 +664,7 @@ namespace hgraph
         }
         const bool was_valid = valid();
         const bool was_active = active();
-        data_.unbind_target();
+        data_.unbind_target(evaluation_time_);
         if (was_active && was_valid && scheduling_notifier_ != nullptr && evaluation_time_ != MIN_DT)
         {
             scheduling_notifier_->notify(evaluation_time_);
@@ -748,9 +764,7 @@ namespace hgraph
     bool TSInputView::sampled_structural_transition() const noexcept
     {
         if (!data_.is_target_position() || evaluation_time_ == MIN_DT) { return false; }
-        const auto *link = data_.link_storage();
-        return link != nullptr && link->sampled_structural_transition() &&
-               link->structural_transition_time() == evaluation_time_;
+        return structural_sample_time(data_.link_storage()) == evaluation_time_;
     }
 
     const TSValueTypeMetaData *TSInputView::target_path_schema() const noexcept
@@ -771,7 +785,7 @@ namespace hgraph
                 return data_.raw_data.borrowed_ref();
             }
         }
-        const auto &resolved = data_.resolved_value_data();
+        const auto &resolved = data_.resolved_value_data(evaluation_time_);
         if (resolved.valid()) { return resolved.borrowed_ref(); }
         return data_.raw_data.borrowed_ref();
     }

@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
@@ -2870,4 +2871,134 @@ TEST_CASE("prepared routes re-check the observation kind before the fast path")
     // stable trie node.
     active_bundle.field("s").make_active();
     require_matches_slow_path();
+}
+
+TEST_CASE("Runtime contract reports dictionary membership independently of child validity", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    Value key{1}, value{7};
+    const auto inserted = MIN_ST + TimeDelta{1};
+    {
+        auto output_view = output.view(inserted);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(inserted);
+        static_cast<void>(mutation.at(key.view()));
+    }
+    auto input_view = input.view(nullptr, inserted);
+    auto dict = input_view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 1);
+    REQUIRE(range_size(dict.added_items()) == 1);
+    REQUIRE_FALSE(dict.at(key.view()).valid());
+    const auto published = inserted + TimeDelta{1};
+    auto output_view = output.view(published);
+    output_view.as_dict().begin_mutation(published).set(key.view(), value.view());
+    input_view = input.view(nullptr, published);
+    dict = input_view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 0);
+    REQUIRE(range_size(dict.added_items()) == 0);
+    REQUIRE_FALSE(dict.data_view().key_set().modified(published));
+    const auto invalidated = published + TimeDelta{1};
+    output_view = output.view(invalidated);
+    static_cast<void>(output_view.as_dict().at(key.view()).begin_mutation(invalidated).invalidate());
+    input_view = input.view(nullptr, invalidated);
+    dict = input_view.as_dict();
+    REQUIRE(range_size(dict.removed_keys()) == 0);
+    REQUIRE(range_size(dict.removed_items()) == 0);
+    REQUIRE_FALSE(dict.data_view().key_set().modified(invalidated));
+}
+
+TEST_CASE("Runtime contract unbound scalar has no last modified time", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.ts(registry.register_scalar<int>());
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    set_output(output, 7, MIN_ST);
+    input.view(nullptr, MIN_ST).bind_output_sampled(output.view(MIN_ST), MIN_ST);
+    auto view = input.view(nullptr, MIN_ST + TimeDelta{1});
+    view.unbind_output();
+    REQUIRE_FALSE(view.valid());
+    REQUIRE_FALSE(view.modified());
+    REQUIRE(view.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("Runtime contract dictionary rebind samples children and retains withdrawn items", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    TSOutput a{schema}, b{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    Value x{1}, y{2}, z{3}, seven{7}, nine{9};
+    {
+        auto av = a.view(MIN_ST), bv = b.view(MIN_ST);
+        auto am = av.as_dict().begin_mutation(MIN_ST), bm = bv.as_dict().begin_mutation(MIN_ST);
+        am.set(x.view(), seven.view());
+        am.set(z.view(), seven.view());
+        bm.set(y.view(), nine.view());
+        bm.set(z.view(), nine.view());
+    }
+    input.view(nullptr, MIN_ST).bind_output_sampled(a.view(MIN_ST), MIN_ST);
+    const auto rebind = MIN_ST + TimeDelta{2};
+    auto view = input.view(nullptr, rebind);
+    view.bind_output_sampled(b.view(rebind), rebind);
+    auto dict = view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 1);
+    REQUIRE(range_size(dict.removed_keys()) == 1);
+    REQUIRE(range_size(dict.removed_items()) == 1);
+    const auto previous_target = a.view(rebind);
+    const auto current_target = b.view(rebind);
+    const auto x_slot = previous_target.as_dict().find_slot(x.view());
+    const auto z_slot = previous_target.as_dict().find_slot(z.view());
+    const auto y_slot = current_target.as_dict().find_slot(y.view());
+    CHECK(dict.slot_removed(x_slot));
+    CHECK_FALSE(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto rebound_data = dict.data_view();
+    CHECK(rebound_data.next_membership_removed_slot() == x_slot);
+    CHECK(rebound_data.next_membership_removed_slot(x_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(rebound_data.next_membership_added_slot() == y_slot);
+    for (const auto &[key, child] : dict.removed_items())
+    {
+        REQUIRE(key.checked_as<int>() == 1);
+        REQUIRE(child.value().checked_as<int>() == 7);
+        REQUIRE(child.last_modified_time() == MIN_ST);
+    }
+    for (const auto &[key, child] : dict.items())
+    {
+        static_cast<void>(key);
+        REQUIRE(child.modified());
+        REQUIRE(child.last_modified_time() == rebind);
+        REQUIRE(child.delta_value().checked_as<int>() == 9);
+    }
+    const auto withdrawal = rebind + TimeDelta{1};
+    view = input.view(nullptr, withdrawal);
+    view.unbind_output();
+    dict = view.as_dict();
+    REQUIRE_FALSE(view.valid());
+    REQUIRE(view.modified());
+    REQUIRE(view.last_modified_time() == MIN_DT);
+    REQUIRE(dict.empty());
+    REQUIRE(range_size(dict.removed_keys()) == 2);
+    REQUIRE(range_size(dict.removed_items()) == 2);
+    CHECK(dict.slot_removed(y_slot));
+    CHECK(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto withdrawn_data = dict.data_view();
+    CHECK(withdrawn_data.next_membership_removed_slot() == y_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(y_slot) == z_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(z_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(withdrawn_data.next_membership_added_slot() == TS_DATA_NO_CHILD_ID);
+    REQUIRE(capture_delta(view).view().as_bundle().at(0).as_set().size() == 2);
+    view = input.view(nullptr, withdrawal + TimeDelta{1});
+    dict = view.as_dict();
+    REQUIRE_FALSE(view.modified());
+    REQUIRE(range_size(dict.removed_items()) == 0);
+    CHECK_FALSE(dict.slot_removed(0));
 }

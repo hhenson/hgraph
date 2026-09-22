@@ -103,7 +103,7 @@ namespace hgraph::ts_data_seams
     [[nodiscard]] const TSSDataLayout &tss_layout(const void *context) noexcept;
     [[nodiscard]] ValueTypeRef tss_added_set_binding(const void *context) noexcept;
     [[nodiscard]] ValueTypeRef tss_removed_set_binding(const void *context) noexcept;
-    [[nodiscard]] const TSDataTracking &tss_tracking(const void *memory) noexcept;
+    [[nodiscard]] const TSDataTracking &tss_tracking(const void *context, const void *memory) noexcept;
     [[nodiscard]] Range<ValueView> tss_keys(const void *context, const void *memory, SetSurface surface);
     [[nodiscard]] bool tss_touch(void *memory, DateTime modified_time);
     void tss_insert_key(void *memory, const ValueView &key, DateTime modified_time);

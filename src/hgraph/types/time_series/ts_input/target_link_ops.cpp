@@ -844,11 +844,39 @@ namespace hgraph::detail
         }
 
         [[nodiscard]] bool target_link_dict_membership_added(const void *context, const void *memory, std::size_t slot)
-        { return target_link_dict_view(context, memory).membership_slot_added(slot); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            return link != nullptr && link->sampled_structural_transition()
+                       ? target_link_set_slot_added(context, memory, slot)
+                       : target.as_dict().membership_slot_added(slot);
+        }
+        [[nodiscard]] bool target_link_dict_membership_removed(const void *context, const void *memory, std::size_t slot)
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            // Removal ordinals belong to the retained previous target during a
+            // transition, exactly as they do in removed_items()/removed_values().
+            return link != nullptr && link->structural_transition_active()
+                       ? target_link_previous_slot_removed(context, memory, slot)
+                       : target.as_dict().membership_slot_removed(slot);
+        }
         [[nodiscard]] std::size_t target_link_dict_next_membership_added(const void *context, const void *memory, std::size_t previous)
-        { return target_link_dict_view(context, memory).next_membership_added_slot(previous); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            return link != nullptr && link->sampled_structural_transition()
+                       ? target_link_set_next_delta_slot<true>(context, memory, previous)
+                       : target.as_dict().next_membership_added_slot(previous);
+        }
         [[nodiscard]] std::size_t target_link_dict_next_membership_removed(const void *context, const void *memory, std::size_t previous)
-        { return target_link_dict_view(context, memory).next_membership_removed_slot(previous); }
+        {
+            const auto *link = target_link_for(context, memory);
+            const auto target = target_link_target_view(context, memory);
+            return link != nullptr && link->structural_transition_active()
+                       ? target_link_set_next_delta_slot<false>(context, memory, previous)
+                       : target.as_dict().next_membership_removed_slot(previous);
+        }
 
         [[nodiscard]] const void *target_link_dict_child_at_slot(const void *context,
                                                                  const void *memory,
@@ -1447,12 +1475,15 @@ namespace hgraph::detail
             static_cast<TSDataOps &>(context->dict_ops).clear_collection_impl = &ts_data_detail::clear_tsd_collection;
             configure_target_link_set_ops(context->dict_ops, &target_link_dict_insert_key,
                                           &target_link_dict_remove_key);
+            context->dict_ops.delta_to_python_impl =
+                &python_ops_detail::forwarder<&PythonOps::TSData::target_link_dict_delta_to_python>::call;
             context->dict_ops.child_binding_at_slot_impl = &target_link_dict_child_binding_at_slot;
             context->dict_ops.structural_delta_current_impl = &target_link_dict_structural_delta_current;
             context->dict_ops.child_at_slot_impl = &target_link_dict_child_at_slot;
             context->dict_ops.slot_modified_impl = &target_link_dict_slot_modified;
             context->dict_ops.next_modified_slot_impl = &target_link_dict_next_modified_slot;
             context->dict_ops.membership_slot_added_impl = &target_link_dict_membership_added;
+            context->dict_ops.membership_slot_removed_impl = &target_link_dict_membership_removed;
             context->dict_ops.next_membership_added_slot_impl = &target_link_dict_next_membership_added;
             context->dict_ops.next_membership_removed_slot_impl = &target_link_dict_next_membership_removed;
             context->dict_ops.make_ts_values_range_impl = &target_link_dict_values_range;
@@ -1696,6 +1727,26 @@ namespace hgraph::detail
 
 namespace hgraph::ts_input_seams
 {
+    bool target_link_sampled(const void *context, const void *memory, DateTime time)
+    {
+        const auto *link = detail::target_link_for(context, memory);
+        return link != nullptr && link->tracking.last_modified_time == time &&
+               (link->sampled_structural_transition() ||
+                link->target_view().last_modified_time() < time);
+    }
+
+    bool target_link_transition(const void *context, const void *memory, DateTime time)
+    {
+        const auto *link = detail::target_link_for(context, memory);
+        return link != nullptr && link->structural_transition_active() &&
+               link->structural_transition_time() == time;
+    }
+
+    Range<ValueView> target_link_removed_keys(const void *context, const void *memory)
+    {
+        return detail::target_link_set_removed_range(context, memory);
+    }
+
     TSDataView target_link_target_view(const void *context, const void *memory)
     {
         return detail::target_link_target_view(context, memory);
