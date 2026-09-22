@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from evidence import render
+from evidence import atomic_write, render
 from harness_identity import verified_harness
 
 ROOT = Path(__file__).absolute().parent
@@ -117,7 +117,7 @@ def replay(args, harness, identity):
                       candidate='Installed C++ runtime and Python authoring surface; native and package hashes identify the tested installation, source HEAD is context.',
                       replays=3, recorded=datetime.now(timezone.utc).date().isoformat())
     output = ROOT / 'observed.json'
-    output.write_text(render({'provenance': provenance, 'cases': dict(sorted(cases.items()))}) + '\n')
+    atomic_write(output, render({'provenance': provenance, 'cases': dict(sorted(cases.items()))}) + '\n')
 
 
 if __name__ == '__main__':

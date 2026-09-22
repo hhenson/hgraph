@@ -67,11 +67,22 @@ def apply_decisions(assertions, decisions):
             assertion['rationale'] = decision['rationale']
 
 
+def verify_native_probe(provenance, root):
+    if 'native_probe' not in provenance:
+        return
+    probe = provenance['native_probe']
+    source = hashlib.sha256((root / 'native_probe.cpp').read_bytes()).hexdigest()
+    output = hashlib.sha256((root / 'native_observed.txt').read_bytes()).hexdigest()
+    assert probe['source_sha256'] == source, 'Native probe source changed after recording'
+    assert probe['stable'] is True and probe['replay_digests'] == [output] * 3, 'Native probe evidence is changed or unstable'
+
+
 def main():
     assertions = expand_assertions()
     evidence = json.loads((ROOT / 'observed.json').read_text())
     observed = evidence['cases']
     provenance = evidence['provenance']
+    verify_native_probe(provenance, ROOT)
     assert provenance['harness_base'] == BASE, 'Unexpected harness base'
     for name in ('reference_identity', 'candidate_python_identity'):
         package = provenance[name]

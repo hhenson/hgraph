@@ -91,6 +91,7 @@ sources, and installed distribution artifacts. The candidate also hashes its
 native binaries. Version or Git HEAD alone does not identify either runtime.
 Bytecode caches are excluded. Both identities are captured before and after
 replay; a change rejects the run before replacing the published evidence.
+Publication atomically replaces the file after a complete temporary write.
 
 Interpreter and harness paths are trusted local configuration: they select code
 to execute, never recipe data. Paths are made absolute without resolving venv
@@ -123,6 +124,7 @@ all timestamps remain visible. Maps change only their JSON key representation.
 
 A graph replay omits prior native-probe provenance; rebuild and rerun the
 supplement for a new candidate.
+When present, its source and output hashes and three-run stability must verify.
 
 The supplementary [native probe](native_probe.cpp) bypasses the Python bridge.
 Its [three identical runs](native_observed.txt) show a full native sampled
