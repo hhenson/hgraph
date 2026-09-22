@@ -1,6 +1,6 @@
 # ADR 0013: struct imports
 
-Status: proposed (2026-09-20).
+Status: accepted (2026-09-20); implemented (2026-09-22), slices 1 to 8.
 
 ## Context
 

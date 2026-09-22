@@ -33,6 +33,18 @@ namespace
     using Build        = Operator<"checks.imported_struct_consumer.build", In<"lot", TS<Int>>, Out<TS<EquityValue>>>;
     using EquityLot    = Operator<"checks.imported_struct_consumer.equity_lot", In<"equity", TS<EquityValue>>, Out<TS<Int>>>;
 
+    using LegValue = typename shapes::Leg::value_type;
+    using NextTenor = Operator<"checks.imported_struct_consumer.next_tenor", In<"leg", TS<LegValue>>, Out<TS<Str>>>;
+
+    /// Leg(tenor: outer, next: Leg(tenor: inner)).
+    Value leg(const std::string &outer, const std::string &inner) {
+        Value root{ValuePlanFactory::instance().type_for(scalar_descriptor<LegValue>::value_meta())};
+        auto  fields = root.as_bundle().begin_mutation();
+        fields["tenor"].set(Str{outer});
+        fields["next"].as_bundle().begin_mutation()["tenor"].set(Str{inner});
+        return root;
+    }
+
     Value equity(const std::string &symbol, std::int64_t lot) {
         Value root{ValuePlanFactory::instance().type_for(scalar_descriptor<EquityValue>::value_meta())};
         auto  fields = root.as_bundle().begin_mutation();
@@ -87,4 +99,22 @@ TEST_CASE("generated C++ constructs a value of an imported struct", "[codegen][g
     consumer::register_operators();
     CHECK_OUTPUT(eval_node<Build>(values<Int>(5)), values<Value>(equity("eq", 5)));
     CHECK_OUTPUT((eval_node<EquityLot, TS<EquityValue>>(values<Value>(equity("eq", 7)))), values<Int>(7));
+}
+
+TEST_CASE("generated C++ rebuilds an imported recursive struct's edge", "[codegen][generated][struct-imports]") {
+    // ADR 0012's acceptance item, on the backend it was missing from: the
+    // descriptor carries the edge's mandatory `= null`, the importer rebuilds
+    // the edge, and this module is COMPILED -- so the schema below is the one
+    // generated C++ registered, not one direct wiring built.
+    const auto *edge = scalar_descriptor<LegValue>::value_meta();
+    REQUIRE(edge->field_count == 2U);
+    REQUIRE(edge->fields[1].type != nullptr);
+    CHECK(edge->fields[1].type->is_owned());
+    CHECK(edge->fields[1].type->element_type == edge);
+    CHECK(std::string{edge->name()} == "checks.imported_shapes::Leg");
+
+    // The same tick `hgl test` asserts on this module through direct wiring.
+    hgl::wiring::ensure_session();
+    consumer::register_operators();
+    CHECK_OUTPUT((eval_node<NextTenor, TS<LegValue>>(values<Value>(leg("1Y", "2Y")))), values<Str>("2Y"));
 }
