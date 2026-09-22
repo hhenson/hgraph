@@ -127,7 +127,8 @@ jobs:
 
   container:
     name: Container image / Linux
-    runs-on: ubuntu-24.04
+    # Opt-in self-hosted routing (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || 'ubuntu-24.04' }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

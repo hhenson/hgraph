@@ -204,6 +204,13 @@ else()
 endif()
 add_library(hgraph_core INTERFACE)
 
+if(BUILD_TESTING AND HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS AND UNIX)
+    # Debugger navigation needs endpoint types and notification targets whose
+    # definitions live in runtime translation units, not in the fixture.
+    # Keep Release optimization and IPO while supplying their debug information.
+    target_compile_options(hgraph_runtime PRIVATE -g)
+endif()
+
 add_library(hgraph::runtime ALIAS hgraph_runtime)
 add_library(hgraph::wiring ALIAS hgraph_wiring)
 add_library(hgraph::stdlib ALIAS hgraph_stdlib)

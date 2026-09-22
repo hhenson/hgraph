@@ -36,6 +36,9 @@ Supported platforms
      - Official ``manylinux_2_28`` image, GCC 14
      - ``cp312-abi3`` wheel, glibc 2.28+
      - Official wheel; Ubuntu 24.04/GCC 14 is the native and performance host
+       (native jobs may run on the opt-in
+       :ref:`self-hosted Linux runner <self-hosted-linux-runner>`, still with
+       GCC 14; the wheel itself is always built on a hosted runner)
    * - macOS arm64
      - macOS 26 runner, current AppleClang, deployment target 26.0
      - ``cp312-abi3`` wheel, macOS 26+

@@ -4,7 +4,7 @@ from typing import Type
 import pytest
 
 from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT, Removed, graph
-from hgraph import convert
+from hgraph import convert, if_then_else
 from hgraph.test import eval_node
 
 class base_test_class:
@@ -49,6 +49,19 @@ class derived_test_class(base_test_class):
 )
 def test_convert_ts(from_, from_tp, to_tp, expected):
     assert eval_node(convert, from_, to_tp, resolution_dict=dict(ts=from_tp)) == expected
+
+
+def test_identity_conversion_follows_reference_rebinding_and_value_ticks():
+    @graph
+    def g(condition: TS[bool], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return convert[TS[int]](if_then_else(condition, lhs, rhs))
+
+    assert eval_node(
+        g,
+        [True, None, False, None, True],
+        [1, 2, None, None, None],
+        [10, None, None, 20, None],
+    ) == [1, 2, 10, 20, 2]
 
 
 def test_convert_date_as_object_to_datetime():

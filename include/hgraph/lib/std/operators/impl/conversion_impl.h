@@ -428,6 +428,7 @@ namespace hgraph::stdlib
             const auto *in = ts_value_schema_at(context, 0);
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
+                   input != out &&
                    in != nullptr && out->value_schema != nullptr &&
                    TypeRegistry::instance().value_is_a(in, out->value_schema);
         }
@@ -496,6 +497,7 @@ namespace hgraph::stdlib
             const auto *in = ts_value_schema_at(context, 0);
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
+                   input != out &&
                    in != nullptr && in->is_opaque_python() &&
                    out->value_schema != nullptr && out->value_schema->is_opaque_python() &&
                    TypeRegistry::instance().value_is_a(out->value_schema, in);
@@ -552,6 +554,19 @@ namespace hgraph::stdlib
             }
             auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
             static_cast<void>(mutation.copy_value_from(concrete));
+        }
+    };
+
+    /** Conversion leaves identical schemas to convert_identity. The explicit
+        downcast_ operator still accepts a Bundle's own schema. */
+    struct convert_bundle_downcast_impl : downcast_bundle_impl
+    {
+        static constexpr auto name = "convert_bundle_downcast";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            return time_series_schema_at(context, 0) != output_schema(resolution) &&
+                   downcast_bundle_impl::requires_(resolution, context);
         }
     };
 

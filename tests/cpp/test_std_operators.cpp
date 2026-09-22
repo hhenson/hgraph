@@ -843,6 +843,18 @@ namespace
         }
     };
 
+    struct ConvertSelectedIntGraph
+    {
+        static constexpr auto name = "convert_selected_int_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> condition,
+                                     Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto selected = wire<stdlib::if_then_else>(w, condition, lhs, rhs);
+            return wire<stdlib::convert, TS<Int>>(w, selected);
+        }
+    };
+
     /** convert[TS[Int|Float|Bool]](TS[Str]): the parsing overloads
         ``cast_`` lowers to (parity #818 item 2.5). */
     struct ParseStringToIntGraph
@@ -1940,6 +1952,16 @@ TEST_CASE("std operators: take accepts a duration as well as a count")
                                    dict_delta<Str, TS<Int>>({{"c", 3}}))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
                                dict_delta<Str, TS<Int>>({{"b", 2}}), none));
+}
+
+TEST_CASE("std operators: identity conversion follows reference rebinding and value ticks")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ConvertSelectedIntGraph>(
+                     values<Bool>(true, none, false, none, true),
+                     values<Int>(1, 2, none, none, none),
+                     values<Int>(10, none, none, 20, none)),
+                 values<Int>(1, 2, 10, 20, 2));
 }
 
 TEST_CASE("std operators: convert parses a string into a number")
