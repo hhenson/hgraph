@@ -968,6 +968,16 @@ namespace hgl::wiring
             if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
             if (slot.port.schema == target) { return slot; }
             if (same_through_storage(slot.port.schema, target)) { return slot; }
+            // A reference to a target-shaped series (or the value of a target
+            // reference) needs no conversion node: binding installs the REF
+            // adaptation (RFC 0036). A switch_ whose branch passes a series
+            // through publishes its reference, so a conditional that forwards
+            // an existing binding produces one.
+            if (hgraph::time_series_value_equivalent(slot.port.schema, target)) {
+                Slot observed        = slot;
+                observed.port.schema = target;
+                return observed;
+            }
             const bool fixed_list_refines_dynamic =
                 slot.port.schema != nullptr && target != nullptr && slot.port.schema->kind == hgraph::TSTypeKind::TSL &&
                 target->kind == hgraph::TSTypeKind::TSL && !slot.port.schema->is_unbounded_tsl() && target->is_unbounded_tsl() &&
