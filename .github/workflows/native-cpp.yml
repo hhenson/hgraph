@@ -21,9 +21,15 @@ env:
 jobs:
   native-cpp:
     name: Native C++ / ${{ matrix.os }}
-    # The Linux leg may run on the opt-in self-hosted runner
-    # (build_system.rst, "Self-hosted Linux runner").
-    runs-on: ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || matrix.os }}
+    # Linux and macOS routing can be enabled independently; see build_system.rst.
+    runs-on: >-
+      ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","linux","x64","hg-build"]')
+          || matrix.os == 'macos-26' && vars.HGRAPH_SELF_HOSTED_MACOS == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","macOS","ARM64","hg-build"]')
+          || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +43,18 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Isolate temporary files from other host users
+      - name: Configure the persistent build environment
         if: runner.environment == 'self-hosted'
         shell: bash
-        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+        run: |
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(sysctl -n hw.logicalcpu)}"
+          else
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(nproc)}"
+          fi
+          [[ "$workers" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid build parallelism" >&2; exit 1; }
+          echo "HGRAPH_BUILD_PARALLELISM=$workers" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
@@ -88,7 +102,7 @@ jobs:
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
           -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Build native C++ tests
-        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || matrix.parallel }}
+        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }}
       - name: Run native C++ tests
         run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
       - name: Run restartable Kafka broker conformance
