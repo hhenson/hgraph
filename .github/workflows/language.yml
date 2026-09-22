@@ -29,7 +29,9 @@ env:
 jobs:
   language:
     name: Language / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    # The Linux leg may run on the opt-in self-hosted runner
+    # (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,10 +45,19 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Isolate temporary files from other host users
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
-          version: v0.15.0
+          version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
+      - name: Start compiler cache before parallel compilation
+        if: runner.environment == 'self-hosted'
+        run: |
+          sccache --stop-server || true
+          sccache --start-server
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -57,6 +68,10 @@ jobs:
       # dependency prefix.
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
+          # A persistent runner must not reuse a previous job's installer paths.
+          micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+          micromamba-root-path: ${{ runner.temp }}/micromamba-root
+          post-cleanup: all
           environment-name: hgraph-language
           cache-environment: true
           create-args: >-
@@ -130,7 +145,7 @@ jobs:
           -DCMAKE_PREFIX_PATH="$HGL_DEPENDENCY_PREFIX"
       - name: Build hgl and its suites
         run: >-
-          cmake --build build-language --parallel ${{ matrix.parallel }} --target
+          cmake --build build-language --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || matrix.parallel }} --target
           hgl hgl_syntax_tests hgl_semantics_tests hgl_ir_tests hgl_graph_ir_tests hgl_descriptor_tests hgl_descriptor_reader_tests
           hgl_native_package_tests
           hgl_wiring_tests hgl_wiring_type_tests

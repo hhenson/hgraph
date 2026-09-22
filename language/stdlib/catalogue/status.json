@@ -84,19 +84,6 @@
         "include/hgraph/lib/std/operators/io.h"
       ]
     },
-    "__materialize": {
-      "status": "native-provider",
-      "priority": 3,
-      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
-      "completed_domains": [],
-      "blockers": [
-        "B2",
-        "B5"
-      ],
-      "evidence": [
-        "include/hgraph/lib/std/operators/impl/stream_impl.h"
-      ]
-    },
     "__print_sink": {
       "status": "blocked",
       "priority": 3,

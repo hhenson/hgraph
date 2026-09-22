@@ -786,6 +786,36 @@ TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload"
     CHECK(resolved.impl->label == "dog");
 }
 
+TEST_CASE("operators: identical conversion schemas select identity through references too")
+{
+    auto &registry = TypeRegistry::instance();
+    stdlib::register_conversion_operators();
+    const auto *bundle = registry.bundle(
+        "tests.operator.identity", "Record", {{"id", registry.value_type("int")}});
+    const auto *opaque = registry.opaque_python("tests.operator.identity.Object", {registry.any()});
+
+    for (const auto *value : {registry.value_type("int"), registry.value_type("bool"),
+                              registry.value_type("str"), registry.any(), bundle, opaque})
+    {
+        const auto *target = registry.ts(value);
+        for (const auto *source : {target, registry.ref(target)})
+        {
+            std::array<WiringArg, 1> args{ts_arg(source)};
+            const auto resolved = OperatorRegistry::instance().resolve(
+                "convert", std::span<const WiringArg>{args}, true, target);
+            REQUIRE(resolved.impl != nullptr);
+            CHECK(resolved.impl->label.find("convert_identity") != std::string::npos);
+        }
+    }
+
+    // The narrower convert candidate must not change explicit downcast_.
+    std::array<WiringArg, 1> args{ts_arg(registry.ts(bundle))};
+    const auto downcast = OperatorRegistry::instance().resolve(
+        "downcast_", std::span<const WiringArg>{args}, true, registry.ts(bundle));
+    REQUIRE(downcast.impl != nullptr);
+    CHECK(downcast.impl->label.find("downcast_bundle") != std::string::npos);
+}
+
 TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and conversion")
 {
     auto &registry = TypeRegistry::instance();
