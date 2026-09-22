@@ -5,12 +5,13 @@
 #include "syntax/diagnostic.h"
 #include "syntax/source.h"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
 
 /// The C++ backend, first pass (developer guide, "C++ backend, first pass"):
-/// one header/source pair of public hgraph authoring code and one canonical
+/// a public header, optionally split implementation sources, and one canonical
 /// JSON descriptor per module. They are planned from hgraph IR and print names
 /// and types without linking the hgraph
 /// runtime, so what it emits is checked by the native compiler that builds the
@@ -35,6 +36,9 @@ namespace hgl::codegen
         std::string python_native_module{};
         /// Only the test/interactive harness may emit module-private test helpers.
         bool include_test_contexts{false};
+        /// Number of separately compiled implementation parts; one keeps the
+        /// traditional header/source pair. Registration order is unchanged.
+        std::size_t source_parts{1};
     };
 
     struct EmittedModule
@@ -45,6 +49,10 @@ namespace hgl::codegen
         std::string module_name{};
         std::string header{};
         std::string source{};
+        /// Build-private shared definitions and implementation parts, emitted
+        /// only when source_parts > 1. Neither changes the public descriptor.
+        std::string              implementation_header{};
+        std::vector<std::string> implementation_sources{};
         /// Canonical UTF-8 JSON for `<stem>.hgl-module.json`.
         std::string descriptor{};
         /// Canonical descriptor fingerprint also embedded in a dynamic module

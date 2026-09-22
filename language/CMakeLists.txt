@@ -440,7 +440,9 @@ hgl_apply_warnings(hgl_core_native)
 # materialization, activation, and output policy in readable HGL source.
 set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/include)
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
+set(_hgl_stdlib_source_parts 8)
 hgl_add_module(hgl_standard_library STATIC
+    SOURCE_PARTS ${_hgl_stdlib_source_parts}
     HGL stdlib/hgl/hgraph/standard.hgl
     PARTS stdlib/hgl/hgraph/control.hgl stdlib/hgl/hgraph/stream.hgl
           stdlib/hgl/hgraph/temporal.hgl
@@ -450,12 +452,20 @@ hgl_add_module(hgl_standard_library STATIC
 )
 # PARTS applies to one anchor only. Compile the independent operators module
 # without standard.hgl's control part, while keeping one installed library.
+set(_hgl_operators_part_sources)
+math(EXPR _hgl_last_stdlib_part "${_hgl_stdlib_source_parts} - 1")
+foreach(_part RANGE 0 ${_hgl_last_stdlib_part})
+    list(APPEND _hgl_operators_part_sources "${_hgl_standard_library_src_dir}/operators.part${_part}.cpp")
+endforeach()
 add_custom_command(
     OUTPUT
+        ${_hgl_operators_part_sources}
+        ${_hgl_standard_library_src_dir}/operators.h.impl.h
         ${_hgl_standard_library_include_dir}/operators.h
         ${_hgl_standard_library_src_dir}/operators.cpp
         ${_hgl_standard_library_src_dir}/operators.hgl-module.json
     COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/operators.hgl
+        --source-parts ${_hgl_stdlib_source_parts}
         --include-dir ${_hgl_standard_library_include_dir}
         --src-dir ${_hgl_standard_library_src_dir}
         --module-descriptor ${_hgl_core_native_src_dir}/native.hgl-module.json
@@ -464,6 +474,7 @@ add_custom_command(
     VERBATIM
 )
 target_sources(hgl_standard_library PRIVATE
+    ${_hgl_operators_part_sources}
     ${_hgl_standard_library_include_dir}/operators.h
     ${_hgl_standard_library_src_dir}/operators.cpp
 )
@@ -482,6 +493,7 @@ set(_hgl_generated_cpp_snapshot_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/HglGene
 set(_hgl_generated_cpp_snapshot_dir ${CMAKE_CURRENT_SOURCE_DIR}/generated/cpp/hgraph)
 set(_hgl_generated_cpp_snapshot_work_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/cpp-snapshot-check)
 set(_hgl_generated_cpp_snapshot_args
+    "-DHGL_STDLIB_SOURCE_PARTS=${_hgl_stdlib_source_parts}"
     "-DHGL_SNAPSHOT_DIRECTORY=${_hgl_generated_cpp_snapshot_dir}"
     "-DHGL_SNAPSHOT_WORK_DIRECTORY=${_hgl_generated_cpp_snapshot_work_dir}"
     "-DHGL_GENERATED_NATIVE_HEADER=${_hgl_core_native_include_dir}/native.h"

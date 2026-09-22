@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -3532,5 +3533,69 @@ export fn make() -> i64 => shapes::Tag(id: 1).id
 )",
                   catalog};
         CHECK(unit.has(Category::Type, "cannot infer generic 'T' for struct constructor"));
+    }
+}
+
+TEST_CASE("split C++ preserves public contracts and ordered registration", "[codegen][split]") {
+    Unit       unit{R"(
+module checks.split
+operator adjust(value: i64) -> i64
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+export fn first(value: i64) -> i64 => value + 1
+export fn second(value: i64) -> i64 => first(value) + 2
+export fn hgl_detail(value: i64) -> i64 => second(value)
+export fn register_part_0(value: i64) -> i64 => hgl_detail(value)
+)"};
+    const auto single = unit.emit();
+    REQUIRE(single);
+    const auto split = unit.emit(EmitOptions{.source_parts = 3});
+    REQUIRE(split);
+    CHECK(split->header == single->header);
+    CHECK(split->descriptor == single->descriptor);
+    REQUIRE(split->implementation_sources.size() == 3);
+    CHECK(contains(split->implementation_header, "namespace hgl_detail"));
+    CHECK(contains(split->header, "struct hgl_detail_"));
+    CHECK_FALSE(contains(split->source, "hgraph::register_overload<"));
+    CHECK_FALSE(contains(split->source, "hgraph::register_graph_overload<"));
+    const auto registration_lines = [](const std::string &text) {
+        std::vector<std::string> result;
+        std::istringstream       input{text};
+        for (std::string line; std::getline(input, line);) {
+            const auto start = line.find_first_not_of(' ');
+            if (start == std::string::npos) { continue; }
+            line.erase(0, start);
+            if (line.starts_with("hgraph::register_overload<") || line.starts_with("hgraph::register_graph_overload<")) {
+                result.push_back(line);
+            }
+        }
+        return result;
+    };
+    std::vector<std::string> split_registrations;
+    std::string              definitions;
+    std::size_t              previous = 0;
+    for (std::size_t part = 0; part < split->implementation_sources.size(); ++part) {
+        const auto &source  = split->implementation_sources[part];
+        const auto  entries = registration_lines(source);
+        split_registrations.insert(split_registrations.end(), entries.begin(), entries.end());
+        definitions += source;
+        const auto call = split->source.find("hgl_detail::register_operators(std::integral_constant<std::size_t, " +
+                                             std::to_string(part) + ">{});");
+        REQUIRE(call != std::string::npos);
+        CHECK(call > previous);
+        previous = call;
+    }
+    CHECK(split_registrations == registration_lines(single->source));
+    CHECK(occurrences(definitions, "first::compose(") == 1);
+    CHECK(occurrences(definitions, "second::compose(") == 1);
+    CHECK(occurrences(definitions, "hgl_detail_::compose(") == 1);
+    CHECK(occurrences(split->source, "registry.register_installer(") == 1);
+    CHECK(contains(split->source, "registry.remove_provider(provider)"));
+}
+
+TEST_CASE("split C++ rejects invalid part counts", "[codegen][split]") {
+    for (const std::size_t count : {0U, 65U}) {
+        Unit unit{"module checks.split\nexport fn first(value: i64) -> i64 => value\n"};
+        CHECK_FALSE(unit.emit(EmitOptions{.source_parts = count}));
+        CHECK(unit.diagnostics.has_errors());
     }
 }

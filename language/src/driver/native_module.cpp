@@ -339,6 +339,12 @@ namespace hgl::driver
             hash_field(hasher, "header-name", std::string{stem} + ".h");
             hash_field(hasher, "header", module.header);
             hash_field(hasher, "source", module.source);
+            if (!module.implementation_header.empty()) {
+                hash_field(hasher, "implementation-header", module.implementation_header);
+            }
+            for (std::size_t i = 0; i < module.implementation_sources.size(); ++i) {
+                hash_field(hasher, "implementation-part-" + std::to_string(i), module.implementation_sources[i]);
+            }
             hash_field(hasher, "descriptor", module.descriptor);
             hash_field(hasher, "bootstrap", bootstrap);
             hash_field(hasher, "query-symbol", query_symbol);
@@ -434,10 +440,10 @@ namespace hgl::driver
 
         std::optional<CachePublication> publish_cache(const std::filesystem::path &root, std::string_view key,
                                                       const std::filesystem::path &artifact_directory, std::string_view stem,
-                                                      std::string_view expected_descriptor, const BuildContext &context,
+                                                      const codegen::EmittedModule &module, const BuildContext &context,
                                                       std::string &warning) {
             const std::filesystem::path entry = root / key;
-            if (complete_cache_entry(entry, key, stem, expected_descriptor)) { return CachePublication{entry, true}; }
+            if (complete_cache_entry(entry, key, stem, module.descriptor)) { return CachePublication{entry, true}; }
 
             const std::optional<std::filesystem::path> staging = make_unique_directory(root, ".staging", warning);
             if (!staging) { return std::nullopt; }
@@ -447,13 +453,20 @@ namespace hgl::driver
     #else
                                                                              ".so");
     #endif
-            const std::array<std::pair<std::filesystem::path, std::filesystem::path>, 5> copies{
+            std::vector<std::pair<std::filesystem::path, std::filesystem::path>> copies{
                 std::pair{artifact_directory / (std::string{stem} + ".h"), *staging / (std::string{stem} + ".h")},
                 std::pair{artifact_directory / (std::string{stem} + ".cpp"), *staging / (std::string{stem} + ".cpp")},
                 std::pair{artifact_directory / (std::string{stem} + ".hgl-module.json"),
                           *staging / (std::string{stem} + ".hgl-module.json")},
                 std::pair{artifact_directory / "hgl_module.cpp", *staging / "hgl_module.cpp"},
                 std::pair{source_image, *staging / image_name()}};
+            const auto add_source = [&](const std::string &name) {
+                copies.emplace_back(artifact_directory / name, *staging / name);
+            };
+            if (!module.implementation_header.empty()) { add_source(std::string{stem} + ".h.impl.h"); }
+            for (std::size_t i = 0; i < module.implementation_sources.size(); ++i) {
+                add_source(std::string{stem} + ".part" + std::to_string(i) + ".cpp");
+            }
             std::error_code ec;
             for (const auto &[source, destination] : copies) {
                 std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
@@ -485,7 +498,7 @@ namespace hgl::driver
                 ec.clear();
                 std::filesystem::rename(*staging, entry, ec);
                 if (!ec) { return CachePublication{entry, false}; }
-                if (complete_cache_entry(entry, key, stem, expected_descriptor)) {
+                if (complete_cache_entry(entry, key, stem, module.descriptor)) {
                     std::filesystem::remove_all(*staging, ec);
                     return CachePublication{entry, true};
                 }
@@ -494,7 +507,7 @@ namespace hgl::driver
                     const std::filesystem::path quarantine = root / unique_name(".incomplete");
                     std::filesystem::rename(entry, quarantine, ec);
                     if (!ec) { continue; }
-                    if (complete_cache_entry(entry, key, stem, expected_descriptor)) {
+                    if (complete_cache_entry(entry, key, stem, module.descriptor)) {
                         std::filesystem::remove_all(*staging, ec);
                         return CachePublication{entry, true};
                     }
@@ -738,6 +751,19 @@ namespace hgl::driver
         std::vector<std::string> command = context.arguments;
         command.push_back("-I" + artifact_directory->string());
         command.push_back(source_path.string());
+        if (!module.implementation_header.empty() &&
+            !write_file(*artifact_directory / (stem + ".h.impl.h"), module.implementation_header, error)) {
+            error += "; artifacts retained in '" + artifact_directory->string() + "'";
+            return std::nullopt;
+        }
+        for (std::size_t i = 0; i < module.implementation_sources.size(); ++i) {
+            const auto part = *artifact_directory / (stem + ".part" + std::to_string(i) + ".cpp");
+            if (!write_file(part, module.implementation_sources[i], error)) {
+                error += "; artifacts retained in '" + artifact_directory->string() + "'";
+                return std::nullopt;
+            }
+            command.push_back(part.string());
+        }
         command.push_back(bootstrap_path.string());
         command.emplace_back("-o");
         command.push_back(image_path.string());
@@ -758,7 +784,7 @@ namespace hgl::driver
         if (root) {
             std::string warning;
             if (const std::optional<CachePublication> published =
-                    publish_cache(*root, key, *artifact_directory, stem, module.descriptor, context, warning)) {
+                    publish_cache(*root, key, *artifact_directory, stem, module, context, warning)) {
                 result_directory = published->entry;
                 load_path        = published->entry / image_name();
                 reused           = published->reused;

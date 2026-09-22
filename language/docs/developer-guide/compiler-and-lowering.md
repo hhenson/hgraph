@@ -1771,7 +1771,7 @@ directly from graph-IR statements and blocks. The obsolete AST
 type/expression/call evaluator and source-declaration adapter have been removed.
 Codegen has no syntax AST or resolver dependency.
 
-`hgl emit-cpp <file.hgl> [--part <file.hgl>]...` writes one header/source pair
+`hgl emit-cpp <file.hgl> [--part <file.hgl>]...` normally writes one header/source pair
 named after the anchor source — `prices.hgl` becomes `prices.h` and
 `prices.cpp` — beside the
 source by default, into one directory with `--out-dir`, or split with

@@ -23,6 +23,7 @@ if(WIN32)
             -DBINDIR=${CMAKE_INSTALL_BINDIR}
             -DCONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_runtime_dlls.cmake)
+    set_tests_properties(hgraph_language_windows_runtime_dlls PROPERTIES RESOURCE_LOCK hgl_sdk_install)
 endif()
 
 # Execution backends consume HGraph IR. Keep the final AST/resolver migration
@@ -282,7 +283,9 @@ add_test(
         -DHGL=$<TARGET_FILE:hgl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
 )
-set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES RUN_SERIAL TRUE)
+# Concurrent installs write the build tree's install_manifest files. Lock only
+# other install consumers; runtime/codegen tests can run beside this test.
+set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES RESOURCE_LOCK hgl_sdk_install)
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
@@ -362,7 +365,7 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 # emitted and compiled through the same `hgl_add_module()` a package uses,
 # under the repository's warnings. hgraph's harness evaluates graph parity
 # beside `hgl test` and the native-only runtime-node behavior.
-hgl_add_module(hgl_codegen_fixture STATIC HGL
+hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl

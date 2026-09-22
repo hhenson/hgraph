@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 foreach(_required IN ITEMS
         HGL_SNAPSHOT_MODE
+        HGL_STDLIB_SOURCE_PARTS
         HGL_SNAPSHOT_DIRECTORY
         HGL_SNAPSHOT_WORK_DIRECTORY
         HGL_GENERATED_NATIVE_HEADER
@@ -72,6 +73,17 @@ _hgl_snapshot("${HGL_GENERATED_STANDARD_HEADER}" standard.h)
 _hgl_snapshot("${HGL_GENERATED_STANDARD_SOURCE}" standard.cpp)
 _hgl_snapshot("${HGL_GENERATED_OPERATORS_HEADER}" operators.h)
 _hgl_snapshot("${HGL_GENERATED_OPERATORS_SOURCE}" operators.cpp)
+
+# The split implementation is part of the reviewed compiler output too.
+math(EXPR _last_part "${HGL_STDLIB_SOURCE_PARTS} - 1")
+foreach(_module IN ITEMS STANDARD OPERATORS)
+    string(TOLOWER "${_module}" _stem)
+    get_filename_component(_source_dir "${HGL_GENERATED_${_module}_SOURCE}" DIRECTORY)
+    _hgl_snapshot("${_source_dir}/${_stem}.h.impl.h" "${_stem}.h.impl.h")
+    foreach(_part RANGE 0 ${_last_part})
+        _hgl_snapshot("${_source_dir}/${_stem}.part${_part}.cpp" "${_stem}.part${_part}.cpp")
+    endforeach()
+endforeach()
 
 if(_hgl_snapshot_drift)
     list(JOIN _hgl_snapshot_drift "\n  " _hgl_snapshot_drift_text)

@@ -3,6 +3,7 @@
 #   hgl_add_module(<target>
 #       HGL <file.hgl>...
 #       [PARTS <file.hgl>...]
+#       [SOURCE_PARTS <1..64>]
 #       [SOURCES <file.cpp>...]
 #       [OUT_DIR <dir>] | [INCLUDE_DIR <dir> SRC_DIR <dir>]
 #       [LINK_LIBRARIES <target>...]
@@ -116,7 +117,7 @@ endfunction()
 function(hgl_add_module target)
     cmake_parse_arguments(PARSE_ARGV 1 _hgl
         "STATIC;SHARED"
-        "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR"
+        "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR;SOURCE_PARTS"
         "HGL;PARTS;SOURCES;LINK_LIBRARIES")
     if(_hgl_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "hgl_add_module(${target}): unexpected arguments: ${_hgl_UNPARSED_ARGUMENTS}")
@@ -130,6 +131,15 @@ function(hgl_add_module target)
             message(FATAL_ERROR
                 "hgl_add_module(${target}): PARTS requires exactly one anchor source in HGL")
         endif()
+    endif()
+    if("SOURCE_PARTS" IN_LIST _hgl_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR "hgl_add_module(${target}): SOURCE_PARTS requires a count")
+    endif()
+    if(NOT DEFINED _hgl_SOURCE_PARTS)
+        set(_hgl_SOURCE_PARTS 1)
+    endif()
+    if(NOT _hgl_SOURCE_PARTS MATCHES "^[1-9][0-9]*$" OR _hgl_SOURCE_PARTS GREATER 64)
+        message(FATAL_ERROR "hgl_add_module(${target}): SOURCE_PARTS must be between 1 and 64")
     endif()
     if(_hgl_STATIC AND _hgl_SHARED)
         message(FATAL_ERROR "hgl_add_module(${target}): STATIC and SHARED are exclusive")
@@ -223,6 +233,14 @@ function(hgl_add_module target)
         set(_source "${_src_dir}/${_stem}.cpp")
         set(_descriptor "${_src_dir}/${_stem}.hgl-module.json")
         set(_outputs "${_header}" "${_source}" "${_descriptor}")
+        set(_part_sources)
+        if(_hgl_SOURCE_PARTS GREATER 1)
+            math(EXPR _last_part "${_hgl_SOURCE_PARTS} - 1")
+            foreach(_part RANGE 0 ${_last_part})
+                list(APPEND _part_sources "${_src_dir}/${_stem}.part${_part}.cpp")
+            endforeach()
+            list(APPEND _outputs "${_src_dir}/${_stem}.h.impl.h" ${_part_sources})
+        endif()
         set(_python_options)
         if(_hgl_PYTHON_MODULE)
             set(_python "${_hgl_PYTHON_PACKAGE_DIR}/${_stem}.py")
@@ -233,7 +251,7 @@ function(hgl_add_module target)
         add_custom_command(
             OUTPUT ${_outputs}
             COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_module_part_options}
-                    ${_emit_placement} ${_python_options}
+                    ${_emit_placement} --source-parts ${_hgl_SOURCE_PARTS} ${_python_options}
                     ${_module_descriptor_options}
             DEPENDS "${_hgl_abs}" ${_module_part_dependencies}
                     ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
@@ -241,7 +259,7 @@ function(hgl_add_module target)
             VERBATIM
         )
         list(APPEND _generated_headers "${_header}")
-        list(APPEND _generated_sources "${_source}")
+        list(APPEND _generated_sources "${_source}" ${_part_sources})
         list(APPEND _generated_descriptors "${_descriptor}")
     endforeach()
 

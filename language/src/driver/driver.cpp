@@ -24,6 +24,7 @@
 #include <hgraph/version.h>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -54,7 +55,7 @@ namespace hgl::driver
                          "  hgl run <file> [--part <file>]... [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
                          "          [--set <name>=<constant expression>]... [--module-descriptor <file>]...\n"
-                         "  hgl emit-cpp <file> [--part <file>]...\n"
+                         "  hgl emit-cpp <file> [--part <file>]... [--source-parts <1..64>]\n"
                          "               [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
                          "               [--print-namespace] [--module-descriptor <file>]...\n"
@@ -622,6 +623,7 @@ namespace hgl::driver
             std::optional<std::string> src_dir;
             std::optional<std::string> python_path;
             std::string                python_native;
+            std::size_t                source_parts    = 1;
             bool                       print           = false;
             bool                       print_namespace = false;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
@@ -642,6 +644,13 @@ namespace hgl::driver
                     const auto dir = value();
                     if (!dir) { return usage_error("--src-dir needs a directory"); }
                     src_dir = std::string{*dir};
+                } else if (argument == "--source-parts") {
+                    const auto count = value();
+                    if (!count) { return usage_error("--source-parts needs a count between 1 and 64"); }
+                    const auto [end, error] = std::from_chars(count->data(), count->data() + count->size(), source_parts);
+                    if (error != std::errc{} || end != count->data() + count->size() || source_parts < 1 || source_parts > 64) {
+                        return usage_error("--source-parts needs a count between 1 and 64");
+                    }
                 } else if (argument == "--python") {
                     const auto file = value();
                     if (!file) { return usage_error("--python needs a file"); }
@@ -714,6 +723,7 @@ namespace hgl::driver
             options.header_name          = stem + ".h";
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
+            options.source_parts         = source_parts;
             std::optional<codegen::EmittedModule> emitted =
                 codegen::emit_cpp(unit->file, *unit->hgraph, options, unit->diagnostics);
             if (!emitted) {
@@ -726,9 +736,21 @@ namespace hgl::driver
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
+            std::vector<std::pair<std::filesystem::path, const std::string *>> implementation_files;
+            if (!emitted->implementation_header.empty()) {
+                implementation_files.emplace_back(source_path.parent_path() / (stem + ".h.impl.h"),
+                                                  &emitted->implementation_header);
+            }
+            for (std::size_t i = 0; i < emitted->implementation_sources.size(); ++i) {
+                implementation_files.emplace_back(source_path.parent_path() / (stem + ".part" + std::to_string(i) + ".cpp"),
+                                                  &emitted->implementation_sources[i]);
+            }
             if (print) {
                 std::cout << "// ==== " << header_path.filename().string() << '\n' << emitted->header;
                 std::cout << "// ==== " << source_path.filename().string() << '\n' << emitted->source;
+                for (const auto &[file, contents] : implementation_files) {
+                    std::cout << "// ==== " << file.filename().string() << '\n' << *contents;
+                }
                 std::cout << "// ==== " << descriptor_path.filename().string() << '\n' << emitted->descriptor;
                 if (python_path) {
                     std::cout << "# ==== " << std::filesystem::path{*python_path}.filename().string() << '\n' << emitted->python;
@@ -738,6 +760,9 @@ namespace hgl::driver
             if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source) ||
                 !write_file(descriptor_path, emitted->descriptor)) {
                 return exit_usage;
+            }
+            for (const auto &[file, contents] : implementation_files) {
+                if (!write_file(file, *contents)) { return exit_usage; }
             }
             if (python_path && !write_file(std::filesystem::path{*python_path}, emitted->python)) { return exit_usage; }
             return exit_ok;

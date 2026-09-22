@@ -75,6 +75,7 @@ hgl_add_module(rebuilt_native STATIC
         ${HGL_STDLIB_SOURCE}/native/temporal_values.hgl
 )
 hgl_add_module(rebuilt_standard STATIC
+    SOURCE_PARTS 8
     HGL ${HGL_STDLIB_SOURCE}/standard.hgl
     PARTS ${HGL_STDLIB_SOURCE}/control.hgl ${HGL_STDLIB_SOURCE}/stream.hgl ${HGL_STDLIB_SOURCE}/temporal.hgl
     LINK_LIBRARIES rebuilt_native)
