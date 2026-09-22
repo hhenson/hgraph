@@ -481,3 +481,7 @@ intent; the older `docs/source/specification/` chapters for framing;
 
 [Dynamic-case validation](validation.md) records the TSD, REF and nested-graph
 expectations, executed traces and implementation variations.
+
+[Fixed collection cases](cases_fixed.md) validate the next TSL/TSB slice,
+including nesting and whole-output versus child bindings. Three semantic
+decisions remain in its [comparison report](validation/fixed/README.md).

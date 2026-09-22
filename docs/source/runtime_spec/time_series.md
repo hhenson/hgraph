@@ -137,12 +137,14 @@ State
 | last modified time | Every output; every non-peered or local input | A peered input reports its output's |
 | watchers | An output | The inputs bound to it |
 | bound to | An input | An output, or nothing |
-| role | An input | Peered, non-peered or local. Fixed by the graph description, except for the members of a collection that come and go |
+| role | An input | Peered, non-peered or local. A reference may change a fixed collection between whole-output and child bindings |
 | active | An input | Set from the node type when the node starts; the node may change it |
 
 A **non-peered** input's state is its own, derived from its children: it is
 valid when *any* child is valid, all valid when itself and *every* child are
-valid, and its last modified time is the latest at which a child notified it.
+valid. It is modified when any child is modified; its last modified time is
+the latest current child time, or *never* when none is valid. A child becoming
+invalid can reveal an older sibling time. Notification alone is not a tick.
 
 ```mermaid
 stateDiagram-v2
@@ -210,8 +212,9 @@ sequenceDiagram
 A time-series can lose its value. Its last modified time goes back to
 *never*, so it reads not valid and not modified, and its value reads nil. Its
 children, if it has any, become invalid with it. Its watchers are notified,
-and its parent is told a child changed, so the parent *does* read modified in
-that cycle.
+and its owned parent is told a child changed, so that parent reads modified
+in that cycle. An assembled input parent passes on the notification but
+derives *modified* from its children; invalidation alone does not make it tick.
 
 ### Collections within a cycle
 
@@ -268,7 +271,7 @@ one of: **empty**; a reference to **one output**; or, for a bundle or a fixed
 list, a reference **per child**. A reference to a reference is just the inner
 reference.
 
-- A REF time-series ticks when it is given a new reference. It does **not**
+- A REF time-series ticks when a reference value is published to it. It does **not**
   tick when the time-series it designates ticks. A node holding a REF input
   is therefore not woken by the data, only by the re-pointing — which is the
   point: references let a node route a time-series without paying for its
@@ -315,8 +318,9 @@ Rules
   retains the removal observation in TS-15 (see Points to settle).
 - **TS-2** The value of a time-series that is not valid is nil. The delta of
   one that is not modified is nil.
-- **TS-3** Last modified time never decreases, except that invalidation
-  returns it to *never*.
+- **TS-3** An owned output's last modified time never decreases, except
+  that invalidation returns it to *never*. A non-peered input derives its time
+  from its current children; losing the latest child may reveal an older time.
 - **TS-4** A child modified in a cycle means every ancestor is modified in
   that cycle.
 - **TS-5** Applying an output's deltas in order, from its last invalid
@@ -327,7 +331,8 @@ Rules
   began watching between writes. Invalidation notifies separately (TS-7).
   Several notifications still cause only one node evaluation (GRF-16).
 - **TS-7** Becoming invalid notifies, and is not a tick. The time-series
-  reads neither valid nor modified. Its parent reads modified.
+  reads neither valid nor modified. Its owned parent reads modified; an
+  assembled input parent derives modification from its children (TS-1).
 - **TS-8** A passive input never schedules its node. Making an input active
   or passive does not change what it reads, and never itself schedules the
   node — not even when its source has already ticked in the cycle.
@@ -351,7 +356,7 @@ Rules
   modified in its cycle with the whole value as its delta.
 - **TS-15** Unbinding causes no notification, except that a set or dictionary
   input reports what it was showing as removed.
-- **TS-16** A reference ticks only when re-pointed; never because what it
+- **TS-16** A reference ticks when a reference value is published; never because what it
   designates ticked.
 - **TS-17** An input bound through a reference is re-bound, sampled, whenever
   the reference changes; an empty reference unbinds it.
