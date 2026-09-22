@@ -319,6 +319,7 @@ namespace hgl::codegen
             "imported_operators",
             "operator_contracts",
             "register_operators",
+            "hgl_detail",
             "compose",
             "name",
             "defaults",
@@ -5242,6 +5243,10 @@ namespace hgl::codegen
         // ------------------------------------------------------------ module
 
         EmittedModule Emitter::emit() {
+            if (options_.source_parts < 1 || options_.source_parts > 64) {
+                backend({}, "C++ source parts must be between 1 and 64");
+            }
+            const bool split = options_.source_parts > 1;
             bind_hgraph_declarations();
             EmittedModule result;
             result.module_name = graph_.path;
@@ -5352,8 +5357,13 @@ namespace hgl::codegen
                 end_materialization();
             }
             Writer public_functions;
+            std::vector<std::string> compositions;
             for (const gir::CallableId id : exports) {
-                if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
+                if (callable(id).kind != gir::CallableKind::Composition) { continue; }
+                Writer function;
+                emit_function(id, function, Form::OutOfLine);
+                compositions.push_back(function.str());
+                public_functions.append(function.str());
             }
             Writer public_header_functions;
             public_header_functions.indent();
@@ -5378,31 +5388,41 @@ namespace hgl::codegen
                 body.line();
                 body.dedent();
             }
-            if (!internal.empty() || !impls.empty() || !generated_helpers_.str().empty()) {
-                body.indent();
-                body.open("namespace");
+            Writer private_body;
+            if (split || !internal.empty() || !impls.empty() || !generated_helpers_.str().empty()) {
+                private_body.indent();
+                private_body.open(split ? "namespace hgl_detail" : "namespace");
                 const bool has_internal_runtime = std::any_of(internal.begin(), internal.end(), [&](gir::CallableId id) {
                     return callable(id).kind == gir::CallableKind::RuntimeNode;
                 });
-                if (has_internal_runtime) { body.open("namespace operator_contracts"); }
+                if (has_internal_runtime) { private_body.open("namespace operator_contracts"); }
                 for (const gir::CallableId id : internal) {
                     if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                     const gir::Callable &item = callable(id);
-                    body.line("using " + callable_cpp_name(id) + " = " +
-                              operator_contract(item.parameters, item.result, item.identity) + ";");
+                    private_body.line("using " + callable_cpp_name(id) + " = " +
+                                      operator_contract(item.parameters, item.result, item.identity) + ";");
                 }
                 if (has_internal_runtime) {
-                    body.close("  // namespace operator_contracts");
-                    body.line();
+                    private_body.close("  // namespace operator_contracts");
+                    private_body.line();
                 }
-                body.append(generated_helpers_.str());
-                body.append(private_functions.str());
-                body.close("  // namespace");
-                body.line();
-                body.dedent();
+                private_body.append(generated_helpers_.str());
+                private_body.append(private_functions.str());
+                private_body.close("  // namespace");
+                private_body.line();
+                private_body.dedent();
             }
+            if (!split) { body.append(private_body.str()); }
             body.indent();
-            body.append(public_functions.str());
+            if (!split) {
+                body.append(public_functions.str());
+            } else {
+                body.open("namespace hgl_detail");
+                for (std::size_t part = 0; part < options_.source_parts; ++part) {
+                    body.line("void register_operators(std::integral_constant<std::size_t, " + std::to_string(part) + ">);");
+                }
+                body.close();
+            }
 
             // Registration: exported functions and operator implementations
             // become registry candidates under module-qualified names, and
@@ -5410,6 +5430,7 @@ namespace hgl::codegen
             body.open("hgraph::OperatorProviderHandle register_operators()");
             body.line("auto &registry = hgraph::OperatorRegistry::instance();");
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
+            std::vector<std::string> registrations;
             for (const gir::CallableId id : exports) {
                 const std::string name         = callable_cpp_name(id);
                 const std::string registration = callable(id).kind == gir::CallableKind::RuntimeNode
@@ -5417,13 +5438,13 @@ namespace hgl::codegen
                                                      : "hgraph::register_graph_overload";
                 const std::string pack = callable(id).kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id)
                                                                                              : graph_pack_template_args(id);
-                body.line(registration + "<operators::" + name + ", " + name + pack + ">();");
+                registrations.push_back(registration + "<operators::" + name + ", " + name + pack + ">();");
             }
             for (const gir::CallableId id : internal) {
                 if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                 const std::string name = callable_cpp_name(id);
-                body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name +
-                          runtime_node_pack_template_arg(id) + ">();");
+                registrations.push_back("hgraph::register_overload<operator_contracts::" + name + ", " + name +
+                                        runtime_node_pack_template_arg(id) + ">();");
             }
             for (const gir::CallableId id : impls) {
                 const gir::Callable &implementation = callable(id);
@@ -5440,9 +5461,9 @@ namespace hgl::codegen
                 const std::string pack         = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? runtime_node_pack_template_arg(id, &contract->parameters)
                                                      : graph_pack_template_args(id, &contract->parameters);
-                body.line(registration + "<" +
-                          planned_operator_marker(contract->identity, contract->registry_name, implementation.range) + ", " +
-                          callable_cpp_name(id) + pack + ">();");
+                registrations.push_back(registration + "<" +
+                                        planned_operator_marker(contract->identity, contract->registry_name, implementation.range) +
+                                        ", " + callable_cpp_name(id) + pack + ">();");
             }
             for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
                 const gir::Materialization &materialization = graph_.materializations[index];
@@ -5459,9 +5480,17 @@ namespace hgl::codegen
                 const std::string pack = implementation.kind == gir::CallableKind::RuntimeNode
                                              ? runtime_node_pack_template_arg(materialization.implementation, &contract->parameters)
                                              : graph_pack_template_args(materialization.implementation, &contract->parameters);
-                body.line(registration + "<" +
-                          planned_operator_marker(contract->identity, contract->registry_name, implementation.range) + ", " +
-                          materialization_cpp_name(materialization, index) + pack + ">();");
+                registrations.push_back(registration + "<" +
+                                        planned_operator_marker(contract->identity, contract->registry_name, implementation.range) +
+                                        ", " + materialization_cpp_name(materialization, index) + pack + ">();");
+            }
+            if (split) {
+                for (std::size_t part = 0; part < options_.source_parts; ++part) {
+                    body.line("hgl_detail::register_operators(std::integral_constant<std::size_t, " + std::to_string(part) +
+                              ">{});");
+                }
+            } else {
+                for (const std::string &registration : registrations) { body.line(registration); }
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
@@ -5567,9 +5596,44 @@ namespace hgl::codegen
             source.line();
             source.line("#include <hgraph/types/operator_dispatch.h>");
             source.line("#include <hgraph/util/scope.h>");
+            if (split) { source.line("#include <type_traits>"); }
             source.line();
             result.header = header.str();
             result.source = source.str() + body.str();
+            if (split) {
+                // Named private types preserve their identity across translation
+                // units. Anonymous copies would make inline definitions disagree
+                // about the types they use, violating the ODR.
+                Writer implementation;
+                implementation.line(banner);
+                implementation.line("#pragma once");
+                implementation.line("#include \"" + options_.header_name + "\"");
+                implementation.open("namespace " + namespace_);
+                implementation.append(private_body.str());
+                implementation.close();
+                result.implementation_header = implementation.str();
+                for (std::size_t part = 0; part < options_.source_parts; ++part) {
+                    Writer unit;
+                    unit.append(source.str());
+                    unit.line("#include \"" + options_.header_name + ".impl.h\"");
+                    unit.open("namespace " + namespace_);
+                    unit.line("using namespace hgl_detail;");
+                    for (std::size_t i = part; i < compositions.size(); i += options_.source_parts) {
+                        unit.append(compositions[i]);
+                    }
+                    unit.open("namespace hgl_detail");
+                    unit.open("void register_operators(std::integral_constant<std::size_t, " + std::to_string(part) + ">)");
+                    // Contiguous partitions and ordered calls retain candidate
+                    // precedence and the single provider's rollback boundary.
+                    const std::size_t begin = registrations.size() * part / options_.source_parts;
+                    const std::size_t end   = registrations.size() * (part + 1) / options_.source_parts;
+                    for (std::size_t i = begin; i < end; ++i) { unit.line(registrations[i]); }
+                    unit.close();
+                    unit.close();
+                    unit.close();
+                    result.implementation_sources.push_back(unit.str());
+                }
+            }
 
             if (!options_.python_native_module.empty()) {
                 if (!is_python_identifier(options_.python_native_module) || is_python_keyword(options_.python_native_module)) {

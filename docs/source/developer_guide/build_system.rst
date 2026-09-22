@@ -200,12 +200,17 @@ with the same expression (the matrix jobs also require
                 && fromJSON('["self-hosted","linux","x64","hg-build"]')
                 || 'ubuntu-24.04' }}
 
-The build steps in those jobs use every core when ``runner.environment`` is
-``self-hosted`` and keep the hosted ``--parallel`` values otherwise. Test
-parallelism is the same on both. Self-hosted jobs use sccache 0.16 or newer:
-older clients create a CPU-sized thread pool per compiler invocation and can
-exhaust the process limit on a many-core host. Start the cache server before
-parallel compilation so concurrent clients do not each try to start a server.
+Self-hosted native and language jobs respect ``HGRAPH_BUILD_PARALLELISM``;
+without a cap they use the available CPU count. The native shared-install job
+uses the same cap. ``HGRAPH_TEST_PARALLELISM`` controls their test concurrency,
+with self-hosted defaults of eight native tests and six language tests.
+Hosted jobs retain their existing limits. ``CMAKE_BUILD_PARALLEL_LEVEL`` carries
+the build cap into nested SDK consumer builds. Self-hosted native and language
+jobs use sccache 0.16 or newer and set ``TOKIO_WORKER_THREADS=2``. The released
+Linux client can otherwise create a CPU-sized thread pool for every compiler
+invocation, exhausting the shared account's task limit when builds overlap. This limit bounds cache-client threads, not compiler workers. Start the
+cache server before parallel compilation so concurrent clients do not each
+try to start a server.
 Micromamba's binary and root
 prefix live under ``RUNNER_TEMP`` so a later job can install them afresh even
 when an earlier job was cancelled. Native and language jobs also set ``TMPDIR``
@@ -243,14 +248,37 @@ The runner account cannot install software, so the host provides:
   for the container jobs and the S3 and Kafka conformance services;
 - the job-started hook, owned by root so the runner account cannot modify it;
 - CPU, I/O and memory limits on the runner service and the runner account's
-  slice, so CI yields to interactive work on the host.
+  slice, so CI stays within the host's aggregate budget.
+
+Concurrent runner instances
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use a separate ``hg-language`` runner for the Linux language job; retain
+``hg-build`` for native, container and other existing jobs. The same separation
+applies on macOS. This lets native and language jobs overlap without scheduling
+two native conformance jobs against the same fixed Docker names or ports.
+Do not add ``hg-build`` to the dedicated language runner.
+
+Each instance needs its own runner installation, work directory, tool cache,
+``SCCACHE_DIR`` and ``SCCACHE_SERVER_PORT``. Otherwise one job's cleanup or
+``sccache --stop-server`` can interrupt the other. Divide the host's compiler
+budget between the services and set test concurrency for each role. For example,
+a 24-core host can run two services with 12 compiler workers each, eight native
+tests and six language tests. Benchmark the complete jobs because serial code
+generation and linking still limit an individual build.
+
+On Linux, apply CPU and memory limits to the shared account slice so both
+services and their rootless containers fit within the host's aggregate budget.
+Keep the existing event guard on every instance. Provision both role labels
+before enabling self-hosted routing.
 
 Self-hosted macOS runner
 ------------------------
 
 The macOS legs of ``native-cpp`` and ``language`` can use a private Apple Silicon
 build host. Set the repository variable ``HGRAPH_SELF_HOSTED_MACOS`` to ``true``
-to select the labels ``self-hosted``, ``macOS``, ``ARM64`` and ``hg-build``.
+to select ``self-hosted``, ``macOS`` and ``ARM64`` runners. Native jobs require
+``hg-build``; language jobs require ``hg-language``.
 The Linux variable ``HGRAPH_SELF_HOSTED`` remains independent. An unset or false
 macOS variable selects ``macos-26``; fork pull requests always use hosted runners.
 Disable the variable before taking the host offline. Already queued jobs must
@@ -279,12 +307,10 @@ together, so login-shell overrides cannot mix incompatible toolchain versions.
 The language job installs its pinned ``clang-format`` Python wheel under the
 runner account; it does not require administrative Homebrew access.
 
-The service may set ``HGRAPH_BUILD_PARALLELISM`` to a positive integer to reserve
-CPU capacity for interactive work. Both native and language jobs honour it;
-otherwise they detect the available CPU count with ``sysctl`` on macOS or
-``nproc`` on Linux. Test parallelism retains the hosted defaults. Configure low
-CPU and I/O priority for the macOS service; these are scheduling preferences,
-not the aggregate resource limits provided by Linux cgroups.
+The service may set ``HGRAPH_BUILD_PARALLELISM`` and
+``HGRAPH_TEST_PARALLELISM`` to positive integers, as on Linux. Normal CPU and
+I/O priority suits a dedicated builder; lower priority is an optional preference
+for an interactive machine, rather than an aggregate resource limit.
 
 The persistent-runner temporary-directory, sccache startup and micromamba cleanup
 rules above apply to macOS too. Homebrew packaging and release wheel jobs retain

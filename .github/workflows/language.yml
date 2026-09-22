@@ -23,6 +23,8 @@ permissions:
   contents: read
 
 env:
+  # Bound each sccache client; compiler workers remain independently parallel.
+  TOKIO_WORKER_THREADS: "2"
   GCC_VERSION: "14"
   SCCACHE_GHA_ENABLED: "true"
 
@@ -33,10 +35,10 @@ jobs:
     runs-on: >-
       ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true'
           && !github.event.pull_request.head.repo.fork
-          && fromJSON('["self-hosted","linux","x64","hg-build"]')
+          && fromJSON('["self-hosted","linux","x64","hg-language"]')
           || matrix.os == 'macos-26' && vars.HGRAPH_SELF_HOSTED_MACOS == 'true'
           && !github.event.pull_request.head.repo.fork
-          && fromJSON('["self-hosted","macOS","ARM64","hg-build"]')
+          && fromJSON('["self-hosted","macOS","ARM64","hg-language"]')
           || matrix.os }}
     strategy:
       fail-fast: false
@@ -63,6 +65,10 @@ jobs:
           fi
           [[ "$workers" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid build parallelism" >&2; exit 1; }
           echo "HGRAPH_BUILD_PARALLELISM=$workers" >> "$GITHUB_ENV"
+          tests="${HGRAPH_TEST_PARALLELISM:-6}"
+          [[ "$tests" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid test parallelism" >&2; exit 1; }
+          echo "HGRAPH_TEST_PARALLELISM=$tests" >> "$GITHUB_ENV"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$workers" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
@@ -178,7 +184,7 @@ jobs:
           hgl_operator_type_tests hgl_native_module_tests hgl_native_module_abi_c hgl_codegen_tests hgl_codegen_fixture
           hgl_generated_tests hgl_stdlib_test_driver
       - name: Run the language suites
-        run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ matrix.parallel }}
+        run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || matrix.parallel }}
       - name: hgl smoke
         shell: bash
         run: |

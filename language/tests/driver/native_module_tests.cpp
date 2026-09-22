@@ -157,6 +157,8 @@ TEST_CASE("generated C++ is passed through clang-format") {
     module.header = "#pragma once\nnamespace example{using value=int;}\n";
     module.source = "#include \"module.h\"\nnamespace example{int twice(int "
                     "x){return x*2;}}\n";
+    module.implementation_header  = "#pragma once\nnamespace example{struct private_type{int value;};}\n";
+    module.implementation_sources = {"namespace example{int first(){return 1;}}\n", "namespace example{int second(){return 2;}}\n"};
     std::string error;
 
     const bool formatted = hgl::driver::format_cpp(module, error);
@@ -168,6 +170,10 @@ namespace example
     using value = int;
 }
 )");
+    CHECK(module.implementation_header.find("namespace example\n{\n") != std::string::npos);
+    REQUIRE(module.implementation_sources.size() == 2);
+    CHECK(module.implementation_sources[0].find("int first() { return 1; }") != std::string::npos);
+    CHECK(module.implementation_sources[1].find("int second() { return 2; }") != std::string::npos);
     CHECK(module.source == R"(#include "module.h"
 namespace example
 {
