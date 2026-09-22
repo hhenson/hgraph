@@ -84,7 +84,10 @@ lock and without comparing descriptions, so a bridge that loses that race
 finds nothing to compare on the way in and would cache the winner's layout.
 The closure is therefore collected whole before anything is decided, every
 registered member is compared before the close, and every member again after
-it.
+it. **Every return goes through that comparison, including the one that finds
+the root already registered** — another bridge can register between the
+comparison and the lookup, so finding the root there is not evidence that it
+agrees.
 
 ### Catalog
 
@@ -177,6 +180,12 @@ binding just the named struct leaves a backend with no layout for part of the
 shape it has to register — it reports an unknown nominal type, at a name the
 source never mentions. Reachability is over parents and field types alike,
 which is the same closure the exporting module's export check walks.
+
+A name the closure cannot find is **reported where the import is**, not
+skipped: the module declaring it is missing from the supplied package target,
+so this module's layout cannot be rebuilt whole. That is the transitive-supply
+case under Unresolved, and it belongs to the driver to satisfy — but the
+resolver has to say so rather than let a half-bound shape reach a backend.
 
 **A re-described struct's fields are its whole layout, ancestors first**, the
 same as a local declaration's. A *catalog record* holds only the fields it

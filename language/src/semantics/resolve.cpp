@@ -418,20 +418,35 @@ namespace hgl::semantics
                 // source never mentions. Reachability is over parents and
                 // field types alike, which is the same closure the exporting
                 // module's export check walks.
-                for (const ImportedType &parent : record.parents) { bind_imported_closure(parent, range); }
-                for (const ImportedStructField &field : record.fields) { bind_imported_closure(field.type, range); }
+                for (const ImportedType &parent : record.parents) { bind_imported_closure(parent, record.identity, range); }
+                for (const ImportedStructField &field : record.fields) {
+                    bind_imported_closure(field.type, record.identity, range);
+                }
                 return binding;
             }
 
             /// Binds every struct `type` reaches, at any depth (ADR 0013).
-            void bind_imported_closure(const ImportedType &type, SourceRange range) {
+            ///
+            /// A name it cannot find is REPORTED, not skipped: the module that
+            /// declares it is missing from the supplied package target, so this
+            /// module's layout cannot be rebuilt whole. Accepting the gap here
+            /// let `hgl check` finish against a field whose type nothing
+            /// describes, and left direct wiring to fail later at an unknown
+            /// nominal type -- a name the source never mentions.
+            void bind_imported_closure(const ImportedType &type, std::string_view owner, SourceRange range) {
                 if (!type.nominal_identity.empty()) {
-                    if (const ImportedStruct *reached = catalog_.find_struct_by_identity(type.nominal_identity)) {
-                        const ImportedStruct reached_copy = *reached;
-                        (void)imported_struct_binding(reached_copy, range);
+                    const ImportedStruct *reached = catalog_.find_struct_by_identity(type.nominal_identity);
+                    if (reached == nullptr) {
+                        report(Category::Module, range,
+                               "imported struct '" + std::string{owner} + "' reaches '" + type.nominal_identity +
+                                   "', whose module is not in the supplied package target, so its layout cannot be "
+                                   "rebuilt");
+                        return;
                     }
+                    const ImportedStruct reached_copy = *reached;
+                    (void)imported_struct_binding(reached_copy, range);
                 }
-                for (const ImportedType &child : type.children) { bind_imported_closure(child, range); }
+                for (const ImportedType &child : type.children) { bind_imported_closure(child, owner, range); }
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {

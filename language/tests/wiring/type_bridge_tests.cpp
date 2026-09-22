@@ -791,3 +791,40 @@ fn walking(head: atomic<shapes::Head>) -> atomic<shapes::Head> => head
     // Named at the member that disagrees, not at the root.
     CHECK(rendered.find("Tail") != std::string::npos);
 }
+
+TEST_CASE("an imported field naming an absent module is reported at the import", "[wiring][types][struct-imports]") {
+    // Whatever crosses a module boundary crosses whole, or is refused by name.
+    // A field naming a struct from a module the package target does not supply
+    // used to be skipped: `hgl check` finished against a field whose type
+    // nothing describes, and direct wiring failed later at an unknown nominal
+    // type -- a name the source never mentions.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.partial";
+
+    hgl::semantics::ImportedStruct order;
+    order.module_identity = module.identity;
+    order.name            = "Order";
+    order.identity        = "checks.partial.Order";
+    // `checks.elsewhere` is never added to the catalog.
+    order.fields = {{"id", hgl::semantics::ImportedScalarType::I64, false, false},
+                    {"venue", symbol("checks.elsewhere.Venue"), false, false}};
+
+    module.structs = {std::move(order)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_partial
+
+use checks.partial as shapes
+
+fn reading(order: atomic<shapes::Order>) -> atomic<shapes::Order> => order
+)",
+              catalog};
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    // Named at the module that is missing, not at a nominal type downstream.
+    CHECK(rendered.find("checks.elsewhere.Venue") != std::string::npos);
+    CHECK(rendered.find("package target") != std::string::npos);
+}

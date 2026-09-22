@@ -367,7 +367,13 @@ namespace hgl::wiring
             });
         };
         if (!members_agree()) { return nullptr; }
-        if (const hgraph::ValueTypeMetaData *existing = registry_.value_type(root_name)) { return existing; }
+        if (const hgraph::ValueTypeMetaData *existing = registry_.value_type(root_name)) {
+            // Another bridge may have registered the closure between the
+            // comparison above and this lookup, so the root being there is not
+            // evidence that it agrees. Every return goes through the same
+            // comparison; none is a shortcut past it.
+            return members_agree() ? existing : nullptr;
+        }
 
         const auto describe = [&](std::string_view name) -> hgraph::RecursiveBundleRequest {
             const auto found = pending.find(std::string{name});
