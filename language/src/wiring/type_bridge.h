@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace hgl::wiring
@@ -75,12 +76,18 @@ namespace hgl::wiring
         [[nodiscard]] const hgraph::ValueTypeMetaData   *realize_value_closure(Specialization root, syntax::SourceRange range);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *realize_schema_closure(const hgraph_ir::Type &type,
                                                                                 const Bindings        &outer);
-        /// The nominal types one type expression names, resolved through
-        /// `bindings`. Only a nominal hop can be repeated without bound: the
-        /// tuples and collections around it nest within one expression, which
-        /// the descriptor reader already bounds.
-        void nominal_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
-                           std::size_t depth = 0) const;
+        /// The nominals `value()` reaches from one type expression, resolved
+        /// through `bindings`, with a nominal application's type ARGUMENTS
+        /// ahead of the application -- specializing it realizes them. Only a
+        /// nominal hop can repeat without bound: the tuples and collections
+        /// around it nest within one expression, which is bounded.
+        void value_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
+                         std::size_t depth = 0) const;
+        /// The nominals `schema()` reaches from one type expression WITH
+        /// `schema()`. An `atomic<T>`, a set element, a map key and a rolling
+        /// element take `value()` instead, so they are not temporal edges.
+        void schema_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
+                          std::size_t depth = 0) const;
         [[nodiscard]] const hgraph::ValueTypeMetaData *registered(const Specialization &specialization, syntax::SourceRange range);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *nominal_schema(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *register_schema(const hgraph_ir::Type &type, const Bindings &outer);
@@ -106,6 +113,10 @@ namespace hgl::wiring
         /// whatever was already in the registry when it put them there.
         std::unordered_map<std::string, const hgraph::ValueTypeMetaData *>   realized_{};
         std::unordered_map<std::string, const hgraph::TSValueTypeMetaData *> realized_schemas_{};
+        /// Structs a realization currently has open, across nested calls. In a
+        /// valid module nothing re-enters one; a malformed one that did would
+        /// otherwise recurse without end, so it fails by name instead.
+        std::unordered_set<std::string> in_progress_{};
     };
 }  // namespace hgl::wiring
 
