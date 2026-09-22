@@ -861,12 +861,13 @@ namespace hgl::ir
             /// Lowers `source` and everything its layout reaches, ANCESTORS
             /// FIRST, without putting the closure's depth on the stack.
             ///
-            /// `lower_imported_struct` still reaches for what it needs, but by
-            /// the time it runs each of those is already recorded, so its
-            /// guard returns at once and the recursion is one frame deep. A
-            /// descriptor is an input: the chain `A0 -> A1 -> ...` is as long
-            /// as the supplying module chose, and descending it per struct was
-            /// the compiler's stack.
+            /// This is the ONLY thing that orders ancestors before
+            /// descendants: `lower_imported_struct` reaches for an ancestor's
+            /// flattened fields and does not describe one itself, so an
+            /// ordering slip here is a diagnostic there rather than a silent
+            /// re-descent. A descriptor is an input: the chain `A0 -> A1 ->
+            /// ...` is as long as the supplying module chose, and descending
+            /// it per struct was the compiler's stack.
             void lower_imported_closure(const semantics::ImportedStruct &source, hir::SymbolId symbol,
                                         syntax::SourceRange range) {
                 struct Pending
@@ -880,7 +881,13 @@ namespace hgl::ir
                         std::ranges::find(resolved_.imported_structs, identity, &semantics::ImportedStruct::identity);
                     return found == resolved_.imported_structs.end() ? nullptr : &*found;
                 };
-                std::unordered_set<std::string> started{source.identity};
+                // QUEUED IS NOT LOWERED. One set for both answers let a parent
+                // that a sibling field had queued as a root be skipped by the
+                // walk that inherits it, and the descendant was then flattened
+                // against an ancestry nothing had described. So: `queued`
+                // answers "is a root already waiting", and only
+                // `described_imported_structs_` answers "is it lowered".
+                std::unordered_set<std::string> queued{source.identity};
                 std::vector<Pending>            roots{Pending{source, symbol, 0}};
                 std::vector<std::string>        references;
                 while (!roots.empty()) {
@@ -889,12 +896,17 @@ namespace hgl::ir
                     // recorded first.
                     std::vector<Pending> stack{std::move(roots.back())};
                     roots.pop_back();
+                    // What stops THIS walk going round: an ancestry cycle is
+                    // refused upstream, so this only guards a diamond whose
+                    // two sides meet before either is lowered.
+                    std::unordered_set<std::string> visiting{stack.back().record.identity};
                     while (!stack.empty()) {
                         if (stack.back().parent < stack.back().record.parents.size()) {
                             const semantics::ImportedType &parent =
                                 stack.back().record.parents[stack.back().parent++];
                             if (parent.nominal_identity.empty()) { continue; }
-                            if (!started.insert(parent.nominal_identity).second) { continue; }
+                            if (described_imported_structs_.contains(parent.nominal_identity)) { continue; }
+                            if (!visiting.insert(parent.nominal_identity).second) { continue; }
                             const semantics::ImportedStruct *ancestor = record_for(parent.nominal_identity);
                             if (ancestor == nullptr) { continue; }
                             const semantics::ImportedStruct copy = *ancestor;
@@ -915,7 +927,8 @@ namespace hgl::ir
                             layout_nominals(field.type, references);
                         }
                         for (const std::string &identity : references) {
-                            if (!started.insert(identity).second) { continue; }
+                            if (described_imported_structs_.contains(identity)) { continue; }
+                            if (!queued.insert(identity).second) { continue; }
                             const semantics::ImportedStruct *referenced = record_for(identity);
                             if (referenced == nullptr) { continue; }
                             const semantics::ImportedStruct copy = *referenced;
@@ -967,19 +980,20 @@ namespace hgl::ir
                 for (const semantics::ImportedType &parent : source.parents) {
                     target.parents.push_back(imported_type(parent, generics, range));
                     // An ancestor is named only through this parent, never in
-                    // the source, so it would otherwise go undescribed -- and a
-                    // backend cannot register a family whose ancestors it has
-                    // no layout for. The resolver bound every ancestor while
-                    // seeding, so each is already here by identity.
+                    // the source, and a backend cannot register a family whose
+                    // ancestors it has no layout for. Describing it HERE is
+                    // what put the chain's length on the stack, so this asks
+                    // rather than descends: `lower_imported_closure` owns the
+                    // ordering, and if it ever stops holding, the flattening
+                    // below would quietly drop every inherited field instead.
                     if (parent.nominal_identity.empty()) { continue; }
+                    if (described_imported_structs_.contains(parent.nominal_identity)) { continue; }
                     const auto ancestor = std::ranges::find(resolved_.imported_structs, parent.nominal_identity,
                                                             &semantics::ImportedStruct::identity);
                     if (ancestor == resolved_.imported_structs.end()) { continue; }
-                    const semantics::ImportedStruct ancestor_copy = *ancestor;
-                    const hir::SymbolId             ancestor_symbol =
-                        external_symbol(hir::SymbolKind::ImportedStruct, ancestor_copy.identity, ancestor_copy.identity,
-                                        ancestor_copy.identity, range);
-                    lower_imported_struct(ancestor_copy, ancestor_symbol, range);
+                    diagnostics_.report(syntax::Category::Name, range,
+                                        "imported struct '" + source.identity + "' was described before its parent '" +
+                                            parent.nominal_identity + "'");
                 }
                 // A catalog record holds only the fields it DECLARES, while
                 // every consumer of `hir::StructField` -- the type checker,

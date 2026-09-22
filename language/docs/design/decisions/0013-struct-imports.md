@@ -222,7 +222,14 @@ chain length is not this compiler's to put on a stack: the resolver's binding,
 the cycle search, and typed HIR's lowering all use an explicit worklist.
 Lowering orders ancestors before descendants — a descendant's flattening reads
 its ancestors' fields — and queues what a field *names* as a root of its own
-rather than descending into it.
+rather than descending into it. The worklist keeps *queued* and *lowered*
+apart: a parent one field had already queued as a root is still not described
+when a later field's descendant inherits it, and treating the two as one answer
+let that descendant skip its own ancestry. Describing the struct is therefore
+the only place the distinction is enforced — it reads an ancestor's flattened
+fields and never describes one itself, so an ordering slip is a diagnostic
+rather than a re-descent, and the alternative is a struct that silently loses
+every inherited field.
 
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an

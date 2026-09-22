@@ -817,6 +817,62 @@ fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
+TEST_CASE("an imported family is lowered ancestors first however its members are named",
+          "[wiring][types][struct-imports]") {
+    // The ordering trap. `Holder` names EVERY member of an inheritance chain
+    // as a field, ancestor-to-descendant, so lowering queues them all as roots
+    // and then takes the deepest first. A single "have we started this one"
+    // set cannot tell a root that is merely WAITING from one already lowered,
+    // so the deepest descendant skipped each of its parents as "started" and
+    // was flattened against an ancestry nothing had described yet.
+    //
+    // A descendant carries its parents' fields (hgraph's `bundle()` rule), so
+    // getting this wrong is not a crash -- it is a struct that silently loses
+    // every inherited field.
+    constexpr std::size_t            depth = 64;
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.family";
+    for (std::size_t index = 0; index < depth; ++index) {
+        const std::string              suffix = std::to_string(index);
+        hgl::semantics::ImportedStruct link;
+        link.module_identity = module.identity;
+        link.name            = "A" + suffix;
+        link.identity        = module.identity + ".A" + suffix;
+        link.fields          = {{"f" + suffix, hgl::semantics::ImportedScalarType::I64, false, false}};
+        if (index > 0) { link.parents = {symbol(module.identity + ".A" + std::to_string(index - 1))}; }
+        module.structs.push_back(std::move(link));
+    }
+    hgl::semantics::ImportedStruct holder;
+    holder.module_identity = module.identity;
+    holder.name            = "Holder";
+    holder.identity        = module.identity + ".Holder";
+    // Ancestor-to-descendant: the driver queues roots in this order and pops
+    // the LAST one first, so the deepest descendant is lowered while every
+    // one of its parents is queued-but-not-lowered.
+    for (std::size_t index = 0; index < depth; ++index) {
+        holder.fields.push_back(
+            {"m" + std::to_string(index), symbol(module.identity + ".A" + std::to_string(index)), false, false});
+    }
+    module.structs.push_back(std::move(holder));
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_family
+
+use checks.family as shapes
+
+fn reading(held: atomic<shapes::Holder>) -> atomic<shapes::Holder> => held
+fn inherited(held: atomic<shapes::Holder>) -> i64 => held.m63.f0
+)",
+              catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    // `f0` is declared by the chain's ROOT and read off its deepest
+    // descendant: it is only there if every ancestor was described before the
+    // descendant that flattens it.
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
 TEST_CASE("an imported layout cycle through ordinary fields is rejected", "[wiring][types][struct-imports]") {
     // Two records are enough. A cycle through fields that are not recursive
     // edges is not a layout, it is an infinite value -- the local rule rejects
