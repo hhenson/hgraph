@@ -181,6 +181,12 @@ shape it has to register — it reports an unknown nominal type, at a name the
 source never mentions. Reachability is over parents and field types alike,
 which is the same closure the exporting module's export check walks.
 
+**A cycle the layout cannot bound is refused.** An owned edge bounds a cycle,
+so one made entirely of edges is the ADR 0012 shape; any other is an infinite
+value. The edges therefore stay in the graph and the *cycle* is judged —
+removing them before looking missed one that runs through an edge and back
+through inheritance, which the local resolver rejects.
+
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
 edge must be an optional `atomic`, which bounds it). An imported layout is not

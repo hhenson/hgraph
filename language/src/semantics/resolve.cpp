@@ -476,47 +476,84 @@ namespace hgl::semantics
                 for (const ImportedType &child : type.children) { layout_references(child, out); }
             }
 
-            /// An identity on a cycle of ordinary (non-edge) references, if the
-            /// closure has one. Iterative DFS with colours: the graph is the
-            /// closure's, so this is linear in its references.
+            /// One reference from a struct's layout to another struct, and
+            /// whether it is an ADR 0012 owned edge (which bounds the value)
+            /// or an ordinary link (which does not).
+            struct LayoutLink
+            {
+                std::string target{};
+                bool        owned{false};
+            };
+
+            /// An identity on a cycle the layout cannot bound, if the closure
+            /// has one.
+            ///
+            /// Owned edges stay IN the graph and the cycle is judged instead:
+            /// removing them first missed a cycle that runs through an edge
+            /// and back through inheritance (`Base { child: atomic<Leaf> }`
+            /// with `Leaf: Base`), which the local resolver rejects and which
+            /// sends direct wiring round `recursive_value` and `value` until
+            /// the stack is gone. A cycle made ENTIRELY of owned edges is the
+            /// ADR 0012 shape and is bounded; any other is an infinite value.
+            ///
+            /// Adjacency is built once per member. Rebuilding a member's
+            /// references each time the walk resumed it was quadratic in a
+            /// wide struct's field count (CLAUDE.md guardrail iv).
             [[nodiscard]] static std::optional<std::string> imported_layout_cycle(
                 const std::vector<ImportedStruct> &closure) {
-                std::unordered_map<std::string_view, const ImportedStruct *> by_identity;
-                for (const ImportedStruct &member : closure) { by_identity.emplace(member.identity, &member); }
-                std::unordered_map<std::string_view, int> colour;  // 0 unseen, 1 on the stack, 2 done
+                std::unordered_map<std::string_view, std::vector<LayoutLink>> adjacency;
+                adjacency.reserve(closure.size());
+                for (const ImportedStruct &member : closure) {
+                    std::vector<LayoutLink>  links;
+                    std::vector<std::string> names;
+                    for (const ImportedType &parent : member.parents) {
+                        names.clear();
+                        layout_references(parent, names);
+                        for (std::string &name : names) { links.push_back(LayoutLink{std::move(name), false}); }
+                    }
+                    for (const ImportedStructField &field : member.fields) {
+                        names.clear();
+                        layout_references(field.type, names);
+                        for (std::string &name : names) { links.push_back(LayoutLink{std::move(name), field.recursive}); }
+                    }
+                    adjacency.emplace(member.identity, std::move(links));
+                }
+
+                struct Frame
+                {
+                    std::string_view identity{};
+                    std::size_t      index{0};
+                    bool             entered_owned{false};
+                };
+                std::unordered_map<std::string_view, int> colour;  // 0 unseen, 1 on the path, 2 done
                 for (const ImportedStruct &start : closure) {
                     if (colour[start.identity] != 0) { continue; }
-                    std::vector<std::pair<std::string_view, std::size_t>> stack{{start.identity, 0}};
-                    std::vector<std::string> edges;
+                    std::vector<Frame> stack{Frame{start.identity, 0, false}};
                     colour[start.identity] = 1;
                     while (!stack.empty()) {
-                        auto &[identity, index] = stack.back();
-                        const auto found        = by_identity.find(identity);
-                        if (found == by_identity.end()) {
+                        const std::string_view identity = stack.back().identity;
+                        const auto             found    = adjacency.find(identity);
+                        if (found == adjacency.end() || stack.back().index >= found->second.size()) {
                             colour[identity] = 2;
                             stack.pop_back();
                             continue;
                         }
-                        edges.clear();
-                        for (const ImportedType &parent : found->second->parents) { layout_references(parent, edges); }
-                        for (const ImportedStructField &field : found->second->fields) {
-                            if (field.recursive) { continue; }
-                            layout_references(field.type, edges);
-                        }
-                        if (index >= edges.size()) {
-                            colour[identity] = 2;
-                            stack.pop_back();
+                        const LayoutLink &link = found->second[stack.back().index++];
+                        const auto        seen = colour.find(link.target);
+                        if (seen != colour.end() && seen->second == 1) {
+                            bool bounded = link.owned;
+                            for (auto frame = stack.rbegin(); bounded && frame != stack.rend(); ++frame) {
+                                if (frame->identity == link.target) { break; }
+                                bounded = frame->entered_owned;
+                            }
+                            if (!bounded) { return link.target; }
                             continue;
                         }
-                        const std::string next = edges[index++];
-                        const auto        seen = colour.find(next);
-                        if (seen != colour.end() && seen->second == 1) { return next; }
-                        if (seen == colour.end() || seen->second == 0) {
-                            const auto inserted = by_identity.find(next);
-                            if (inserted == by_identity.end()) { continue; }
-                            colour[inserted->first] = 1;
-                            stack.emplace_back(inserted->first, 0);
-                        }
+                        if (seen != colour.end() && seen->second == 2) { continue; }
+                        const auto member = adjacency.find(link.target);
+                        if (member == adjacency.end()) { continue; }
+                        colour[member->first] = 1;
+                        stack.push_back(Frame{member->first, 0, link.owned});
                     }
                 }
                 return std::nullopt;

@@ -906,3 +906,50 @@ fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
     INFO(rendered);
     CHECK(rendered.find("layout cycle") != std::string::npos);
 }
+
+TEST_CASE("an imported cycle through an edge and inheritance is rejected", "[wiring][types][struct-imports]") {
+    // `Base { child: atomic<Leaf> }` with `Leaf: Base`. The edge alone is
+    // bounded (ADR 0012), and the parent link alone is not a cycle -- together
+    // they are one, and the local resolver rejects it. Removing owned edges
+    // before looking for cycles saw only `Leaf -> Base` and missed it, leaving
+    // direct wiring to go round `recursive_value` and `value` until the stack
+    // was gone.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.mixed";
+
+    hgl::semantics::ImportedType edge;
+    edge.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+    edge.children = {symbol("checks.mixed.Leaf")};
+
+    hgl::semantics::ImportedStruct base;
+    base.module_identity = module.identity;
+    base.name            = "Base";
+    base.identity        = "checks.mixed.Base";
+    base.abstract        = true;
+    base.fields          = {{"child", edge, true, /*recursive=*/true}};
+
+    hgl::semantics::ImportedStruct leaf;
+    leaf.module_identity = module.identity;
+    leaf.name            = "Leaf";
+    leaf.identity        = "checks.mixed.Leaf";
+    leaf.parents         = {symbol("checks.mixed.Base")};
+    leaf.fields          = {{"child", edge, true, /*recursive=*/true},
+                            {"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+    module.structs = {std::move(base), std::move(leaf)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_mixed
+
+use checks.mixed as shapes
+
+fn reading(l: atomic<shapes::Leaf>) -> atomic<shapes::Leaf> => l
+)",
+              catalog};
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("layout cycle") != std::string::npos);
+}

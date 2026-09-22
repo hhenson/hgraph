@@ -934,6 +934,7 @@ namespace hgl::ir
                 // ancestors first, each field still naming the ancestor that
                 // declares it. The ancestors were lowered just above, and
                 // theirs are flattened already, so a diamond dedupes by name.
+                std::unordered_set<std::string> present;
                 for (const semantics::ImportedType &parent : source.parents) {
                     if (parent.nominal_identity.empty()) { continue; }
                     const auto ancestor = std::ranges::find(result_.imported_structs, parent.nominal_identity,
@@ -943,15 +944,17 @@ namespace hgl::ir
                     // further struct and grow the vector this points into.
                     const std::vector<hir::StructField> inherited = ancestor->fields;
                     for (const hir::StructField &field : inherited) {
-                        if (std::ranges::any_of(target.fields, [&](const hir::StructField &existing) {
-                                return existing.name == field.name;
-                            })) {
-                            continue;
-                        }
+                        // Indexed, not scanned: an ancestor's fields are
+                        // already flattened, so a chain of N structs copies
+                        // O(N) fields into each descendant and a linear dedupe
+                        // per copied field makes the whole flattening cubic in
+                        // the chain length (CLAUDE.md guardrail iv).
+                        if (!present.insert(field.name).second) { continue; }
                         target.fields.push_back(field);
                     }
                 }
                 for (const semantics::ImportedStructField &field : source.fields) {
+                    if (!present.insert(field.name).second) { continue; }
                     target.fields.push_back(hir::StructField{field.name, imported_type(field.type, generics, range),
                                                              hir::no_expr, hir::no_declaration, source.identity,
                                                              field.optional, range, field.recursive});
