@@ -157,7 +157,9 @@ namespace hgraph::python_bridge
             }
             if (seams::target_link_sampled(context, memory, evaluation_time))
             {
-                for (const auto &[key, child] : target.as_dict().items())
+                const auto dict = target.as_dict();
+                const auto items = dict.items();
+                for (const auto &[key, child] : items)
                 {
                     if (child.has_current_value()) { modified[to_python(key)] = value_to_python(child); }
                 }
