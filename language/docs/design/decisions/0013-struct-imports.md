@@ -231,16 +231,18 @@ fields and never describes one itself, so an ordering slip is a diagnostic
 rather than a re-descent, and the alternative is a struct that silently loses
 every inherited field.
 
-**Realizing a chain is bounded and reported, not yet iterative.** Resolving,
-cycle-searching and lowering an imported closure all use a worklist, so the
-chain's length costs heap. Direct wiring's type bridge still descends one frame
-per nominal struct, and measured against a 20,000-link chain it exhausted the
-stack somewhere past ten thousand. Until realization follows the same worklist
-discipline, the bridge caps nominal nesting at 512 and reports the type it
-stopped on — the rule an untrusted descriptor's type nesting already follows.
-512 is far beyond any layout a schema would describe and safe on the smallest
-stack a supported platform gives. Making realization iterative is the standing
-follow-up; the cap is what stops a valid input crashing in the meantime.
+**Realization walks the chain on the heap too.** Resolving, cycle-searching,
+lowering and realizing an imported closure all use a worklist, so a chain's
+length costs heap at every stage. Direct wiring's type bridge used to descend
+one frame per nominal struct and exhausted the stack past ten thousand links;
+it now registers a struct's field and parent nominals before the struct itself,
+and memoizes what it registered so describing a struct's fields answers from
+the memo instead of descending again. The temporal schema walks the same
+closure on a worklist of its own, since it asks for the value type first and
+that has finished before it reaches a field's schema. Only nominal hops needed
+this: the tuples and collections around them nest within one type expression,
+which the descriptor reader already bounds at 256. The memo holds only what the
+bridge itself registered, so it never replaces `bundle()`'s agreement check.
 
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an

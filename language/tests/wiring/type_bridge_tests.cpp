@@ -819,6 +819,7 @@ use checks.chain as shapes
 
 fn reading(head: atomic<shapes::A0>) -> atomic<shapes::A0> => head
 fn shallow(near: atomic<shapes::A19990>) -> atomic<shapes::A19990> => near
+fn temporal(head: shapes::A0) -> shapes::A0 => head
 )",
               catalog};
     INFO(unit.diagnostics.render(unit.file));
@@ -827,15 +828,25 @@ fn shallow(near: atomic<shapes::A19990>) -> atomic<shapes::A19990> => near
     hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
     [[maybe_unused]] const auto standard = hgraph::stdlib::register_standard_types();
 
-    // The tail is only ten links from the end, so realization reaches it.
+    // The tail is ten links from the end; the head is 20,000. Realization
+    // walks the chain on the heap like the other two, so BOTH come back -- a
+    // bound here was the stack's, and a chain this deep is the supplying
+    // module's choice to make.
     CHECK(bridge.value(unit.parameter("shallow", "near")) != nullptr);
+    const hgraph::ValueTypeMetaData *head = bridge.value(unit.parameter("reading", "head"));
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(head != nullptr);
     CHECK_FALSE(unit.diagnostics.has_errors());
+    // Realized whole, not truncated: the head owns the link that names A1.
+    REQUIRE(head->is_named_bundle());
+    CHECK(head->bundle_local_name() == "A0");
+    CHECK(head->field_count == 2);
 
-    // The head is 20,000 links from the end. Reported, not a stack fault.
-    CHECK(bridge.value(unit.parameter("reading", "head")) == nullptr);
-    const std::string rendered = unit.diagnostics.render(unit.file);
-    INFO(rendered);
-    CHECK(rendered.find("structs deep, which this bridge cannot realize") != std::string::npos);
+    // The temporal side walks the same chain on its own -- it asks for the
+    // value type first, but that has finished before it reaches a field's
+    // schema, so it needs its own worklist rather than riding on that one.
+    CHECK(bridge.schema(unit.parameter("temporal", "head")) != nullptr);
+    CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
 TEST_CASE("an imported family is lowered ancestors first however its members are named",

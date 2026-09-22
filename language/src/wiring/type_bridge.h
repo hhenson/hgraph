@@ -67,8 +67,22 @@ namespace hgl::wiring
         [[nodiscard]] const hgraph::ValueTypeMetaData *register_value(const Specialization &specialization,
                                                                       syntax::SourceRange   range);
         [[nodiscard]] const hgraph::ValueTypeMetaData *recursive_value(Specialization root, syntax::SourceRange range);
+        /// Registers `root` and every struct its fields and parents reach,
+        /// dependencies first, on an explicit worklist. A chain of structs is
+        /// as long as the supplying module chose (ADR 0013), so it may not be
+        /// the C stack that decides how long one can be.
+        [[nodiscard]] const hgraph::ValueTypeMetaData   *realize_value_closure(Specialization root, syntax::SourceRange range);
+        [[nodiscard]] const hgraph::TSValueTypeMetaData *realize_schema_closure(const hgraph_ir::Type &type,
+                                                                                const Bindings        &outer);
+        /// The nominal types one type expression names, resolved through
+        /// `bindings`. Only a nominal hop can be repeated without bound: the
+        /// tuples and collections around it nest within one expression, which
+        /// the descriptor reader already bounds.
+        void nominal_edges(hgraph_ir::TypeId id, const Bindings &bindings, std::vector<hgraph_ir::TypeId> &out,
+                           std::size_t depth = 0) const;
         [[nodiscard]] const hgraph::ValueTypeMetaData *registered(const Specialization &specialization, syntax::SourceRange range);
         [[nodiscard]] const hgraph::TSValueTypeMetaData *nominal_schema(const hgraph_ir::Type &type, const Bindings &outer);
+        [[nodiscard]] const hgraph::TSValueTypeMetaData *register_schema(const hgraph_ir::Type &type, const Bindings &outer);
         void                                             refresh_registry();
         void                                             report(syntax::SourceRange range, std::string message);
 
@@ -81,17 +95,16 @@ namespace hgl::wiring
         std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
         /// Contracts by identity, so a nominal type finds its contract without a scan.
         std::unordered_map<std::string_view, const hgraph_ir::StructContract *> structures_{};
-        /// Realizing `A0 { next: A1 }`, `A1 { next: A2 }`, ... descends one
-        /// nominal per link, and an imported chain's length is the SUPPLYING
-        /// module's choice, not this compiler's. Resolving and lowering such a
-        /// chain are iterative and survive it (ADR 0013); realization is not
-        /// yet, and ran out of stack somewhere past ten thousand links. So it
-        /// is bounded and REPORTED, the way an untrusted descriptor's type
-        /// nesting already is -- a limit a schema states is a diagnostic, a
-        /// limit the stack states is a crash.
-        static constexpr std::size_t                                            max_nominal_depth = 512U;
-        std::size_t                                                             nominal_depth_{0};
-        struct NominalDepth;
+        /// Structs this bridge has already realized, by registry name. A hit
+        /// is what keeps `register_value` one frame deep: the chain's members
+        /// are registered dependency-first by the driver, so by the time a
+        /// struct describes its fields every nominal they name is here.
+        ///
+        /// It memoizes only what THIS bridge registered, so it never stands in
+        /// for the agreement check -- `bundle()` compared each of these against
+        /// whatever was already in the registry when it put them there.
+        std::unordered_map<std::string, const hgraph::ValueTypeMetaData *>   realized_{};
+        std::unordered_map<std::string, const hgraph::TSValueTypeMetaData *> realized_schemas_{};
     };
 }  // namespace hgl::wiring
 
