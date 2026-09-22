@@ -34,8 +34,14 @@ namespace hgraph
     namespace
     {
         void schedule_node_from_storage(GraphValue *graph, std::size_t node_index, DateTime modified_time);
+    }
 
-        struct NodeRuntimeStorage final : Notifiable
+    namespace node_runtime_detail
+    {
+        // GDB resolves notification targets through RTTI. Give this private type
+        // a stable name: GCC IPO can add .lto_priv suffixes to anonymous-namespace
+        // RTTI symbols that GDB cannot match to their debug information.
+        struct HGRAPH_LOCAL NodeRuntimeStorage final : Notifiable
         {
             NodeRuntimeStorage(const NodeTypeMetaData &schema, std::string runtime_label)
                 : label(std::move(runtime_label))
@@ -57,6 +63,11 @@ namespace hgraph
             bool          starting{false};
             bool          stopping{false};
         };
+    }
+
+    namespace
+    {
+        using node_runtime_detail::NodeRuntimeStorage;
 
         [[nodiscard]] std::size_t node_runtime_graph_offset(const NodeTypeMetaData &schema)
         {
