@@ -148,7 +148,7 @@ namespace hgraph
 
         [[nodiscard]] ValueTypeRef canonical_delta_binding(const TSInputView &in, const char *fn)
         {
-            const auto &data = in.data_view();
+            const auto data = in.input_data_view();
             if (!data.valid()) { throw std::logic_error(fmt::format("{}: input has no bound data", fn)); }
             return require_canonical_delta(data.layout().canonical_delta_binding, in.schema(), fn);
         }
@@ -285,7 +285,7 @@ namespace hgraph
             {
                 return current_state_ops(type.as_role(), fn);
             }
-            const auto &data = input.data_view();
+            const auto data = input.input_data_view();
             if (data.valid())
             {
                 const auto *ops = data.ops().current_state_ops;
@@ -1402,7 +1402,8 @@ namespace hgraph
 
             const auto dict = in.as_dict();
             SetBuilder removed{key_binding};
-            for (const auto &key : dict.removed_keys())
+            const auto removed_keys = dict.structure_modified() ? dict.data_view().removed_keys() : Range<ValueView>{};
+            for (const auto &key : removed_keys)
             {
                 if (selects != nullptr && !selects(context, key)) { continue; }
                 const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
@@ -1745,7 +1746,7 @@ namespace hgraph
     Value capture_delta(const TSInputView &in)
     {
         if (const auto type = in.type_ref(); type) return type.ops_ref().capture_delta_impl(in);
-        const auto &data = in.data_view();
+        const auto data = in.input_data_view();
         if (data.valid()) return data.ops().capture_delta_impl(in);
         static_cast<void>(require_schema(in.schema(), "capture_delta"));
         throw std::logic_error("capture_delta requires a canonical input type record");

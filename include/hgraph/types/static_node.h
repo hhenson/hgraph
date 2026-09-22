@@ -987,11 +987,29 @@ namespace hgraph
         }
         [[nodiscard]] Range<In<"", TValueSchema>> removed_values() const
         {
-            return typed_values(&removed_slot);
+            const auto source = TSDInputView::removed_values();
+            return Range<In<"", TValueSchema>>{.context = this, .memory = nullptr, .limit = source.limit,
+                .predicate = [](const void *context, const void *, std::size_t slot) {
+                    const auto source = static_cast<const In *>(context)->TSDInputView::removed_values();
+                    return source.predicate == nullptr || source.predicate(source.context, source.memory, slot);
+                }, .projector = [](const void *context, const void *, std::size_t slot) {
+                    const auto source = static_cast<const In *>(context)->TSDInputView::removed_values();
+                    return In<"", TValueSchema>{source.projector(source.context, source.memory, slot)};
+                }};
         }
         [[nodiscard]] KeyValueRange<ValueView, In<"", TValueSchema>> removed_items() const
         {
-            return typed_items(&removed_slot);
+            const auto source = TSDInputView::removed_items();
+            return KeyValueRange<ValueView, In<"", TValueSchema>>{.context = this, .memory = nullptr, .limit = source.limit,
+                .predicate = [](const void *context, const void *, std::size_t slot) {
+                    const auto source = static_cast<const In *>(context)->TSDInputView::removed_items();
+                    return source.predicate == nullptr || source.predicate(source.context, source.memory, slot);
+                }, .projector = [](const void *context, const void *, std::size_t slot) {
+                    const auto source = static_cast<const In *>(context)->TSDInputView::removed_items();
+                    auto item = source.projector(source.context, source.memory, slot);
+                    return std::pair<ValueView, In<"", TValueSchema>>{
+                        std::move(item.first), In<"", TValueSchema>{std::move(item.second)}};
+                }};
         }
 
         /** This cycle's delta as the canonical ``Bundle{removed, modified}`` value view. */

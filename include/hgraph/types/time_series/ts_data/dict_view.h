@@ -56,6 +56,7 @@ namespace hgraph
         /** Structural membership deltas, including invalid/unpublished children.
          * Slot ordinals and retained keys follow the ordinary dictionary slot protocol. */
         [[nodiscard]] bool membership_slot_added(std::size_t slot) const;
+        [[nodiscard]] bool membership_slot_removed(std::size_t slot) const;
         [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
         [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
         /** Sparse traversal of modified value slots; pass ``TS_DATA_NO_CHILD_ID`` for the first slot. */
@@ -90,7 +91,9 @@ namespace hgraph
         [[nodiscard]] Range<TSDataView> modified_values(DateTime evaluation_time) const;
         [[nodiscard]] KeyValueRange<ValueView, TSDataView> modified_items(DateTime evaluation_time) const;
 
-        /** Added and removed key/value delta ranges for the current delta surface. */
+        /** Raw added/removed keys describe child value publication and withdrawal.
+         * Item/value ranges describe membership, including invalid children.
+         * Use key_set() for the corresponding membership key deltas. */
         [[nodiscard]] Range<ValueView> added_keys() const;
         [[nodiscard]] Range<TSDataView> added_values() const;
         [[nodiscard]] KeyValueRange<ValueView, TSDataView> added_items() const;

@@ -1098,9 +1098,13 @@ namespace hgraph::detail
         rollback.release();
     }
 
-    void TSInputTargetLinkStorage::unbind()
+    void TSInputTargetLinkStorage::unbind(DateTime evaluation_time)
     {
-        detach_target(false, MIN_DT);
+        if (structural_ops_->supports_structural && evaluation_time != MIN_DT)
+        {
+            unbind_structural(evaluation_time);
+        }
+        else { detach_target(false, MIN_DT); }
     }
 
     void TSInputTargetLinkStorage::unbind_structural(DateTime modified_time)
@@ -1384,11 +1388,11 @@ namespace hgraph::detail
         link->bind_sampled(*schema, output, modified_time);
     }
 
-    void unbind_target_link(const TSDataView &view)
+    void unbind_target_link(const TSDataView &view, DateTime evaluation_time)
     {
         auto *link = mutable_target_link_storage(view);
         if (link == nullptr) { throw std::logic_error("TSInput target unbinding requires TargetLink storage"); }
-        link->unbind();
+        link->unbind(evaluation_time);
     }
 
     void make_target_link_active(const TSDataView &view,

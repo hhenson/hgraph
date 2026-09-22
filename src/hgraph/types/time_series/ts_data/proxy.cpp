@@ -278,6 +278,7 @@ namespace hgraph
                 dict_ops.slot_modified_impl = &slot_modified;
                 dict_ops.next_modified_slot_impl = &next_modified_slot;
                 dict_ops.membership_slot_added_impl = &membership_added;
+                dict_ops.membership_slot_removed_impl = &membership_removed;
                 dict_ops.next_membership_added_slot_impl = &next_membership_added;
                 dict_ops.next_membership_removed_slot_impl = &next_membership_removed;
                 dict_ops.make_ts_values_range_impl = &ts_value_range<TSDProxyMapSurface::Live>;
@@ -720,6 +721,8 @@ namespace hgraph
                        child_tracking->last_modified_time == store.tracking().last_modified_time;
             }
 
+            [[nodiscard]] static bool membership_removed(const void *, const void *memory, std::size_t slot)
+            { return source_available(memory) && source_dict(memory).membership_slot_removed(slot); }
             [[nodiscard]] static bool membership_added(const void *, const void *memory, std::size_t slot)
             { return source_available(memory) && source_dict(memory).membership_slot_added(slot); }
             [[nodiscard]] static std::size_t next_membership_added(const void *, const void *memory, std::size_t previous)

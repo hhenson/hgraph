@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_data/storage.h>
 
 #include "ownership.h"
+#include <hgraph/types/time_series/ts_input/target_link.h>
 
 #include <hgraph/util/scope.h>
 
@@ -11,6 +12,33 @@ namespace hgraph
 {
     namespace detail
     {
+        bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept
+        {
+            if (!endpoint.valid()) { return false; }
+            if (time == MIN_DT) { return true; }
+            while (endpoint.valid())
+            {
+                if (const auto *link = target_link_storage(endpoint); link != nullptr)
+                {
+                    endpoint = link->target_view();
+                    // An unbound adapter remains a live endpoint: its input-side
+                    // withdrawal delta is still observable while its value is invalid.
+                    if (!endpoint.valid()) { return true; }
+                    continue;
+                }
+                const auto parent = endpoint.parent_link();
+                if (!parent.has_ts_data_parent()) { return true; }
+                endpoint = TSDataView{parent.parent_storage_type(), parent.parent_data()};
+                const auto &ops = endpoint.ops();
+                if (ops.ownership_ops != nullptr &&
+                    !ops.ownership_ops->child_alive_at(ops.context, endpoint.data(), parent.child_id, time))
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+
         void attach_owned_ts_data_parents(TSDataView root)
         {
             if (!root.valid()) { return; }

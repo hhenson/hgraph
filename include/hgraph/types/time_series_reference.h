@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -38,7 +39,9 @@ namespace hgraph
      *   carries a target schema where one is known, so a later binding
      *   attempt can be validated.
      * - **PEERED** — directly bound to a single output endpoint. The
-     *   reference stores the output handle without an evaluation time.
+     *   reference shares an invalidation guard around the output handle, without
+     *   owning the endpoint or recording an evaluation time. Reclaimed endpoints
+     *   expire the guard before their storage can be reused.
      * - **NON_PEERED** — composite reference whose target is itself a
      *   composite time-series (``REF<TSL<T>>``, ``REF<TSB<...>>``, etc.).
      *   Holds a vector of sub-references, one per structural slot of the
@@ -111,11 +114,11 @@ namespace hgraph
                                                             std::vector<TimeSeriesReference> items);
 
         /** Discriminator: EMPTY / PEERED / NON_PEERED. */
-        [[nodiscard]] Kind kind() const noexcept { return kind_; }
+        [[nodiscard]] Kind kind() const noexcept { return is_empty() ? Kind::EMPTY : kind_; }
         /** True when ``kind() == Kind::EMPTY``. */
-        [[nodiscard]] bool is_empty() const noexcept { return kind_ == Kind::EMPTY; }
+        [[nodiscard]] bool is_empty() const noexcept { return kind_ == Kind::EMPTY || (kind_ == Kind::PEERED && !has_output()); }
         /** True when ``kind() == Kind::PEERED``. */
-        [[nodiscard]] bool is_peered() const noexcept { return kind_ == Kind::PEERED; }
+        [[nodiscard]] bool is_peered() const noexcept { return kind_ == Kind::PEERED && has_output(); }
         /** True when ``kind() == Kind::NON_PEERED``. */
         [[nodiscard]] bool is_non_peered() const noexcept { return kind_ == Kind::NON_PEERED; }
         /** True when this PEERED reference carries a bound output handle. */
@@ -169,9 +172,11 @@ namespace hgraph
       private:
         friend class detail::TSOutputAlternativeStore;
 
+        struct PeerLifetime;
         union Storage
         {
-            TSOutputHandle target;
+            // Owns an invalidation subscription, never the target endpoint.
+            std::shared_ptr<PeerLifetime> target;
             std::vector<TimeSeriesReference> items;
 
             constexpr Storage() noexcept {}

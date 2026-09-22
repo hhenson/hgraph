@@ -160,7 +160,10 @@ TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 21. ABI 21 adds ``find_stored_slot`` to
+    ``TS_DATA_OPS_ABI_VERSION`` is 22. ABI 22 adds the dictionary
+    ``membership_slot_removed`` predicate, separating membership observations
+    from child value withdrawal; compiled native extensions must be rebuilt.
+    ABI 21 adds ``find_stored_slot`` to
     the set ops -- the hashed lookup that also answers for a key awaiting
     erase (see "TSS Storage" below). ABI 20 added the membership delta
     slots and ``replace_samples`` for the distributed-map boundaries. ABI 17

@@ -36,8 +36,8 @@ validated expectation.
 ## Variations for review
 
 R is the reasoned expectation. C++ below means the Python-facing C++ runtime
-unless native confirmation is stated. These are review reports; no runtime
-fix or issue publication is included.
+unless native confirmation is stated. These reports describe the original measurements. The C++ corrections below
+are tracked separately; the archived observations remain unchanged.
 
 | ID | Case and observation | Accepted expectation | Variation |
 |---|---|---|---|
@@ -61,6 +61,34 @@ Acceptance is per observation. For example, Python supports the withdrawal
 delta while C++ supports invalidity; neither complete withdrawal trace passes.
 Python's stronger testing history guides ambiguous interpretations, but does
 not erase the revised rules or the user's explicit ruling.
+
+## C++ corrections
+
+The accepted C++ deviations DV-01, DV-02, DV-05, DV-06, DV-08 and DV-10 have
+native and Python regression coverage in
+[`test_runtime_spec_conformance.cpp`](../../../tests/cpp/test_runtime_spec_conformance.cpp)
+and [`test_runtime_spec_conformance.py`](../../../python/tests/test_runtime_spec_conformance.py).
+The lower-level checks in
+[`test_ts_input.cpp`](../../../tests/cpp/test_ts_input.cpp) also exercise
+explicit dictionary unbinding and invalid-child insertion/removal.
+
+- Added/removed item observations follow key membership. Value invalidation
+  still produces a value-withdrawal delta without removing the live key.
+  Key-set values and deltas use membership tracking, including invalid
+  children; the Python modification accessor uses the key set's own clock.
+- Dictionary reference sampling publishes full current child deltas and
+  sampled child times. Rebind and withdrawal expose retained removed items;
+  withdrawal remains invalid but carries its removal event.
+- An unbound scalar input reports `never` as its last modification time.
+- A saved reference stops exposing a removed child in the following cycle,
+  even before another mutation causes reclamation. A shared invalidation
+  subscription prevents that reference from attaching to reused storage.
+
+Expiry is a logical visibility rule. Removed storage is still retained during
+the removal cycle, same-cycle restoration preserves its identity, and physical
+reclamation remains lazy. Reference guards own their subscription only, not
+the target storage. DV-03, DV-04, DV-07 and DV-09 already follow the accepted
+C++ behavior and retain their existing coverage.
 
 ## Specification sufficiency
 

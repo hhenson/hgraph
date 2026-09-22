@@ -136,7 +136,36 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object target_link_delta_to_python(const void *context, const void *memory,
                                                              DateTime evaluation_time)
         {
-            return delta_value_to_python(seams::target_link_target_view(context, memory), evaluation_time);
+            auto target = seams::target_link_target_view(context, memory);
+            return seams::target_link_sampled(context, memory, evaluation_time)
+                       ? value_to_python(target) : delta_value_to_python(target, evaluation_time);
+        }
+
+        [[nodiscard]] nb::object target_link_dict_delta_to_python(const void *context, const void *memory,
+                                                                  DateTime evaluation_time)
+        {
+            auto target = seams::target_link_target_view(context, memory);
+            if (!seams::target_link_transition(context, memory, evaluation_time))
+            {
+                return delta_value_to_python(target, evaluation_time);
+            }
+            nb::set removed;
+            nb::dict modified;
+            for (const auto &key : seams::target_link_removed_keys(context, memory))
+            {
+                removed.add(to_python(key));
+            }
+            if (seams::target_link_sampled(context, memory, evaluation_time))
+            {
+                for (const auto &[key, child] : target.as_dict().items())
+                {
+                    if (child.has_current_value()) { modified[to_python(key)] = value_to_python(child); }
+                }
+            }
+            nb::dict result;
+            result[nb::str{"removed"}] = std::move(removed);
+            result[nb::str{"modified"}] = std::move(modified);
+            return result;
         }
     }  // namespace
 
@@ -152,5 +181,6 @@ namespace hgraph::python_bridge
         section.input_delta_key_set_to_python    = &to_python_slot<&input_delta_key_set_to_python>;
         section.target_link_to_python            = &to_python_slot<&target_link_to_python>;
         section.target_link_delta_to_python      = &ts_delta_to_python_slot<&target_link_delta_to_python>;
+        section.target_link_dict_delta_to_python = &ts_delta_to_python_slot<&target_link_dict_delta_to_python>;
     }
 }  // namespace hgraph::python_bridge

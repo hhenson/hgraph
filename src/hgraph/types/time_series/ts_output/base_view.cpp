@@ -1,3 +1,4 @@
+#include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/base_view.h>
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -80,7 +81,7 @@ namespace hgraph
 
     bool TSOutputView::valid() const
     {
-        return data_.has_current_value();
+        return detail::ts_data_alive_at(data_.borrowed_ref(), evaluation_time_) && data_.has_current_value();
     }
 
     bool TSOutputView::all_valid() const

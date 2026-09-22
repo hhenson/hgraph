@@ -88,7 +88,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // the Python-authoring table pointer is gone; a strategy records only its
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 21);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 22);
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
