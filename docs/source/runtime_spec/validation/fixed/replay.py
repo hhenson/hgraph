@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 from evidence import render
-from native_identity import source_head
+from harness_identity import verified_harness
 
 ROOT = Path(__file__).absolute().parent
 
@@ -54,7 +54,13 @@ def main():
     parser.add_argument('--candidate-python', type=trusted_interpreter, required=True)
     parser.add_argument('--raw-results', type=Path, required=True)
     args = parser.parse_args()
-    sys.path.insert(0, str(args.harness.resolve()))
+    with verified_harness(args.harness, ROOT / 'adapter.patch') as (harness, identity):
+        replay(args, harness, identity)
+
+
+def replay(args, harness, identity):
+    reference = run_json(args.reference_python, ROOT / 'reference_identity.py')
+    sys.path.insert(0, str(harness))
     from tools.parity.catalog import validate_recipe
     from tools.parity.model import Recipe
     from tools.parity.process import run_recipe
@@ -89,13 +95,12 @@ def main():
             case, side, result = future.result()
             cases.setdefault(case, {})[side] = result
     provenance = run_json(args.candidate_python, ROOT / 'native_identity.py')
-    harness_head = source_head(args.harness)
-    if harness_head is None:
-        raise RuntimeError('Harness is not a Git checkout')
-    provenance.update(harness_base=harness_head,
-                      adapter_sha256=hashlib.sha256((ROOT / 'adapter.patch').read_bytes()).hexdigest(),
+    if run_json(args.reference_python, ROOT / 'reference_identity.py') != reference:
+        raise RuntimeError('Reference installation changed during replay')
+    provenance.update(**identity,
+                      reference_identity=reference,
                       reasoning_sha256=hashlib.sha256((ROOT / 'reasoned.json').read_bytes()).hexdigest(),
-                      reference='Python reference environment; version is recorded per case.',
+                      reference='Python reference environment; installed sources and distribution artifacts are hashed, excluding bytecode caches.',
                       candidate='Installed C++ runtime with Python authoring surface; native hashes identify the binaries, source HEAD is context.',
                       replays=3, recorded=datetime.now(timezone.utc).date().isoformat())
     output = ROOT / 'observed.json'

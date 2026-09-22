@@ -4,6 +4,7 @@ import hashlib
 from collections import Counter
 from pathlib import Path
 from expand import assertions as expand_assertions
+from harness_identity import BASE
 
 ROOT = Path(__file__).parent
 
@@ -71,6 +72,10 @@ def main():
     evidence = json.loads((ROOT / 'observed.json').read_text())
     observed = evidence['cases']
     provenance = evidence['provenance']
+    assert provenance['harness_base'] == BASE, 'Unexpected harness base'
+    reference = provenance['reference_identity']
+    content = {k: v for k, v in reference.items() if k != 'identity_sha256'}
+    assert hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest() == reference['identity_sha256'], 'Reference identity fingerprint differs'
     for field, filename in (('adapter_sha256', 'adapter.patch'), ('reasoning_sha256', 'reasoned.json')):
         assert provenance[field] == hashlib.sha256((ROOT / filename).read_bytes()).hexdigest(), filename + ' changed after recording'
     for case, sides in observed.items():

@@ -4,8 +4,9 @@ Status: 36 scenarios recorded on 2026-09-22; user rulings recorded the same
 day. The contract decisions are settled; runtime implementation is unchanged.
 
 Each scenario ran three times in separate Python and C++ processes. All replay
-fingerprints are stable. Python is released hgraph 0.5.41; C++ uses the installed
-SDK with Python observer nodes. [observed.json](observed.json) records binary
+fingerprints are stable. Python reports hgraph 0.5.41; source and distribution
+artifact hashes identify the tested installation. C++ uses the installed SDK
+with Python observer nodes. [observed.json](observed.json) records binary
 hashes and source context. Original expectations and measurements are retained;
 [decisions.json](decisions.json) records the rulings and changed expectations.
 
@@ -72,6 +73,16 @@ exception remain missing, even where C++ matches the chosen contract.
 
 Use an isolated hgraph checkout at `15e7bf41b2b17145f6e3f2742f08ec2826b30a71`.
 The adapter is standalone; do not apply the earlier dynamic-case adapter first.
+Replay verifies the required HEAD and every tracked or non-ignored file against
+base plus adapter, including contents and file modes. It then runs an isolated
+copy of that exact tree; ignored files in the supplied checkout cannot enter
+its imports. The resulting tree and file-manifest identities are recorded.
+
+The reference probe hashes the actual package sources, including editable
+sources, and installed distribution artifacts. Version alone does not identify
+the baseline. Bytecode caches are excluded. Identity is checked before and
+after replay; an identity change rejects the replay.
+
 Interpreter and harness paths are trusted local configuration: they select code
 to execute, never recipe data. Paths are made absolute without resolving venv
 interpreter symlinks. The launcher uses argument lists with no shell; the Git
