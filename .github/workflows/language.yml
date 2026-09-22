@@ -72,9 +72,19 @@ jobs:
         run: |
           sccache --stop-server || true
           sccache --start-server
+      # setup-python hard-codes a hosted account's tool-cache path on macOS.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: "3.12"
+      - name: Create a job-local Python environment on the macOS runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3.12 -m venv "$RUNNER_TEMP/python"
+          echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
+          echo "pythonLocation=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
       # The installed static hgraph SDK deliberately resolves its public C++
       # dependencies from the consuming environment. Give the installed HGL
       # consumer the same real package environment on both platforms rather
@@ -104,6 +114,7 @@ jobs:
         run: |
           echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=26.0" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
       - name: Configure GCC 14 on Linux
         if: runner.os == 'Linux'

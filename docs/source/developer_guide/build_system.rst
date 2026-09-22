@@ -266,8 +266,9 @@ free of spaces: the runner invokes it as shell text. A root-owned alias can
 provide a suitable path to a script in a directory containing spaces.
 
 The host needs a supported macOS version, a matching current Apple compiler and
-SDK, Python 3.12 in its writable Actions tool cache, and permission to debug its
-own test processes with LLDB. Validate a breakpoint stop and successful process
+SDK, ``python3.12`` on the service's ``PATH``, and permission to debug its own
+test processes with LLDB. The Mac jobs create a fresh virtual environment under
+``RUNNER_TEMP``; ``setup-python`` assumes a hosted account's cache path on macOS. Validate a breakpoint stop and successful process
 exit from the actual service context before routing jobs. An SSH-only check is
 insufficient: the service needs an audit session owned by the runner account,
 and macOS developer authorization rejects a locked normal account. Use a
