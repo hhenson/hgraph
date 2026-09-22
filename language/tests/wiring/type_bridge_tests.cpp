@@ -784,11 +784,11 @@ TEST_CASE("a deep imported struct chain imports whole", "[wiring][types][struct-
     // as the supplying module chose, and each hop is a SHALLOW type, so the
     // per-type depth budget never fires -- only the number of hops grows.
     //
-    // This pins the behaviour, not a crash. The depth at which a per-struct
-    // recursion would actually exhaust a stack is platform-dependent, and a
-    // test tuned to overflow one machine's is a flaky test, so the walk is
-    // iterative on the argument rather than on a reproduction.
-    constexpr std::size_t             depth = 1000;
+    // Deep enough to matter: both walks that follow this closure -- the
+    // resolver's binding and typed HIR's lowering -- are iterative, so the
+    // chain costs heap rather than stack. A per-struct recursion at this depth
+    // does not survive a default stack.
+    constexpr std::size_t             depth = 20000;
     hgl::semantics::ModuleCatalog     catalog;
     hgl::semantics::ImportableModule  module;
     module.identity = "checks.chain";
@@ -896,6 +896,61 @@ module checks.import_mixed
 use checks.mixed as shapes
 
 fn reading(l: atomic<shapes::Leaf>) -> atomic<shapes::Leaf> => l
+)",
+              catalog};
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    CHECK(rendered.find("layout cycle") != std::string::npos);
+}
+
+TEST_CASE("an ordinary link inside an otherwise-owned component is still rejected",
+          "[wiring][types][struct-imports]") {
+    // `A -owned-> C`, `A -> B`, `C -owned-> B`, `B -owned-> A`. Judged by back
+    // edge, the all-owned path closes `B` first and the ordinary `A -> B` then
+    // looks at a finished node and says nothing -- so the answer depended on
+    // field order. Judged per component, the ordinary link is inside a cyclic
+    // one and the layout is unbounded however the fields are ordered.
+    hgl::semantics::ModuleCatalog    catalog;
+    hgl::semantics::ImportableModule module;
+    module.identity = "checks.scc";
+
+    const auto edge_to = [](const std::string &identity) {
+        hgl::semantics::ImportedType type;
+        type.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+        type.children = {symbol(identity)};
+        return type;
+    };
+
+    hgl::semantics::ImportedStruct a;
+    a.module_identity = module.identity;
+    a.name            = "A";
+    a.identity        = "checks.scc.A";
+    // The OWNED edge first, so the all-owned path is explored first.
+    a.fields = {{"c", edge_to("checks.scc.C"), true, /*recursive=*/true},
+                {"b", symbol("checks.scc.B"), false, /*recursive=*/false}};
+
+    hgl::semantics::ImportedStruct b;
+    b.module_identity = module.identity;
+    b.name            = "B";
+    b.identity        = "checks.scc.B";
+    b.fields          = {{"a", edge_to("checks.scc.A"), true, /*recursive=*/true}};
+
+    hgl::semantics::ImportedStruct c;
+    c.module_identity = module.identity;
+    c.name            = "C";
+    c.identity        = "checks.scc.C";
+    c.fields          = {{"b", edge_to("checks.scc.B"), true, /*recursive=*/true}};
+
+    module.structs = {std::move(a), std::move(b), std::move(c)};
+    REQUIRE_FALSE(catalog.add(std::move(module)));
+
+    Unit unit{R"(
+module checks.import_scc
+
+use checks.scc as shapes
+
+fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
 )",
               catalog};
     REQUIRE(unit.diagnostics.has_errors());

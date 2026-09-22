@@ -851,24 +851,6 @@ namespace hgl::ir
                 return reserved;
             }
 
-            /// Re-describes every exported struct an imported type names, at any
-            /// depth -- a field's type, a collection element, a generic
-            /// argument, or an ADR 0012 edge's target. A backend cannot realize
-            /// a struct whose referenced types it has no layout for.
-            void describe_nominal_closure(const semantics::ImportedType &type, syntax::SourceRange range) {
-                if (!type.nominal_identity.empty()) {
-                    const auto found = std::ranges::find(resolved_.imported_structs, type.nominal_identity,
-                                                         &semantics::ImportedStruct::identity);
-                    if (found != resolved_.imported_structs.end()) {
-                        const semantics::ImportedStruct referenced = *found;
-                        const hir::SymbolId             symbol     = external_symbol(
-                            hir::SymbolKind::ImportedStruct, referenced.identity, referenced.identity, referenced.identity,
-                            range);
-                        lower_imported_struct(referenced, symbol, range);
-                    }
-                }
-                for (const semantics::ImportedType &child : type.children) { describe_nominal_closure(child, range); }
-            }
 
             /// Re-describes a struct another module exports into this module's
             /// HIR (ADR 0013), so hgraph IR can emit a contract both backends
@@ -876,6 +858,82 @@ namespace hgl::ir
             /// requirements when it is applied -- not a second checker beside
             /// it (CLAUDE.md guardrail iii). Nothing here declares the struct:
             /// its identity stays the owner's.
+            /// Lowers `source` and everything its layout reaches, ANCESTORS
+            /// FIRST, without putting the closure's depth on the stack.
+            ///
+            /// `lower_imported_struct` still reaches for what it needs, but by
+            /// the time it runs each of those is already recorded, so its
+            /// guard returns at once and the recursion is one frame deep. A
+            /// descriptor is an input: the chain `A0 -> A1 -> ...` is as long
+            /// as the supplying module chose, and descending it per struct was
+            /// the compiler's stack.
+            void lower_imported_closure(const semantics::ImportedStruct &source, hir::SymbolId symbol,
+                                        syntax::SourceRange range) {
+                struct Pending
+                {
+                    semantics::ImportedStruct record{};
+                    hir::SymbolId             symbol{};
+                    std::size_t               parent{0};
+                };
+                const auto record_for = [&](const std::string &identity) -> const semantics::ImportedStruct * {
+                    const auto found =
+                        std::ranges::find(resolved_.imported_structs, identity, &semantics::ImportedStruct::identity);
+                    return found == resolved_.imported_structs.end() ? nullptr : &*found;
+                };
+                std::unordered_set<std::string> started{source.identity};
+                std::vector<Pending>            roots{Pending{source, symbol, 0}};
+                std::vector<std::string>        references;
+                while (!roots.empty()) {
+                    // Post-order over PARENTS: an ancestor's fields are read
+                    // when its descendant is flattened, so it has to be
+                    // recorded first.
+                    std::vector<Pending> stack{std::move(roots.back())};
+                    roots.pop_back();
+                    while (!stack.empty()) {
+                        if (stack.back().parent < stack.back().record.parents.size()) {
+                            const semantics::ImportedType &parent =
+                                stack.back().record.parents[stack.back().parent++];
+                            if (parent.nominal_identity.empty()) { continue; }
+                            if (!started.insert(parent.nominal_identity).second) { continue; }
+                            const semantics::ImportedStruct *ancestor = record_for(parent.nominal_identity);
+                            if (ancestor == nullptr) { continue; }
+                            const semantics::ImportedStruct copy = *ancestor;
+                            const hir::SymbolId              ancestor_symbol =
+                                external_symbol(hir::SymbolKind::ImportedStruct, copy.identity, copy.identity,
+                                                copy.identity, range);
+                            stack.push_back(Pending{copy, ancestor_symbol, 0});
+                            continue;
+                        }
+                        const Pending done = std::move(stack.back());
+                        stack.pop_back();
+                        lower_imported_struct(done.record, done.symbol, range);
+                        // Whatever its fields NAME becomes a root of its own;
+                        // those are referred to by identity, so they need no
+                        // ordering against this one.
+                        references.clear();
+                        for (const semantics::ImportedStructField &field : done.record.fields) {
+                            layout_nominals(field.type, references);
+                        }
+                        for (const std::string &identity : references) {
+                            if (!started.insert(identity).second) { continue; }
+                            const semantics::ImportedStruct *referenced = record_for(identity);
+                            if (referenced == nullptr) { continue; }
+                            const semantics::ImportedStruct copy = *referenced;
+                            const hir::SymbolId              referenced_symbol =
+                                external_symbol(hir::SymbolKind::ImportedStruct, copy.identity, copy.identity,
+                                                copy.identity, range);
+                            roots.push_back(Pending{copy, referenced_symbol, 0});
+                        }
+                    }
+                }
+            }
+
+            /// The nominal identities a layout type names, at any depth.
+            static void layout_nominals(const semantics::ImportedType &type, std::vector<std::string> &out) {
+                if (!type.nominal_identity.empty()) { out.push_back(type.nominal_identity); }
+                for (const semantics::ImportedType &child : type.children) { layout_nominals(child, out); }
+            }
+
             void lower_imported_struct(const semantics::ImportedStruct &source, hir::SymbolId symbol,
                                        syntax::SourceRange range) {
                 // The guard covers a struct still BEING described, not only
@@ -959,11 +1017,11 @@ namespace hgl::ir
                                                              hir::no_expr, hir::no_declaration, source.identity,
                                                              field.optional, range, field.recursive});
                     // A field's type may name another exported struct, and a
-                    // recursive edge names its target (ADR 0012). Re-describing
-                    // only parents leaves those absent, and a backend realizing
-                    // this struct then reports an unknown nominal type. The
-                    // closure is over everything the layout reaches.
-                    describe_nominal_closure(field.type, range);
+                    // recursive edge names its target (ADR 0012) -- those are
+                    // described too, but by `lower_imported_closure`, which
+                    // queues them as roots of their own. Descending into them
+                    // from here put the chain's length on the stack, which is
+                    // the whole reason that driver exists.
                 }
                 // The `where` the exporting module declared, rebuilt for the
                 // solver that already checks a local family's.
@@ -1081,7 +1139,7 @@ namespace hgl::ir
                         const hir::SymbolId             symbol =
                             external_symbol(hir::SymbolKind::ImportedStruct, spelling, structure.identity,
                                             structure.identity, range);
-                        lower_imported_struct(structure, symbol, range);
+                        lower_imported_closure(structure, symbol, range);
                         return symbol;
                     }
                     case BindingKind::Struct:

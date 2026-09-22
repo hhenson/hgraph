@@ -207,11 +207,22 @@ shape it has to register — it reports an unknown nominal type, at a name the
 source never mentions. Reachability is over parents and field types alike,
 which is the same closure the exporting module's export check walks.
 
-**A cycle the layout cannot bound is refused.** An owned edge bounds a cycle,
-so one made entirely of edges is the ADR 0012 shape; any other is an infinite
-value. The edges therefore stay in the graph and the *cycle* is judged —
-removing them before looking missed one that runs through an edge and back
-through inheritance, which the local resolver rejects.
+**A cycle the layout cannot bound is refused, judged per strongly connected
+component.** An owned edge bounds a cycle, so a component whose internal links
+are all owned is the ADR 0012 shape; a cyclic component containing any
+ordinary internal link is an infinite value. Two weaker versions of this check
+were wrong in ways worth recording: removing owned edges before looking missed
+a cycle running through an edge and back through inheritance, and judging each
+back edge as it was found made the answer depend on field order — an all-owned
+path can finish a node before the ordinary link into it is examined, and a
+finished node says nothing.
+
+**Nothing walks the closure recursively.** A descriptor is an input, so its
+chain length is not this compiler's to put on a stack: the resolver's binding,
+the cycle search, and typed HIR's lowering all use an explicit worklist.
+Lowering orders ancestors before descendants — a descendant's flattening reads
+its ancestors' fields — and queues what a field *names* as a root of its own
+rather than descending into it.
 
 **A cycle through ordinary fields or parents is refused.** It is not a layout
 but an infinite value, and the local rule already says so (ADR 0012 rule 2: an
