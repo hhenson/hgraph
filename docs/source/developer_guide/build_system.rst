@@ -265,7 +265,13 @@ path on the actual host before enabling routing.
 
 The host needs a supported macOS version, a matching current Apple compiler and
 SDK, Python 3.12 in its writable Actions tool cache, and permission to debug its
-own test processes with LLDB. Pin the service's developer directory and SDK
+own test processes with LLDB. Validate a breakpoint stop and successful process
+exit from the actual service context before routing jobs. An SSH-only check is
+insufficient: the service needs an audit session owned by the runner account,
+and macOS developer authorization rejects a locked normal account. Use a
+normal account credential with key-only SSH management. Any privileged session
+launcher must drop privileges before executing runner or repository code.
+Pin the service's developer directory and SDK
 together, so login-shell overrides cannot mix incompatible toolchain versions.
 The language job installs its pinned ``clang-format`` Python wheel under the
 runner account; it does not require administrative Homebrew access.
