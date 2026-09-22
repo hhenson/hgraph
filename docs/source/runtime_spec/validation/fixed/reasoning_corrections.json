@@ -1,0 +1,8 @@
+[
+  {"cases": ["tsl_ref_items", "tsb_ref_items"], "path": "/ticks/6/data/modified", "initial": true, "expected": false, "reason": "Both runtimes agree. Removing one child binding is not a child tick. An assembled parent is modified only when a remaining child is modified."},
+  {"cases": ["tsl_ref_items", "tsb_ref_items"], "path": "/ticks/6/data/last", "initial": 6, "expected": 5, "reason": "Both runtimes agree. The remaining child's observed time is 5. A binding notification is not itself a child modification time."},
+  {"cases": ["tsl_ref_items", "tsb_ref_items"], "path": "/ticks/6/data/delta", "initial": {}, "expected": null, "reason": "Both runtimes agree. The assembled parent is unmodified, so its delta is nil."},
+  {"cases": ["tsl_assembled", "tsb_assembled"], "path": "/ticks/4/modified", "initial": true, "expected": false, "reason": "The corrected assembled-input rule also applies to child invalidation. The invalid child is unmodified; the remaining child did not tick. Python agrees; C++ varies."},
+  {"cases": ["tsl_assembled", "tsb_assembled"], "path": "/ticks/4/last", "initial": 4, "expected": 2, "reason": "The corrected assembled-input rule derives time from current children. The valid sibling last ticked at 2. Python agrees; C++ varies."},
+  {"cases": ["tsl_assembled", "tsb_assembled"], "path": "/ticks/4/delta", "initial": {}, "expected": null, "reason": "The corrected assembled-input rule leaves this parent unmodified. Python agrees; C++ varies."}
+]

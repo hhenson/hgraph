@@ -7,6 +7,7 @@
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
 #include <fmt/format.h>
@@ -508,7 +509,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object tss_delta_to_python(const void *context, const void *memory, DateTime evaluation_time)
         {
-            if (seams::tss_tracking(memory).last_modified_time != evaluation_time) { return nb::none(); }
+            if (seams::tss_tracking(context, memory).last_modified_time != evaluation_time) { return nb::none(); }
             return to_python(seams::tss_layout(context).delta_binding, memory);
         }
 
@@ -523,7 +524,7 @@ namespace hgraph::python_bridge
             const bool has_removed = python_named_field(source, "removed", removed);
             if (has_added || has_removed)
             {
-                const bool first_for_parent = seams::tss_tracking(memory).last_modified_time != modified_time;
+                const bool first_for_parent = seams::tss_tracking(context, memory).last_modified_time != modified_time;
                 if (has_added && !added.is_none())
                 {
                     for_each_python_iterable(added, "TSS added update", [&](nb::handle item) {
@@ -557,14 +558,15 @@ namespace hgraph::python_bridge
             const bool newly_touched = seams::tss_touch(memory, modified_time);
             for (const auto &key : replacement) { seams::tss_insert_key(memory, key.view(), modified_time); }
 
-            const auto        &key_ops = key_binding.ops_ref();
+            // One set of the keys to keep, asked once per live key: searching
+            // ``replacement`` per live key is quadratic in the size of the set.
+            BorrowedValueSet wanted;
+            wanted.reserve(replacement.size());
+            for (const auto &key : replacement) { wanted.insert(&key); }
             std::vector<Value> removals;
             for (const auto key : seams::tss_keys(context, memory, seams::SetSurface::live))
             {
-                const bool keep = std::any_of(replacement.begin(), replacement.end(), [&](const Value &candidate) {
-                    return key_ops.equals(key.data(), candidate.view().data());
-                });
-                if (!keep) { removals.emplace_back(key); }
+                if (wanted.find(key) == wanted.end()) { removals.emplace_back(key); }
             }
             for (const auto &key : removals) { seams::tss_remove_key(memory, key.view(), modified_time); }
             return newly_touched;
@@ -687,14 +689,15 @@ namespace hgraph::python_bridge
                 }
             }
 
-            const auto        &key_ops = layout.key_binding.ops_ref();
+            // See tss_from_python: one set of the keys to keep, not a search
+            // of ``entries`` per live key.
+            BorrowedValueSet wanted;
+            wanted.reserve(entries.size());
+            for (const auto &entry : entries) { wanted.insert(&entry.first); }
             std::vector<Value> removals;
             for (const auto key : seams::tsd_keys(context, memory, seams::SetSurface::live))
             {
-                const bool keep = std::any_of(entries.begin(), entries.end(), [&](const auto &entry) {
-                    return key_ops.equals(key.data(), entry.first.view().data());
-                });
-                if (!keep) { removals.emplace_back(key); }
+                if (wanted.find(key) == wanted.end()) { removals.emplace_back(key); }
             }
             for (const auto &key : removals) { seams::tsd_remove_key(memory, key.view(), modified_time); }
             return newly_touched;

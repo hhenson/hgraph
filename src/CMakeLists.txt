@@ -4,12 +4,21 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/manifest/schema_descriptor.cpp
     hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
+    hgraph/runtime/distributed_boundary.cpp
+    hgraph/runtime/distributed_process.cpp
+    hgraph/runtime/distributed_protocol.cpp
+    hgraph/runtime/distributed_transport.cpp
+    hgraph/runtime/distributed_worker.cpp
+    hgraph/runtime/spawn_worker.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
     hgraph/runtime/evaluation_profiler.cpp
     hgraph/runtime/graph_diagnostics.cpp
     hgraph/runtime/evaluation_trace.cpp
     hgraph/runtime/executor.cpp
+    hgraph/runtime/checkpoint_codec.cpp
+    hgraph/runtime/component_checkpoint.cpp
+    hgraph/runtime/graph_checkpoint_coordinator.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
     hgraph/runtime/graph.cpp
@@ -47,6 +56,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/metadata/ts_data_window_ops.cpp
     hgraph/types/metadata/type_record_registry.cpp
     hgraph/types/metadata/type_realization.cpp
+    hgraph/types/metadata/schema_table.cpp
     hgraph/types/metadata/type_registry.cpp
     hgraph/types/metadata/value_plan_factory.cpp
     hgraph/types/python_ops.cpp
@@ -54,6 +64,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/time_series/endpoint_owner.cpp
     hgraph/types/time_series/endpoint_schema.cpp
     hgraph/types/time_series/ts_data/base_view.cpp
+    hgraph/types/time_series/ts_data/checkpoint.cpp
     hgraph/types/time_series/ts_data/dict_view.cpp
     hgraph/types/time_series/ts_data/indexed_view.cpp
     hgraph/types/time_series/ts_data/ops.cpp
@@ -86,6 +97,9 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/compact_container_ops.cpp
     hgraph/types/value/impl/pooled_polymorphic_value_type.cpp
     hgraph/types/value/shared_value_pool.cpp
+    hgraph/types/value/binary_codec.cpp
+    hgraph/types/value/binary_compression.cpp
+    hgraph/types/value/binary_session.cpp
     hgraph/types/value/json_codec.cpp
     hgraph/types/value/table_codec.cpp
     hgraph/types/value/value_view.cpp
@@ -123,6 +137,9 @@ set(HGRAPH_WIRING_SOURCES
 )
 
 set(HGRAPH_STDLIB_SOURCES
+    hgraph/runtime/distributed_map_wiring.cpp
+    hgraph/runtime/distributed_map_checkpoint.cpp
+    hgraph/runtime/spawn.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp
     hgraph/lib/std/operators/arithmetic_impl.cpp

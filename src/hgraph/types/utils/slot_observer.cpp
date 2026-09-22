@@ -2,6 +2,8 @@
 
 #include <hgraph/util/scope.h>
 
+#include <hgraph/types/utils/impl/observer_list.h>
+
 #include <algorithm>
 #include <cassert>
 #include <stdexcept>
@@ -10,11 +12,8 @@
 
 namespace hgraph
 {
-    struct SlotObserverList::ObserverList
+    struct SlotObserverList::ObserverList : detail::ObserverListStorage<SlotObserver>
     {
-        std::vector<SlotObserver *> entries{};
-        std::size_t                 notify_depth{0};
-        bool                        compact_pending{false};
     };
 
     SlotObserverList::SlotObserverList(const SlotObserverList &other)
@@ -71,8 +70,8 @@ namespace hgraph
 
             auto entries = std::make_unique<ObserverList>();
             entries->entries.reserve(2);
-            entries->entries.push_back(entry);
-            entries->entries.push_back(observer);
+            static_cast<void>(entries->add(entry));
+            static_cast<void>(entries->add(observer));
             set_many(entries.release());
             return;
         }
@@ -81,9 +80,9 @@ namespace hgraph
         assert(entries != nullptr && "slot observer storage is corrupt");
         if (entries == nullptr) { throw std::logic_error("slot observer storage is corrupt"); }
 
-        const auto it = std::find(entries->entries.begin(), entries->entries.end(), observer);
-        assert(it == entries->entries.end() && "slot observer registered twice");
-        if (it == entries->entries.end()) { entries->entries.push_back(observer); }
+        const bool inserted = entries->add(observer);
+        assert(inserted && "slot observer registered twice");
+        static_cast<void>(inserted);
     }
 
     void SlotObserverList::remove(SlotObserver *observer)
@@ -104,19 +103,9 @@ namespace hgraph
             return;
         }
 
-        const auto it = std::find(entries->entries.begin(), entries->entries.end(), observer);
-        assert(it != entries->entries.end() && "removing unregistered slot observer");
-        if (it == entries->entries.end()) { return; }
-
-        if (entries->notify_depth != 0)
-        {
-            *it = nullptr;
-            entries->compact_pending = true;
-            return;
-        }
-
-        *it = entries->entries.back();
-        entries->entries.pop_back();
+        const bool removed = entries->remove(observer);
+        assert(removed && "removing unregistered slot observer");
+        if (!removed || entries->notify_depth != 0) { return; }
         compact_many(*entries);
     }
 
@@ -130,9 +119,7 @@ namespace hgraph
         if (single() != nullptr) { return 1; }
         const auto *entries = many();
         if (entries == nullptr) { return 0; }
-        return static_cast<std::size_t>(
-            std::count_if(entries->entries.begin(), entries->entries.end(),
-                          [](const SlotObserver *observer) { return observer != nullptr; }));
+        return entries->size();
     }
 
     bool SlotObserverList::contains(const SlotObserver *observer) const noexcept
@@ -140,18 +127,14 @@ namespace hgraph
         if (observer == nullptr) { return false; }
         if (auto *entry = single(); entry != nullptr) { return entry == observer; }
         const auto *entries = many();
-        return entries != nullptr &&
-               std::find(entries->entries.begin(), entries->entries.end(), observer) != entries->entries.end();
+        return entries != nullptr && entries->find(observer) != ObserverList::not_found;
     }
 
     DynamicStorageMetrics SlotObserverList::dynamic_storage_metrics() const noexcept
     {
         const auto *entries = many();
         if (entries == nullptr) { return {}; }
-        return {
-            .live_bytes = sizeof(ObserverList) + entries->entries.size() * sizeof(SlotObserver *),
-            .reserved_bytes = sizeof(ObserverList) + entries->entries.capacity() * sizeof(SlotObserver *),
-        };
+        return DynamicStorageMetrics{sizeof(ObserverList), sizeof(ObserverList)} + entries->buffer_metrics();
     }
 
     void SlotObserverList::clear() noexcept
@@ -161,8 +144,7 @@ namespace hgraph
             if (entries->notify_depth == 0) { delete entries; }
             else
             {
-                std::ranges::fill(entries->entries, nullptr);
-                entries->compact_pending = true;
+                entries->clear_entries();
             }
         }
         observers_.clear();
@@ -225,17 +207,7 @@ namespace hgraph
             return;
         }
 
-        for (std::size_t index = 0; index < observers.entries.size();)
-        {
-            if (observers.entries[index] != nullptr)
-            {
-                ++index;
-                continue;
-            }
-            observers.entries[index] = observers.entries.back();
-            observers.entries.pop_back();
-        }
-        observers.compact_pending = false;
+        observers.compact();
 
         if (observers.entries.empty())
         {

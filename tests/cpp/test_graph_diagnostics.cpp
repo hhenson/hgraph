@@ -10,7 +10,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -146,6 +148,35 @@ namespace
         {
             auto value = wire<DiagnosticsRefSource>(w);
             static_cast<void>(wire<DiagnosticsNestedRefPublisher>(w, value));
+        }
+    };
+
+    // How many keys the wide publisher below emits; set by the test before it
+    // builds the graph.
+    std::int64_t diagnostics_wide_key_count = 0;
+
+    struct DiagnosticsWideRefPublisher
+    {
+        static constexpr auto name = "diagnostics_wide_ref_publisher";
+
+        static void eval(In<"value", TS<Int>> value,
+                         Out<TSD<Int, REF<TS<Int>>>> out)
+        {
+            for (std::int64_t key = 0; key < diagnostics_wide_key_count; ++key)
+            {
+                out.set(Int{key}, value.reference());
+            }
+        }
+    };
+
+    struct DiagnosticsWideRefGraph
+    {
+        static constexpr auto name = "diagnostics_wide_ref_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto value = wire<DiagnosticsRefSource>(w);
+            static_cast<void>(wire<DiagnosticsWideRefPublisher>(w, value));
         }
     };
 
@@ -583,6 +614,84 @@ TEST_CASE("diagnostics: reference values nested in containers render their targe
     CHECK(static_cast<const arrow::Int64Array &>(
               *publisher.output.frame.table->column(2)->chunk(0))
               .Value(0) == 42);
+}
+
+TEST_CASE("diagnostics: many references to one node list the node once and every path")
+{
+    GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+        .recent_window = 4,
+        .capture_values = true,
+    }};
+
+    diagnostics_wide_key_count = 5;
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<DiagnosticsWideRefGraph>())
+        .add_lifecycle_observer(&diagnostics);
+    GraphExecutorValue executor = builder.make_executor();
+    executor.view().run();
+
+    const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+    const GraphDiagnosticEntry &publisher = entry_containing(
+        snapshot, "diagnostics_wide_ref_publisher");
+    const GraphDiagnosticEntry &source = entry_containing(
+        snapshot, "diagnostics_ref_source");
+    CHECK(publisher.output.error.empty());
+    // Five keys lead to the same node: the node is named once, and each key
+    // keeps its own navigation record.
+    CHECK(publisher.output.target_node_ids ==
+          std::vector<std::uint64_t>{source.id});
+    REQUIRE(publisher.output.targets.size() == 5);
+    std::vector<std::vector<std::string>> paths;
+    for (const GraphDiagnosticTarget &target : publisher.output.targets)
+    {
+        CHECK(target.node_id == source.id);
+        CHECK(target.target_path.empty());
+        paths.push_back(target.source_path);
+    }
+    std::ranges::sort(paths);
+    CHECK(std::ranges::adjacent_find(paths) == paths.end());
+    CHECK(paths.front() == std::vector<std::string>{R"("0")"});
+    CHECK(paths.back() == std::vector<std::string>{R"("4")"});
+}
+
+TEST_CASE("diagnostics: value capture cost is linear in the keys of a collection",
+          "[.][diagnostics-scaling]")
+{
+    const auto run_ms = [](std::int64_t keys, bool capture_values) {
+        GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+            .recent_window = 4,
+            .capture_values = capture_values,
+        }};
+        diagnostics_wide_key_count = keys;
+        GraphExecutorBuilder builder;
+        builder.graph_builder(build_graph<DiagnosticsWideRefGraph>())
+            .add_lifecycle_observer(&diagnostics);
+        GraphExecutorValue executor = builder.make_executor();
+        const auto started = std::chrono::steady_clock::now();
+        executor.view().run();
+        const double elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
+        if (capture_values)
+        {
+            const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+            const GraphDiagnosticEntry &publisher = entry_containing(
+                snapshot, "diagnostics_wide_ref_publisher");
+            REQUIRE(publisher.output.targets.size() ==
+                    static_cast<std::size_t>(keys));
+        }
+        return elapsed;
+    };
+
+    std::printf("%10s %14s %14s %16s\n", "keys", "capture_ms", "no_capture_ms",
+                "capture_us_per_key");
+    for (const std::int64_t keys : {2'000, 4'000, 8'000, 16'000, 32'000})
+    {
+        const double without = run_ms(keys, false);
+        const double with = run_ms(keys, true);
+        std::printf("%10lld %14.2f %14.2f %16.3f\n",
+                    static_cast<long long>(keys), with, without,
+                    (with - without) * 1000.0 / static_cast<double>(keys));
+    }
 }
 
 TEST_CASE("diagnostics: partial composite references preserve invalid fields")

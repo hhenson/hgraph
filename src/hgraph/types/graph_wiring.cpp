@@ -1,4 +1,7 @@
+#include "../runtime/checkpoint_signature.h"
 #include <hgraph/runtime/map_node.h>
+#include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h> // context scope stack (OperatorRegistry)
@@ -69,9 +72,10 @@ struct InstanceKey {
   WiringNodeSchema schema;
   std::vector<InputKey> inputs;
   Value scalars;
+  std::string component{};
 
   bool operator==(const InstanceKey &other) const noexcept {
-    if (def != other.def || !(schema == other.schema) ||
+    if (component != other.component || def != other.def || !(schema == other.schema) ||
         inputs != other.inputs) {
       return false;
     }
@@ -88,6 +92,7 @@ struct InstanceKey {
 struct InstanceKeyHash {
   std::size_t operator()(const InstanceKey &key) const noexcept {
     std::size_t h = std::hash<std::type_index>{}(key.def);
+    combine(h, std::hash<std::string>{}(key.component));
     combine(h, std::hash<const void *>{}(key.schema.input));
     combine(h, std::hash<const void *>{}(key.schema.output));
     combine(h, std::hash<const void *>{}(key.schema.error_output));
@@ -215,13 +220,19 @@ void evaluate_structural_ref_node(const NodeView &view,
     A REF-typed child keeps its REF schema so an emptied reference is
     an ordinary VALUE tick on this node's input (hgraph parity:
     UNBIND IS SILENT, so notification must not depend on the deref'd
-    write-through - linking_strategies.rst). Falls back to the deref'd
-    target schema when the source shape cannot be preserved. */
+    write-through - linking_strategies.rst). A whole REF source keeps
+    its REF schema for the same reason, and so the node republishes the
+    upstream token itself: read through the value schema, the input would
+    land on its from-REF alternative and the published reference would
+    name that adapter instead. Falls back to the deref'd target schema
+    when the source shape cannot be preserved. */
 [[nodiscard]] const TSValueTypeMetaData *
 structural_ref_input_ts_schema(const TSValueTypeMetaData *target_schema,
                                const WiringPortRef &source) {
   if (!source.is_structural_source()) {
-    return target_schema;
+    return source.schema != nullptr && source.schema->kind == TSTypeKind::REF
+               ? source.schema
+               : target_schema;
   }
   const auto &children = source.structural_children();
   if (children.empty()) {
@@ -481,6 +492,56 @@ void collect_producers(
   }
   for (const WiringPortRef &child : source.structural_children()) {
     collect_producers(child, producers, owned);
+  }
+}
+
+// Restoring an ingress baseline changes the source endpoint itself. Keep this
+// ownership explicit: a source admitted by one component input cannot also
+// feed an unrelated consumer or another independently restored input.
+void validate_checkpoint_ingress_consumers(
+    const std::vector<const WiringInstance *> &all,
+    const std::unordered_set<const WiringInstance *> &owned,
+    const std::unordered_set<const WiringInstance *> *escaped_outputs) {
+  std::unordered_map<const WiringInstance *, const WiringInstance *> ingresses;
+  for (const auto *instance : all) {
+    if (instance->builder.checkpoint_identity().component.empty() ||
+        !instance->builder.type().ops_ref().checkpoint_ops->boundary_input) {
+      continue;
+    }
+    for (const auto &input : instance->inputs) {
+      const auto *producer = input.source.peered_node_or_null();
+      if (producer == nullptr || !producer->builder.checkpoint_identity().component.empty()) {
+        continue;
+      }
+      if (!owned.contains(producer)) {
+        throw std::invalid_argument("component checkpoint: ingress source must belong to the enclosing graph");
+      }
+      if (!ingresses.emplace(producer, instance).second) {
+        throw std::invalid_argument("component checkpoint: sharing an ingress source between component inputs is unsupported");
+      }
+    }
+  }
+  for (const auto &[producer, boundary] : ingresses) {
+    if (escaped_outputs != nullptr && escaped_outputs->contains(producer)) {
+      throw std::invalid_argument("component checkpoint: ingress source cannot escape its component input");
+    }
+  }
+  if (ingresses.empty()) { return; }
+  // One pass over the edges, asking of each producer whether it is an ingress
+  // source owned by a different input. Walking every edge again for each
+  // ingress made this cost ingresses times edges.
+  std::vector<const WiringInstance *> dependencies;
+  for (const auto *consumer : all) {
+    for (const auto &input : consumer->inputs) {
+      dependencies.clear();
+      collect_producers(input.source, dependencies, owned);
+      for (const auto *producer : dependencies) {
+        const auto ingress = ingresses.find(producer);
+        if (ingress != ingresses.end() && ingress->second != consumer) {
+          throw std::invalid_argument("component checkpoint: ingress source is consumed outside its selected component input");
+        }
+      }
+    }
   }
 }
 
@@ -817,6 +878,7 @@ build_ranked_graph(std::deque<WiringInstance> &instances,
     }
   }
   std::unordered_set<const WiringInstance *> owned{all.begin(), all.end()};
+  validate_checkpoint_ingress_consumers(all, owned, escaped_outputs);
   select_output_value_storage(instances, owned, escaped_outputs);
 
   std::unordered_map<const WiringInstance *, std::size_t> indegree;
@@ -994,6 +1056,12 @@ WiringPortRef graph_wiring_detail::adapt_source_for_input(
   return adapt_source_for_input_impl(w, input_schema, std::move(source), true);
 }
 
+NodeBuilder graph_wiring_detail::reference_terminal_builder(
+    const TSValueTypeMetaData *schema, const WiringPortRef &source) {
+  return structural_ref_node_builder(TypeRegistry::instance().dereference(schema),
+                                     source);
+}
+
 namespace {
 WiringPortRef adapt_source_for_input_impl(Wiring &w,
                                           const TSValueTypeMetaData *input_schema,
@@ -1147,6 +1215,17 @@ struct Wiring::Impl {
   const std::uint64_t identity{next_wiring_identity.fetch_add(
       1, std::memory_order_relaxed)};
   std::unordered_set<std::string> component_ids; // claimed recordable ids
+  // Open ``InlineRepeat`` scopes, innermost last. ``index`` is what the
+  // current index has claimed, where a second claim is a duplicate; ``all`` is
+  // everything the scope has claimed, which its enclosing index inherits when
+  // it closes. ``inline_repeat_ids`` are the ids first claimed inside any open
+  // scope: the only ones a later index may claim again.
+  struct InlineRepeatClaims {
+    std::unordered_set<std::string> index;
+    std::unordered_set<std::string> all;
+  };
+  std::vector<InlineRepeatClaims> inline_repeats;
+  std::unordered_set<std::string> inline_repeat_ids;
 
   explicit Impl(WiringKind wiring_kind,
                 WiringOptions options,
@@ -1154,7 +1233,9 @@ struct Wiring::Impl {
                 std::vector<std::string> observer_path = {})
       : observers(std::move(observer_registry)),
         wiring_path(std::move(observer_path)), kind(wiring_kind),
-        is_realtime(options.is_realtime) {
+        is_realtime(options.is_realtime),
+        allow_push_sources(options.allow_push_sources),
+        inherit_global_context(options.inherit_global_context) {
     // The LIVE selected state, not a copy (ruling 2026-07-27): setters
     // invoked during wiring (set_record_replay_model, set_as_of, ...)
     // write into the selected GlobalState, and wiring-time reads must see
@@ -1167,7 +1248,7 @@ struct Wiring::Impl {
     // reads the same seed for operator resolution and realization policy;
     // child_wiring() rebinds a child to its parent's seed. A bridge seeds
     // through Wiring(GlobalState &) instead and never touches the context.
-    if (GlobalContext *context = GlobalContext::active()) {
+    if (GlobalContext *context = GlobalContext::active(); inherit_global_context && context != nullptr) {
       seed = context->seed();
       live_seeded = kind == WiringKind::TopLevel;
     }
@@ -1244,12 +1325,30 @@ struct Wiring::Impl {
   std::string expected_label_operator{};
 
   std::deque<WiringInstance> instances{};
+  std::string checkpoint_component{};
+  bool checkpoint_records_refusals{false};
+  std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
+  std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
+  std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
   std::unordered_map<InstanceKey, WiringInstance *, InstanceKeyHash> interned{};
   std::unordered_map<std::string, std::string> built_service_paths{};
   std::unordered_map<std::string, ServiceClientIdentity> client_service_paths{};
   std::unordered_map<std::string, const WiringInstance *>
       service_rank_anchors{};
   std::vector<ServiceClientRank> service_client_ranks{};
+  // Every rank dependency already recorded, as (node, depends_on). A service
+  // anchor collects one dependency per sending client, and the dependencies are
+  // re-applied on every snapshot, so de-duplicating by searching the node's
+  // own list made C clients of one service cost C * C each time.
+  struct RankEdgeHash {
+    [[nodiscard]] std::size_t operator()(
+        const std::pair<const WiringInstance *, const WiringInstance *> &edge) const noexcept {
+      return std::hash<const void *>{}(edge.first) * 0x9e3779b97f4a7c15ULL +
+             std::hash<const void *>{}(edge.second);
+    }
+  };
+  std::unordered_set<std::pair<const WiringInstance *, const WiringInstance *>, RankEdgeHash>
+      rank_dependency_edges{};
   std::vector<ServiceImplementationCandidate> service_candidates{};
   std::unordered_map<std::string, std::size_t> service_candidate_paths{};
   std::unordered_map<std::string, std::size_t> default_service_candidates{};
@@ -1272,6 +1371,15 @@ struct Wiring::Impl {
   std::string graph_label{};
   WiringKind kind{WiringKind::TopLevel};
   const bool is_realtime{false};
+  const bool allow_push_sources{true};
+  const bool inherit_global_context{true};
+
+  void validate_node(const NodeBuilder &builder) const {
+    const auto *schema = builder.type().schema();
+    if (!allow_push_sources && schema != nullptr && schema->node_kind == NodeKind::PushSource) {
+      throw std::invalid_argument("Wiring: push sources are disabled for this graph and its nested children");
+    }
+  }
 };
 
 Wiring::Wiring(WiringKind kind, WiringOptions options)
@@ -1364,17 +1472,321 @@ bool Wiring::has_wiring_observers() const noexcept {
 
 Wiring Wiring::child_wiring() const {
   Wiring child{WiringKind::SubGraph,
-               WiringOptions{.is_realtime = impl_->is_realtime},
+               WiringOptions{.is_realtime = impl_->is_realtime,
+                             .allow_push_sources = impl_->allow_push_sources,
+                             .inherit_global_context = impl_->inherit_global_context},
                impl_->observers, impl_->wiring_path};
   // A child reads the root's seed for operator resolution (record/replay
   // configuration and the like) through the SAME shared binding, so the
   // owner's detach reaches it too; it never copies the raw pointer out.
   child.impl_->seed = impl_->seed;
   child.impl_->owns_seed = false;
+  // The boundary scope is for the runtime's own nodes. What one of them
+  // contains -- the child template of a worker's map_ -- is the user's.
+  child.impl_->checkpoint_component = impl_->checkpoint_component == worker_boundary_checkpoint_scope
+      ? std::string{worker_checkpoint_scope} : impl_->checkpoint_component;
+  child.impl_->checkpoint_records_refusals = impl_->checkpoint_records_refusals;
   return child;
 }
 
 GlobalState *Wiring::seed_state() const noexcept { return impl_->seed_state(); }
+
+std::string Wiring::checkpoint_component(std::string component_id) {
+  if (!component_id.empty()) {
+    impl_->checkpoint_component_starts.try_emplace(component_id, impl_->instances.size());
+  }
+  return std::exchange(impl_->checkpoint_component, std::move(component_id));
+}
+
+bool Wiring::checkpoint_records_refusals() const noexcept { return impl_->checkpoint_records_refusals; }
+
+void Wiring::refuse_checkpoint_component(std::string_view reason) {
+  const auto &component = impl_->checkpoint_component;
+  if (component.empty()) { return; }
+  const auto start = impl_->checkpoint_component_starts.find(component);
+  const auto begin = impl_->instances.begin() +
+      (start != impl_->checkpoint_component_starts.end() ? start->second : 0);
+  for (auto instance = begin; instance != impl_->instances.end(); ++instance) {
+    auto identity = instance->builder.checkpoint_identity();
+    const bool member = identity.component == component ||
+        (identity.component.starts_with(component) && identity.component.size() > component.size() &&
+         identity.component[component.size()] == '.');
+    if (!member || !identity.refusal.empty()) { continue; }
+    identity.refusal = reason;
+    instance->builder.checkpoint_identity(std::move(identity));
+  }
+}
+
+std::string_view Wiring::checkpoint_component() const noexcept {
+  return impl_->checkpoint_component;
+}
+
+void Wiring::checkpoint_worker_graph() {
+  if (!impl_->instances.empty() || !impl_->checkpoint_component.empty()) {
+    throw std::logic_error("component checkpoint: a worker graph scope covers the whole graph");
+  }
+  impl_->checkpoint_component = worker_checkpoint_scope;
+  impl_->checkpoint_records_refusals = true;
+}
+
+void Wiring::checkpoint_component_output(const WiringPortRef &output) {
+  const auto &component = impl_->checkpoint_component;
+  if (component.empty()) { return; }
+  const auto belongs = [&](std::string_view owner) {
+    return owner == component ||
+           (owner.starts_with(component) && owner.size() > component.size() &&
+            owner[component.size()] == '.');
+  };
+  const auto start = impl_->checkpoint_component_starts.find(component);
+  const auto begin = impl_->instances.begin() +
+      (start != impl_->checkpoint_component_starts.end() ? start->second : 0);
+  const auto anchor = std::find_if(begin, impl_->instances.end(),
+      [&](const WiringInstance &instance) {
+        return belongs(instance.builder.checkpoint_identity().component);
+      });
+  if (anchor == impl_->instances.end()) {
+    throw std::invalid_argument("component checkpoint: component output has no managed node");
+  }
+
+  manifest::CanonicalWriter signature;
+  auto identity = anchor->builder.checkpoint_identity();
+  signature.string_field(identity.signature);
+  signature.string_field("component-output-v1");
+  signature.string_field(component);
+  const auto append = [&](const auto &self, const WiringPortRef &source) -> void {
+    signature.varint(static_cast<std::uint8_t>(source.source_kind()));
+    manifest::append_ts_descriptor(signature, source.schema);
+    if (const auto *producer = source.peered_node_or_null()) {
+      const auto &producer_identity = producer->builder.checkpoint_identity();
+      if (!belongs(producer_identity.component)) {
+        throw std::invalid_argument("component checkpoint: output source is outside managed ownership");
+      }
+      signature.string_field(producer_identity.component);
+      signature.string_field(producer_identity.id);
+      signature.varint(static_cast<std::uint8_t>(source.peered_output_kind_or_default()));
+      signature.varint(source.peered_path_or_empty().size());
+      for (auto part : source.peered_path_or_empty()) { signature.varint(part); }
+    } else if (source.is_structural_source()) {
+      signature.varint(source.structural_children().size());
+      for (const auto &child : source.structural_children()) { self(self, child); }
+    } else if (!source.is_unbound_source() && !source.is_null_source()) {
+      throw std::invalid_argument("component checkpoint: unsupported component output binding");
+    }
+  };
+  append(append, output);
+  const auto &bytes = signature.bytes();
+  identity.signature.assign(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  // Component close is still wiring time. Input identities name producer IDs,
+  // so this metadata can be attached without rewriting any consumer or adding
+  // a runtime output wrapper. Nested templates see it before their owner is built.
+  anchor->builder.checkpoint_identity(std::move(identity));
+}
+
+void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
+  if (impl_->checkpoint_component.empty()) { return; }
+  if (!impl_->checkpoint_records_refusals) {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+    return;
+  }
+  // A worker graph: what a component scope refuses is recorded, so the graph
+  // still wires and whoever tries to capture it is told why it cannot.
+  // Only a REFUSAL is recorded, and every refusal is an ``invalid_argument``.
+  // Anything else -- a logic error in a probe, a Python signature callback
+  // that raised, an allocation failure -- is a defect in the wiring, and on a
+  // node no image selects a recorded refusal is never read: it would vanish.
+  try {
+    builder.checkpoint_identity(checkpoint_identity_for(builder, inputs));
+  } catch (const std::invalid_argument &error) {
+    // The id still has to be this node's alone: it names the node in the
+    // message that reports the refusal, beside ids the user chose.
+    auto &count = impl_->checkpoint_node_counts[impl_->checkpoint_component];
+    auto &taken = impl_->checkpoint_node_ids[impl_->checkpoint_component];
+    std::string id = std::to_string(count++);
+    while (!taken.insert(id).second) { id = std::to_string(count++); }
+    builder.checkpoint_identity({.component = impl_->checkpoint_component, .id = std::move(id),
+        .refusal = error.what()});
+  }
+}
+
+NodeCheckpointIdentity Wiring::checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {
+  manifest::CanonicalWriter signature;
+  std::vector<std::string> input_components;
+  const auto *schema = builder.type().schema();
+  const auto &checkpoint_ops = *builder.type().ops_ref().checkpoint_ops;
+  // A transient sink is inside the scope and outside the contract: no id to
+  // consume an ordinal, nothing signed, nothing about it that can refuse.
+  if (!checkpoint_ops.supported && schema->checkpoint_transient()) {
+    return {.component = impl_->checkpoint_component, .transient = true};
+  }
+  if (schema->captures_errors) {
+    throw std::invalid_argument("component checkpoint: error capture is unsupported; failed evaluations must abort the completed day");
+  }
+  if (checkpoint_ops.boundary_input &&
+      (inputs.size() != 1 ||
+       (!inputs.front().source.is_peered_source() && !inputs.front().source.is_boundary_source()))) {
+    throw std::invalid_argument("component checkpoint: component inputs require direct endpoints");
+  }
+  if (!checkpoint_ops.supported && !schema->checkpoints_without_ops()) {
+    throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} +
+        "': it holds local state, a source cursor or a runtime service and declares no checkpoint support");
+  }
+  // Validate even dormant mapped child templates. No lifecycle callback runs
+  // when constructing this short-lived probe; endpoint strategy selection is
+  // the same public builder operation used by the eventual graph instance.
+  {
+    // A closed component supplies the ownership context for REF images. The
+    // wiring probe validates representation support; live target membership
+    // is checked when the completed image is captured.
+    const TSCheckpointContext checkpoint_context{};
+    auto probe = builder.make_node();
+    auto node = probe.view();
+    if ((node.has_output() && node.owns_output() && checkpoint_ops.captures_output &&
+         !ts_checkpoint_eligible(node.output(MIN_DT).data_view(), &checkpoint_context)) ||
+        (node.has_recordable_state() &&
+         !ts_checkpoint_eligible(node.recordable_state(MIN_DT).data_view(), &checkpoint_context)) ||
+        (node.has_error_output() &&
+         !ts_checkpoint_eligible(node.error_output(MIN_DT).data_view(), &checkpoint_context))) {
+      throw std::invalid_argument("component checkpoint: unsupported endpoint in node '" + std::string{schema->name()} + "'");
+    }
+  }
+  signature.string_field(schema->name());
+  manifest::append_ts_descriptor(signature, schema->input_schema);
+  manifest::append_ts_descriptor(signature, schema->output_schema);
+  manifest::append_ts_descriptor(signature, schema->recordable_state_schema);
+  manifest::append_ts_descriptor(signature, schema->error_output_schema);
+  signature.varint(static_cast<std::uint8_t>(schema->node_kind));
+  signature.string_field(checkpoint_ops.signature_impl(builder));
+  signature.varint(schema->active_inputs.has_value());
+  if (schema->active_inputs) {
+    signature.varint(schema->active_inputs->size());
+    for (auto slot : *schema->active_inputs) { signature.varint(slot); }
+  }
+  signature.varint(schema->valid_inputs.has_value());
+  if (schema->valid_inputs) {
+    signature.varint(schema->valid_inputs->size());
+    for (auto slot : *schema->valid_inputs) { signature.varint(slot); }
+  }
+  signature.varint(schema->all_valid_inputs.size());
+  for (auto slot : schema->all_valid_inputs) { signature.varint(slot); }
+  signature.varint(schema->structural_inputs.size());
+  for (auto slot : schema->structural_inputs) { signature.varint(slot); }
+  // Concrete nested owners carry runtime-only scalar handles; their child
+  // plans and typed custom checkpoint contract validate those independently.
+  if (builder.scalars().has_value() && !builder.type().ops_ref().checkpoint_ops->supported) {
+    // What cannot be signed cannot be held to a contract, so it cannot be
+    // recovered: a REFUSAL, with the node named, and the only failure of this
+    // function that is one without already saying so. The signer reports a
+    // value it has no canonical form for as a runtime_error, and the value
+    // layer reports a scalar stored another way than its flags say (a Python
+    // Enum is flagged Enum and is not an Int) as a type mismatch. Left as they
+    // were, a worker graph that nobody will ever capture stopped wiring.
+    annotate_on_exception<std::exception>(
+        [&] { manifest::encode_manifest_scalar(signature, builder.scalars().view()); },
+        [&](const std::exception &error) {
+          throw std::invalid_argument("component checkpoint: the scalar configuration of node '" +
+              std::string{schema->name()} + "' cannot be signed, so the node cannot be recovered: " + error.what());
+        });
+  }
+  // Empty maps still commit their complete child-plan contract. Otherwise an
+  // incompatible strategy could hide behind an empty membership at the cut.
+  builder.visit_child_graphs(&signature, [](void *context, ChildGraphInspectionView child) {
+    auto &writer = *static_cast<manifest::CanonicalWriter *>(context);
+    if (child.graph == nullptr) { throw std::invalid_argument("component checkpoint: missing child plan"); }
+    // Transient sinks are no part of the contract, not even by their number.
+    std::size_t signed_nodes = 0;
+    for (const auto &node : child.graph->nodes()) { signed_nodes += !node.checkpoint_identity().transient; }
+    writer.varint(signed_nodes);
+    for (const auto &node : child.graph->nodes()) {
+      const auto &identity = node.checkpoint_identity();
+      if (identity.transient) { continue; }
+      if (identity.component.empty()) { throw std::invalid_argument("component checkpoint: child outside managed ownership"); }
+      writer.string_field(identity.component);
+      writer.string_field(identity.id);
+      writer.string_field(identity.signature);
+    }
+    if (child.output_binding == nullptr) { throw std::invalid_argument("component checkpoint: sink child is unsupported"); }
+    node_checkpoint_detail::append_output_binding(writer, *child.graph, *child.output_binding);
+  });
+  const auto append_source = [&](const auto &self, const WiringPortRef &source) -> void {
+    signature.varint(static_cast<std::uint8_t>(source.source_kind()));
+    if (const auto *producer = source.peered_node_or_null()) {
+      const auto &identity = producer->builder.checkpoint_identity();
+      // Preserve cross-scope producers: a selected ancestor can restore both
+      // ends, while an inner-only selection cannot. Runtime boundary scopes
+      // are included by a hosted selection, rather than exempted here.
+      const auto &scope = impl_->checkpoint_component;
+      const bool in_component = impl_->checkpoint_records_refusals && scope != worker_checkpoint_scope &&
+          scope != worker_boundary_checkpoint_scope;
+      const bool inside = identity.component == scope ||
+          (identity.component.starts_with(scope) && identity.component.size() > scope.size() &&
+           identity.component[scope.size()] == '.');
+      if (in_component && !inside &&
+          std::find(input_components.begin(), input_components.end(), identity.component) == input_components.end()) {
+        input_components.push_back(identity.component);
+      }
+      signature.varint(identity.component.empty());
+      if (identity.component.empty()) {
+        if (!checkpoint_ops.boundary_input) {
+          throw std::invalid_argument("component checkpoint: external sources must enter through component inputs");
+        }
+        const auto *producer_schema = producer->builder.type().schema();
+        auto probe = producer->builder.make_node();
+        auto producer_node = probe.view();
+        if (producer_schema->node_kind != NodeKind::PullSource ||
+            source.peered_output_kind_or_default() != GraphEdgeSourceKind::Output ||
+            !source.peered_path_or_empty().empty() || !producer_node.owns_output() ||
+            !ts_checkpoint_eligible(producer_node.output(MIN_DT).data_view())) {
+          throw std::invalid_argument("component checkpoint: external inputs require direct owned pull-source outputs");
+        }
+        // The caller supplies only future events on each run, so source
+        // scalars/cursors are intentionally excluded. Its endpoint contract
+        // and producer implementation remain part of compatibility identity.
+        signature.string_field(producer_schema->name());
+        signature.varint(static_cast<std::uint8_t>(producer_schema->node_kind));
+        manifest::append_ts_descriptor(signature, producer_schema->output_schema);
+        manifest::append_ts_descriptor(signature, source.schema);
+      }
+      signature.string_field(identity.component);
+      signature.string_field(identity.id);
+      signature.varint(static_cast<std::uint8_t>(source.peered_output_kind_or_default()));
+      signature.varint(source.peered_path_or_empty().size());
+      for (auto part : source.peered_path_or_empty()) { signature.varint(part); }
+    } else if (source.is_boundary_source()) {
+      if (source.is_captured_boundary_source()) {
+        throw std::invalid_argument("component checkpoint: implicit captured inputs are unsupported");
+      }
+      signature.varint(source.boundary_arg_index());
+      signature.varint(source.boundary_path().size());
+      for (auto part : source.boundary_path()) { signature.varint(part); }
+    } else if (source.is_structural_source()) {
+      signature.varint(source.structural_children().size());
+      for (const auto &child : source.structural_children()) { self(self, child); }
+    } else if (source.is_null_source()) {
+      // Statically bound to nothing, for good: the kind signed above is the
+      // whole contract, and there is no endpoint to restore. A partitioned
+      // fixed-size list gives each worker's boundary sink one of these for
+      // every index another worker owns.
+    } else {
+      throw std::invalid_argument("component checkpoint: unsupported delayed input binding");
+    }
+  };
+  signature.varint(inputs.size());
+  for (const auto &input : inputs) {
+    append_source(append_source, input.source);
+    signature.varint(input.target_path.size());
+    for (auto part : input.target_path) { signature.varint(part); }
+  }
+  const auto &bytes = signature.bytes();
+  auto id = checkpoint_ops.id_impl(builder);
+  if (id.empty()) { id = std::to_string(impl_->checkpoint_node_counts[impl_->checkpoint_component]++); }
+  if (!impl_->checkpoint_node_ids[impl_->checkpoint_component].insert(id).second) {
+    throw std::invalid_argument("component checkpoint: duplicate node id '" + id + "'");
+  }
+  return {.component = impl_->checkpoint_component,
+      .id = std::move(id),
+      .signature = std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()},
+      .input_components = std::move(input_components)};
+}
 
 GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }
 
@@ -1458,12 +1870,50 @@ void Wiring::notify_overload_resolution(
   }
 }
 
-void Wiring::claim_component_id(std::string_view fq_recordable_id) {
-  if (!impl_->component_ids.emplace(std::string{fq_recordable_id}).second) {
-    throw std::invalid_argument("component: duplicate recordable id '" +
-                                std::string{fq_recordable_id} +
-                                "' in one wiring");
+bool Wiring::claim_component_id(std::string_view fq_recordable_id) {
+  if (reserved_checkpoint_scope(fq_recordable_id)) {
+    throw std::invalid_argument("component: recordable id uses the reserved @hgraph. namespace");
   }
+  std::string id{fq_recordable_id};
+  auto &repeats = impl_->inline_repeats;
+  const bool first = impl_->component_ids.emplace(id).second;
+  // An instance is a claim some EARLIER index made, in a repeat that is still
+  // open. Claimed already by this index -- of any enclosing repeat -- it is a
+  // second call site; claimed before any repeat opened, another component.
+  const bool instance = !first && !repeats.empty() && impl_->inline_repeat_ids.contains(id) &&
+      std::none_of(repeats.begin(), repeats.end(), [&](const auto &claims) { return claims.index.contains(id); });
+  if (!first && !instance) {
+    throw std::invalid_argument("component: duplicate recordable id '" + id + "' in one wiring");
+  }
+  if (!repeats.empty()) {
+    repeats.back().index.insert(id);
+    repeats.back().all.insert(id);
+    impl_->inline_repeat_ids.insert(std::move(id));
+  }
+  return first;
+}
+
+Wiring::InlineRepeat::InlineRepeat(Wiring &wiring) : wiring_(wiring) {
+  wiring_.impl_->inline_repeats.emplace_back();
+  // The mapping ``child_wiring`` applies, for a function that gets no child wiring.
+  if (wiring_.impl_->checkpoint_component == worker_boundary_checkpoint_scope) {
+    scope_ = wiring_.checkpoint_component(std::string{worker_checkpoint_scope});
+    rescoped_ = true;
+  }
+}
+
+void Wiring::InlineRepeat::next_index() { wiring_.impl_->inline_repeats.back().index.clear(); }
+
+Wiring::InlineRepeat::~InlineRepeat() {
+  if (rescoped_) { (void)wiring_.checkpoint_component(std::move(scope_)); }
+  auto &repeats = wiring_.impl_->inline_repeats;
+  auto claimed = std::move(repeats.back().all);
+  repeats.pop_back();
+  if (repeats.empty()) { wiring_.impl_->inline_repeat_ids.clear(); return; }
+  // To the enclosing index this whole repeat was ONE call site: a second map
+  // of the same component beside it, in that index, is a duplicate.
+  repeats.back().index.insert(claimed.begin(), claimed.end());
+  repeats.back().all.merge(claimed);
 }
 
 Wiring::~Wiring() = default;
@@ -1514,6 +1964,12 @@ void Wiring::register_pre_rank_finalizer(
 WiringKind Wiring::kind() const noexcept { return impl_->kind; }
 
 bool Wiring::is_realtime() const noexcept { return impl_->is_realtime; }
+
+WiringOptions Wiring::options() const noexcept {
+  return {.is_realtime = impl_->is_realtime,
+          .allow_push_sources = impl_->allow_push_sources,
+          .inherit_global_context = impl_->inherit_global_context};
+}
 
 Wiring &Wiring::label(std::string label) {
   impl_->graph_label = std::move(label);
@@ -1699,6 +2155,7 @@ void Wiring::clear_pending_node_label() noexcept {
 WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
                                std::span<const WiringInputRef> inputs,
                                Value scalars) {
+  impl_->validate_node(builder);
   // Diagnostic label hint (issue #247): consumed before the wiring-observer
   // event so wiring-trace sees the label too.
   if (!impl_->pending_label.empty()) {
@@ -1736,6 +2193,7 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
   const bool interns = schema.output != nullptr;
 
   InstanceKey key = make_key(def, schema, inputs, scalars);
+  key.component = impl_->checkpoint_component;
   if (interns) {
     if (auto it = impl_->interned.find(key); it != impl_->interned.end()) {
       const WiringInstance *existing = it->second;
@@ -1746,6 +2204,7 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
 
   builder.scalars(std::move(
       scalars)); // record the scalar configuration on the build artifact
+  assign_checkpoint_identity(builder, inputs);
 
   WiringInstance &instance = impl_->instances.emplace_back();
   instance.definition = def;
@@ -1781,8 +2240,10 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
 WiringPortRef Wiring::add_unique_node(std::type_index def, NodeBuilder builder,
                                       std::span<const WiringInputRef> inputs,
                                       Value scalars) {
+  impl_->validate_node(builder);
   auto add = [&]() -> WiringPortRef {
     builder.scalars(std::move(scalars));
+    assign_checkpoint_identity(builder, inputs);
 
     WiringInstance &instance = impl_->instances.emplace_back();
     instance.definition = def;
@@ -1821,10 +2282,8 @@ void Wiring::add_rank_dependency(const WiringInstance *node,
     throw std::invalid_argument("rank dependency cannot target the same node");
   }
 
-  auto &dependencies = const_cast<WiringInstance *>(node)->rank_dependencies;
-  if (std::find(dependencies.begin(), dependencies.end(), depends_on) ==
-      dependencies.end()) {
-    dependencies.push_back(depends_on);
+  if (impl_->rank_dependency_edges.emplace(node, depends_on).second) {
+    const_cast<WiringInstance *>(node)->rank_dependencies.push_back(depends_on);
   }
 }
 
@@ -2441,6 +2900,7 @@ WiringPortRef Wiring::add_node(std::type_index def,
   auto add = [&]() -> WiringPortRef {
     const bool interns = schema.output != nullptr;
     InstanceKey key = make_key(def, schema, inputs, scalars);
+    key.component = impl_->checkpoint_component;
     if (interns) {
       if (auto it = impl_->interned.find(key); it != impl_->interned.end()) {
         const WiringInstance *existing = it->second;
@@ -2451,6 +2911,7 @@ WiringPortRef Wiring::add_node(std::type_index def,
 
     NodeBuilder builder = make_builder(); // intern miss: only now pay for (and
                                           // register) the builder
+    impl_->validate_node(builder);
     // Deferred builders must consume the same one-shot diagnostic label as
     // ordinary builders.  Keyed nested nodes (map_/mesh_) use this overload,
     // so omitting it loses the enclosing user graph path even though the
@@ -2471,6 +2932,7 @@ WiringPortRef Wiring::add_node(std::type_index def,
     if (!builder.scalars().has_value()) {
       builder.scalars(std::move(scalars));
     }
+    assign_checkpoint_identity(builder, inputs);
 
     WiringInstance &instance = impl_->instances.emplace_back();
     instance.definition = def;
@@ -2537,6 +2999,9 @@ Wiring::activate_error_capture(const WiringInstance *node,
   // The deque owns the instances (stable addresses); the const port ref
   // names one we own and may amend before finish.
   WiringInstance &instance = const_cast<WiringInstance &>(*node);
+  if (!instance.builder.checkpoint_identity().component.empty()) {
+    throw std::invalid_argument("component checkpoint: error capture is unsupported; failed evaluations must abort the completed day");
+  }
   const NodeTypeMetaData *meta = instance.builder.type().schema();
   ErrorCaptureOptions merged = options;
   if (meta != nullptr && meta->captures_errors) {
@@ -2880,17 +3345,15 @@ CompiledSubGraph Wiring::finish_subgraph(
       parent_path.push_back(captures.boundary_ordinal(*output));
       parent_path.insert(parent_path.end(), output->boundary_path().begin(),
                          output->boundary_path().end());
-      compiled.output_binding = NestedGraphOutputBinding{
-          .kind = NestedGraphOutputBinding::Kind::ParentInput,
-          .parent_source_path = std::move(parent_path),
-      };
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = std::move(parent_path);
     } else if (output->is_peered_source()) {
       const auto external = external_sources.find(output->peered_node());
       if (external != external_sources.end()) {
-        compiled.output_binding = NestedGraphOutputBinding{
-            .kind = NestedGraphOutputBinding::Kind::ParentInput,
-            .parent_source_path = {external->second},
-        };
+        auto &binding = compiled.output_binding.emplace();
+        binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+        binding.parent_source_path = {external->second};
       } else {
         if (output->peered_output_kind() != GraphEdgeSourceKind::Output) {
           throw std::invalid_argument(
@@ -2899,11 +3362,9 @@ CompiledSubGraph Wiring::finish_subgraph(
         }
         const auto it = index_of.find(output->peered_node());
         if (it == index_of.end()) {
-          compiled.output_binding = NestedGraphOutputBinding{
-              .kind = NestedGraphOutputBinding::Kind::ParentInput,
-              .parent_source_path = {captures.base_index +
-                                     captures.index_for(*output)},
-          };
+          auto &binding = compiled.output_binding.emplace();
+          binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+          binding.parent_source_path = {captures.base_index + captures.index_for(*output)};
         } else {
           const NodeTypeMetaData *terminal_meta =
               compiled.graph_builder.node_at(it->second).type().schema();
@@ -2930,10 +3391,9 @@ CompiledSubGraph Wiring::finish_subgraph(
       // A fixed TSB/TSL argument is represented by a structural root whose
       // leaves are boundary projections. Returning that argument directly is
       // the structural form of an ordinary parent-input pass-through.
-      compiled.output_binding = NestedGraphOutputBinding{
-          .kind = NestedGraphOutputBinding::Kind::ParentInput,
-          .parent_source_path = {*ordinal},
-      };
+      auto &binding = compiled.output_binding.emplace();
+      binding.kind = NestedGraphOutputBinding::Kind::ParentInput;
+      binding.parent_source_path = {*ordinal};
     } else {
       throw std::invalid_argument(
           "Wiring::finish_subgraph: the sub-graph output must be a node output "

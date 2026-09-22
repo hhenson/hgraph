@@ -1,0 +1,28 @@
+{
+  "description": "Issue #818 item 2.4: take with a DURATION. The window opens at the source's first tick rather than at graph start, and the source passivates once it moves beyond the span.",
+  "features": [
+    "family:stream",
+    "lifecycle:multi-cycle",
+    "operator:take",
+    "shape:TS",
+    "topology:operator-family",
+    "type:int"
+  ],
+  "id": "issue-818-take-by-duration",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "input_type": "int",
+    "operation": "take",
+    "period_micros": 2
+  },
+  "schema_version": 1,
+  "template": "stream_shape"
+}

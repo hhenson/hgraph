@@ -20,15 +20,19 @@ fn double(value: f64) -> f64 =>
     value * 2.0
 ```
 
+`rolling_mean` in the next example is imported with
+`use hgraph.analytics::{rolling_mean}`.
+
 Parameters are immutable. `let` introduces an immutable local and `var`
 introduces a mutable local; either may use an inferred type:
 
 ```hgl
 fn smooth(
-    tob: atomic<tuple<f64, f64>>,
+    bid: f64,
+    ask: f64,
     const window: i64
 ) -> f64 {
-    let mid = midpoint(tob)
+    let mid = midpoint(bid, ask)
     rolling_mean(mid, window)
 }
 ```
@@ -36,7 +40,7 @@ fn smooth(
 Calls accept positional arguments followed by named arguments:
 
 ```hgl
-smooth(tob, window: 50)
+smooth(bid, ask, window: 50)
 ```
 
 ## Value-level functions
@@ -76,18 +80,16 @@ this section.
 ## Parameter packs
 
 > **Implementation status:** Pack signatures, calls, composition and runtime
-> traversal, descriptors, generated operator contracts, and runtime-node pack
-> inputs are implemented, including cardinality suffixes. `len`, `keys`,
+> traversal are implemented, including cardinality suffixes. `len`, `keys`,
 > `types`, `type_at`, and the `each` conjunction are implemented in `requires`,
 > as are borrowed runtime schema views for native inspection.
 
-HGL distinguishes three variadic call shapes rather than exposing generated
-bundle fields:
+HGL supports three variadic call shapes:
 
 ```hgl
-fn homogeneous<T>(values: ...T)             // one repeated type, positional only
-fn positional<...Ts>(values: ...Ts)         // heterogeneous positional tuple
-fn keyword<...Fields>(values: ...{Fields})  // heterogeneous named bundle
+fn homogeneous<T>(values: ...T)             # one repeated type, positional only
+fn positional<...Ts>(values: ...Ts)         # heterogeneous positional tuple
+fn keyword<...Fields>(values: ...{Fields})  # heterogeneous named bundle
 ```
 
 `homogeneous(1, 2, 3)` binds one `T`; arguments with different source types do
@@ -112,24 +114,13 @@ Named packs use bundle iteration:
 
 ```hgl
 for name in keys(values) { ... }
-for value in values(values) { ... }
+for value in elements(values) { ... }
 for name, value in items(values) { ... }
 ```
 
-The names `_1`, `_2`, and so on used by a generated positional bundle are
-private implementation details and are never visible in HGL. `items` always
-returns zero-based HGL tuple indexes.
-
-A pack may be used by either a composition function or a runtime node. The
-runtime node uses hgraph's existing packed structural inputs: a homogeneous
-pack becomes an `Args<T>`/TSL input, while heterogeneous positional and named
-packs become `Kwargs<>`/bundle inputs. The HGL spelling and traversal operations
-do not change between phases.
-
-A composition function may combine positional and named packs. A runtime
-function currently accepts one aggregate pack input; using both on the same
-runtime function is a source diagnostic rather than an invalid generated C++
-signature.
+A pack uses the same spelling and traversal operations in composition and
+runtime functions. A composition function may combine positional and named
+packs. A runtime function currently accepts only one pack parameter.
 
 Packs accept zero or more arguments unless a cardinality suffix is present:
 
@@ -160,36 +151,15 @@ conjunction: `T` is local to its block, the body must hold for every member,
 and an empty pack satisfies it. A generic caller may forward the same premise
 using any local binding name; binding names do not affect constraint identity.
 
-Runtime code can give a native helper each member's existing C++ type metadata
-without exposing private positional field names:
+`schemas(values)` lets runtime code pass information about pack member types
+to native helpers that accept `schema`. Use `elements` or `items` for a
+positional pack; `items` yields zero-based indexes. For a named pack, use
+`keys`, `values`, or `items`; the keys are the argument names.
 
-```hgl
-cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
-
-native fn known_schema(value: schema) -> bool {
-    cpp(const hgraph::TSValueTypeMetaData *value) {
-        return value != nullptr;
-    }
-}
-
-fn count_schemas<...Ts>(values: ...Ts) -> i64 {
-    when {
-        var count = 0
-        for index, value_schema in items(schemas(values)) {
-            if known_schema(value_schema) { count += 1 }
-        }
-        return count
-    }
-}
-```
-
-For a named pack, use `keys(schemas(values))`,
-`values(schemas(values))`, or `items(schemas(values))`; `items` yields the
-source name and schema. A positional schema view uses `elements` or `items`,
-where `items` yields the zero-based index and schema. `schema` is deliberately
-not a general HGL data type: it may occur only as a non-`const` native
-parameter. A schema handle cannot be stored, returned, captured, used as state
-or output, or passed to an ordinary HGL function.
+A `schema` can only be passed to an approved native helper during that
+evaluation. It cannot be stored, returned, captured, compared, or used in
+arithmetic. See [native helper authoring](../developer-guide/compiler-and-lowering.md#runtime-pack-schema-views)
+for extension integration.
 
 ## Public functions
 
@@ -295,12 +265,10 @@ follows the signature and precedes the body:
 
 > **Staging status:** `hgl check` evaluates closed type sets, `struct`
 > admission, field reflection, positive-conjunction equality inference,
-> Boolean composition, and nominal operator requirements during typed-HIR
-> completion. Local implementations inherit their local operator contract and
-> are checked for signature conformance. A requirement still fails closed when
-> it needs an arbitrary residual constant predicate, imported operator-contract
-> metadata, native nominal-struct metadata, or source-candidate ranking that has
-> not yet crossed the shared hgraph registry boundary.
+> Boolean composition, and nominal operator requirements during
+> checking. Implementations are checked against their local or supported imported
+> operator contract. Arbitrary residual constant predicates and unsupported
+> imported type or constraint forms are rejected.
 
 ```hgl
 fn add_numeric<U>(a: U, b: U) -> U
@@ -371,11 +339,8 @@ Explicit generic application is agreed for struct types and their constructors
 operator calls remains open; those calls continue to infer their generic
 bindings in the initial design.
 
-`U` is therefore a wiring-time unknown, not a dynamically typed `any`. The
-compiler may implement a generic runtime function once using hgraph's erased
-views when every operation in its body is valid for all admitted `U` values,
-or specialize it when concrete representation is required. That
-code-generation choice does not change the source-level type relationships.
+`U` is a type resolved while wiring, not a dynamically typed `any`.
+The same binding must satisfy every occurrence of `U` in the signature.
 
 An `operator` is a nominal contract, similar in role to a Rust trait or Swift
 protocol. It declares a call shape and generic relationships but has no body:
@@ -479,7 +444,7 @@ requires T in {i64, f64}
 {
     when {
         var total: T = 0
-        for value in values(values) {
+        for value in elements(values) {
             total += value
         }
         return total
@@ -490,15 +455,12 @@ instantiate sum_<i64, _>, sum_<f64, _>
 ```
 
 The two candidates have concrete accumulator types but still match any fixed
-list size. The retained `size` is a type marker: it participates in matching
-the input schema but is not stored or passed to the node at evaluation time.
+list size. The retained `size` participates in matching the input type; this form does
+not make its numeric value available inside the function body.
 
-This differs from a generic that the body reads. Such a value must be
-**reified**—made available as read-only wiring-time or runtime metadata. The
-distinction is inferred from how the generic is used, not written on the
-parameter. The current compiler supports retained fixed-list-size markers and
-concrete values; reading a retained generic in an implementation is a visible
-`emit-cpp` limitation while the reification contract is designed.
+A retained `_` argument can participate in matching, but the function body
+cannot currently read its value. Bind a concrete value when the implementation
+needs to use it in a calculation.
 
 Each concrete argument binds the corresponding implementation generic in
 declaration order; `_` retains it. Each request is checked against the
@@ -517,9 +479,8 @@ operator contract. A generic implementation with no materialization is valid
 source but contributes no generated candidate.
 
 > **Current compiler boundary:** explicit materialization is implemented for an
-> operator declared in the same module. A generic `impl fn` may bind to a
-> selectively imported operator, but materializing and emitting that imported
-> contract awaits descriptor-backed imported operator metadata.
+> operator declared locally or selectively imported from a module with a supported
+> contract. See [separate implementations](modules-and-tools.md#compiling-a-separate-implementation).
 
 Operator identity is nominal and includes its defining module. Two modules may
 therefore declare unrelated operators with the same short name. Name and import
@@ -636,74 +597,51 @@ does not require `b` and does not activate for changes to `b`.
 These defaults apply to temporal function parameters, not `const` parameters,
 state, injectables, or `out`. `valid()` is not recursive for structural inputs;
 use `all_valid(value)` when every child must be valid. Empty selector calls are
-valid only in a function-level `when` predicate. There is not yet an agreed HGL
-spelling for “no input activation” or “no validity requirement”; those explicit
-empty policies are different from `modified()` and `valid()`, which select the
-complete temporal input list.
+valid only in a function-level `when` predicate. `scheduled()` selects scheduler-driven activation without an input trigger.
+There is no general spelling for “no validity requirement”; `valid()` selects
+the complete temporal input list.
 
 `when` is a function-level handler rather than a nested control-flow form.
 Use `if valid(value) { ... }` inside a handler when only part of that handler
 needs a value. Validity guards follow normal left-to-right short-circuit order,
 so place `valid(value)` before reading `value` in the same `&&` condition.
 
-Under the agreed [iteration model](../design/iteration.md), `for` and collection
-traversal follow the containing phase rather than forcing runtime
-classification. In a graph, a supported wiring-time iterable provides scalar
-values and a fixed temporal structure provides child connections. Independent
-bodies over dynamic maps or lists lower through per-key or per-index mapping.
-Loop-carried reductions are initially unsupported: unordered map reduction
-and the linear reduction option for ordered lists are documented future
-extensions. In a node, traversal visits the current child views or scalar
-elements. The classifier is phase-neutral and both compiler backends implement
-fixed temporal-list traversal plus independent `values`/`items` bodies over
-dynamic maps and `elements`/`items` bodies over unbounded lists. Dynamic bodies
-may capture temporal inputs;
-`const` captures, graph iterator predicates, escaping assignments, and loop
-returns remain unsupported.
-
-This can deliberately fuse work that would otherwise become several
-primitive nodes and intermediate endpoints. Graph composition still flattens;
-the possible saving comes from eliminating intermediate nodes, bindings,
-scheduling, and change tracking rather than from removing a graph wrapper.
+Under the [iteration model](../design/iteration.md), `for` follows the
+containing function's phase. During graph construction, fixed temporal lists
+provide their child connections. Independent bodies over dynamic maps and
+unbounded lists apply separately to each live key or index, and may capture
+temporal inputs. During evaluation, traversal reads current children or scalar
+elements. Loop-carried reductions, graph iterator predicates, `const` captures
+in dynamic graph loops, escaping assignments, and loop returns are unsupported.
+Scalar wiring-time iterables are not implemented yet.
 
 ## Conditional control flow
 
-Status: partially implemented. A temporal condition with an explicit `else`
-and one tail value per branch runs in both scripted and compiled modes. The
-compiler also supports outputless temporal conditionals with an optional block
-`else`, including discarded conditionals inside a value-producing graph. The
-compiler additionally remaps one predeclared temporal variable assigned by both
-explicit branches, or several such variables through a compiler-generated
-structural result. A used expression result can share that structural result
-with escaping assignments. An initialized result may be forwarded by a branch
-that does not assign it. A consumed temporal conditional without `else` uses a
-typed never-ticking false branch. Early returns work for top-level and nested
-temporal conditionals when the conditional is a direct statement or block tail;
-the compiler represents the remaining body as ordered lexical continuation
-segments. A temporal conditional embedded inside another expression, such as
-`(if c { x } else { y }) + 1`, is implemented in both backends and pinned by
-the parity fixture. The current slice still rejects scalar branch captures and
-temporal `else if`. The existing syntax needs no new keyword.
+Status: partially implemented. Temporal conditions support branch values,
+outputless branches, early returns, and assignments to variables declared
+before the conditional. Several variables may be assigned together. A branch
+may retain a variable's incoming binding; otherwise every path reaching a later
+read must assign it. A value-producing temporal `if` without `else` produces
+no ticks while its condition is false. Embedded expressions such as
+`(if c { x } else { y }) + 1` are supported. Scalar branch captures and
+temporal `else if` are unsupported.
 
 `if` has three context-dependent meanings:
 
 | Context | Behavior |
 | --- | --- |
 | Graph function, wiring-time Boolean condition | Wire the selected branch once. |
-| Graph function, temporal Boolean condition | Use native switch-style child-graph execution, as in the Arrow API. |
+| Graph function, temporal Boolean condition | Run only the selected branch, changing the active branch when the condition changes. |
 | Node evaluation, including `when` | Execute the selected branch using current readable values. |
 
 For a temporal condition in a graph, only the selected child graph runs. A
-change of condition stops the old child and starts the new one under native
-switch lifecycle rules. The surrounding graph still composes at wiring time.
+change of condition stops the old branch and starts the new one. The surrounding graph still composes at wiring time.
 Computations wired outside the branches retain their own lifetimes.
 
 This differs from calling `if_then_else` on already-wired outputs, whose
 upstream computations remain independently active. A value-producing temporal
-`if` without `else` uses a typed, never-ticking false branch, matching Arrow.
-Lowering computes each branch lambda's input captures and output signature.
-This is implemented in scripted and compiled modes without constructing a
-default scalar value; see
+`if` without `else` produces no ticks while false, and supplies no default
+value. This works in scripted and compiled modes; see
 [conditional-omitted-else.hgl](../../examples/conditional-omitted-else.hgl).
 An escaping variable must be declared before the conditional. For example:
 
@@ -720,29 +658,19 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 }
 ```
 
-Each branch returns its binding for `r`, and the enclosing `r` is remapped to
-the switch output. The multiplication is composed outside the switch. For this
-single-result form, both scripted and compiled modes are implemented; see
-[conditional-result.hgl](../../examples/conditional-result.hgl). For multiple
-escaping variables, the branches return a common compiler-generated structural
-bundle whose fields are remapped to those variables. This is implemented in
-both modes; see
+After the conditional, `r` follows the connection chosen by the active branch.
+The multiplication continues to use that selected connection. This works for
+one or several variables; see
+[conditional-result.hgl](../../examples/conditional-result.hgl) and
 [conditional-results.hgl](../../examples/conditional-results.hgl).
-Branch-local declarations do not escape. The typed declaration without an
-initializer creates no default value or connection; both branches must assign
-`r` before the later read.
+Branch-local declarations do not escape. A declaration without an initializer
+supplies no default value or connection, so both branches above must assign `r`.
 
 If `r` already has a binding before the conditional, a branch that leaves it
-unchanged forwards that incoming binding, including the implicit false branch
-when `else` is omitted. A pure forwarding branch takes the binding by reference;
-when it is known to process the input, an ordinary temporal input is sufficient.
-This determines the generated branch's contract without changing the author's
-declaration. It forwards the pre-conditional connection, not remembered state
-from a previously selected branch. For a bundled multi-result switch, each
-forwarded field uses the escaped variable's declared temporal schema. An
-ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
-declared `ref<T>` result preserves the reference. Both branch output bundles
-have the same field schemas. This works in scripted and compiled modes; see
+unchanged forwards that incoming binding, including the false branch when
+`else` is omitted. It forwards the pre-conditional connection, not remembered
+state from a previously selected branch. The variable retains its declared
+type, including an explicit `ref<T>` type. See
 [conditional-forwarding.hgl](../../examples/conditional-forwarding.hgl).
 
 Every escaping variable must have a binding on every path reaching its use:
@@ -776,7 +704,7 @@ This form is implemented in scripted and compiled modes. See the runnable
 [conditional-sinks.hgl](../../examples/conditional-sinks.hgl) example.
 The example also returns a value after a discarded sink conditional, showing
 that the conditional does not inherit the enclosing function's result type.
-Temporal `else if` lowering is not implemented yet and produces a diagnostic;
+Temporal `else if` is not supported yet;
 use a block `else` in the current compiler.
 
 Whether the switch needs an output depends on the conditional's results and
@@ -835,13 +763,12 @@ and rejection of duplicate enum numbers are agreed. String conversion uses
 `str(value)`; remaining enum type rules are separate design work.
 
 In a node-style function, switch dispatch uses the current readable selector
-value and lowers to native C++ control flow within that evaluation. It does
-not create switch child graphs or restart the enclosing node's state. In a
-graph function, a wiring-time selector chooses composition; a temporal
-selector must satisfy the native switch-key contract and uses `switch_`.
+value within that evaluation, preserving the function's state. In a graph
+function, a wiring-time selector chooses one branch during construction; a
+temporal selector changes which branch runs over time.
 
-Graph branches reuse the `if`/`else` rules for input captures, REF forwarding,
-escaping bindings, result signatures and bundle remapping, definite assignment,
+Graph branches reuse the `if`/`else` rules for captured inputs, reference
+forwarding, escaping bindings, matching result types, definite assignment,
 and early returns. The default branch participates in all of those checks.
 One matching branch is selected, without implicit fallthrough between bodies.
 
@@ -881,10 +808,8 @@ and `b` both changed would lose the `b` update: `modified(b)` is false again
 on the next tick. Use `return` in an ordered handler only when later handlers
 are meant to be skipped.
 
-State declarations are function-level declarations. All state variables in a
-function are aggregated into one typed state value. Initializers run during
-node startup and do not overwrite state restored for record/replay. HGL
-`state` is always recordable, mapping to native `RecordableState<TSchema>`.
+State declarations are function-level declarations. Initializers run during node startup and do not overwrite state restored for
+record/replay. Use `state` for history that must survive recovery.
 
 `let` is an immutable lexical binding and `var` is a mutable lexical binding.
 Either one declared inside `when` exists only for that evaluation; `var` does
@@ -893,27 +818,34 @@ computation depends on retained history.
 
 ### Reconstructible cache
 
-Status: the `cache<T>` concept and lifecycle are agreed; complete declaration
-and initializer syntax and compiler support remain open.
+`cache` declares node-local data that is **not** part of record/replay. It is
+declared and used like `state`, but its initializer runs on every start,
+restored or not:
 
-A cache holds node-local data that can be reconstructed from authoritative
-current inputs and restored state without replaying missing history. Starting
-with an empty/rebuilt cache must not change subsequent values, validity,
-ticks, deltas, or semantic side effects. A derived lookup index may qualify;
-a running total or unconsumed event history does not.
+```hgl
+fn scale(value: f64, const factor: f64) -> f64 {
+    cache multiplier: f64 = factor
+    when {
+        return value * multiplier
+    }
+}
+```
 
-HGL cache maps to native `State<T>`, not `RecordableState<TSchema>`. It follows
-state's applicable typing/lifetime rules but may use admitted non-recordable
-native types. HGL `state` retains its recordability requirement. Cache storage
-and objects are constructed during initialization before `start`, just as
-state storage is; rebuilding logical contents is a separate operation.
+Use `cache` for data reconstructible from authoritative current inputs and
+restored state without missing history. Rebuilding must preserve subsequent
+values, validity, ticks, deltas and effects. Historical counters, running totals
+and unconsumed events belong in `state`. In particular, pending schedules and
+finite-schedule progress must survive recovery; current native parity alone
+does not establish that guarantee.
 
-An implementation may need both cache and recordable state. The C++ static-node
-API currently rejects combining its two state selectors, so this requires
-backend work as well as language support. Cache does not close the separate
-generic-state/default-construction, sparse-validity, queue, or window design
-gaps. See the [cache contract](../design/decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for restart, REF lifetime, and native construction requirements.
+Multiple scalar cache variables are supported, and a function may declare
+`cache` and `state` together: the node then carries both storages, a restored
+state keeps its value, and every cache is rebuilt by `start` -- so a cache may
+take its value from restored state. Initializers run in declaration order, so
+one may name an earlier declaration of either kind. Non-scalar caches and
+generic recordable state initialization remain unsupported. See
+[ADR 0011](../design/decisions/0011-cache-declarations.md) for the recovery
+contract and current limits.
 
 ## Injectables
 
@@ -924,10 +856,9 @@ the callable signature:
 inject out, logger, clock, scheduler
 ```
 
-Status: `out` and `logger` are implemented; `clock` and `scheduler` are
-provisional, with no implementation in the compiler (`emit-cpp` reports
-`injectable 'clock' is not supported by emit-cpp yet`). See the
-[roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
+All four are implemented: `out` and `logger` since the first runtime slice,
+`clock` and `scheduler` under
+[ADR 0010](../design/decisions/0010-lifecycle-capabilities.md).
 
 The comma-separated form may span lines and may have a trailing comma:
 
@@ -940,13 +871,80 @@ inject
 ```
 
 Capabilities are function-level declarations at the same level as `state`.
-The compiler supplies each injectable only to lifecycle or evaluation hooks
-that use it. Duplicate, unknown, and phase-incompatible injectables are errors.
-Status: `out` and `logger` are implemented; `clock` and `scheduler` are agreed
-names that `hgl check` rejects as not yet implemented; any other name is
-rejected as unapproved, and `out` requires a function output. Reading or
-writing `out` inside `start` or `stop` is rejected while lifecycle output
-access remains an open question.
+Duplicate, unknown, and phase-incompatible injectables are errors.
+Any other name is rejected as unapproved, and `out` requires a function
+output. Reading or writing `out` inside `start` or `stop` is rejected while
+lifecycle output access remains an open question.
+
+## Scheduling, the clock, and input activity
+
+`inject clock` gives the evaluation clock: `clock.evaluation_time()` is the
+engine time of the current cycle, `clock.now()` the wall clock, and
+`clock.next_cycle_evaluation_time()` the earliest time of the next cycle. All
+three return a `datetime`.
+
+`inject scheduler` gives the node scheduler. `scheduler.schedule(delay)`
+requests an evaluation `delay` after the current evaluation time;
+`scheduler.schedule_at(time)` requests one at a `datetime`. A second `bool`
+argument selects the wall clock, which only a real-time executor accepts.
+`scheduler.is_scheduled()` and `scheduler.next_scheduled_time()` inspect the
+pending alarm. In `start`, `scheduler.schedule(0s)` asks for evaluation in the
+starting cycle; that is how a node schedules itself on start.
+
+`scheduled()` is a handler selector: it is true when the current evaluation
+is the node's own alarm firing. A handler whose condition names `scheduled()`
+at top level gets no implicit `modified()`, and it adds no input to the node's
+activation. When no handler names an input, the node's activation set is
+explicitly empty and the node evaluates only when scheduled. A runtime
+function with no temporal parameters at all is a source and must inject
+`scheduler`:
+
+```hgl
+fn ticker(const delay: duration, const max_ticks: i64) -> i64 {
+    state ticks: i64 = 0
+    inject scheduler
+
+    start {
+        if ticks < max_ticks {
+            scheduler.schedule(0s)
+        }
+    }
+
+    when scheduled() {
+        ticks += 1
+        if ticks < max_ticks {
+            scheduler.schedule(delay)
+        }
+        return ticks
+    }
+}
+```
+
+`passivate(input)` stops a temporal parameter from activating the node;
+`activate(input)` lets it again. Both are runtime statements whose argument
+is a direct parameter of the function, not a projection. They are available
+only during evaluation; `start` and `stop` cannot access temporal inputs.
+A passive input keeps its value and validity and can still be read:
+
+```hgl
+fn first_ticks(value: i64, const count: i64) -> i64 {
+    state seen: i64 = 0
+
+    when modified(value) && valid(value) {
+        if seen >= count {
+            passivate(value)
+        } else {
+            seen += 1
+            if seen >= count {
+                passivate(value)
+            }
+            return value
+        }
+    }
+}
+```
+
+See [`lifecycle-capabilities.hgl`](../../examples/lifecycle-capabilities.hgl).
 
 ## Lifecycle
 
@@ -1002,9 +1000,9 @@ fn combined_total(a: f64, b: f64) -> f64 {
 }
 ```
 
-The node uses the most permissive safe outer policy: the union of inputs that
-can activate any block and only the validity requirements common to every
-block. Handler-specific predicates remain ordered runtime checks.
+An input named by any handler can activate the function. Each handler still
+checks its own condition in source order; an input need not satisfy another
+handler's validity requirement for its own handler to run.
 
 If both inputs change, both blocks execute and the second whole-output write
 wins. A `return` in an earlier block terminates evaluation and prevents later
@@ -1090,8 +1088,7 @@ runtime operation is collection traversal cannot yet select this phase without
 also using an existing node-only construct. The explicit phase-disambiguation
 syntax, if any, remains to be designed.
 
-The exact conditional-expression spelling, structural metadata aggregation,
-and complete cache declaration syntax remain provisional. Calls to reusable
+Non-scalar cache storage remains unsupported. Calls to reusable
 value-level helpers use the `const fn` execution role; they
 must not be confused with calls that would wire a temporal function during
 node evaluation.

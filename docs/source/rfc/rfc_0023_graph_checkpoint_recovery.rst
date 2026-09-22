@@ -138,6 +138,12 @@ Ownership boundary
    checkpoint-store contract, publication, recovery selection, and
    retention move to the ``hgraph-persistence`` extension.
 
+   **Revised again by** :doc:`rfc_0039_compact_checkpoint_images`
+   (2026-09-18): the canonical *image encoding* returns to core, beside the
+   RFC 0017 value codec, because it is also the form a worker-hosted graph
+   (``dmap_``, ``spawn``) returns to its owner. The durable envelope, store,
+   publication, selection and retention stay in the extension.
+
 Core owns:
 
 * checkpoint eligibility and deterministic-run declarations;
@@ -358,6 +364,25 @@ Deferred remove/erase state is either represented exactly or normalized by a
 documented checkpoint stabilization phase after all observers have completed.
 The implementation may not retain retired children in a side container or
 bypass the existing stop, unsubscribe, and erase protocol.
+
+The implementation normalizes. A keyed image holds no pending-erase slot: a
+removed key is recorded as absent and its slot as free, in the position the
+next ordinary flush would give it (``KeySlotStore::checkpoint_free_slots``).
+That is sound only while every other change to the free pool commutes with the
+flush, because a restored store has flushed where the uninterrupted one may
+not yet have. Allocation cannot precede the flush, by the owner's discipline:
+``TSS``/``TSD`` flush at the first mutation of a new evaluation time and
+``mesh_`` at the start of its evaluation, and a new owner of a checkpointed
+store must do the same. Capacity growth can precede it: a caller may reserve
+ahead of its first mutation (the Python result path does), and ``mesh_``
+mirrors the capacity of its requested key set, which grows before the mesh
+itself evaluates. So
+``KeySlotStore::reserve_to`` adds new capacity UNDERNEATH the pool while the
+flush returns slots to the top, and the pool is the same in either order. The
+rule lives in the store, not in its callers. Before it did, the recovery
+campaign found a restored dictionary iterating ``(3, 0)`` where the
+uninterrupted run gave ``(0, 3)``; the pin is ``test_slot_utils.cpp``,
+"capacity growth commutes with the pending-erase flush".
 
 Mesh dependency edges, reduce topology, child scheduling queues, and similar
 owner state are classified individually as semantic or derived.  The owning
@@ -596,9 +621,11 @@ where ``dllexport`` forces definition of every member) a compile error.
        timestamp, plus the evicted/cleared plane; window readiness
        (``all_valid``, ``full``) is derived and recomputed
    * - ``REF``
-     - deferred: a reference holds process addresses, so its image is a
-       graph-relative locator resolved at restore step 6.  Until the
-       graph walk supplies that, ``REF`` refuses conservatively
+     - a reference holds process addresses, so its image uses a graph-relative
+       locator resolved after owning endpoint reconstruction. The first release
+       of the restricted component implementation supplies this context for internal
+       references; the full graph contract remains proposed (see
+       `Implementation status`_).
 
 **Quiet-import write paths.**  Every existing mutation path publishes.
 The proposal writes values through the representation's value operations
@@ -1105,8 +1132,10 @@ Put checkpoint operations on each concrete node through RTTI/downcasts
 Unresolved questions
 --------------------
 
-* Whether the first implementation captures pending-erase slot state exactly
-  or adds a universal post-observer stabilization boundary.
+* *Resolved (2026-09-19):* pending-erase slot state is normalized at capture,
+  not represented exactly, under the commutation rule recorded in `Dynamic
+  nested graphs`_. A universal post-observer stabilization boundary was not
+  needed.
 * Whether recoverable push sources journal raw accepted payloads as well as
   canonical graph-observed emissions, or leave the former entirely to their
   binding delivery contract — and, relatedly, whether the
@@ -1193,7 +1222,44 @@ verbs, the node ``snapshot``/``restore`` hook pair, the
 augmentation-not-replacement default rule, and the serialisation-strategy
 seam — was agreed against the prior-art review and recorded 2026-08-18.
 
-Mechanics are NOT implemented.  A ``TSCheckpointOps`` prototype was
+The full graph lifecycle described here remains proposed. A restricted
+completed-day component capability now implements quiet owned-endpoint images,
+automatic recordable-state capture, restore-before-start, stable keyed map
+slots and children, and immutable whole-image publication through the
+persistence extension. See :doc:`../user_guide/component_recovery` for its
+explicit eligibility rules and limits. Owner-specific reduction and mesh
+topology and compact TSW images extend that subset.
+
+The first release supports internal REF images within this closed component
+boundary. Input and output schemas must expose dereferenced values recursively. Reference images
+retain empty/peered/non-peered kind and declared target schema, while their
+locators use nested graph owner/child-slot pairs, node and endpoint ordinals,
+and integer structural paths. Exact restored slots make these paths stable;
+no runtime address is serialized. Synthetic adapters additionally retain their
+construction steps and clocks. Ordinary recordable-state REF fields and
+fixed-list ordered-reduce reference selection use this support.
+
+The implemented restore sequence prepares dynamic membership and imports owned
+endpoints, allocates adapters, resolves reference fixups, restores adapter
+clocks, finalizes owner bindings, then starts nodes and prepared children.
+Saved input activity is reinstated after start. Stateless compute
+``schedule_on_start`` bootstraps are allowed and discarded on resume; general
+scheduler state is still refused. Python identifiers remain optional under the
+existing component-name and structural-node defaults.
+
+Keyed interior REF adapters and references inside custom hidden-owner endpoint
+images without an explicit reference-aware owner contract remain unsupported.
+References outside the component, full graph recovery, online snapshot/suspend,
+and input-journal mechanics remain planned. Images are written in the compact
+version 2 encoding of :doc:`rfc_0039_compact_checkpoint_images`, which also
+admits ``Frame`` and ``Series`` state; version 1, published by hgraph
+0.8.25-0.8.27, remains readable and any other version is refused.
+The component recovery implementation plan records the implementation acceptance
+results, including complete native and Python suites, installed SDK consumers,
+and sanitizer checks. Reference scenarios exercise mapped membership churn,
+fixed-list reductions, and moving recursive-mesh subscriptions across restart.
+
+Historically, a ``TSCheckpointOps`` prototype was
 built against the full physical-state survey and then withdrawn
 (2026-08-18) so the design could be agreed at the RFC level first; its
 findings are recorded in `Proposed TSCheckpointOps design`_ below as the

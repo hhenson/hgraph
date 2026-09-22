@@ -453,6 +453,18 @@ void TSDataMutationView::mark_modified() { mark_modified(ops()); }
 bool TSDataMutationView::copy_value_from(const ValueView &source) {
   require_active_mutation();
 
+  // A dictionary's whole-value write is a VIEW-layer algorithm -- set every
+  // entry the source names, erase the rest -- so that its child
+  // notifications run through TSParentLink. The ops thunk cannot express
+  // that and refuses outright, which previously made every caller ask what
+  // kind of time series it was holding before it could copy into it. The
+  // erased contract is what nodes are written against, so the dispatch
+  // belongs here and nowhere else (review, PR #950).
+  if (view().schema()->kind == TSTypeKind::TSD) {
+    TSDDataMutationView dict{view(), mutation_time_};
+    return dict.copy_value_from(source);
+  }
+
   const auto &table = ops();
   const bool newly_modified = table.copy_value_from_impl(
       table.context, storage_.data(), source, mutation_time_);

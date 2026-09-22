@@ -1,0 +1,23 @@
+# ADR 0013: a module publishes a data SHAPE, not only behaviour. The family is
+# abstract at the root so an importing module can extend it.
+module checks.imported_shapes
+
+export abstract struct Instrument
+{
+    symbol: str
+}
+
+export struct Equity: Instrument
+{
+    lot: i64
+}
+
+# A recursive struct (ADR 0012) crosses a module boundary too: the edge's
+# mandatory `= null` is the one field default the catalog carries, and the
+# importer rebuilds the edge from it -- on BOTH backends, which is what
+# `generated_imported_struct_tests.cpp` compiles and runs.
+export struct Leg
+{
+    tenor: str
+    next: atomic<Leg> = null
+}

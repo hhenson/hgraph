@@ -610,6 +610,7 @@ namespace hgl::hgraph_ir
                 if (field.optional) { out << '?'; }
                 out << ':';
                 print_type_id(out, field.type);
+                if (field.recursive) { out << " recursive->" << field.recursive_target; }
                 if (field.default_value.valid()) {
                     out << '=';
                     print_const_expr_id(out, field.default_value);
@@ -666,7 +667,7 @@ namespace hgl::hgraph_ir
                 if (index != 0U) { out << ", "; }
                 out << native_phase_names[static_cast<std::size_t>(native.phases[index])];
             }
-            out << "]\n";
+            out << "] exception=" << (native.throws ? "translated" : "noexcept") << '\n';
         }
 
         out << "callables\n";
@@ -742,8 +743,8 @@ namespace hgl::hgraph_ir
         out << "bindings\n";
         for (std::size_t index = 0; index < module.bindings.size(); ++index) {
             static constexpr std::string_view names[]{
-                "type-parameter", "const-parameter", "signal-parameter", "let", "var", "state",
-                "capability",     "loop-value",      "lambda-parameter"};
+                "type-parameter", "const-parameter", "signal-parameter", "let", "var", "state", "cache",
+                "capability",     "loop-value",      "lambda-parameter", "value-parameter"};
             const Binding &binding = module.bindings[index];
             out << "  n" << index << ' ' << names[static_cast<std::size_t>(binding.kind)] << ' ' << binding.name << ':';
             print_type_id(out, binding.type);

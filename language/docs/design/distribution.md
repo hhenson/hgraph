@@ -1,6 +1,7 @@
 # Distribution and deployment
 
-Status: proposed (2026-09-04). The normative contract and the task list
+Status: channel rollout proposal; build/package preparation partially implemented
+(audited 2026-09-19). The normative contract and the task list
 live in RFC 0032 (`docs/source/rfc/rfc_0032_native_distribution.rst` in the
 hgraph tree); this record keeps the language-side motivation, the channel
 notes, and the deployment shapes, and defers to the RFC where they differ.
@@ -17,15 +18,14 @@ The repository already ships three things the language can build on:
 
 - **The wheel pipeline.** `release-wheels.yml` builds `hgraph` and its four
   extension distributions as cp312-abi3 wheels for Linux (manylinux_2_28),
-  macOS arm64, and Windows on every bare-version tag (`0.8.22` is the
-  latest) and restamps them to that version. The source distribution
+  macOS arm64, and Windows on bare-version tags and restamps them to that version. The source distribution
   excludes `language/` (Slice 0 acceptance), so the wheel channel currently
   knows nothing about `hgl`.
-- **The Conan recipe.** `conanfile.py` packages the shared-library SDK
-  (libraries, headers, debugger support, `hgraphConfig.cmake`) with all
-  dependencies from Conan Center and Python off. It does not export
-  `language/`, and its version comes from `v_*` tags, which only the 0.5
-  line carries; from C++-first `main` it yields `0.8.0.dev<n>`.
+- **The Conan recipe.** `conanfile.py` packages the SDK with Python off.
+  Its implemented `language` option exports the language sources, enables
+  `HGRAPH_BUILD_LANGUAGE`, and installs the tool and CMake helpers. Version
+  discovery uses bare release tags, with development/fallback handling in
+  `set_version`; it no longer requires legacy `v_*` tags.
 - **The install tree.** `cmake --install` of a Python-free build with
   `HGRAPH_BUILD_LANGUAGE=ON` produces one prefix:
 
@@ -33,9 +33,7 @@ The repository already ships three things the language can build on:
   bin/hgl                          component Runtime
   include/hgraph, include/third_party, include/date
   lib/libhgraph_{runtime,wiring,stdlib}.*   (+ analytics when enabled)
-  lib/cmake/hgraph/hgraphConfig.cmake       find_dependency(fmt 11, Arrow,
-                                            ArrowCompute, ArrowAcero,
-                                            spdlog 1.15, simdjson, date)
+  lib/cmake/hgraph/hgraphConfig.cmake       dependency discovery for the SDK
   lib/cmake/hgl/HglLanguage.cmake           component Development
   share/hgraph/debugger
   ```
@@ -104,7 +102,7 @@ formula and the recipe below are two spellings of that configure.
 
 - The release version is the bare git tag (`0.8.23`), the same authority
   `release-wheels.yml` and `tools/validate_release.py` already use.
-- The core build gains `HGRAPH_RELEASE_VERSION`, a cache variable defaulting
+- The core build defines `HGRAPH_RELEASE_VERSION`, a cache variable defaulting
   to `git describe --tags --match '[0-9]*'` when the source is a git
   checkout (a commit past the tag reports `0.8.22-61-g7b9ebd6`), and to
   `PROJECT_VERSION` with a `-dev` suffix otherwise. Packagers pass it
@@ -117,7 +115,7 @@ formula and the recipe below are two spellings of that configure.
   (hgraph api 0.8.0)`). The language project's own `VERSION 0.1.0` is gone:
   `language/CMakeLists.txt` declares no version, because the tool has no
   independent meaning once it rides the hgraph train.
-- The Conan recipe's `set_version` moves to the bare tags for the same
+- The Conan recipe's `set_version` uses the bare tags for the same
   reason, so `conan create` on a tagged commit yields the release version.
 
 ## Channels
@@ -182,10 +180,10 @@ the relocatable native context below resolves it on the user's machine.
 
 ### Conan
 
-The recipe already packages the SDK for C++ consumers. It gains a boolean
-option `language` (default off) that exports `language/*`, configures with
+The recipe packages the SDK for C++ consumers. Its boolean option
+`language` (default off) exports the required language sources, configures with
 `HGRAPH_BUILD_LANGUAGE=ON`, and installs `bin/hgl` and `lib/cmake/hgl` into
-the package; `test_package/` grows an `hgl_add_module` consumer when the
+the package; `test_package/` includes an `hgl_add_module` consumer when the
 option is on. `hgl` runs at build time and its shared dependencies live
 in other cache entries, so a project that builds HGL modules activates
 the run environment for its build (the test package does this with
@@ -224,9 +222,10 @@ leaves its experimental status.
 ### Windows
 
 The scripted loader is Unix-only for now, and there is no Homebrew.
-Windows users build from the tree or, once the loader lands there, use the
-Conan package; winget or scoop manifests can follow the same source
-archive later.
+Windows users can build the tool and ahead-of-time packages from the tree or
+use the language-enabled Conan recipe. Scripted native execution remains
+unsupported; it is not a prerequisite for ahead-of-time use. Winget or scoop
+manifests remain a future channel.
 
 ## Relocatable native context
 

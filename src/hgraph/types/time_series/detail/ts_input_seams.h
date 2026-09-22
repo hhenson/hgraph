@@ -48,6 +48,9 @@ namespace hgraph::ts_input_seams
     // -- target links (ts_input/target_link_ops.cpp) ----------------------------
     /** The bound target output's data view, or an empty view when unbound. */
     [[nodiscard]] TSDataView target_link_target_view(const void *context, const void *memory);
+    [[nodiscard]] bool target_link_sampled(const void *context, const void *memory, DateTime time);
+    [[nodiscard]] bool target_link_transition(const void *context, const void *memory, DateTime time);
+    [[nodiscard]] Range<ValueView> target_link_removed_keys(const void *context, const void *memory);
     /** The target output a delta applied through the link lands on (the
         write-through of ``apply_delta``); throws when the link is unbound. */
     [[nodiscard]] TSOutputView target_link_delta_target(const void *context, const TSOutputView &output);

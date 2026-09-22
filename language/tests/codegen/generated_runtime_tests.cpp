@@ -2,10 +2,13 @@
 
 #include "wiring/backend.h"
 
+#include <hgraph/lib/std/component.h>
+#include <hgraph/runtime/component_checkpoint.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -183,4 +186,151 @@ TEST_CASE("a generated composition can wire a private generated runtime node", "
     session();
     CHECK_OUTPUT(eval_node<runtime::operators::private_total_graph>(values<Float>(1.0, 2.0, 3.0)),
                  values<Float>(1.0, 3.0, 6.0));
+}
+
+TEST_CASE("generated cache fields share one native slot and reinitialize on a new run", "[codegen][runtime][cache]") {
+    session();
+    for (int run = 0; run != 2; ++run) {
+        CHECK_OUTPUT(eval_node<runtime::operators::cache_bundle>(values<Int>(2, 4, 9)), values<Float>(2.0, 3.0, 5.0));
+    }
+}
+
+TEST_CASE("generated fixed-list scalar reads use guarded child validity", "[codegen][runtime]") {
+    session();
+    CHECK_OUTPUT((eval_node<runtime::operators::first_scalar, TSL<TS<Int>, 2>>(
+                     values<Value>(list_delta<TS<Int>>({{1, 9}}), list_delta<TS<Int>>({{0, 3}}), list_delta<TS<Int>>({{1, 10}}),
+                                   list_delta<TS<Int>>({{0, 7}})))),
+                 values<Int>(none, 3, 3, 7));
+}
+
+namespace
+{
+    template <typename Op> struct RecoverySource
+    {
+        static Port<TS<Int>> compose(Wiring &w) { return wire<Op>(w).template as<TS<Int>>(); }
+    };
+    template <typename Op> struct RecoverySourceComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return stdlib::component<RecoverySource<Op>>(w, "source");
+        }
+    };
+}
+
+TEST_CASE("generated sources with caches or external clocks refuse checkpoint admission", "[codegen][runtime][checkpoint]")
+{
+    session();
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {.component_id = "source", .commit = [](const ComponentCheckpoint &) {}});
+    CHECK_THROWS_WITH(eval_node<RecoverySourceComponent<runtime::operators::cached_source>>(values<Int>(none)),
+                      Catch::Matchers::ContainsSubstring("unsupported node"));
+    CHECK_THROWS_WITH(eval_node<RecoverySourceComponent<runtime::operators::clock_source>>(values<Int>(none)),
+                      Catch::Matchers::ContainsSubstring("unsupported node"));
+}
+
+namespace
+{
+    template <typename Op> struct MixedStrategy
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) { return wire<Op>(w, input).template as<TS<Int>>(); }
+    };
+    template <typename Op> struct MixedComponent
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return stdlib::component<MixedStrategy<Op>>(w, "strategy", input);
+        }
+    };
+    EvalNodeRunOptions interval(Int begin, Int end)
+    {
+        return {.start_time = MIN_ST + MIN_TD * begin, .end_time = MIN_ST + MIN_TD * end};
+    }
+}
+
+// The pair that ADR 0011 gates the mixed case on: one generated node owning a
+// `RecordableState<>` and a `State<>` at once, and the two behaving
+// DIFFERENTLY across a restore. `mixed_total` returns `total * 10 + seen`, so
+// one output reads both storages.
+TEST_CASE("a generated node restores its state and rebuilds its cache", "[codegen][runtime][cache][checkpoint]")
+{
+    session();
+    GlobalContext                      context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(),
+                                 {.component_id = "strategy", .commit = [&](const auto &image) { completed = image; }});
+    CHECK_OUTPUT(eval_node_with_options<MixedComponent<runtime::operators::mixed_total>>(interval(0, 2), values<Int>(1, 2)),
+                 values<Int>(11, 32));
+    REQUIRE(completed);
+    const auto prior = *completed;
+    configure_component_recovery(context.state().view(), {.component_id = "strategy",
+                                                          .load         = [&] { return std::optional{prior}; },
+                                                          .commit = [&](const auto &image) { completed = image; }});
+    // `total` is recordable and resumes at 3: 3+3=6, then 6+4=10. `seen` is a
+    // cache, so `start` rebuilds it from its initializer and it counts 1, 2
+    // again -- had it been restored too, this would read 63 and 104.
+    CHECK_OUTPUT(
+        eval_node_with_options<MixedComponent<runtime::operators::mixed_total>>(interval(2, 5), values<Int>(none, 3, 4)),
+        values<Int>(none, 61, 102));
+}
+
+TEST_CASE("a generated node's state schema and cache struct both survive a restore whole",
+          "[codegen][runtime][cache][checkpoint]")
+{
+    // Two fields on each side, so neither storage can be standing in for the
+    // other: `(total + seen) * scale + count`.
+    session();
+    GlobalContext                      context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(),
+                                 {.component_id = "strategy", .commit = [&](const auto &image) { completed = image; }});
+    CHECK_OUTPUT(eval_node_with_options<MixedComponent<runtime::operators::mixed_bundle>>(interval(0, 2), values<Int>(1, 2)),
+                 values<Int>(5, 12));
+    REQUIRE(completed);
+    const auto prior = *completed;
+    configure_component_recovery(context.state().view(), {.component_id = "strategy",
+                                                          .load         = [&] { return std::optional{prior}; },
+                                                          .commit = [&](const auto &image) { completed = image; }});
+    // Both state fields resume (total 3, seen 2); both cache fields are rebuilt
+    // (count 0, scale 2), so (6+3)*2+1 = 19 and then (10+4)*2+2 = 30.
+    CHECK_OUTPUT(
+        eval_node_with_options<MixedComponent<runtime::operators::mixed_bundle>>(interval(2, 5), values<Int>(none, 3, 4)),
+        values<Int>(none, 19, 30));
+}
+
+// The ordering the two storages depend on, checked by value rather than by
+// reading the emitted text: `total` is seeded from the cache `seed`, and the
+// cache `echo` is rebuilt from `total` AFTER a restore has supplied it.
+TEST_CASE("a generated node seeds its storages in declaration order", "[codegen][runtime][cache][checkpoint]")
+{
+    session();
+    GlobalContext                      context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(),
+                                 {.component_id = "strategy", .commit = [&](const auto &image) { completed = image; }});
+    // seed 7 -> total 7 -> echo 7, so 8*10+7 and 10*10+7. States-first seeding
+    // gave total the cache's default 0 and produced 10 and 30.
+    CHECK_OUTPUT(eval_node_with_options<MixedComponent<runtime::operators::ordered_seed>>(interval(0, 2), values<Int>(1, 2)),
+                 values<Int>(87, 107));
+    REQUIRE(completed);
+    const auto prior = *completed;
+    configure_component_recovery(context.state().view(), {.component_id = "strategy",
+                                                          .load         = [&] { return std::optional{prior}; },
+                                                          .commit = [&](const auto &image) { completed = image; }});
+    // `total` resumes at 10, so `echo` rebuilds to 10 -- a cache taking its
+    // value from restored state, which is the pairing ADR 0011 exists for.
+    CHECK_OUTPUT(
+        eval_node_with_options<MixedComponent<runtime::operators::ordered_seed>>(interval(2, 5), values<Int>(none, 3, 4)),
+        values<Int>(none, 140, 180));
+}
+
+TEST_CASE("a generated mixed node re-initializes both storages on a fresh run", "[codegen][runtime][cache]")
+{
+    // No checkpoint: `state` has nothing to restore, so a second run repeats
+    // the first exactly. This is the construction half of the contract.
+    session();
+    for (int run = 0; run != 2; ++run) {
+        CHECK_OUTPUT(eval_node<runtime::operators::mixed_total>(values<Int>(1, 2)), values<Int>(11, 32));
+        CHECK_OUTPUT(eval_node<runtime::operators::mixed_bundle>(values<Int>(1, 2)), values<Int>(5, 12));
+    }
 }

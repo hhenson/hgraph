@@ -1,6 +1,9 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/tsl_map_node.h>
 
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/util/scope.h>
@@ -78,6 +81,23 @@ namespace hgraph
                 live_count   = 0;
                 resume_index = npos;
             }
+
+            void stop_and_destroy(DateTime evaluation_time)
+            {
+                FirstExceptionRecorder failures;
+                for (std::size_t index = 0; index < entries.slot_capacity(); ++index)
+                {
+                    auto *entry = entries.entry_at(index);
+                    if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started()) { continue; }
+                    failures.capture([&] { entry->graph.view().stop(evaluation_time); });
+                }
+                entries.destroy_all();
+                outer_sources.clear();
+                multiplexed_sizes.clear();
+                live_count = 0;
+                resume_index = npos;
+                failures.rethrow_if_any();
+            }
         };
 
         struct TslMapNodeContext
@@ -141,8 +161,16 @@ namespace hgraph
 
         struct TslMapSourceStatus
         {
+            /** An outer source re-pointed: every child's boundary may have moved. */
             bool        bindings_changed{false};
             std::size_t runtime_size{0};
+            /** Logical indices some multiplexed source gained or lost this cycle.
+                Only children at those indices see a different boundary -- an
+                element that now exists, or no longer does -- so only they are
+                rebound. Rebinding every child whenever any source changed
+                length made a list grown an element at a time quadratic. */
+            std::size_t resized_begin{static_cast<std::size_t>(-1)};
+            std::size_t resized_end{0};
         };
 
         [[nodiscard]] TslMapSourceStatus update_tsl_map_sources(const TSInputView &root_input, TslMapNodeStorage &storage,
@@ -167,29 +195,34 @@ namespace hgraph
                 auto              source      = root_input.indexed_child_at(outer_index).bound_output();
                 const std::size_t size        = source.bound() ? source.as_list().size() : 0;
                 status.runtime_size           = std::max(status.runtime_size, size);
-                if (sizes_initialized && size != storage.multiplexed_sizes[mux]) { status.bindings_changed = true; }
+                if (sizes_initialized && size != storage.multiplexed_sizes[mux])
+                {
+                    status.resized_begin = std::min(status.resized_begin, std::min(size, storage.multiplexed_sizes[mux]));
+                    status.resized_end   = std::max(status.resized_end, std::max(size, storage.multiplexed_sizes[mux]));
+                }
                 storage.multiplexed_sizes[mux] = size;
             }
             return status;
         }
 
         void create_tsl_map_entry(const NodeView &view, const TslMapNodeContext &context, TslMapNodeStorage &storage,
-                                  std::size_t index, DateTime evaluation_time) {
+                                  std::size_t slot, DateTime evaluation_time) {
+            const auto index = context.spec.partition.logical_index(slot);
             const TslMapNodeSpec &spec = context.spec;
             if (index > static_cast<std::size_t>(std::numeric_limits<Int>::max())) {
                 throw std::length_error("tsl_map_node index exceeds int64 range");
             }
-            if (storage.entries.entry_at(index) != nullptr) {
+            if (storage.entries.entry_at(slot) != nullptr) {
                 throw std::logic_error("tsl_map_node cannot reconstruct a live list index");
             }
 
-            auto &entry    = storage.entries.construct_at(index, index);
+            auto &entry    = storage.entries.construct_at(slot, index);
             auto  rollback = UnwindCleanupGuard([&] {
                 if (entry.graph.has_value() && entry.graph.view().started()) { entry.graph.view().stop(); }
-                storage.entries.destroy_at(index);
+                storage.entries.destroy_at(slot);
             });
 
-            entry.graph = spec.child.graph_builder.make_nested_graph(view.pointer(), storage.entries.graph_memory(index),
+            entry.graph = spec.child.graph_builder.make_nested_graph(view.pointer(), storage.entries.graph_memory(slot),
                                                                      context.graph_layout);
             if (spec.index_output_schema != nullptr) {
                 entry.index_source.bind(*spec.index_output_schema, entry.index, evaluation_time);
@@ -218,28 +251,30 @@ namespace hgraph
          * re-insertion.
          */
         void retire_tsl_map_entries(const NodeView &view, TslMapNodeStorage &storage,
-                                    std::size_t runtime_size, DateTime evaluation_time) {
-            for (std::size_t index = storage.live_count; index-- > runtime_size;) {
+                                    std::size_t child_count, std::size_t runtime_size, DateTime evaluation_time) {
+            FirstExceptionRecorder failures;
+            for (std::size_t index = storage.live_count; index-- > child_count;) {
                 auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr) { continue; }
                 if (entry->graph.has_value() && entry->graph.view().started())
                 {
                     // Timed stop, as the keyed map's per-key removal does: the
                     // child is retired mid-cycle, not at node teardown.
-                    entry->graph.view().stop(evaluation_time);
+                    failures.capture([&] { entry->graph.view().stop(evaluation_time); });
                 }
                 storage.entries.destroy_at(index);
             }
-            storage.live_count = runtime_size;
-
+            storage.live_count = child_count;
             auto output = view.output(evaluation_time);
-            if (output.bound()) { output.as_list().resize(runtime_size); }
+            if (output.bound()) { failures.capture([&] { output.as_list().resize(runtime_size); }); }
+            failures.rethrow_if_any();
         }
 
+        /** Rebind the children in slots ``[first, last)``. */
         void refresh_tsl_map_bindings(const NodeView &view, const TslMapNodeContext &context, TslMapNodeStorage &storage,
-                                      DateTime evaluation_time) {
+                                      std::size_t first, std::size_t last, DateTime evaluation_time) {
             const auto &spec = context.spec;
-            for (std::size_t index = 0; index < storage.live_count; ++index) {
+            for (std::size_t index = first; index < last; ++index) {
                 auto *entry = storage.entries.entry_at(index);
                 if (entry == nullptr || !entry->graph.has_value()) { continue; }
                 const TSOutputView index_source =
@@ -263,15 +298,43 @@ namespace hgraph
             if (!resuming) {
                 const TslMapSourceStatus sources = update_tsl_map_sources(view.input(evaluation_time), storage, context.spec);
                 bindings_changed                 = sources.bindings_changed;
-                if (sources.runtime_size < storage.live_count) {
-                    retire_tsl_map_entries(view, storage, sources.runtime_size, evaluation_time);
+                const auto child_count = context.spec.partition.child_count(sources.runtime_size);
+                if (child_count < storage.live_count) {
+                    retire_tsl_map_entries(view, storage, child_count, sources.runtime_size, evaluation_time);
                 }
-                storage.entries.reserve_to(sources.runtime_size);
-                for (std::size_t index = storage.live_count; index < sources.runtime_size; ++index) {
+                // Preserve ordinary grow-on-child-write behavior. A worker
+                // that loses no child may still need to discard unowned tail
+                // slots when the source shrinks. Never create a visible output
+                // merely because another worker has a new input index.
+                if (context.spec.partition.count != 1 && view.has_output()) {
+                    auto root_output = view.output(evaluation_time);
+                    auto output = root_output.as_list();
+                    if (output.size() > sources.runtime_size) { output.resize(sources.runtime_size); }
+                }
+                // The slot store grows to exactly what it is asked for, copying its
+                // slot table and allocating a block each time, so a list that
+                // grows an element at a time has to ask geometrically.
+                if (child_count > storage.entries.slot_capacity()) {
+                    storage.entries.reserve_to(std::max(child_count, storage.entries.slot_capacity() * 2));
+                }
+                // Children that exist already; the ones created below are bound
+                // as they are made.
+                const std::size_t existing = storage.live_count;
+                for (std::size_t index = storage.live_count; index < child_count; ++index) {
                     create_tsl_map_entry(view, context, storage, index, evaluation_time);
                     ++storage.live_count;
                 }
-                if (bindings_changed) { refresh_tsl_map_bindings(view, context, storage, evaluation_time); }
+                if (bindings_changed) {
+                    refresh_tsl_map_bindings(view, context, storage, 0, storage.live_count, evaluation_time);
+                } else if (sources.resized_begin < sources.resized_end) {
+                    // Slot s holds logical index group + s * count, so the slots
+                    // inside a logical range are one contiguous run.
+                    const auto &partition = context.spec.partition;
+                    refresh_tsl_map_bindings(view, context, storage,
+                                             std::min(partition.child_count(sources.resized_begin), existing),
+                                             std::min(partition.child_count(sources.resized_end), existing),
+                                             evaluation_time);
+                }
             }
 
             const std::size_t start_index = resuming ? storage.resume_index : 0;
@@ -308,12 +371,199 @@ namespace hgraph
             return true;
         }
 
-        void tsl_map_node_stop(const NodeView &view, DateTime) {
+        void tsl_map_node_stop(const NodeView &view, DateTime evaluation_time) {
             auto typed = view.as<TslMapNodeView>();
-            MemoryUtils::cast<TslMapNodeStorage>(typed.internal_storage())->stop_and_destroy_noexcept();
+            MemoryUtils::cast<TslMapNodeStorage>(typed.internal_storage())->stop_and_destroy(evaluation_time);
+        }
+
+        void validate_tsl_map_checkpoint_mode(const TslMapNodeContext &context)
+        {
+            if (context.spec.partition.count != 1)
+                throw std::invalid_argument("component checkpoint: partitioned list maps are not recoverable");
+            if (context.spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement)
+                throw std::invalid_argument(
+                    "component checkpoint: dynamic list map forwarding outputs require reference recovery support");
+        }
+
+        [[nodiscard]] std::string tsl_map_checkpoint_signature(const NodeBuilder &builder)
+        {
+            const auto &context = *static_cast<const TslMapNodeContext *>(builder.type().ops_ref().extended_view_context);
+            validate_tsl_map_checkpoint_mode(context);
+            const auto &spec = context.spec;
+            manifest::CanonicalWriter signature;
+            signature.varint(1);
+            signature.varint(static_cast<std::uint8_t>(spec.output_binding_mode));
+            signature.varint(spec.index_output_schema != nullptr);
+            signature.varint(spec.args.size());
+            for (const auto &arg : spec.args)
+            {
+                signature.varint(static_cast<std::uint8_t>(arg.kind));
+                signature.varint(arg.outer_index);
+            }
+            signature.varint(spec.multiplexed_inputs.size());
+            for (const auto index : spec.multiplexed_inputs) { signature.varint(index); }
+            node_checkpoint_detail::append_input_bindings(
+                signature, spec.child.graph_builder, spec.child.input_bindings);
+            const auto &bytes = signature.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+
+        [[nodiscard]] NodeCheckpointState capture_tsl_map_checkpoint(
+            const NodeView &view, const CaptureGraphCheckpoint &capture_graph)
+        {
+            const auto typed = view.as<TslMapNodeView>();
+            const auto &context = *static_cast<const TslMapNodeContext *>(typed.internal_context());
+            validate_tsl_map_checkpoint_mode(context);
+            const auto &storage = *MemoryUtils::cast<const TslMapNodeStorage>(typed.internal_storage());
+            if (storage.resume_index != TslMapNodeStorage::npos)
+                throw std::logic_error("component checkpoint: dynamic list map has incomplete child evaluation");
+            if (storage.live_count > static_cast<std::size_t>(std::numeric_limits<Int>::max()))
+                throw std::length_error("component checkpoint: dynamic list map exceeds supported index range");
+            NodeCheckpointState image;
+            image.payload = Value{static_cast<Int>(storage.live_count)};
+            image.children.reserve(storage.live_count);
+            for (std::size_t index = 0; index < storage.live_count; ++index)
+            {
+                const auto *entry = storage.entries.entry_at(index);
+                if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started() ||
+                    entry->graph.view().failed_node().valid())
+                    throw std::logic_error("component checkpoint: dynamic list map child is not complete");
+                if (!capture_graph)
+                    throw std::logic_error("component checkpoint: dynamic list map requires child capture");
+                ChildGraphCheckpoint child;
+                child.slot = index;
+                child.key = Value{entry->index.view()};
+                if (entry->index_source.bound())
+                    child.key_last_modified_time =
+                        entry->index_source.view(view.graph().evaluation_time()).last_modified_time();
+                child.graph = capture_graph(entry->graph.view());
+                if (!child.graph)
+                    throw std::logic_error("component checkpoint: dynamic list map child image is empty");
+                image.children.push_back(std::move(child));
+            }
+            return image;
+        }
+
+        void prepare_tsl_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                        DateTime evaluation_time, const PrepareGraphCheckpoint &prepare_graph)
+        {
+            const auto typed = view.as<TslMapNodeView>();
+            const auto &context = *static_cast<const TslMapNodeContext *>(typed.internal_context());
+            validate_tsl_map_checkpoint_mode(context);
+            auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(typed.internal_storage());
+            if (storage.live_count != 0 || storage.entries.has_entries())
+                throw std::logic_error("component checkpoint: dynamic list map restore requires a fresh instance");
+            if (!image.payload.has_value() || image.payload.schema() != scalar_descriptor<Int>::value_meta() ||
+                !image.endpoints.empty())
+                throw std::invalid_argument("component checkpoint: dynamic list map has invalid membership state");
+            const auto count = image.payload.view().checked_as<Int>();
+            if (count < 0 || static_cast<std::uint64_t>(count) != image.children.size())
+                throw std::invalid_argument("component checkpoint: dynamic list map child count mismatch");
+            for (std::size_t index = 0; index < image.children.size(); ++index)
+            {
+                const auto &child = image.children[index];
+                if (child.slot != index || !child.key.has_value() ||
+                    child.key.schema() != scalar_descriptor<Int>::value_meta() ||
+                    child.key.view().checked_as<Int>() != static_cast<Int>(index) || !child.graph ||
+                    (context.spec.index_output_schema != nullptr && child.key_last_modified_time == MIN_DT))
+                    throw std::invalid_argument("component checkpoint: dynamic list map child index is inconsistent");
+            }
+            if (!image.children.empty() && !prepare_graph)
+                throw std::logic_error("component checkpoint: dynamic list map requires child restore");
+
+            storage.entries.bind_graph_layout(context.graph_layout);
+            storage.entries.reserve_to(image.children.size());
+            for (const auto &child : image.children)
+            {
+                auto &entry = storage.entries.construct_at(child.slot, child.slot);
+                entry.graph = context.spec.child.graph_builder.make_nested_graph(
+                    view.pointer(), storage.entries.graph_memory(child.slot), context.graph_layout);
+                if (context.spec.index_output_schema != nullptr)
+                    entry.index_source.bind(*context.spec.index_output_schema, entry.index, child.key_last_modified_time);
+                const TSOutputView index_source = entry.index_source.bound()
+                    ? entry.index_source.view(evaluation_time) : TSOutputView{};
+                runtime_detail::bind_mapped_child_output(
+                    view, entry.graph.view(), evaluation_time, context.spec.child.output_binding,
+                    context.access, entry.index.view(), index_source, context.spec.output_binding_mode, true);
+                ++storage.live_count;
+            }
+            for (const auto &child : image.children)
+                prepare_graph(storage.entries.entry_at(child.slot)->graph.view(), *child.graph, evaluation_time);
+        }
+
+
+        void restore_tsl_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                        DateTime evaluation_time, const RestoreGraphCheckpoint &restore_graph)
+        {
+            const auto typed = view.as<TslMapNodeView>();
+            const auto &context = *static_cast<const TslMapNodeContext *>(typed.internal_context());
+            auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(typed.internal_storage());
+            auto root_input = view.input(evaluation_time);
+            std::size_t input_extent{};
+            for (const auto index : context.spec.multiplexed_inputs)
+            {
+                const auto source = root_input.indexed_child_at(index).bound_output();
+                input_extent = std::max(input_extent, source.bound() ? source.as_list().size() : 0);
+            }
+            const auto output = view.has_output() ? view.output(evaluation_time) : TSOutputView{};
+            if (input_extent != image.children.size() ||
+                (output.bound() && output.as_list().size() != input_extent))
+                throw std::invalid_argument("component checkpoint: dynamic list map input/output extents disagree");
+            static_cast<void>(update_tsl_map_sources(root_input, storage, context.spec));
+            for (const auto &child : image.children)
+            {
+                auto &entry = *storage.entries.entry_at(child.slot);
+                const auto index_source = entry.index_source.bound()
+                    ? entry.index_source.view(evaluation_time) : TSOutputView{};
+                runtime_detail::bind_mapped_child_inputs(
+                    view, entry.graph.view(), evaluation_time, context.spec.child, context.access,
+                    entry.index.view(), index_source, std::nullopt, true, false);
+                restore_graph(entry.graph.view(), *child.graph, evaluation_time);
+            }
+        }
+
+        void start_restored_tsl_map(const NodeView &view, DateTime time)
+        {
+            auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(view.as<TslMapNodeView>().internal_storage());
+            for (std::size_t slot = 0; slot < storage.live_count; ++slot)
+                storage.entries.entry_at(slot)->graph.view().start(time);
+        }
+
+        [[nodiscard]] DateTime live_tsl_map_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(view.as<TslMapNodeView>().internal_storage());
+            DateTime next = MAX_DT;
+            for (std::size_t slot = 0; slot < storage.live_count; ++slot)
+                next = std::min(next, storage.entries.entry_at(slot)->graph.view().next_scheduled_time());
+            return next;
+        }
+
+        void visit_tsl_map_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
+        {
+            const auto &storage = *MemoryUtils::cast<TslMapNodeStorage>(view.as<TslMapNodeView>().internal_storage());
+            for (std::size_t slot = 0; slot < storage.live_count; ++slot)
+                if (const auto *entry = storage.entries.entry_at(slot); entry->index_source.bound())
+                    visit(slot, entry->index_source.view(MIN_DT).handle());
+        }
+
+        [[nodiscard]] const NodeCheckpointOps &tsl_map_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .captures_output = true,
+                .capture_impl = &capture_tsl_map_checkpoint,
+                .prepare_restore_impl = &prepare_tsl_map_checkpoint,
+                .restore_impl = &restore_tsl_map_checkpoint,
+                .start_restored_impl = &start_restored_tsl_map,
+                .live_schedule_impl = &live_tsl_map_schedule,
+                .visit_endpoints_impl = &visit_tsl_map_checkpoint_endpoints,
+                .signature_impl = &tsl_map_checkpoint_signature,
+            };
+            return ops;
         }
 
         void validate_tsl_map_node_spec(const NodeTypeMetaData &meta, const TslMapNodeSpec &spec) {
+            spec.partition.validate();
             const bool has_output = meta.output_schema != nullptr;
             if (spec.child.output_binding.has_value() != has_output) {
                 throw std::invalid_argument("tsl_map_node child output binding must be "
@@ -489,6 +739,7 @@ namespace hgraph
 
         descriptor.callbacks.stop            = &tsl_map_node_stop;
         descriptor.ops.evaluate_impl         = &tsl_map_evaluate_impl;
+        descriptor.ops.checkpoint_ops        = &tsl_map_checkpoint_ops();
         descriptor.ops.storage_metrics_impl  = &tsl_map_storage_metrics;
         descriptor.ops.extended_view_type_id = TslMapNodeView::node_view_type_id();
 

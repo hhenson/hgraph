@@ -1,0 +1,2893 @@
+{
+  "candidate_artifacts": {
+    "_hgraph.abi3.so": "af29880e7a3f0b0894af37e03c295b257816a38dcda9090e430d13936b0fea98",
+    "libhgraph_persistence.dylib": "1c207b46176c356eda31b4498a8e043cb331946af3bcc524e888df51b6cf0742",
+    "libhgraph_runtime.dylib": "b7c07ca88a8a7826d3c90736a8526156804f6100cf077513ceb5d220eeb5349b",
+    "libhgraph_stdlib.dylib": "4782c926ca95075ee432314361f589d175134db4c4ce9c72805d4112fd1001b1",
+    "libhgraph_wiring.dylib": "5fe735063ef9a60eb5315ca0ba666212f84468226a42572cfe796333910b8f3d"
+  },
+  "candidate_python_sources_sha256": "c19514cc6c7265354a9d69e60b5360e540186603a09ba855817ad13eb3158223",
+  "candidate_source_head": "628c417f4e46c823668121c05c4a7d0c4f7391f6",
+  "candidate_source_note": "Editable source HEAD recorded for context; installed native artifacts are identified independently by SHA-256.",
+  "cases": {
+    "cancel_timer": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 4
+            },
+            null,
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            null,
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8",
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8",
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 4
+            },
+            null,
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            null,
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8",
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8",
+          "0a9d0c597432f7cf6f70821f25d1f523e89827b6688a527cfe820e6ebf2a78a8"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "child_failure": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            [
+              "eval",
+              1
+            ],
+            [
+              "eval",
+              -1
+            ],
+            "stop"
+          ],
+          "expected_message": true,
+          "failed": true
+        },
+        "replay_digests": [
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160",
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160",
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            [
+              "eval",
+              1
+            ],
+            [
+              "eval",
+              -1
+            ],
+            "stop"
+          ],
+          "expected_message": true,
+          "failed": true
+        },
+        "replay_digests": [
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160",
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160",
+          "e386001a799e8b8988618fe2235c61755745dcffd3e6c3a62f4773eb5ffe1160"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "child_start_failure": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start"
+          ],
+          "expected_message": true,
+          "failed": true
+        },
+        "replay_digests": [
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e",
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e",
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start"
+          ],
+          "expected_message": true,
+          "failed": true
+        },
+        "replay_digests": [
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e",
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e",
+          "b82bee65c924d29230e2ba40f17689bb69782d2b16f54b4f91966627e1e4a91e"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "dictionary_ref": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            [
+              "select",
+              0
+            ],
+            [
+              "select",
+              1
+            ],
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ]
+          ],
+          "ticks": [
+            {
+              "data": {
+                "added": [
+                  "X",
+                  "Z"
+                ],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": 1,
+                    "last": 0,
+                    "modified": true,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": 9,
+                    "last": 0,
+                    "modified": true,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": {
+                  "X": 1,
+                  "Z": 9
+                },
+                "keys_modified": true,
+                "last": 0,
+                "modified": true,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": null,
+                "keys_modified": false,
+                "last": 0,
+                "modified": false,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [
+                  "Y"
+                ],
+                "all_valid": true,
+                "children": {
+                  "Y": {
+                    "delta": null,
+                    "last": 1,
+                    "modified": false,
+                    "valid": true,
+                    "value": 4
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 3
+                  }
+                },
+                "delta": null,
+                "keys_modified": true,
+                "last": 2,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": false,
+                "children": {},
+                "delta": null,
+                "keys_modified": true,
+                "last": 3,
+                "modified": true,
+                "removed": [
+                  "Y",
+                  "Z"
+                ],
+                "retired": {},
+                "valid": false
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [
+                  "X",
+                  "Z"
+                ],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": null,
+                "keys_modified": true,
+                "last": 4,
+                "modified": true,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": null,
+                "keys_modified": false,
+                "last": 4,
+                "modified": false,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "2f0fae78dd169d1c8306179ecb0bbc72814d25d6d6ec5fa94d8983eaf51d595a",
+          "2f0fae78dd169d1c8306179ecb0bbc72814d25d6d6ec5fa94d8983eaf51d595a",
+          "2f0fae78dd169d1c8306179ecb0bbc72814d25d6d6ec5fa94d8983eaf51d595a"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            [
+              "select",
+              0
+            ],
+            [
+              "select",
+              1
+            ],
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ]
+          ],
+          "ticks": [
+            {
+              "data": {
+                "added": [
+                  "X",
+                  "Z"
+                ],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": 1,
+                    "last": 0,
+                    "modified": true,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": 9,
+                    "last": 0,
+                    "modified": true,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": {
+                  "X": 1,
+                  "Z": 9
+                },
+                "keys_modified": true,
+                "last": 0,
+                "modified": true,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": null,
+                "keys_modified": false,
+                "last": 0,
+                "modified": false,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [
+                  "Y"
+                ],
+                "all_valid": true,
+                "children": {
+                  "Y": {
+                    "delta": 4,
+                    "last": 2,
+                    "modified": true,
+                    "valid": true,
+                    "value": 4
+                  },
+                  "Z": {
+                    "delta": 3,
+                    "last": 2,
+                    "modified": true,
+                    "valid": true,
+                    "value": 3
+                  }
+                },
+                "delta": {
+                  "X": {
+                    "$remove": true
+                  },
+                  "Y": 4,
+                  "Z": 3
+                },
+                "keys_modified": true,
+                "last": 2,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  }
+                },
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": false,
+                "children": {},
+                "delta": {
+                  "Y": {
+                    "$remove": true
+                  },
+                  "Z": {
+                    "$remove": true
+                  }
+                },
+                "keys_modified": true,
+                "last": "never",
+                "modified": true,
+                "removed": [
+                  "Y",
+                  "Z"
+                ],
+                "retired": {
+                  "Y": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 4
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 3
+                  }
+                },
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [
+                  "X",
+                  "Z"
+                ],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": 1,
+                    "last": 4,
+                    "modified": true,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": 9,
+                    "last": 4,
+                    "modified": true,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": {
+                  "X": 1,
+                  "Z": 9
+                },
+                "keys_modified": true,
+                "last": 4,
+                "modified": true,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "added": [],
+                "all_valid": true,
+                "children": {
+                  "X": {
+                    "delta": null,
+                    "last": 4,
+                    "modified": false,
+                    "valid": true,
+                    "value": 1
+                  },
+                  "Z": {
+                    "delta": null,
+                    "last": 4,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  }
+                },
+                "delta": null,
+                "keys_modified": false,
+                "last": 4,
+                "modified": false,
+                "removed": [],
+                "retired": {},
+                "valid": true
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "7141ca5b58e5f51a00874208601e437b49f917821a8c57c9772ae51671099b41",
+          "7141ca5b58e5f51a00874208601e437b49f917821a8c57c9772ae51671099b41",
+          "7141ca5b58e5f51a00874208601e437b49f917821a8c57c9772ae51671099b41"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "expired_ref": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [],
+          "ticks": [
+            {
+              "delta": 7,
+              "last": 0,
+              "modified": true,
+              "valid": true,
+              "value": 7
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": true,
+              "value": 7
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": true,
+              "value": 7
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": true,
+              "value": 7
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": false,
+              "value": null
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": false,
+              "value": null
+            },
+            {
+              "delta": null,
+              "last": 0,
+              "modified": false,
+              "valid": false,
+              "value": null
+            }
+          ]
+        },
+        "replay_digests": [
+          "7e5b8d695481332c8c2b789f2c480ed0445ac5967a1dc2afd373bf3c561293df",
+          "7e5b8d695481332c8c2b789f2c480ed0445ac5967a1dc2afd373bf3c561293df",
+          "7e5b8d695481332c8c2b789f2c480ed0445ac5967a1dc2afd373bf3c561293df"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "diagnostic": "AttributeError: 'NoneType' object has no attribute 'graph'",
+        "exception": {
+          "category": "runtime",
+          "type": "AttributeError"
+        },
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": null,
+        "replay_digests": [
+          "4da790cd5594ad32455effdce59e7a3dcc2574de44125da94cc40512cccc6aab",
+          "4da790cd5594ad32455effdce59e7a3dcc2574de44125da94cc40512cccc6aab",
+          "4da790cd5594ad32455effdce59e7a3dcc2574de44125da94cc40512cccc6aab"
+        ],
+        "stable": true,
+        "status": "error"
+      }
+    },
+    "mapped_ref": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            {
+              "X": 5
+            },
+            {
+              "X": 15
+            },
+            null,
+            {
+              "X": -15
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 5
+            },
+            null,
+            {
+              "X": -5
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            {
+              "X": 5
+            },
+            {
+              "X": 15
+            },
+            null,
+            {
+              "X": -15
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 5
+            },
+            null,
+            {
+              "X": -5
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "membership": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [],
+          "ticks": [
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": "never",
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": false
+            },
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "delta": {},
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 7,
+                  "last": 2,
+                  "modified": true,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "delta": {
+                "X": 7
+              },
+              "keys_modified": true,
+              "last": 2,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "delta": {},
+              "keys_modified": true,
+              "last": 3,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {
+                "X": {
+                  "$remove": true
+                }
+              },
+              "keys_modified": true,
+              "last": 4,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": 4,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 9,
+                  "last": 6,
+                  "modified": true,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": {
+                "X": 9
+              },
+              "keys_modified": true,
+              "last": 6,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": 6,
+                  "modified": false,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": null,
+              "keys_modified": false,
+              "last": 6,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "c0db807edf77ec753ce809cb53e14585d2ef6d605c73f88d6244dec1b5c25ea3",
+          "c0db807edf77ec753ce809cb53e14585d2ef6d605c73f88d6244dec1b5c25ea3",
+          "c0db807edf77ec753ce809cb53e14585d2ef6d605c73f88d6244dec1b5c25ea3"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [],
+          "ticks": [
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": "never",
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": false
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "delta": {},
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 7,
+                  "last": 2,
+                  "modified": true,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "delta": {
+                "X": 7
+              },
+              "keys_modified": false,
+              "last": 2,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "delta": null,
+              "keys_modified": false,
+              "last": 2,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {},
+              "keys_modified": true,
+              "last": 4,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": 4,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 9,
+                  "last": 6,
+                  "modified": true,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": {
+                "X": 9
+              },
+              "keys_modified": true,
+              "last": 6,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": 6,
+                  "modified": false,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": null,
+              "keys_modified": false,
+              "last": 6,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "c0c841bcbddc93ced651f7fda0f9d45728e64b5ec1b19095e0b86a09650208ac",
+          "c0c841bcbddc93ced651f7fda0f9d45728e64b5ec1b19095e0b86a09650208ac",
+          "c0c841bcbddc93ced651f7fda0f9d45728e64b5ec1b19095e0b86a09650208ac"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "nested_mapped_ref": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            {
+              "X": 5
+            },
+            {
+              "X": 15
+            },
+            null,
+            {
+              "X": -15
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 5
+            },
+            null,
+            {
+              "X": -5
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            {
+              "X": 5
+            },
+            {
+              "X": 15
+            },
+            null,
+            {
+              "X": -15
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 5
+            },
+            null,
+            {
+              "X": -5
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a",
+          "50f6759481cc35cd613718bb9788d5fe4640c7a4ae0dedfbed625783317c0f7a"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "nested_timer": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 3
+            },
+            null,
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 3
+            },
+            null,
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "parallel_children": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "start",
+            "stop",
+            "start",
+            "stop",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 3,
+              "Y": 2
+            },
+            null,
+            {
+              "Y": 4
+            },
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            {
+              "X": 2
+            },
+            {
+              "Y": -1
+            },
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              },
+              "Y": {
+                "$remove": true
+              }
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b",
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b",
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "start",
+            "stop",
+            "start",
+            "stop",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 3,
+              "Y": 2
+            },
+            null,
+            {
+              "Y": 4
+            },
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            {
+              "X": 2
+            },
+            {
+              "Y": -1
+            },
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              },
+              "Y": {
+                "$remove": true
+              }
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b",
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b",
+          "2c8ca947fddb7a9bb5ab4e61ffe32389b9605e1d45f2f984d04232a3e27dcf8b"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "quote": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [],
+          "ticks": [
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": "never",
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": false
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": false,
+                  "ask": {
+                    "delta": null,
+                    "last": "never",
+                    "modified": false,
+                    "valid": false,
+                    "value": null
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 1,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 1,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": 9,
+                    "last": 2,
+                    "modified": true,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 1,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 2,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "ask": 9
+                }
+              },
+              "keys_modified": true,
+              "last": 2,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 3,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": true,
+              "last": 3,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 3,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": false,
+                  "valid": true
+                }
+              },
+              "delta": null,
+              "keys_modified": false,
+              "last": 3,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {
+                "X": {
+                  "$remove": true
+                }
+              },
+              "keys_modified": true,
+              "last": 5,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 3,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": false,
+                  "valid": true
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": 5,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": false,
+                  "ask": {
+                    "delta": null,
+                    "last": "never",
+                    "modified": false,
+                    "valid": false,
+                    "value": null
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 7,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 7,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": true,
+              "last": 7,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "30492e3e3779c9126810a9aedc3e9c5f9aa502aba1610d75ead1ff5e8c0af26c",
+          "30492e3e3779c9126810a9aedc3e9c5f9aa502aba1610d75ead1ff5e8c0af26c",
+          "30492e3e3779c9126810a9aedc3e9c5f9aa502aba1610d75ead1ff5e8c0af26c"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [],
+          "ticks": [
+            {
+              "added": [],
+              "all_valid": false,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": "never",
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": false
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": false,
+                  "ask": {
+                    "delta": null,
+                    "last": "never",
+                    "modified": false,
+                    "valid": false,
+                    "value": null
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 1,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 1,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": 9,
+                    "last": 2,
+                    "modified": true,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 1,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 2,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "ask": 9
+                }
+              },
+              "keys_modified": false,
+              "last": 2,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 3,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": false,
+              "last": 3,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 3,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": false,
+                  "valid": true
+                }
+              },
+              "delta": null,
+              "keys_modified": false,
+              "last": 3,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {
+                "X": {
+                  "$remove": true
+                }
+              },
+              "keys_modified": true,
+              "last": 5,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "all_valid": true,
+                  "ask": {
+                    "delta": null,
+                    "last": 2,
+                    "modified": false,
+                    "valid": true,
+                    "value": 9
+                  },
+                  "bid": {
+                    "delta": null,
+                    "last": 3,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 3,
+                  "modified": false,
+                  "valid": true
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": null,
+              "keys_modified": false,
+              "last": 5,
+              "modified": false,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "all_valid": false,
+                  "ask": {
+                    "delta": null,
+                    "last": "never",
+                    "modified": false,
+                    "valid": false,
+                    "value": null
+                  },
+                  "bid": {
+                    "delta": 7,
+                    "last": 7,
+                    "modified": true,
+                    "valid": true,
+                    "value": 7
+                  },
+                  "last": 7,
+                  "modified": true,
+                  "valid": true
+                }
+              },
+              "delta": {
+                "X": {
+                  "bid": 7
+                }
+              },
+              "keys_modified": true,
+              "last": 7,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "5bea318460afca2f20166df40da60f520cd7d58637babfddc57d445a7d829ddc",
+          "5bea318460afca2f20166df40da60f520cd7d58637babfddc57d445a7d829ddc",
+          "5bea318460afca2f20166df40da60f520cd7d58637babfddc57d445a7d829ddc"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "restore": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            [
+              "removed",
+              {
+                "added": [],
+                "all_valid": true,
+                "children": {},
+                "delta": {
+                  "X": {
+                    "$remove": true
+                  }
+                },
+                "keys_modified": true,
+                "last": 1,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  }
+                },
+                "valid": true
+              },
+              {
+                "added": [],
+                "all_valid": true,
+                "children": {},
+                "delta": {
+                  "X": {
+                    "$remove": true
+                  }
+                },
+                "keys_modified": true,
+                "last": 1,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  }
+                },
+                "valid": true
+              }
+            ],
+            [
+              "restored",
+              {
+                "delta": null,
+                "last": 0,
+                "modified": false,
+                "valid": true,
+                "value": 7
+              }
+            ]
+          ],
+          "ticks": [
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 7,
+                  "last": 0,
+                  "modified": true,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "delta": {
+                "X": 7
+              },
+              "keys_modified": true,
+              "last": 0,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": 0,
+                  "modified": false,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "delta": {},
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {
+                "X": {
+                  "$remove": true
+                }
+              },
+              "keys_modified": true,
+              "last": 2,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "delta": null,
+                  "last": 0,
+                  "modified": false,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 9,
+                  "last": 3,
+                  "modified": true,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": {
+                "X": 9
+              },
+              "keys_modified": true,
+              "last": 3,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "27d58ab58e83ca8584187daee4a8dd7373e20662fe0438caf4efea4ffaf45117",
+          "27d58ab58e83ca8584187daee4a8dd7373e20662fe0438caf4efea4ffaf45117",
+          "27d58ab58e83ca8584187daee4a8dd7373e20662fe0438caf4efea4ffaf45117"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            [
+              "removed",
+              {
+                "added": [],
+                "all_valid": true,
+                "children": {},
+                "delta": {
+                  "X": {
+                    "$remove": true
+                  }
+                },
+                "keys_modified": true,
+                "last": 1,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  }
+                },
+                "valid": true
+              },
+              {
+                "added": [],
+                "all_valid": true,
+                "children": {},
+                "delta": {
+                  "X": {
+                    "$remove": true
+                  }
+                },
+                "keys_modified": true,
+                "last": 1,
+                "modified": true,
+                "removed": [
+                  "X"
+                ],
+                "retired": {
+                  "X": {
+                    "delta": null,
+                    "last": 0,
+                    "modified": false,
+                    "valid": true,
+                    "value": 7
+                  }
+                },
+                "valid": true
+              }
+            ],
+            [
+              "restored",
+              {
+                "delta": null,
+                "last": "never",
+                "modified": false,
+                "valid": false,
+                "value": null
+              }
+            ]
+          ],
+          "ticks": [
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 7,
+                  "last": 0,
+                  "modified": true,
+                  "valid": true,
+                  "value": 7
+                }
+              },
+              "delta": {
+                "X": 7
+              },
+              "keys_modified": true,
+              "last": 0,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "delta": {},
+              "keys_modified": true,
+              "last": 1,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            },
+            {
+              "added": [],
+              "all_valid": true,
+              "children": {},
+              "delta": {},
+              "keys_modified": true,
+              "last": 2,
+              "modified": true,
+              "removed": [
+                "X"
+              ],
+              "retired": {
+                "X": {
+                  "delta": null,
+                  "last": "never",
+                  "modified": false,
+                  "valid": false,
+                  "value": null
+                }
+              },
+              "valid": true
+            },
+            {
+              "added": [
+                "X"
+              ],
+              "all_valid": true,
+              "children": {
+                "X": {
+                  "delta": 9,
+                  "last": 3,
+                  "modified": true,
+                  "valid": true,
+                  "value": 9
+                }
+              },
+              "delta": {
+                "X": 9
+              },
+              "keys_modified": true,
+              "last": 3,
+              "modified": true,
+              "removed": [],
+              "retired": {},
+              "valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "27ff9b25633e42392e2d8b2dd5fba7d91028aff809cc594352f86e3e8b330064",
+          "27ff9b25633e42392e2d8b2dd5fba7d91028aff809cc594352f86e3e8b330064",
+          "27ff9b25633e42392e2d8b2dd5fba7d91028aff809cc594352f86e3e8b330064"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "scalar_ref": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ],
+            [
+              "select",
+              1
+            ],
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ]
+          ],
+          "ticks": [
+            {
+              "data": {
+                "delta": null,
+                "last": "never",
+                "modified": false,
+                "valid": false,
+                "value": null
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 7,
+                "last": 1,
+                "modified": true,
+                "valid": true,
+                "value": 7
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 8,
+                "last": 2,
+                "modified": true,
+                "valid": true,
+                "value": 8
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 21,
+                "last": 3,
+                "modified": true,
+                "valid": true,
+                "value": 21
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": 3,
+                "modified": false,
+                "valid": true,
+                "value": 21
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": 3,
+                "modified": false,
+                "valid": false,
+                "value": null
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 9,
+                "last": 6,
+                "modified": true,
+                "valid": true,
+                "value": 9
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": 6,
+                "modified": false,
+                "valid": true,
+                "value": 9
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "6664464b666b2dc729f48d3618c722e7e14fe46712fce90dea4179fb31e5af4f",
+          "6664464b666b2dc729f48d3618c722e7e14fe46712fce90dea4179fb31e5af4f",
+          "6664464b666b2dc729f48d3618c722e7e14fe46712fce90dea4179fb31e5af4f"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ],
+            [
+              "select",
+              1
+            ],
+            [
+              "select",
+              2
+            ],
+            [
+              "select",
+              0
+            ]
+          ],
+          "ticks": [
+            {
+              "data": {
+                "delta": null,
+                "last": "never",
+                "modified": false,
+                "valid": false,
+                "value": null
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 7,
+                "last": 1,
+                "modified": true,
+                "valid": true,
+                "value": 7
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 8,
+                "last": 2,
+                "modified": true,
+                "valid": true,
+                "value": 8
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 21,
+                "last": 3,
+                "modified": true,
+                "valid": true,
+                "value": 21
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": 3,
+                "modified": false,
+                "valid": true,
+                "value": 21
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": "never",
+                "modified": false,
+                "valid": false,
+                "value": null
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": 9,
+                "last": 6,
+                "modified": true,
+                "valid": true,
+                "value": 9
+              },
+              "ref_modified": true,
+              "ref_valid": true
+            },
+            {
+              "data": {
+                "delta": null,
+                "last": 6,
+                "modified": false,
+                "valid": true,
+                "value": 9
+              },
+              "ref_modified": false,
+              "ref_valid": true
+            }
+          ]
+        },
+        "replay_digests": [
+          "0abf5b53d81d0a425df9f78f6c31f88adfa356f125bbe18df337a1947cdce625",
+          "0abf5b53d81d0a425df9f78f6c31f88adfa356f125bbe18df337a1947cdce625",
+          "0abf5b53d81d0a425df9f78f6c31f88adfa356f125bbe18df337a1947cdce625"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    },
+    "timer": {
+      "cpp": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.0.0"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 3
+            },
+            null,
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a"
+        ],
+        "stable": true,
+        "status": "ok"
+      },
+      "python": {
+        "implementation": {
+          "distribution": "hgraph",
+          "machine": "arm64",
+          "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+          "python": "3.14.7",
+          "python_implementation": "CPython",
+          "version": "0.5.41"
+        },
+        "observation": {
+          "events": [
+            "start",
+            "stop",
+            "start",
+            "stop"
+          ],
+          "ticks": [
+            {
+              "X": 2
+            },
+            null,
+            {
+              "X": -1
+            },
+            {
+              "X": {
+                "$remove": true
+              }
+            },
+            null,
+            {
+              "X": 3
+            },
+            null,
+            null,
+            {
+              "X": -1
+            },
+            null
+          ]
+        },
+        "replay_digests": [
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a",
+          "ffc73f1ea1e106f45b8709b01636a0c6685847953f6c447128daf281c157497a"
+        ],
+        "stable": true,
+        "status": "ok"
+      }
+    }
+  },
+  "date": "2026-09-21",
+  "method": "Public Python authoring APIs; separate Python-first and C++-runtime processes; three fresh runs per case and implementation."
+}

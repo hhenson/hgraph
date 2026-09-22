@@ -25,6 +25,20 @@ namespace hgraph::stdlib
         register_graph_overload<sub_, collection_impl_detail::difference_tss_fold>();
         register_graph_overload<bit_xor, collection_impl_detail::symmetric_difference_tss_fold>();
 
+        register_graph_overload<
+            union_, collection_impl_detail::tsd_set_fold<
+                        collection_impl_detail::union_tsd_binary, "union", "union_tsd_fold">>();
+        register_graph_overload<
+            intersection_, collection_impl_detail::tsd_set_fold<
+                               collection_impl_detail::intersection_tsd_binary, "intersection",
+                               "intersection_tsd_fold">>();
+        register_graph_overload<
+            symmetric_difference_,
+            collection_impl_detail::tsd_set_fold<
+                collection_impl_detail::symmetric_difference_tsd_binary, "symmetric_difference",
+                "symmetric_difference_tsd_fold">>();
+        register_graph_overload<difference_, collection_impl_detail::difference_tsd_fold>();
+
         register_overload<bit_or, collection_impl_detail::union_tsd_binary>();
         register_overload<bit_and, collection_impl_detail::intersection_tsd_binary>();
         register_overload<sub_, collection_impl_detail::difference_tsd_binary>();

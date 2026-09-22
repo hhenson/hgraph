@@ -1,0 +1,21 @@
+{
+  "description": "Issue #818 item 2.5: the guard. An unparseable string raises on BOTH sides -- only the parsing overload was missing, not the rejection.",
+  "features": [
+    "conversion:parse",
+    "operation:cast_",
+    "type:str"
+  ],
+  "id": "issue-818-cast-unparseable-string-raises",
+  "inputs": {
+    "ts": [
+      "1.5"
+    ]
+  },
+  "parameters": {
+    "input_type": "str",
+    "operation": "cast_",
+    "target_type": "int"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

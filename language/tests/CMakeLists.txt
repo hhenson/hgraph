@@ -14,6 +14,17 @@ set_tests_properties(hgraph_language_cli_version PROPERTIES
     PASS_REGULAR_EXPRESSION "hgl [0-9][^ ]* \\(hgraph api [0-9]+\\.[0-9]+\\.[0-9]+\\)"
 )
 
+if(WIN32)
+    add_test(NAME hgraph_language_windows_runtime_dlls
+        COMMAND ${CMAKE_COMMAND}
+            -DBUILD=${CMAKE_BINARY_DIR}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/windows-runtime-install
+            -DBINDIR=${CMAKE_INSTALL_BINDIR}
+            -DCONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows_runtime_dlls.cmake)
+endif()
+
 # Execution backends consume HGraph IR. Keep the final AST/resolver migration
 # boundary executable so an accidental frontend dependency fails in CI.
 add_test(
@@ -69,6 +80,23 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
+# Recursive struct edges (ADR 0012) are marked in both dumps.
+add_test(
+    NAME hgraph_language_dump_hir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hir
+)
+set_tests_properties(hgraph_language_dump_hir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "next:t[0-9]+\\?=e[0-9]+@d[0-9]+ recursive"
+)
+
+add_test(
+    NAME hgraph_language_dump_hgraph_ir_recursive_edges
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/ir/recursive-structs.hgl --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_dump_hgraph_ir_recursive_edges PROPERTIES
+    PASS_REGULAR_EXPRESSION "tree\\?:t[0-9]+ recursive->tests\\.recursive_structs\\.Tree"
+)
+
 add_test(
     NAME hgraph_language_check_descriptor
     COMMAND ${CMAKE_COMMAND}
@@ -76,6 +104,15 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
+)
+
+add_test(
+    NAME hgraph_language_recursive_descriptor
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/recursive-export.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/recursive-descriptor
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_recursive_descriptor.cmake
 )
 
 add_test(
@@ -142,6 +179,7 @@ add_executable(hgl_graph_ir_tests
     hgraph_ir/complete_tests.cpp
     hgraph_ir/control_flow_tests.cpp
     hgraph_ir/lower_tests.cpp
+    hgraph_ir/uses_tests.cpp
 )
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
@@ -212,14 +250,35 @@ add_test(NAME hgraph_language_native_package COMMAND hgl_native_package_tests)
 # Install the public authoring target, compile a consumer without source-tree
 # include paths or internal compiler libraries, emit a descriptor, and pass it
 # through the installed-facing command contract.
+# CMake provides CMAKE_OBJDUMP but has no CMAKE_OTOOL, so the macOS image
+# inspection has to find its own tool. The test reports a missing one.
+set(_hgl_otool "")
+if(APPLE)
+    find_program(HGL_OTOOL_EXECUTABLE NAMES otool llvm-otool)
+    set(_hgl_otool "${HGL_OTOOL_EXECUTABLE}")
+endif()
+get_target_property(_simdjson_type simdjson::simdjson TYPE)
+set(_simdjson_shared_library "")
+if(_simdjson_type STREQUAL "SHARED_LIBRARY")
+    set(_simdjson_shared_library "$<TARGET_FILE:simdjson::simdjson>")
+endif()
 add_test(
     NAME hgraph_language_native_package_install_consumer
     COMMAND ${CMAKE_COMMAND}
         -DBUILD=${CMAKE_BINARY_DIR}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
+        "-DCXX=${CMAKE_CXX_COMPILER}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DDEPENDENCY_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+        "-DUSE_PYARROW=${HGRAPH_USE_PYARROW_ARROW}"
+        "-DPYTHON=${Python_EXECUTABLE}"
+        "-DPACKAGER_RPATH=${CMAKE_INSTALL_RPATH}"
+        "-DNATIVE_PACKAGE_NAME=$<TARGET_FILE_NAME:hgl_native_package>"
+        "-DINSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+        "-DOBJDUMP=${CMAKE_OBJDUMP}"
+        "-DOTOOL=${_hgl_otool}"
+        "-DSIMDJSON_LIBRARY=${_simdjson_shared_library}"
         -DHGL=$<TARGET_FILE:hgl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
 )
@@ -323,12 +382,16 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ../examples/recursive-fields.hgl)
+hgl_apply_warnings(hgl_recursive_fixture)
 hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
 hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hgl)
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
+hgl_add_module(hgl_lifecycle_fixture STATIC HGL ../examples/lifecycle-capabilities.hgl)
+hgl_apply_warnings(hgl_lifecycle_fixture)
 hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
 add_library(hgl_native_scalar_dependency INTERFACE)
@@ -362,6 +425,46 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
 hgl_apply_warnings(hgl_parameter_pack_fixture)
 
+# The guide's struct-import example pair (ADR 0013). The importer is not in the
+# examples glob because checking it needs the exporter's descriptor, so the
+# pair carries its own: a CTest fixture emits it, and the importer requires
+# that fixture. Depending on a build target instead would tie the test to a
+# target nothing links -- which CI's explicit target list would not build.
+# The generated backend for this shape is compiled and run by the fixture pair
+# in codegen/imported-structs; the example is here to read, and to be correct.
+set(_hgl_struct_import_examples "${CMAKE_CURRENT_SOURCE_DIR}/../examples/struct-imports")
+set(_hgl_struct_import_out "${CMAKE_CURRENT_BINARY_DIR}/examples/struct-imports")
+add_test(NAME hgraph_language_example_market_data
+    COMMAND hgl test "${_hgl_struct_import_examples}/market-data.hgl")
+add_test(NAME hgraph_language_example_market_data_descriptor
+    COMMAND hgl emit-cpp "${_hgl_struct_import_examples}/market-data.hgl" --out-dir "${_hgl_struct_import_out}")
+set_tests_properties(hgraph_language_example_market_data_descriptor
+    PROPERTIES FIXTURES_SETUP hgl_example_market_data_descriptor)
+add_test(NAME hgraph_language_example_instrument_book
+    COMMAND hgl test "${_hgl_struct_import_examples}/instrument-book.hgl"
+        --module-descriptor "${_hgl_struct_import_out}/market-data.hgl-module.json")
+set_tests_properties(hgraph_language_example_instrument_book
+    PROPERTIES FIXTURES_REQUIRED hgl_example_market_data_descriptor)
+unset(_hgl_struct_import_examples)
+unset(_hgl_struct_import_out)
+
+# ADR 0013: a module that exports a struct family, and one that imports it and
+# extends it. Generated C++ refers to the exporter's type and includes its
+# header; it never re-declares the struct.
+hgl_add_module(hgl_imported_shape_fixture STATIC HGL codegen/imported-structs/shapes.hgl)
+hgl_add_module(hgl_imported_struct_consumer_fixture STATIC HGL codegen/imported-structs/instruments.hgl
+    LINK_LIBRARIES hgl_imported_shape_fixture)
+foreach(_fixture IN ITEMS hgl_imported_shape_fixture hgl_imported_struct_consumer_fixture)
+    hgl_apply_warnings(${_fixture})
+endforeach()
+if(UNIX)
+    # The same module through DIRECT WIRING, so the two backends are held to
+    # the same assertions.
+    add_test(NAME hgraph_language_test_imported_struct_consumer
+        COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-structs/instruments.hgl"
+            --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_shape_fixture/src/shapes.hgl-module.json")
+endif()
+
 hgl_add_module(hgl_imported_contract_fixture STATIC HGL codegen/imported-operators/contracts.hgl)
 hgl_add_module(hgl_imported_provider_fixture STATIC HGL codegen/imported-operators/provider.hgl
     LINK_LIBRARIES hgl_imported_contract_fixture)
@@ -370,9 +473,13 @@ hgl_add_module(hgl_imported_consumer_fixture STATIC HGL codegen/imported-operato
 foreach(_fixture IN ITEMS hgl_imported_contract_fixture hgl_imported_provider_fixture hgl_imported_consumer_fixture)
     hgl_apply_warnings(${_fixture})
 endforeach()
-add_test(NAME hgraph_language_test_imported_provider
-    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
-        --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+if(UNIX)
+    # Scripted native modules use the Unix loader. The compiled provider and
+    # consumer retain execution coverage in hgl_generated_tests everywhere.
+    add_test(NAME hgraph_language_test_imported_provider
+        COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
+            --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+endif()
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
@@ -381,22 +488,28 @@ set(_hgl_generated_test_sources
     codegen/generated_value_function_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
+    codegen/generated_lifecycle_tests.cpp
     codegen/generated_core_native_tests.cpp
     codegen/generated_standard_library_tests.cpp
+    codegen/generated_catalogue_tests.cpp
     codegen/generated_partial_materialization_tests.cpp
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
+    codegen/generated_recursive_tests.cpp
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
     codegen/generated_imported_operator_tests.cpp
+    codegen/generated_imported_struct_tests.cpp
 )
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
     hgl_structural_fixture
+    hgl_recursive_fixture
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
+    hgl_lifecycle_fixture
     hgl_reference_fixture
     hgl_native_scalar_import_fixture
     hgl_inline_native_consumer_fixture
@@ -404,6 +517,8 @@ set(_hgl_generated_test_libraries
     hgl_module_parts_fixture
     hgl_parameter_pack_fixture
     hgl_imported_consumer_fixture
+    hgl_imported_shape_fixture
+    hgl_imported_struct_consumer_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)
@@ -456,7 +571,18 @@ if(UNIX)
     )
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "13 tests, 0 failed"
+)
+
+# Recursive struct fields (ADR 0012) through direct wiring; the same module is
+# compiled as hgl_recursive_fixture and checked tick for tick by
+# codegen/generated_recursive_tests.cpp.
+add_test(
+    NAME hgraph_language_test_recursive_structs
+    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/recursive-structs.hgl
+)
+set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
+    PASS_REGULAR_EXPRESSION "9 tests, 0 failed"
 )
 
 # Every guide example that declares a `test` block runs under `hgl test`
@@ -528,6 +654,26 @@ if(UNIX)
     set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
         PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    # Scripted imported-native tests use a host containing the provider's
+    # value symbols. This is separate from hgl, which generates that provider.
+    add_executable(hgl_stdlib_test_driver ../src/main.cpp)
+    target_link_libraries(hgl_stdlib_test_driver PRIVATE hgl::driver
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,hgl_core_native>")
+    set_target_properties(hgl_stdlib_test_driver PROPERTIES ENABLE_EXPORTS ON)
+    hgl_link_runtime_executable(hgl_stdlib_test_driver)
+    hgl_apply_warnings(hgl_stdlib_test_driver)
+    add_test(NAME hgraph_language_test_standard_parts
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/standard.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/control.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/stream.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/temporal.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    add_test(NAME hgraph_language_test_operator_bodies
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/operators.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    set_tests_properties(hgraph_language_test_standard_parts hgraph_language_test_operator_bodies PROPERTIES
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     unset(_native_test_anchor)
     unset(_native_test_sources)
     unset(_native_test_args)
@@ -547,7 +693,7 @@ if(UNIX)
         PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "5 tests, 0 failed"
+        PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
     )
 
     add_test(
@@ -674,3 +820,20 @@ foreach(_fixture IN LISTS _hgl_stdlib_invalid_fixtures)
     )
 endforeach()
 unset(_hgl_stdlib_invalid_fixtures)
+
+# Test tools also run during the build (descriptor fixtures and generated
+# modules), before CTest can supply a runtime search path.
+get_property(_hgl_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_target IN LISTS _hgl_test_targets)
+    get_target_property(_type ${_target} TYPE)
+    if(_type STREQUAL "EXECUTABLE")
+        hgl_stage_runtime_dlls(${_target})
+    endif()
+endforeach()
+unset(_hgl_test_targets)
+
+add_test(NAME hgraph_language_shared_admission
+    COMMAND ${CMAKE_COMMAND} -DHGL=$<TARGET_FILE:hgl>
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/admission
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/admission_test.cmake)
+set_tests_properties(hgraph_language_shared_admission PROPERTIES TIMEOUT 180)

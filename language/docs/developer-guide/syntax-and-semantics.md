@@ -17,8 +17,9 @@ is accepted.
 `const fn` identifies non-temporal value functions; parameter-level `const`
 retains its wiring-time meaning. Local fixed-arity functions and
 [role selection/lifting](../user-guide/value-functions.md) are implemented.
-Generic/pack value-function lowering is not implemented. Cache declarations, native
-type lifecycle forms, and target-mapping declarations also remain outside
+Generic/pack value-function lowering is not implemented. Scalar `cache`
+declarations are implemented, including beside `state`.
+Native type lifecycle forms and target-mapping declarations remain outside
 the implemented grammar. Their agreed semantics and open syntax are recorded
 in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
 
@@ -95,11 +96,11 @@ when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
 duration run. `temporal_literal` and `duration_literal` are defined under
 "Temporal scalar types".
 
-The hard reserved words are exactly these 44, the keyword table of
+The hard reserved words are those in the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
-module part use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
+module part use as export abstract impl instantiate operator fn cpp struct const requires is let var state cache inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -204,7 +205,7 @@ function_decl   = ( [ "export" | "impl" ], "fn" | "const", "fn" ), identifier,
                   [ requires_clause ], function_body;
 native_function_decl
                 = "native", "fn", identifier, [ generic_parameters ],
-                  function_signature, [ requires_clause ],
+                  function_signature, [ "throws" ], [ requires_clause ],
                   "{", [ NL ], cpp_implementation, [ NL ], "}";
 cpp_implementation
                 = "cpp", cpp_parameter_list, cpp_compound_statement;
@@ -316,12 +317,18 @@ endpoint types rather than values.
 
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have
-defaults. The grammar recognizes an optional `requires` clause so the syntax
+defaults. An optional `throws` after the signature declares that the body may
+raise; the generated function then has no `noexcept` and the descriptor
+records the `translated` policy. `throws` is a contextual keyword, like
+`native`, and cannot be used as a name. A raise ends the evaluation under
+hgraph's node error model
+([ADR 0009](../design/decisions/0009-native-errors-and-the-node-error-model.md)). The grammar recognizes an optional `requires` clause so the syntax
 tree remains future-compatible; semantic analysis currently rejects it because
 descriptor constraints cannot yet be reconstructed on import. The lexer
 retains the balanced C++ parameter list and compound statement verbatim,
 accounting for C++ comments, quoted literals, and raw strings. HGL does not
-parse their contents. The form is top-level and evaluation-only; it cannot
+parse their contents. The form is top-level; a value native is callable in
+`start`, `when`, and `stop`, a view native only in `when`; it cannot
 appear inside another function body.
 
 A `cpp include` is module-level build metadata for source-defined C++ only.
@@ -337,8 +344,45 @@ immutable, and ordered metadata, with newline separators and no semicolons.
 Only an `abstract struct` may be named as a parent. Abstract structs are not
 constructible and may inherit abstract parents; concrete structs may inherit
 one or more abstract parents and are implicitly final. An empty concrete body
-is valid. There are no methods, behavior inheritance, visibility modifiers, or
-self-recursive fields in the first slice.
+is valid. There are no methods, behavior inheritance, or visibility modifiers.
+
+A field through which a value of a struct can contain another value of the
+same struct is a *recursive edge*
+([ADR 0012](../design/decisions/0012-recursive-struct-fields.md)). A field
+reaches every struct its type names, through collection elements and generic
+arguments, and a field typed by a struct with descendants also reaches that
+closed family. For a generic family the edge is followed only to descendants
+that can be the field's specialization, so `inner: Event<f64>` inside
+`struct IntEvent: Event<i64>` does not lead back to `IntEvent`, nor through
+`abstract struct Middle<T>: Event<T>` to `struct IntEvent: Middle<i64>`. An
+intermediate parent keeps the specialization when its application passes its
+own parameters through, in any order; any other generic application, such as
+`Middle<T>: Event<list<T>>`, is followed as its whole family. The resolver
+admits a recursive edge only as an optional atomic boundary whose cycle runs
+through the struct inside `atomic<...>`, such as `next: atomic<Node> = null`,
+and reports the rule each other edge breaks:
+
+- rule 2: the edge is declared `= null`, and no descendant replaces that
+  default;
+- rule 3: the edge is written `atomic<T>`; the diagnostic names the fix;
+- rule 4: every generic argument on the edge is a parameter of the declaring
+  struct or mentions none, so the cycle reaches finitely many
+  specializations: `atomic<Tree<T>>` and `atomic<Forest<T>>` inside `Tree<T>`
+  are admitted, `atomic<Tree<list<T>>>` is not;
+- rule 8: the cycle does not run through a collection element or a generic
+  argument.
+
+A cycle that also runs through inheritance, such as a parent's field that
+names its own descendant, is rejected too: hgraph declares a parent before its
+children, so such a cycle cannot be registered. A struct type may name another
+module's struct (ADR 0013), but a recursive EDGE may not: rule 5 keeps an edge
+inside the module that owns it, and module imports are acyclic, so no cycle
+crosses a module. The resolver marks each admitted edge on the struct's effective
+fields, and typed HIR and hgraph IR carry the mark with the edge's target
+named by struct identity (compiler and lowering guide, "Recursive struct
+edges"). Both backends realize an edge as an owner of its target, and module
+descriptor format 6 marks each edge in an exported struct's layout (roadmap,
+"Feature status matrix").
 
 Struct generic parameters use the common `generic_parameters` production, and
 their trailing `requires` clause uses the same constraint grammar as a function
@@ -474,17 +518,17 @@ are constant expressions, and their type selects the kind: `i64` sizes
 describe a tick window and `duration` sizes a duration window.
 
 ```hgl
-rolling<f64, 20>          // the last 20 values, valid once it holds 20
-rolling<f64, 20, 5>       // the last 20 values, valid once it holds 5
-rolling<f64, 5m>          // the last five minutes, valid once it spans 5m
-rolling<f64, 5m, 1m>      // the last five minutes, valid once it spans 1m
+rolling<f64, 20>          # the last 20 values, minimum 20
+rolling<f64, 20, 5>       # the last 20 values, minimum 5
+rolling<f64, 5m>          # the last five minutes, minimum span 5m
+rolling<f64, 5m, 1m>      # the last five minutes, minimum span 1m
 ```
 
 Omitting the third argument normalizes the minimum to the maximum for both
 kinds. Both arguments must be of one kind; `rolling<f64, 5m, 3>` is a `type`
 diagnostic. Tick sizes are positive. A duration maximum is positive and a
-duration minimum may be `0s`, the one spelling of a duration window that is
-valid from its first value. The minimum cannot exceed the maximum. Size
+duration minimum may be `0s`, which satisfies minimum readiness from the
+first value. The minimum cannot exceed the maximum. Size
 arguments must be constant expressions formed from literals or in-scope
 `const` generics and cannot depend on temporal values; a `const` generic in
 a size position has its declared type, `i64` or `duration`, so one generic
@@ -494,10 +538,10 @@ The window semantics are hgraph's. A tick window holds the most recent
 `max_size` values and evicts the oldest when full. A duration window holds
 every value whose tick time lies within `max_size` of the evaluation time
 and evicts older values before each push; it has no element bound, so its
-memory follows the tick rate. A window is invalid, and does not evaluate its
-consumers, until it reaches its minimum: a tick window once it holds
-`min_size` values, a duration window once the span from its oldest to its
-newest value reaches `min_size`. That span is measured over the captured
+memory follows the tick rate. Current native `valid` becomes true on the
+first value. Native `all_valid` separately checks the minimum: a tick window
+must hold `min_size` values, and a duration window must span `min_size`
+from its oldest to its newest value. That span is measured over the captured
 values, not the run's elapsed time, so a positive duration minimum needs at
 least two values. The kind and both resolved sizes participate in type
 identity: `rolling<f64, 5m>` and `rolling<f64, 300s>` are one type,
@@ -508,9 +552,9 @@ no spelling yet and is listed under the open questions.
 A temporal list is unbounded unless it carries a size:
 
 ```hgl
-list<f64>              // unbounded; the same as list<f64, unbounded>
-list<f64, 3>           // exactly three temporal elements
-list<f64, n>           // n is an in-scope const generic
+list<f64>              # unbounded; the same as list<f64, unbounded>
+list<f64, 3>           # exactly three temporal elements
+list<f64, n>           # n is an in-scope const generic
 ```
 
 `unbounded` has the sentinel value `-1`. A `const` generic in a list-size position
@@ -615,23 +659,23 @@ duration_unit    = "d" | "h" | "m" | "s" | "ms" | "us";
 ```
 
 ```hgl
-@2026-09-03                            // date
-@09:30                                 // time; seconds default to zero
-@09:30:15.250                          // time, 250 milliseconds past the second
-@2026-09-03T09:30Z                     // datetime
-@2026-09-03T10:30:00+01:00             // the same datetime, with an offset
-@2026-09-03T10:30+01                   // the same again, both shorthands
-@2026-09-03T10:30                      // civil_datetime: no offset, no zone
-@2026-09-03T10:30+01:00[Europe/London] // zoned_datetime
-@2026-11-01T01:30-04:00[America/New_York] // the first 01:30 of the fold day
-@2026-11-01T01:30-05:00[America/New_York] // the second 01:30 of the fold day
-@09:30[America/New_York]               // zoned_time
-@[Europe/London]                       // timezone
-5m                                     // duration: five minutes
-1h30m                                  // duration: ninety minutes, as one token
-1.5h                                   // the same value
--250ms                                 // unary minus applied to 250ms
-1h + 30m                               // the same value, folded at compile time
+@2026-09-03                            # date
+@09:30                                 # time; seconds default to zero
+@09:30:15.250                          # time, 250 milliseconds past the second
+@2026-09-03T09:30Z                     # datetime
+@2026-09-03T10:30:00+01:00             # the same datetime, with an offset
+@2026-09-03T10:30+01                   # the same again, both shorthands
+@2026-09-03T10:30                      # civil_datetime: no offset, no zone
+@2026-09-03T10:30+01:00[Europe/London] # zoned_datetime
+@2026-11-01T01:30-04:00[America/New_York] # the first 01:30 of the fold day
+@2026-11-01T01:30-05:00[America/New_York] # the second 01:30 of the fold day
+@09:30[America/New_York]               # zoned_time
+@[Europe/London]                       # timezone
+5m                                     # duration: five minutes
+1h30m                                  # duration: ninety minutes, as one token
+1.5h                                   # the same value
+-250ms                                 # unary minus applied to 250ms
+1h + 30m                               # the same value, folded at compile time
 ```
 
 Every literal is validated and normalized when it is lexed:
@@ -1078,6 +1122,11 @@ operator defined elsewhere.
 Status: first-pass rule (2026-09-03); the shadowing question of the review
 stays open and this section records what the compiler does meanwhile.
 
+A `let` or `var` binding that nothing reads is a diagnostic: it is dead code,
+and the generated C++ must not carry a variable the language did not need
+(`hgraph_ir::binding_uses` decides; a compound assignment reads its target, a
+plain `=` does not).
+
 An unqualified name resolves, innermost first, to:
 
 1. a `let`, `var`, or `for` binding of the enclosing blocks, declared
@@ -1136,6 +1185,8 @@ local_decl     = "let", identifier, [ ":", type ], "=", expression
                | "var", identifier, [ ":", type ], "=", expression;
 state_decl     = "state", identifier, [ ":", value_type ],
                  "=", expression;
+cache_decl     = "cache", identifier, [ ":", value_type ],
+                 "=", expression;
 inject_decl    = "inject", identifier,
                  { ",", identifier }, [ "," ];
 lifecycle_block = ( "start" | "stop" ), block;
@@ -1151,9 +1202,16 @@ assignment_operator
                = "=" | "+=" | "-=" | "*=" | "/=";
 ```
 
-State and inject declarations precede executable blocks. The first slice
-requires a state initializer and permits at most one `start` and one `stop`
-block. It permits multiple function-level `when` blocks and preserves their
+State, cache, and inject declarations precede executable blocks. The first
+slice requires a state or cache initializer and permits at most one `start`
+and one `stop` block. A `cache` is node-local data outside record/replay,
+re-initialized on every start; multiple scalar cache fields share a generated struct in one native
+`State<>` slot. A function may declare both: the two storages are planned
+independently, as native static nodes admit one `State<>` and one
+`RecordableState<>`, and `start` seeds a state field only when it is not
+already valid while assigning every cache field unconditionally -- so a
+restored state survives and its cache is rebuilt from it
+([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -1645,20 +1703,22 @@ it. Thus `when modified(a) { ... }` implicitly requires `valid()`, and
 `when valid(a) { ... }` implicitly uses `modified()` for activation. A bare
 `when { ... }` supplies both. Calls nested under `||`, `!`, another call, or
 another residual expression do not suppress a missing top-level default. These
-defaults test endpoint validity only; recursive structural validity still
+defaults test endpoint validity only; checking immediate child validity instead
 requires `all_valid(value)`.
 
-The source spelling for an explicitly empty activation or validity selector is
-not yet defined. It cannot reuse `modified()` or `valid()`, because the empty
-argument list means all temporal parameters. The runtime representation must
-nevertheless preserve the difference between a default selector and an
-explicit empty selector.
+A scheduler-driven handler can select an explicitly empty input activation
+set with `scheduled()`. A general empty validity selector remains undefined.
+Neither `modified()` nor `valid()` means an empty selector: an empty argument
+list selects all temporal parameters. Planning preserves that distinction.
 
 The compiler may consume these calls while deriving node input policies, so
 they need not remain as runtime calls in generated C++. `valid(value)` tests
 the top-level endpoint even when the endpoint is structural or a collection;
-recursive child validity is expressed separately as `all_valid(value)`. The
-result shape of `delta` remains open.
+`all_valid(value)` additionally checks each immediate live child of a TSD,
+TSB or TSL for `valid`, not for its own `all_valid`. Removed dictionary keys
+do not participate. The check never recurses into grandchildren. TSW is an
+intentional exception: its `all_valid` checks minimum-window readiness, while
+`valid` becomes true on the first value. The result shape of `delta` remains open.
 
 `last_modified(value)` is a runtime metadata operation returning `datetime`.
 It lowers to the endpoint's public `last_modified_time` view and does not
@@ -1837,16 +1897,23 @@ Initializers run during startup only for fields that were not restored by
 record/replay. Initializers may depend on `const` parameters and admitted pure
 scalar expressions, but not current temporal input values. `state` is by
 definition temporal: it is part of the node's recorded and replayed data, and
-there is no non-recordable `state` form. Values that are not time series, such
-as cached adaptor handles, are not `state`; they belong to a separate resource
-concept that is still to be designed.
+there is no non-recordable `state` form: node-local data outside record/replay
+is a `cache` declaration, re-initialized on every start (ADR 0011). Values
+that are not time series, such as cached adaptor handles, are not `state` or
+`cache`; they belong to a separate resource concept that is still to be
+designed.
 
 An `inject` declaration requests compiler-approved runtime selectors without
-adding parameters to the callable contract. Each generated hook requests only
-the selectors it uses. Unknown capabilities and use from an unsupported phase
-are diagnostics. `out` is a special injectable inferred from the result type;
-it is invalid on an outputless function and is initially available only during
-evaluation, not in `start` or `stop`.
+adding parameters to the callable contract: `out`, `logger`, `clock` and
+`scheduler`. Each generated hook requests only the selectors it uses. Unknown
+capabilities and use from an unsupported phase are diagnostics. `out` is a
+special injectable inferred from the result type; it is invalid on an
+outputless function and is initially available only during evaluation, not in
+`start` or `stop`. The clock and scheduler methods, the `scheduled()` handler
+selector, and the `passivate`/`activate` statements are fixed by
+[ADR 0010](../design/decisions/0010-lifecycle-capabilities.md); `scheduled`,
+`passivate` and `activate` are intrinsic names. A runtime function without
+temporal parameters must inject `scheduler`.
 
 `start` runs once after replay-aware state initialization. `stop` runs once at
 teardown. State storage and injected capabilities are runtime-owned and are
@@ -2243,7 +2310,9 @@ observation rather than rule, is collected under
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;
 - complete string escape and Unicode normalization rules;
-- self-recursive fields, destructuring, and copy-with-update syntax;
+- destructuring and copy-with-update syntax; recursive struct fields are
+  agreed in [ADR 0012](../design/decisions/0012-recursive-struct-fields.md)
+  and not yet implemented;
 - explicit generic arguments on function and operator calls, generic parameter
   defaults, partial generic type application, and specialization relationships
   beyond invariant applied types and the defined pattern ranking and ambiguity
@@ -2258,8 +2327,8 @@ observation rather than rule, is collected under
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
-- declaration/initializer syntax for reconstructible caches, native type
-  lifecycle and mapping contracts, lifecycle output access, and runtime sinks;
+- non-scalar reconstructible caches, native type lifecycle and mapping
+  contracts, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior;
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction

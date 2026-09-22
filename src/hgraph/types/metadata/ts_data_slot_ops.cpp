@@ -8,12 +8,15 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
+#include <hgraph/types/time_series/ts_data/storage.h>
 #include "../time_series/ts_data/ownership.h"
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/value_slot_store.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/util/scope.h>
 
 #include <hgraph/types/python_ops.h>
@@ -42,6 +45,7 @@ namespace hgraph::ts_data_seams
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -200,6 +204,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
             {
                 const auto slot = keys_.find_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
             [[nodiscard]] bool contains(const ValueView &key) const
@@ -401,6 +411,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
                 result += dynamic_bitset_metrics(added_);
                 result += dynamic_bitset_metrics(removed_);
+                result += dynamic_bitset_metrics(membership_added_);
+                result += dynamic_bitset_metrics(membership_removed_);
                 const auto &ops = key_binding_.ops_ref();
                 for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
                 {
@@ -446,6 +458,14 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return next_delta_slot(removed_, previous);
             }
+            [[nodiscard]] bool membership_slot_added(std::size_t slot) const noexcept
+            { return slot < membership_added_.size() && membership_added_.test(slot); }
+            [[nodiscard]] bool membership_slot_removed(std::size_t slot) const noexcept
+            { return slot < membership_removed_.size() && membership_removed_.test(slot); }
+            [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous) const noexcept
+            { return next_delta_slot(membership_added_, previous); }
+            [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous) const noexcept
+            { return next_delta_slot(membership_removed_, previous); }
             [[nodiscard]] bool slot_modified(std::size_t slot) const noexcept
             {
                 return slot < modified_.size() && modified_.test(slot);
@@ -462,10 +482,22 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return slot < value_published_.size() && value_published_.test(slot);
             }
+            /** Restore publication bookkeeping without opening a delta window. */
+            void restore_slot_published(std::size_t slot, bool published)
+            {
+                ensure_delta_capacity();
+                value_published_.set(slot, published);
+            }
             [[nodiscard]] const void *key_at_slot(std::size_t slot) const { return keys_[slot]; }
             [[nodiscard]] std::size_t find_slot(const ValueView &key) const
             {
                 const auto slot = keys_.find_slot(key);
+                return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
+            }
+            /** Live or removed-and-awaiting-erase. */
+            [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const
+            {
+                const auto slot = keys_.find_stored_slot(key);
                 return slot == KeySlotStore::npos ? TS_DATA_NO_CHILD_ID : slot;
             }
             [[nodiscard]] bool contains(const ValueView &key) const
@@ -517,6 +549,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto result = keys_.insert(key);
                 ensure_delta_capacity();
                 if (!result.inserted) { return {.slot = result.slot, .changed = false}; }
+                if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
+                else membership_added_.set(result.slot);
 
                 if (slot_removed(result.slot))
                 {
@@ -544,6 +578,8 @@ namespace hgraph::ts_data_plan_factory_detail
                                         : keys_.insert(key);
                 ensure_delta_capacity();
                 if (!result.inserted) { return {.slot = result.slot, .changed = false}; }
+                if (membership_removed_.test(result.slot)) membership_removed_.reset(result.slot);
+                else membership_added_.set(result.slot);
 
                 if (slot_removed(result.slot))
                 {
@@ -570,6 +606,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!keys_.remove_slot(slot)) { return {.slot = slot, .changed = false}; }
 
                 ensure_delta_capacity();
+                if (membership_added_.test(slot)) membership_added_.reset(slot);
+                else membership_removed_.set(slot);
                 if (slot_value_published(slot))
                 {
                     if (slot_added(slot)) { added_.reset(slot); }
@@ -594,6 +632,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!keys_.remove_slot(slot)) { return {.slot = slot, .changed = false}; }
 
                 ensure_delta_capacity();
+                if (membership_added_.test(slot)) membership_added_.reset(slot);
+                else membership_removed_.set(slot);
                 if (slot_value_published(slot))
                 {
                     if (slot_added(slot)) { added_.reset(slot); }
@@ -639,6 +679,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_.reset();
                 removed_.reset();
                 modified_.reset();
+                membership_added_.reset();
+                membership_removed_.reset();
                 delta_time_ = MIN_DT;
             }
 
@@ -698,6 +740,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_.resize(capacity);
                 removed_.resize(capacity);
                 modified_.resize(capacity);
+                membership_added_.resize(capacity);
+                membership_removed_.resize(capacity);
                 value_published_.resize(capacity);
             }
 
@@ -716,6 +760,8 @@ namespace hgraph::ts_data_plan_factory_detail
             sul::dynamic_bitset<>       added_{};
             sul::dynamic_bitset<>       removed_{};
             sul::dynamic_bitset<>       modified_{};
+            sul::dynamic_bitset<>       membership_added_{};
+            sul::dynamic_bitset<>       membership_removed_{};
             sul::dynamic_bitset<>       value_published_{};
             DateTime               delta_time_{MIN_DT};
         };
@@ -724,7 +770,8 @@ namespace hgraph::ts_data_plan_factory_detail
         // One reusable Value normalizes concrete closed-union leaves into the
         // preplanned key layout without per-operation allocation.
         static_assert(sizeof(TSSSlotStorage) <= 416);
-        static_assert(sizeof(TSDSlotStorage) <= 744);
+        // Two transient membership masks are separate from value publication.
+        static_assert(sizeof(TSDSlotStorage) <= 808);
 #endif
 
         struct TSSStoragePlanContext
@@ -887,9 +934,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 storage (``schema`` above is the key set's TSS schema, so the
                 seams cannot dispatch on it). */
             bool dict_storage{false};
+            bool membership_surface{false};
         };
 
-        template <typename Storage>
+        template <typename Storage, bool Membership = false>
         struct TSSContextBase : SlotContextCommon
         {
             friend struct ts_data_seams::SlotSeamAccess;  // the RFC 0035 seams' one route in
@@ -972,6 +1020,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 set_ops.key_at_slot_impl               = &tss_key_at_slot;
                 set_ops.contains_impl                  = &tss_contains;
                 set_ops.find_slot_impl                 = &tss_find_slot;
+                set_ops.find_stored_slot_impl          = &tss_find_stored_slot;
                 set_ops.make_values_range_impl         = &tss_live_keys_range;
                 set_ops.make_added_values_range_impl   = &tss_added_keys_range;
                 set_ops.make_removed_values_range_impl = &tss_removed_keys_range;
@@ -1297,23 +1346,27 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] static bool tss_slot_added(const void *, const void *memory, std::size_t slot)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).membership_slot_added(slot); }
                 return storage<Storage>(memory).slot_added(slot);
             }
 
             [[nodiscard]] static bool tss_slot_removed(const void *, const void *memory, std::size_t slot)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).membership_slot_removed(slot); }
                 return storage<Storage>(memory).slot_removed(slot);
             }
 
             [[nodiscard]] static std::size_t tss_next_added_slot(const void *, const void *memory,
                                                                  std::size_t previous)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).next_membership_added_slot(previous); }
                 return storage<Storage>(memory).next_added_slot(previous);
             }
 
             [[nodiscard]] static std::size_t tss_next_removed_slot(const void *, const void *memory,
                                                                    std::size_t previous)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).next_membership_removed_slot(previous); }
                 return storage<Storage>(memory).next_removed_slot(previous);
             }
 
@@ -1332,6 +1385,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static std::size_t tss_find_slot(const void *, const void *memory, const ValueView &key)
             {
                 return storage<Storage>(memory).find_slot(key);
+            }
+
+            [[nodiscard]] static std::size_t tss_find_stored_slot(const void *, const void *memory,
+                                                                  const ValueView &key)
+            {
+                return storage<Storage>(memory).find_stored_slot(key);
             }
 
             [[nodiscard]] static SlotTSDataMutationResult tss_insert_key(const void *context, void *memory,
@@ -1412,6 +1471,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static bool set_slot_in_surface(const Storage &store, std::size_t slot) noexcept
             {
                 if constexpr (Surface == SlotSetSurface::Live) { return store.slot_live(slot); }
+                if constexpr (Membership)
+                {
+                    if constexpr (Surface == SlotSetSurface::Added) { return store.membership_slot_added(slot); }
+                    return store.membership_slot_removed(slot);
+                }
                 if constexpr (Surface == SlotSetSurface::Added) { return store.slot_added(slot); }
                 return store.slot_removed(slot);
             }
@@ -1638,6 +1702,107 @@ namespace hgraph::ts_data_plan_factory_detail
 
         struct TSSContext final : TSSContextBase<TSSSlotStorage>
         {
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *)
+            {
+                const auto &store = storage<TSSSlotStorage>(view.data());
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.slot_capacity = store.slot_capacity();
+                image.free_slots = store.keys().checkpoint_free_slots();
+                image.slots.reserve(store.size());
+                image.keys.reserve(store.size());
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!store.slot_live(slot)) { continue; }
+                    image.slots.push_back(slot);
+                    image.keys.emplace_back(store.key_binding(), store.key_at_slot(slot));
+                }
+                return image;
+            }
+
+            static void validate_keys(const TSDataView &view, const TSCheckpointImage &image,
+                                      const KeySlotStore &keys, ValueTypeRef key_binding)
+            {
+                ts_checkpoint_detail::validate_header(view, image);
+                if (keys.size() != 0 || keys.pending_erase_count() != 0 || image.payload.has_value() ||
+                    keys.slot_capacity() > image.slot_capacity ||
+                    image.keys.size() != image.slots.size() ||
+                    image.free_slots.size() + image.slots.size() != image.slot_capacity)
+                    throw std::invalid_argument("keyed checkpoint shape or fresh target mismatch");
+                // One pass over the slot bank and one flat set of borrowed
+                // keys: validation must not cost more than the import it guards.
+                std::vector<std::uint8_t> claimed(image.slot_capacity, 0);
+                const auto claim = [&](std::size_t slot) {
+                    if (slot >= image.slot_capacity || claimed[slot] != 0) { return false; }
+                    claimed[slot] = 1;
+                    return true;
+                };
+                struct BorrowedKeyHash
+                {
+                    [[nodiscard]] std::size_t operator()(const Value *key) const { return key->hash(); }
+                };
+                struct BorrowedKeyEqual
+                {
+                    [[nodiscard]] bool operator()(const Value *lhs, const Value *rhs) const { return lhs->equals(*rhs); }
+                };
+                ankerl::unordered_dense::set<const Value *, BorrowedKeyHash, BorrowedKeyEqual> unique_keys;
+                unique_keys.reserve(image.keys.size());
+                // Reserved in full on first use, so the borrowed addresses hold.
+                std::vector<Value> normalized;
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                {
+                    if (!claim(image.slots[i]) || !image.keys[i].has_value() ||
+                        image.keys[i].schema() != key_binding.schema())
+                        throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
+                    // Schema identity alone does not establish assignment
+                    // compatibility for a realized polymorphic key. A key that
+                    // does not already carry the destination binding is
+                    // converted here, before any slot is imported.
+                    const Value *key = &image.keys[i];
+                    if (key->binding() != key_binding)
+                    {
+                        if (normalized.empty()) { normalized.reserve(image.keys.size() - i); }
+                        key = &normalized.emplace_back(key_binding, key->view());
+                    }
+                    if (!unique_keys.insert(key).second)
+                        throw std::invalid_argument("keyed checkpoint has an invalid or duplicate key/slot");
+                }
+                for (const auto slot : image.free_slots)
+                    if (!claim(slot))
+                        throw std::invalid_argument("keyed checkpoint free slots are not the live-slot complement");
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                const auto &store = storage<TSSSlotStorage>(view.data());
+                validate_keys(view, image, store.keys(), store.key_binding());
+                if (!image.children.empty() || !image.published.empty() ||
+                    image.key_set_last_modified_time != MIN_DT)
+                    throw std::invalid_argument("set checkpoint contains dictionary metadata");
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                auto &store = storage<TSSSlotStorage>(view.mutable_data());
+                store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                    store.keys().restore_key_at_slot(image.slots[i], image.keys[i].view());
+                store.keys().restore_free_slots(image.free_slots);
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+                store.reset_delta();
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    [](const TSDataView &, const TSCheckpointContext *) { return true; },
+                    checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             TSSContext(const TSValueTypeMetaData &schema,
                        const MemoryUtils::StoragePlan &plan,
                        const ValueTypeRef &key_binding,
@@ -1645,6 +1810,7 @@ namespace hgraph::ts_data_plan_factory_detail
                        bool embedded)
             {
                 initialise_tss_common(schema, plan, key_binding, true);
+                set_ops.checkpoint_ops = &checkpoint_ops();
                 root_type = TSRoleTypeRef{intern_ts_type(
                     schema, role, plan, set_ops, keyed_root_label(schema.kind, role, embedded))};
             }
@@ -1657,6 +1823,7 @@ namespace hgraph::ts_data_plan_factory_detail
             TypeRole                  role{TypeRole::Invalid};
             TSDDataOps              dict_ops{};
             TSSDataOps              key_set_ts_ops{};
+            TSSContextBase<TSDSlotStorage, true> key_set_context{};
             TSDDataLayout           dict_layout{};
             MapValueOps             value_map_ops{};
             MapValueOps             modified_map_ops{};
@@ -1692,13 +1859,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept
             {
                 static const detail::TSDataOwnershipOps ops{
+                    // Ordinal 0 is the key set; ordinal n + 1 is slot n, vacant
+                    // when the slot is. See TSDataOwnershipOps: O(1) each.
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) { return std::size_t{0}; }
-                        const auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                            count += store.slot_occupied(slot) ? 1U : 0U;
-                        return count;
+                        return storage<TSDSlotStorage>(memory).slot_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -1710,24 +1875,109 @@ namespace hgraph::ts_data_plan_factory_detail
                                 .attach_parent = false,
                             };
                         auto &store = storage<TSDSlotStorage>(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                        {
-                            if (!store.slot_occupied(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = state->dict_layout.element_type,
-                                    .data = store.child_memory_for_write(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= store.slot_capacity() || !store.slot_occupied(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = state->dict_layout.element_type,
+                            .data = store.child_memory_for_write(slot),
+                            .parent_child_id = slot,
+                        };
+                    },
+                    .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
+                        const auto &store = storage<TSDSlotStorage>(memory);
+                        return store.slot_live(slot) ||
+                               (store.slot_occupied(slot) && store.structural_delta_current(time));
                     },
                 };
                 return ops;
             }
 
           private:
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                TSData prototype{self.dict_layout.element_type};
+                return ts_checkpoint_eligible(prototype.view(), context);
+            }
+
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                const auto &store = storage<TSDSlotStorage>(view.data());
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.key_set_last_modified_time = store.key_set_tracking().last_modified_time;
+                image.slot_capacity = store.slot_capacity();
+                image.free_slots = store.keys().checkpoint_free_slots();
+                image.slots.reserve(store.size());
+                image.keys.reserve(store.size());
+                image.children.reserve(store.size());
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (!store.slot_live(slot)) { continue; }
+                    image.slots.push_back(slot);
+                    image.keys.emplace_back(store.key_binding(), store.key_at_slot(slot));
+                    image.children.push_back(capture_ts_checkpoint(
+                        TSDataView{self.dict_layout.element_type, store.child_at_slot(slot)}, context));
+                    image.published.push_back(store.slot_value_published(slot));
+                }
+                return image;
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                const auto &store = storage<TSDSlotStorage>(view.data());
+                TSSContext::validate_keys(view, image, store.keys(), store.key_binding());
+                if (image.children.size() != image.keys.size() || image.published.size() != image.keys.size() ||
+                    (image.last_modified_time != MIN_DT &&
+                     image.key_set_last_modified_time > image.last_modified_time))
+                    throw std::invalid_argument("dictionary checkpoint shape or timestamp mismatch");
+                // Validation never writes, so one fresh element stands in for
+                // every child.
+                TSData prototype{self.dict_layout.element_type};
+                for (std::size_t i = 0; i < image.children.size(); ++i)
+                {
+                    const auto &child = image.children[i];
+                    if (child.last_modified_time > image.last_modified_time)
+                        throw std::invalid_argument("dictionary checkpoint child timestamp exceeds its parent");
+                    if (child.last_modified_time != MIN_DT && !image.published[i])
+                        throw std::invalid_argument("dictionary checkpoint has an unpublished valid child");
+                    validate_ts_checkpoint(prototype.view(), child, context);
+                }
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                const auto &self = *static_cast<const TSDContext *>(view.ops().context);
+                auto &store = storage<TSDSlotStorage>(view.mutable_data());
+                store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
+                for (std::size_t i = 0; i < image.keys.size(); ++i)
+                {
+                    const auto slot = image.slots[i];
+                    store.keys().restore_key_at_slot(slot, image.keys[i].view());
+                    TSDataView child{self.dict_layout.element_type, store.child_memory_for_write(slot)};
+                    detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, slot);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i], context);
+                    store.restore_slot_published(slot, image.published[i]);
+                }
+                store.keys().restore_free_slots(image.free_slots);
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+                store.mutable_key_set_tracking().last_modified_time = image.key_set_last_modified_time;
+                store.reset_delta();
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    checkpoint_eligible, checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             void initialise_tsd(const TSValueTypeMetaData &schema_,
                                 const MemoryUtils::StoragePlan &plan_,
                                 const ValueTypeRef &key_binding,
@@ -1793,6 +2043,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.copy_value_from_impl = &tsd_copy_value_from;
                 base_ops.current_state_ops =
                     &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSD);
+                base_ops.checkpoint_ops = &checkpoint_ops();
                 base_ops.empty_delta_impl = &ts_data_detail::empty_delta_tsd;
                 base_ops.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 base_ops.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
@@ -1807,6 +2058,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &tsd_slot_modified;
                 dict_ops.next_modified_slot_impl = &tsd_next_modified_slot;
+                dict_ops.membership_slot_added_impl = &tsd_membership_slot_added;
+                dict_ops.membership_slot_removed_impl = &tsd_membership_slot_removed;
+                dict_ops.next_membership_added_slot_impl = &tsd_next_membership_added_slot;
+                dict_ops.next_membership_removed_slot_impl = &tsd_next_membership_removed_slot;
                 dict_ops.make_ts_values_range_impl = &tsd_ts_values_range;
                 dict_ops.make_valid_keys_range_impl = &tsd_valid_keys_range;
                 dict_ops.make_valid_ts_values_range_impl = &tsd_valid_ts_values_range;
@@ -1934,7 +2189,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 // ``modified`` reports actual membership changes only, not the
                 // dictionary's value ticks (subscriptions stay on the shared
                 // root set, so notification wiring is unchanged).
-                key_set_ts_ops = set_ops;
+                // Key membership and child value publication have independent deltas.
+                // Keep the key-set's erased value/delta context separate from the
+                // dictionary's publication surfaces over the same slot storage.
+                const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
+                key_set_context.dict_storage = true;
+                key_set_context.membership_surface = true;
+                key_set_context.initialise_tss_common(*key_set_schema, plan_, key_binding, false, element_type);
+                key_set_ts_ops = key_set_context.set_ops;
                 // The projection is STRICTLY read-only: it reports the
                 // owner's mutations (dedicated tracking + observers) but can
                 // never perform one. strip_to_read_only is the single place
@@ -1943,7 +2205,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 key_set_ts_ops.tracking_impl          = &tsd_key_set_tracking;
                 key_set_ts_ops.mutable_tracking_impl  = &tsd_key_set_mutable_tracking;  // subscriptions only
                 key_set_ts_ops.has_current_value_impl = &tsd_key_set_has_current_value;
-                const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
                 // The key-set projection captures as a TSS: its layout records
                 // the key set's own canonical delta, not the dictionary's.
                 set_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*key_set_schema);
@@ -2098,15 +2359,17 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage<TSDSlotStorage>(memory).tracking().last_modified_time != MIN_DT;
             }
 
-            // A TSD's ``all_valid`` is its ``valid``. A key only exists once it
-            // has a value, so there is no partially populated state for a
-            // deeper walk to detect, and walking into the values would make
-            // this a recursive check. Upstream agrees: ``TSD`` declares no
-            // ``all_valid`` override and inherits
-            // ``PythonTimeSeriesOutput.all_valid``, which returns ``valid``.
+            // Membership does not imply child validity: a live slot may be
+            // uninitialized or invalidated. Inspect only immediate children.
             [[nodiscard]] static bool tsd_all_valid(const void *context, const void *memory)
             {
-                return tsd_has_current_value(context, memory);
+                if (!tsd_has_current_value(context, memory)) { return false; }
+                const auto &store = storage<TSDSlotStorage>(memory);
+                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
+                {
+                    if (store.keys().slot_live(slot) && !store.child_has_current_value(slot)) { return false; }
+                }
+                return true;
             }
 
             [[nodiscard]] static const void *tsd_value_memory(const void *, const void *memory) noexcept
@@ -2168,6 +2431,15 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return storage<TSDSlotStorage>(memory).slot_modified(slot);
             }
+
+            [[nodiscard]] static bool tsd_membership_slot_added(const void *, const void *memory, std::size_t slot)
+            { return storage<TSDSlotStorage>(memory).membership_slot_added(slot); }
+            [[nodiscard]] static bool tsd_membership_slot_removed(const void *, const void *memory, std::size_t slot)
+            { return storage<TSDSlotStorage>(memory).membership_slot_removed(slot); }
+            [[nodiscard]] static std::size_t tsd_next_membership_added_slot(const void *, const void *memory, std::size_t previous)
+            { return storage<TSDSlotStorage>(memory).next_membership_added_slot(previous); }
+            [[nodiscard]] static std::size_t tsd_next_membership_removed_slot(const void *, const void *memory, std::size_t previous)
+            { return storage<TSDSlotStorage>(memory).next_membership_removed_slot(previous); }
 
             [[nodiscard]] static std::size_t tsd_next_modified_slot(const void *, const void *memory,
                                                                     std::size_t previous)
@@ -2332,7 +2604,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &added_slot_predicate,
+                    .predicate = &tsd_membership_slot_added,
                     .projector = &ts_value_projector,
                 };
             }
@@ -2343,7 +2615,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &removed_slot_predicate,
+                    .predicate = &tsd_membership_slot_removed,
                     .projector = &ts_value_projector,
                 };
             }
@@ -2355,7 +2627,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &added_slot_predicate,
+                    .predicate = &tsd_membership_slot_added,
                     .projector = &ts_kv_projector,
                 };
             }
@@ -2367,7 +2639,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &removed_slot_predicate,
+                    .predicate = &tsd_membership_slot_removed,
                     .projector = &ts_kv_projector,
                 };
             }
@@ -3174,13 +3446,20 @@ namespace hgraph::ts_data_seams
         return SlotSeamAccess::common(context).removed_set_binding;
     }
 
-    const TSDataTracking &tss_tracking(const void *memory) noexcept { return storage<TSSSlotStorage>(memory).tracking(); }
+    const TSDataTracking &tss_tracking(const void *context, const void *memory) noexcept
+    {
+        return SlotSeamAccess::common(context).dict_storage
+                   ? storage<TSDSlotStorage>(memory).key_set_tracking()
+                   : storage<TSSSlotStorage>(memory).tracking();
+    }
 
     Range<ValueView> tss_keys(const void *context, const void *memory, SetSurface surface)
     {
         // The set surfaces (live / added / removed) exist on a TSS and on a
         // TSD's key set alike, over their own storages: dispatch on the
         // context's kind, as the per-storage instantiation used to.
+        if (SlotSeamAccess::common(context).membership_surface)
+            return SlotSeamAccess::keys<TSSContextBase<TSDSlotStorage, true>>(context, memory, surface);
         return SlotSeamAccess::common(context).dict_storage
                    ? SlotSeamAccess::keys<SlotSeamAccess::DictCtx>(context, memory, surface)
                    : SlotSeamAccess::keys<SlotSeamAccess::SetBase>(context, memory, surface);

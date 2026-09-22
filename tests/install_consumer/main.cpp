@@ -5,6 +5,9 @@
 #include <hgraph/lib/std/operators/table.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/runtime/distributed_map_wiring.h>
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/record_replay.h>
@@ -25,11 +28,13 @@
 #include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/type_resolution.h>
 #include <hgraph/types/utils/stable_slot_store.h>
+#include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/shared_value_pool.h>
@@ -162,6 +167,48 @@ namespace
 
         check_capacity(*ts_int, make_push_source_queue_policy(*ts_int, 1));
         check_capacity(*ts_tuple, make_push_source_burst_policy(*ts_tuple, 1));
+    }
+
+    void check_observer_lookup_contract()
+    {
+        using namespace hgraph;
+        struct Observer final : Notifiable, SlotObserver
+        {
+            std::size_t calls{0};
+            void notify(DateTime) override { ++calls; }
+            void on_insert(std::size_t) override { ++calls; }
+            void on_capacity(std::size_t, std::size_t) override {}
+            void on_remove(std::size_t) override {}
+            void on_erase(std::size_t) override {}
+            void on_clear() override {}
+        };
+        std::vector<Observer> observers(65);
+        TSDataObserverSet data;
+        SlotObserverList slots;
+        for (std::size_t i = 0; i < 64; ++i)
+        {
+            data.subscribe(&observers[i]);
+            slots.add(&observers[i]);
+        }
+        data.replace(&observers[31], &observers[64]);
+        data.notify(MIN_ST);
+        slots.notify_insert(0);
+        for (std::size_t i = 64; i > 0; --i)
+        {
+            const auto position = i - 1;
+            if (observers[position].calls != (position == 31 ? 1u : 2u))
+            {
+                throw std::runtime_error("installed observer lookup lost a registration");
+            }
+            data.unsubscribe(&observers[position == 31 ? 64 : position]);
+            slots.remove(&observers[position]);
+        }
+        if (!data.empty() || !slots.empty() || observers[64].calls != 1 ||
+            data.dynamic_storage_metrics().reserved_bytes != 0 ||
+            slots.dynamic_storage_metrics().reserved_bytes != 0)
+        {
+            throw std::runtime_error("installed observer teardown retained registrations or storage");
+        }
     }
 
     void check_value_hash_contract()
@@ -326,8 +373,69 @@ namespace
     }
 }  // namespace
 
-int main()
+namespace {
+using namespace hgraph;
+using ConsumerDictionary = TSD<Int, TS<Int>>;
+struct ConsumerKeyedValue {
+    static void eval(In<"ts", TS<Int>> ts, Out<ConsumerDictionary> out) { out[Int{1}].set(ts.value()); }
+};
+struct ConsumerEcho {
+    static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value()); }
+};
+struct ConsumerReadKey {
+    static void eval(In<"ts", ConsumerDictionary> ts, Out<TS<Int>> out) {
+        for (const auto &[key, value] : ts.valid_items()) {
+            static_cast<void>(key);
+            out.set(value.value());
+        }
+    }
+};
+struct ConsumerDistributedGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) {
+        auto keyed = wire<ConsumerKeyedValue>(w, input);
+        auto plan = distributed::prepare_distributed_map(fn<ConsumerEcho>(), keyed.erased().schema);
+        plan.config.hosting = distributed::WorkerHosting::InProcess;
+        auto result = distributed::wire_distributed_map(w, keyed.erased(),
+            std::make_shared<const distributed::DistributedMapPlan>(std::move(plan)));
+        return wire<ConsumerReadKey>(w, result);
+    }
+};
+struct ConsumerMixedState {
+    static void start(State<Int> cache, RecordableState<TS<Int>> state) {
+        if (!state.valid()) { state.set(Int{0}); }
+        cache.set(state.value().checked_as<Int>());
+    }
+    static void eval(In<"ts", TS<Int>> input, State<Int> cache,
+                     RecordableState<TS<Int>> state, Out<TS<Int>> out) {
+        if (cache.get() != state.value().checked_as<Int>())
+            throw std::runtime_error("installed mixed-state lifecycle is inconsistent");
+        const auto total = cache.get() + input.value();
+        cache.set(total);
+        state.set(total);
+        out.set(total);
+    }
+};
+void check_mixed_state() {
+    const auto result = testing::eval_node<ConsumerMixedState>(std::vector<std::optional<Int>>{1, 2});
+    if (result != std::vector<std::optional<Int>>{1, 3})
+        throw std::runtime_error("installed mixed-state node API is unusable");
+}
+void check_distributed_client() {
+    stdlib::register_standard_operators();
+    const auto result = testing::eval_node<ConsumerDistributedGraph>(std::vector<std::optional<Int>>{5, 7});
+    if (result != std::vector<std::optional<Int>>{5, 7})
+        throw std::runtime_error("installed distributed worker-plan API is unusable");
+}
+}
+
+void check_spawn_consumer();
+void register_spawn_consumer_recipes();
+
+int main(int argc, char **argv)
 {
+    register_spawn_consumer_recipes();
+    if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
+    check_spawn_consumer();
     using namespace hgraph;
 
     static_assert(std::is_standard_layout_v<SchemaHeader>);
@@ -336,16 +444,15 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    // ABI 5 adds the cold-path compiled-child inspection contract.
-    static_assert(NODE_OPS_ABI_VERSION == 5);
+    // ABI 7 extends node images with owner-specific endpoint images.
+    static_assert(NODE_OPS_ABI_VERSION == 9);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 8);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 14 (RFC 0035): TSDataOps records its Python-authoring family; ABI 13 made the
-    // Python slots unconditional and opaque; ABI 12 made the keyed and window TSData
-    // projections return binding and memory together.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 16);
+    static_assert(GRAPH_OPS_ABI_VERSION == 10);
+    // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
+    // ABI 20 adds timestamp-preserving window sample replacement.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 22);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
@@ -415,6 +522,25 @@ int main()
 
     auto &registry = TypeRegistry::instance();
     registry.register_scalar<std::int32_t>("int32");
+
+    {
+        const auto *schema = registry.ts(scalar_descriptor<Int>::value_meta());
+        TSOutput source{schema};
+        TSOutput restored{schema};
+        const Value payload{Int{42}};
+        {
+            auto mutation = source.data_view().begin_mutation(MIN_ST);
+            (void)mutation.copy_value_from(payload.view());
+        }
+        const auto image = capture_ts_checkpoint(source.data_view());
+        restore_ts_checkpoint(restored.data_view(), image);
+        if (restored.data_view().value().checked_as<Int>() != Int{42} ||
+            restored.data_view().last_modified_time() != MIN_ST ||
+            restored.data_view().modified(MIN_ST + MIN_TD))
+        {
+            throw std::runtime_error("installed quiet endpoint checkpoint contract is unusable");
+        }
+    }
 
     const auto *consumer_scalar_schema = scalar_descriptor<ConsumerScalar>::value_meta();
     const auto *shared_consumer_schema = scalar_descriptor<SharedConsumerScalar>::value_meta();
@@ -624,9 +750,12 @@ int main()
         throw std::runtime_error("installed Arrow frame metadata codec is unusable");
     }
 
+    check_mixed_state();
+    check_distributed_client();
     check_probe_backend_round_trip();
     check_push_source_queue_contract();
     check_value_hash_contract();
+    check_observer_lookup_contract();
     hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;

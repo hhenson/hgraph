@@ -333,6 +333,37 @@ multi-cycle-settle ordering:
   below the requester) and ``re_rank`` keeps the requester above it; a cycle is
   a runtime error. The schedule queue's future minimum re-arms the mesh parent
   once after the settle loop.
+
+  The loop is **dependency-aware** (2026-09-18). An instance that pauses on a
+  dependency which will settle this cycle is *parked* on it: it leaves the
+  candidate set and is offered again only when that dependency settles or is
+  removed. Rank order is therefore a heuristic that avoids needless pauses,
+  not what correctness rests on -- an instance evaluated ahead of its
+  dependency merely parks and is woken in its turn. Three things follow, each
+  of which was separately quadratic in the depth of a chain discovered within
+  one cycle:
+
+  * a paused instance is **not retried on every pass**, only when woken;
+  * a pass is a **worklist, not a snapshot** -- an instance woken, or a
+    dependency created, during a pass is appended and handled in that same
+    pass, so a chain unwinds in one pass rather than one instance per pass;
+  * an on-demand dependency takes the rank **just below its requester**, and
+    requested instances start from a high base rank, so discovering a chain
+    from its top re-ranks nothing. Placing every new dependency at rank zero
+    pushed the whole chain above it up by one each time. Ranks remain
+    non-negative, as the checkpoint image requires, and the cascade remains for
+    the real case of an existing dependency ranked at or above its requester.
+
+  An instance still parked when the loop runs dry is waiting for a dependency
+  that never settled; that raises the same ``mesh_ failed to settle within the
+  cycle`` error the pass guard reports. The forward edges (requester → its
+  dependencies) mirror the reverse ``dependents`` map so that removing an
+  instance visits its own edges only; the pair changes through ``add_edge``,
+  ``remove_edge`` and ``remove_requester_edges`` alone.
+
+  ``tests/cpp/test_mesh.cpp`` ``[mesh-scaling]`` creates a chain on demand from
+  its top: 1,000 deep went from 277 ms to 7.9 ms, flat at about 8 µs per
+  instance.
 - **Wiring**: the ``mesh_`` operator (``wire_mesh``, peer instantiation = ``map_``),
   the wiring-time **mesh-context stack** (pushed around the child compile), and
   ``mesh_(func)[k]`` access via ``mesh_ref<OUT>(w, key)`` (resolves the scope, wires a

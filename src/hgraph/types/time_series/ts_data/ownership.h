@@ -15,6 +15,20 @@ namespace hgraph::detail
         bool             attach_parent{true};
     };
 
+    /**
+     * How an owning representation exposes the endpoints it owns to the
+     * lifecycle walkers below (attach parents, stop, invalidate, metrics).
+     *
+     * ``child_count`` is the size of the owner's child ORDINAL SPACE, not the
+     * number of children: an ordinal may be vacant, and ``child_at`` answers a
+     * vacant ordinal with an empty child, which every walker skips. A child
+     * whose identity is not its ordinal reports it in ``parent_child_id``.
+     *
+     * Both operations are O(1). Every walker visits the whole space, so an
+     * ``child_at`` that searched for the n-th occupied entry would make start,
+     * stop and teardown of a keyed collection quadratic in its size. Keyed
+     * owners therefore use their slot bank as the ordinal space.
+     */
     struct TSDataOwnershipOps
     {
         using child_count_fn = std::size_t (*)(const void *context, const void *memory) noexcept;
@@ -27,8 +41,12 @@ namespace hgraph::detail
         child_at_fn    child_at{nullptr};
         stop_fn        stop{nullptr};
         auxiliary_metrics_fn auxiliary_dynamic_storage{nullptr};
+        /** Logical lifetime of a child slot; storage may remain allocated after expiry. */
+        bool (*child_alive_at)(const void *, const void *, std::size_t, DateTime) noexcept =
+            [](const void *, const void *, std::size_t, DateTime) noexcept { return true; };
     };
 
+    [[nodiscard]] bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept;
     void attach_owned_ts_data_parents(TSDataView root);
     void attach_owned_ts_data_parent(TSDataView child, const TSDataView &parent, std::size_t child_id);
     void stop_owned_ts_data_tree(TSDataView root) noexcept;

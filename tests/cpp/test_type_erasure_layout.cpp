@@ -40,16 +40,17 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ValueTypeRef>);
     static_assert(sizeof(NodeTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<NodeTypeRef>);
-    // ABI 5 adds the cold-path compiled-child inspection contract.
-    static_assert(NODE_OPS_ABI_VERSION == 5);
+    // ABI 9 extends node checkpoint images with independent scheduler data.
+    static_assert(NODE_OPS_ABI_VERSION == 9);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 8);
+    static_assert(GRAPH_OPS_ABI_VERSION == 10);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
+    // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 7);
     static_assert(sizeof(ClockTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ClockTypeRef>);
     static_assert(sizeof(ValueView) == sizeof(void *) * 2);
@@ -80,13 +81,14 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
+    // ABI 18 extends the checkpoint image with compact window timestamps.
     // ABI 16: TSDataLayout records the portable delta type
     // (canonical_delta_binding) beside the storage's delta surface, so delta
     // capture builds without the realization snapshot. ABI 15 (RFC 0035):
     // the Python-authoring table pointer is gone; a strategy records only its
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 16);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 22);
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
@@ -273,9 +275,12 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     const auto &dynamic = factory.data_type_for(dynamic_schema).checked_plan();
     const auto &tick = factory.data_type_for(tick_schema).checked_plan();
     const auto &duration = factory.data_type_for(duration_schema).checked_plan();
-    // 112 = the pre-RFC-0031 96 plus the two structural-delta lengths
-    // (live and previous); the window time reuses the modified-ring header.
-    REQUIRE(dynamic.layout.size == 112);
+    // 120 = the pre-RFC-0031 96, plus the two structural-delta lengths (live
+    // and previous) -- the window time reuses the modified-ring header -- plus
+    // one pointer to the ordinal snapshot of the modified ring, which exists
+    // only for a list that has been read by ordinal. Without it every such
+    // read walked the ring from its head: m modified elements cost m * m.
+    REQUIRE(dynamic.layout.size == 120);
     REQUIRE(dynamic.layout.alignment == 8);
     REQUIRE(tick.layout.size == 136);
     REQUIRE(tick.layout.alignment == 8);

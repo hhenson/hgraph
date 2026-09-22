@@ -1,9 +1,12 @@
+#include <cstdio>
+#include <chrono>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_input/target_link.h>
@@ -11,6 +14,7 @@
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <cstdint>
@@ -2046,6 +2050,144 @@ TEST_CASE("TSInput structural activation survives an unbound target link")
     active_dict.make_passive();
 }
 
+TEST_CASE("TSInput activity checkpoints preserve packed static paths and quiet structural subscriptions", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *scalar = registry.ts(integer);
+    const auto *dict = registry.tsd(integer, scalar);
+    const auto *packed = registry.tsb("CheckpointActivityPacked", {{"scalar", scalar}, {"dict", dict}});
+    const auto *root = registry.tsb("CheckpointActivityRoot", {{"args", packed}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root,
+        TSEndpointSchema::non_peered(root, {TSEndpointSchema::non_peered(packed,
+            {TSEndpointSchema::peered(scalar), TSEndpointSchema::peered(dict)})}))};
+    TSOutput scalar_output{*scalar};
+    TSOutput dict_output{*dict};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    auto args = view.indexed_child_at(0);
+    auto a = args.indexed_child_at(0);
+    auto b = args.indexed_child_at(1);
+    a.bind_output(scalar_output.view(MIN_ST));
+    b.bind_output(dict_output.view(MIN_ST));
+    args.make_active();
+    a.make_active();
+    b.make_structural_active();
+    auto image = view.checkpoint_activity();
+    CHECK(image == std::vector<TSInputActivityEntry>{{{0}, TSInputActivityMode::Value},
+        {{0, 0}, TSInputActivityMode::Value}, {{0, 1}, TSInputActivityMode::Structural}});
+    args.make_passive();
+    image = view.checkpoint_activity();
+
+    view.make_active();
+    a.make_passive();
+    b.make_active();
+    REQUIRE_FALSE(view.restore_checkpoint_activity(image));
+    CHECK_FALSE(view.active());
+    CHECK_FALSE(args.active());
+    CHECK(a.active());
+    CHECK(b.active());
+    CHECK(notifier.notified.empty());
+    CHECK(view.checkpoint_activity() == image);
+
+    const Value key{std::int32_t{1}};
+    const Value other_key{std::int32_t{2}};
+    const Value value{std::int32_t{10}};
+    auto update = [&](const Value &k, DateTime time) {
+        auto output_view = dict_output.view(time);
+        auto dictionary = output_view.as_dict();
+        auto mutation = dictionary.begin_mutation(time);
+        auto child = mutation.at(k.view());
+        auto value_mutation = child.begin_mutation(time);
+        REQUIRE(value_mutation.copy_value_from(value.view()));
+    };
+    update(key, MIN_ST);
+    REQUIRE(notifier.notified == std::vector<DateTime>{MIN_ST});
+    notifier.notified.clear();
+    update(key, MIN_ST + MIN_TD);
+    CHECK(notifier.notified.empty());
+    auto next = input.view(&notifier, MIN_ST + MIN_TD);
+    // A new value on a passive/value-excluded observation cannot preserve a
+    // bootstrap schedule when restoring a structural-only subscription.
+    CHECK_FALSE(next.restore_checkpoint_activity(image));
+    CHECK(notifier.notified.empty());
+    update(other_key, MIN_ST + 2 * MIN_TD);
+    CHECK(notifier.notified == std::vector<DateTime>{MIN_ST + 2 * MIN_TD});
+}
+
+TEST_CASE("TSInput activity checkpoint validation is complete before replacing subscriptions", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *root = registry.tsb("CheckpointActivityValidation", {{"ts", scalar}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root,
+        TSEndpointSchema::non_peered(root, {TSEndpointSchema::peered(scalar)}))};
+    TSOutput output{*scalar};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    auto child = view.indexed_child_at(0);
+    child.bind_output(output.view(MIN_ST));
+    child.make_active();
+    const auto original = view.checkpoint_activity();
+    const std::vector<std::vector<TSInputActivityEntry>> invalid{
+        {{{0}, TSInputActivityMode::Value}, {{0}, TSInputActivityMode::Value}},
+        {{{1}, TSInputActivityMode::Value}},
+        {{{0, 0}, TSInputActivityMode::Value}},
+        {{{0}, static_cast<TSInputActivityMode>(0)}},
+        {{{0}, TSInputActivityMode::Structural}},
+    };
+    for (const auto &image : invalid)
+    {
+        CHECK_THROWS_AS(view.restore_checkpoint_activity(image), std::invalid_argument);
+        CHECK(view.checkpoint_activity() == original);
+    }
+    set_output(output, 1, MIN_ST);
+    notifier.notified.clear();
+    CHECK_FALSE(view.restore_checkpoint_activity({}));
+    CHECK(view.checkpoint_activity().empty());
+    CHECK(notifier.notified.empty());
+}
+
+TEST_CASE("TSInput activity checkpoints refuse active descendants inside peered targets", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(registry.register_scalar<std::int32_t>("int32"));
+    const auto *bundle = registry.tsb("CheckpointActivityTarget", {{"ts", scalar}});
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*bundle, TSEndpointSchema::peered(bundle))};
+    TSOutput output{*bundle};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    view.bind_output(output.view(MIN_ST));
+    auto child = view.indexed_child_at(0);
+    child.make_active();
+    CHECK_THROWS_WITH(view.checkpoint_activity(), Catch::Matchers::ContainsSubstring("nested target activity"));
+    CHECK_FALSE(view.restore_checkpoint_activity({}));
+    CHECK_FALSE(child.active());
+    CHECK(view.checkpoint_activity().empty());
+    CHECK(notifier.notified.empty());
+}
+
+TEST_CASE("TSInput activity checkpoints distinguish owned structural observations", "[checkpoint][input]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *set = registry.tss(registry.register_scalar<std::int32_t>("int32"));
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*set, TSEndpointSchema::local(set))};
+    RecordingNotifiable notifier;
+    auto view = input.view(&notifier, MIN_ST);
+    view.make_structural_active();
+    const auto image = view.checkpoint_activity();
+    REQUIRE(image == std::vector<TSInputActivityEntry>{{{}, TSInputActivityMode::Structural}});
+    view.make_active();
+    CHECK(view.checkpoint_activity() == std::vector<TSInputActivityEntry>{{{}, TSInputActivityMode::Value}});
+    CHECK_FALSE(view.restore_checkpoint_activity(image));
+    CHECK(view.checkpoint_activity() == image);
+    CHECK(notifier.notified.empty());
+}
+
 TEST_CASE("TSInput endpoint operations preserve published structural state semantics")
 {
     using namespace hgraph;
@@ -2195,6 +2337,131 @@ TEST_CASE("TSD input structural ranges do not repeat a prior removal on a forwar
     CHECK(removed_keys.begin() == removed_keys.end());
     CHECK(removed_values.begin() == removed_values.end());
     CHECK(removed_items.begin() == removed_items.end());
+}
+
+TEST_CASE("TSD input re-point does not re-add a key the old source removed in the same cycle")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+
+    TSOutput first{*dict_schema};
+    TSOutput second{*dict_schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(
+        *dict_schema, TSEndpointSchema::peered(dict_schema))};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value dropped_key{std::int32_t{1}};
+    Value shared_key{std::int32_t{2}};
+    Value new_key{std::int32_t{3}};
+    Value initial{std::int32_t{10}};
+
+    {
+        auto output_view = first.view(t1);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        mutation.set(dropped_key.view(), initial.view());
+        mutation.set(shared_key.view(), initial.view());
+    }
+    {
+        auto output_view = second.view(t1);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        mutation.set(dropped_key.view(), initial.view());
+        mutation.set(shared_key.view(), initial.view());
+        mutation.set(new_key.view(), initial.view());
+    }
+
+    input.view(nullptr, t1).bind_output(first.view(t1));
+
+    // The old source drops a key in the very cycle the input is re-pointed at
+    // a source that still holds it. The consumer has already seen that key, so
+    // it is neither added nor removed; only the genuinely new key is added.
+    // The old source no longer lists the key as live, so this is answered from
+    // its pending-erase slot.
+    {
+        auto output_view = first.view(t2);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t2);
+        REQUIRE(mutation.erase(dropped_key.view()));
+    }
+    input.view(nullptr, t2).bind_output_sampled(second.view(t2), t2);
+
+    auto input_view = input.view(nullptr, t2);
+    auto current = input_view.as_dict();
+    REQUIRE(current.modified());
+    std::vector<std::int32_t> added;
+    for (auto &&key : current.added_keys()) { added.push_back(key.checked_as<std::int32_t>()); }
+    std::vector<std::int32_t> removed;
+    for (auto &&key : current.removed_keys()) { removed.push_back(key.checked_as<std::int32_t>()); }
+    CHECK(added == std::vector<std::int32_t>{3});
+    CHECK(removed.empty());
+}
+
+TEST_CASE("TSD input re-point cost is linear in the keys the old source removed", "[.][target-link-scaling]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_integer = registry.ts(integer);
+    const auto *dict_schema = registry.tsd(integer, ts_integer);
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value initial{std::int32_t{10}};
+
+    std::printf("%10s %14s %14s\n", "keys", "repoint_ms", "us_per_key");
+    for (const std::int32_t count : {2'000, 4'000, 8'000, 16'000, 32'000})
+    {
+        TSOutput first{*dict_schema};
+        TSOutput second{*dict_schema};
+        TSInput input{TSInputBuilderFactory::checked_builder_for(
+            *dict_schema, TSEndpointSchema::peered(dict_schema))};
+
+        for (TSOutput *source : {&first, &second})
+        {
+            auto output_view = source->view(t1);
+            auto dict = output_view.as_dict();
+            auto mutation = dict.begin_mutation(t1);
+            for (std::int32_t key = 0; key < count; ++key)
+            {
+                Value key_value{key};
+                mutation.set(key_value.view(), initial.view());
+            }
+        }
+        input.view(nullptr, t1).bind_output(first.view(t1));
+
+        // Every key leaves the old source in the cycle of the re-point, so
+        // each key of the new source is looked up among the removed ones.
+        {
+            auto output_view = first.view(t2);
+            auto dict = output_view.as_dict();
+            auto mutation = dict.begin_mutation(t2);
+            for (std::int32_t key = 0; key < count; ++key)
+            {
+                Value key_value{key};
+                REQUIRE(mutation.erase(key_value.view()));
+            }
+        }
+        input.view(nullptr, t2).bind_output_sampled(second.view(t2), t2);
+
+        const auto started = std::chrono::steady_clock::now();
+        auto input_view = input.view(nullptr, t2);
+        auto current = input_view.as_dict();
+        std::size_t added = 0;
+        for (auto &&key : current.added_keys())
+        {
+            static_cast<void>(key);
+            ++added;
+        }
+        const auto elapsed = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - started).count();
+        REQUIRE(added == 0);
+        std::printf("%10d %14.3f %14.4f\n", count, elapsed, elapsed * 1000.0 / count);
+    }
 }
 
 TEST_CASE("dynamic TSL input reports the truncated indices and their retained values")
@@ -2604,4 +2871,134 @@ TEST_CASE("prepared routes re-check the observation kind before the fast path")
     // stable trie node.
     active_bundle.field("s").make_active();
     require_matches_slow_path();
+}
+
+TEST_CASE("Runtime contract reports dictionary membership independently of child validity", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+    Value key{1}, value{7};
+    const auto inserted = MIN_ST + TimeDelta{1};
+    {
+        auto output_view = output.view(inserted);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(inserted);
+        static_cast<void>(mutation.at(key.view()));
+    }
+    auto input_view = input.view(nullptr, inserted);
+    auto dict = input_view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 1);
+    REQUIRE(range_size(dict.added_items()) == 1);
+    REQUIRE_FALSE(dict.at(key.view()).valid());
+    const auto published = inserted + TimeDelta{1};
+    auto output_view = output.view(published);
+    output_view.as_dict().begin_mutation(published).set(key.view(), value.view());
+    input_view = input.view(nullptr, published);
+    dict = input_view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 0);
+    REQUIRE(range_size(dict.added_items()) == 0);
+    REQUIRE_FALSE(dict.data_view().key_set().modified(published));
+    const auto invalidated = published + TimeDelta{1};
+    output_view = output.view(invalidated);
+    static_cast<void>(output_view.as_dict().at(key.view()).begin_mutation(invalidated).invalidate());
+    input_view = input.view(nullptr, invalidated);
+    dict = input_view.as_dict();
+    REQUIRE(range_size(dict.removed_keys()) == 0);
+    REQUIRE(range_size(dict.removed_items()) == 0);
+    REQUIRE_FALSE(dict.data_view().key_set().modified(invalidated));
+}
+
+TEST_CASE("Runtime contract unbound scalar has no last modified time", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.ts(registry.register_scalar<int>());
+    TSOutput output{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    set_output(output, 7, MIN_ST);
+    input.view(nullptr, MIN_ST).bind_output_sampled(output.view(MIN_ST), MIN_ST);
+    auto view = input.view(nullptr, MIN_ST + TimeDelta{1});
+    view.unbind_output();
+    REQUIRE_FALSE(view.valid());
+    REQUIRE_FALSE(view.modified());
+    REQUIRE(view.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("Runtime contract dictionary rebind samples children and retains withdrawn items", "[runtime-contract]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    TSOutput a{schema}, b{schema};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
+    Value x{1}, y{2}, z{3}, seven{7}, nine{9};
+    {
+        auto av = a.view(MIN_ST), bv = b.view(MIN_ST);
+        auto am = av.as_dict().begin_mutation(MIN_ST), bm = bv.as_dict().begin_mutation(MIN_ST);
+        am.set(x.view(), seven.view());
+        am.set(z.view(), seven.view());
+        bm.set(y.view(), nine.view());
+        bm.set(z.view(), nine.view());
+    }
+    input.view(nullptr, MIN_ST).bind_output_sampled(a.view(MIN_ST), MIN_ST);
+    const auto rebind = MIN_ST + TimeDelta{2};
+    auto view = input.view(nullptr, rebind);
+    view.bind_output_sampled(b.view(rebind), rebind);
+    auto dict = view.as_dict();
+    REQUIRE(range_size(dict.added_keys()) == 1);
+    REQUIRE(range_size(dict.removed_keys()) == 1);
+    REQUIRE(range_size(dict.removed_items()) == 1);
+    const auto previous_target = a.view(rebind);
+    const auto current_target = b.view(rebind);
+    const auto x_slot = previous_target.as_dict().find_slot(x.view());
+    const auto z_slot = previous_target.as_dict().find_slot(z.view());
+    const auto y_slot = current_target.as_dict().find_slot(y.view());
+    CHECK(dict.slot_removed(x_slot));
+    CHECK_FALSE(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto rebound_data = dict.data_view();
+    CHECK(rebound_data.next_membership_removed_slot() == x_slot);
+    CHECK(rebound_data.next_membership_removed_slot(x_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(rebound_data.next_membership_added_slot() == y_slot);
+    for (const auto &[key, child] : dict.removed_items())
+    {
+        REQUIRE(key.checked_as<int>() == 1);
+        REQUIRE(child.value().checked_as<int>() == 7);
+        REQUIRE(child.last_modified_time() == MIN_ST);
+    }
+    for (const auto &[key, child] : dict.items())
+    {
+        static_cast<void>(key);
+        REQUIRE(child.modified());
+        REQUIRE(child.last_modified_time() == rebind);
+        REQUIRE(child.delta_value().checked_as<int>() == 9);
+    }
+    const auto withdrawal = rebind + TimeDelta{1};
+    view = input.view(nullptr, withdrawal);
+    view.unbind_output();
+    dict = view.as_dict();
+    REQUIRE_FALSE(view.valid());
+    REQUIRE(view.modified());
+    REQUIRE(view.last_modified_time() == MIN_DT);
+    REQUIRE(dict.empty());
+    REQUIRE(range_size(dict.removed_keys()) == 2);
+    REQUIRE(range_size(dict.removed_items()) == 2);
+    CHECK(dict.slot_removed(y_slot));
+    CHECK(dict.slot_removed(z_slot));
+    CHECK_FALSE(dict.slot_removed(100));
+    auto withdrawn_data = dict.data_view();
+    CHECK(withdrawn_data.next_membership_removed_slot() == y_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(y_slot) == z_slot);
+    CHECK(withdrawn_data.next_membership_removed_slot(z_slot) == TS_DATA_NO_CHILD_ID);
+    CHECK(withdrawn_data.next_membership_added_slot() == TS_DATA_NO_CHILD_ID);
+    REQUIRE(capture_delta(view).view().as_bundle().at(0).as_set().size() == 2);
+    view = input.view(nullptr, withdrawal + TimeDelta{1});
+    dict = view.as_dict();
+    REQUIRE_FALSE(view.modified());
+    REQUIRE(range_size(dict.removed_items()) == 0);
+    CHECK_FALSE(dict.slot_removed(0));
 }

@@ -1,4 +1,5 @@
 #include "hgraph_ir/control_flow.h"
+#include "hgraph_ir/uses.h"
 
 #include <algorithm>
 #include <span>
@@ -157,21 +158,22 @@ namespace hgl::hgraph_ir
                 return std::visit(
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
+                        bool falls = true;
                         if constexpr (std::is_same_v<T, Reference>) {
                             if (node.kind == ReferenceKind::Binding) { capture(expression, node.binding); }
                         } else if constexpr (std::is_same_v<T, Unary>) {
-                            return scan_value(node.operand);
+                            falls = scan_value(node.operand);
                         } else if constexpr (std::is_same_v<T, Binary>) {
-                            return scan_value(node.lhs) && scan_value(node.rhs);
+                            falls = scan_value(node.lhs) && scan_value(node.rhs);
                         } else if constexpr (std::is_same_v<T, Call>) {
                             if (!scan_value(node.callee)) { return false; }
                             for (const Argument &argument : node.arguments) {
                                 if (!scan_value(argument.value)) { return false; }
                             }
                         } else if constexpr (std::is_same_v<T, Index>) {
-                            return scan_value(node.target) && scan_value(node.index);
+                            falls = scan_value(node.target) && scan_value(node.index);
                         } else if constexpr (std::is_same_v<T, Field>) {
-                            return scan_value(node.target);
+                            falls = scan_value(node.target);
                         } else if constexpr (std::is_same_v<T, Sequence>) {
                             for (const SequenceElement &element : node.elements) {
                                 if (!scan_value(element.key) || !scan_value(element.value)) { return false; }
@@ -208,9 +210,9 @@ namespace hgl::hgraph_ir
                             } else if (otherwise_falls) {
                                 defined_outer_ = when_false;
                             }
-                            return then_falls || otherwise_falls;
+                            falls = then_falls || otherwise_falls;
                         } else if constexpr (std::is_same_v<T, BlockValue>) {
-                            return scan_block(node.block);
+                            falls = scan_block(node.block);
                         } else if constexpr (std::is_same_v<T, HarnessEval>) {
                             if (!scan_value(node.callee)) { return false; }
                             for (const Argument &argument : node.arguments) {
@@ -221,7 +223,7 @@ namespace hgl::hgraph_ir
                                 if (!scan_value(argument.value)) { return false; }
                             }
                         }
-                        return true;
+                        return falls;
                     },
                     expression.node);
             }
@@ -629,11 +631,22 @@ namespace hgl::hgraph_ir
             void run() {
                 for (const Callable &callable : module_.callables) {
                     runtime_ = callable.kind != CallableKind::Composition;
+                    uses_    = {};
+                    collect_binding_uses(module_, callable.concise_body, uses_);
+                    collect_binding_uses(module_, callable.block_body, uses_);
                     visit_value(callable.concise_body);
                     visit_block(callable.block_body);
                 }
                 runtime_ = false;
-                for (const TestPlan &test : module_.tests) { visit_block(test.body); }
+                for (const TestPlan &test : module_.tests) {
+                    uses_ = binding_uses(module_, test.body);
+                    // The REPL replays its session bindings inside one test
+                    // context per input line; a binding is read by later input,
+                    // which this unit cannot see.
+                    session_ = test.identity.ends_with("__repl");
+                    visit_block(test.body);
+                    session_ = false;
+                }
             }
 
           private:
@@ -745,7 +758,17 @@ namespace hgl::hgraph_ir
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
-                        if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
+                        if constexpr (std::is_same_v<T, LocalBinding>) {
+                            // A local nothing reads is dead code; the language
+                            // says so rather than leaving an unused C++ variable
+                            // for a target compiler to complain about.
+                            if (!session_ && !uses_.is_read(node.binding) && node.binding.valid() &&
+                                node.binding.value < module_.bindings.size()) {
+                                report(statement.range,
+                                       "'" + module_.bindings[node.binding.value].name + "' is declared but never read");
+                            }
+                            visit_value(node.init);
+                        } else if constexpr (std::is_same_v<T, StateBinding>) {
                             visit_value(node.init);
                         } else if constexpr (std::is_same_v<T, Lifecycle>) {
                             visit_block(node.block);
@@ -851,6 +874,8 @@ namespace hgl::hgraph_ir
             std::unordered_set<std::uint32_t> visited_{};
             std::unordered_set<std::string>   reported_{};
             bool                              runtime_{false};
+            BindingUses                       uses_{};
+            bool                              session_{false};
         };
     }  // namespace
 

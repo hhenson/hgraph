@@ -136,6 +136,7 @@ namespace hgraph::detail
         TSInputActiveTarget *parent{nullptr};
         std::size_t          slot{0};
         bool                 active{false};
+        TSInputActivityMode mode{TSInputActivityMode::Value};
         TSDataStorageRef<>   observed{};
         TSInputSchedulingNotifier notifier{};
         SmallDensePtrMap<std::size_t, TSInputActiveTarget> children{};

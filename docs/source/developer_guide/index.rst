@@ -34,6 +34,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    tornado_parity
    perspective_parity
    record_replay_table
+   component_recovery_plan
    python_integration
    python_bridge
    type_reflection

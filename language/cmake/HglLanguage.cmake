@@ -253,6 +253,11 @@ function(hgl_add_module target)
     endif()
     add_library(${target} ${_kind} ${_generated_sources} ${_generated_headers} ${_hgl_SOURCES})
     target_compile_features(${target} PUBLIC cxx_std_23)
+    if(MSVC)
+        # Generated modules instantiate many hgraph templates. The standard
+        # library can exceed COFF's ordinary object section limit.
+        target_compile_options(${target} PRIVATE /bigobj)
+    endif()
     target_include_directories(${target} PUBLIC "${_include_dir}")
     target_link_libraries(${target} PUBLIC hgraph::core ${_hgl_LINK_LIBRARIES})
     if(TARGET hgl::native_interface)

@@ -19,7 +19,7 @@ export fn positional<...Ts>(values: ...Ts) {
 
 export fn keyword<...Fields>(values: ...{Fields}) {
     for name in keys(values) {
-        let preserved = name
+        null_sink(name)
     }
     for name, value in items(values) {
         null_sink(value)
@@ -30,3 +30,12 @@ export fn route(price: f64, symbol: str) {
     positional(price, symbol)
     keyword(price: price, symbol: symbol)
 }
+
+export fn route_constants(price: f64) -> f64 {
+    positional(price, 7, "tag")
+    keyword(price: price, count: 7, label: "tag")
+    return price
+}
+
+export fn route_all(left: bool, right: bool) -> bool =>
+    forward_all(left, right)

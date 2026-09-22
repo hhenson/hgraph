@@ -43,7 +43,9 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
 
     cmake = (ROOT / "CMakeLists.txt").read_text()
     conan = (ROOT / "conanfile.py").read_text()
-    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in cmake
+    arrow_discovery = (ROOT / "cmake/HgraphArrow.cmake").read_text()
+    assert 'include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")' in cmake
+    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in arrow_discovery
     assert re.search(r'self\.requires\("arrow/25\.0\.0"[,)]', conan) is not None
 
 
@@ -321,7 +323,7 @@ def test_release_workflow_targets_supported_platforms():
 
     assert "macos-15-intel" not in combined_workflow
     assert "      os: macos-26" in workflow
-    assert "CMAKE_OSX_DEPLOYMENT_TARGET=15.0" in combined_workflow
+    assert "CMAKE_OSX_DEPLOYMENT_TARGET=26.0" in combined_workflow
     assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow

@@ -1,12 +1,15 @@
 #include "hgraph_ir/complete.h"
 #include "hgraph_ir/lower.h"
+#include "hgraph_ir/plan.h"
 #include "hgraph_ir/printer.h"
+#include "hgraph_ir/uses.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -82,7 +85,49 @@ namespace
         return nullptr;
     }
 
-    hgl::semantics::ModuleCatalog native_catalog() {
+    /// A module that exports an abstract struct, so a local struct can extend
+    /// an imported family (ADR 0013).
+    hgl::semantics::ModuleCatalog imported_family_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+        // A three-level family: Root <- Mid <- (local child), plus a struct a
+        // field can name, so the nominal-symbol path is exercised too.
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedType venue_ref;
+        venue_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        venue_ref.nominal_identity = "checks.shapes.Venue";
+
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", venue_ref, false, false}};
+
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.parents         = {root_ref};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        module.structs       = {std::move(base), std::move(root), std::move(venue)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
+    hgl::semantics::ModuleCatalog native_catalog(bool throws = false) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
         module.identity = "acme.stats";
@@ -95,6 +140,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = {hgl::semantics::NativeCallPhase::Evaluation},
+            .throws                 = throws,
             .public_headers         = {"acme/stats.h"},
             .cmake_packages         = {"acme"},
             .imported_targets       = {"acme::stats"},
@@ -170,24 +216,31 @@ TEST_CASE("value function structural signatures fail during checking", "[hgraph-
 }
 
 TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-ir][value-function][native]") {
+    // A value native is available in every node hook (start, evaluation,
+    // stop); wiring-time use, such as a test assertion, is still outside the
+    // first native interface, and the restriction propagates through the
+    // const fn helpers that wrap it.
     const std::string prelude = R"(module example
-native fn evaluation_only(a: f64) -> f64 { cpp (double a) { return a; } }
-const fn inner(a: f64) -> f64 => evaluation_only(a)
+native fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
+const fn inner(a: f64) -> f64 => node_hooks_only(a)
 const fn outer(a: f64) -> f64 => inner(a)
 )";
-    for (const std::string invocation :
-         {"test t { assert outer(1.0) == 1.0 }", "fn f(a: f64) -> f64 { start { let x = outer(1.0) }\n when { return a } }",
-          "fn f(a: f64) -> f64 { stop { let x = outer(1.0) }\n when { return a } }"}) {
-        Lowered unit{prelude + invocation + "\n"};
+    {
+        Lowered unit{prelude + "test t { assert outer(1.0) == 1.0 }\n"};
         INFO(unit.diagnostics.render(unit.file));
         CHECK(unit.diagnostics.has_errors());
         CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
             return diagnostic.message.find("native dependencies") != std::string::npos;
         }));
     }
-    Lowered valid{prelude + "fn f(a: f64) -> f64 { outer(a) }\n"};
-    INFO(valid.diagnostics.render(valid.file));
-    CHECK_FALSE(valid.diagnostics.has_errors());
+    for (const std::string invocation :
+         {"fn f(a: f64) -> f64 { outer(a) }",
+          "fn f(a: f64) -> f64 {\n cache seed: f64 = 0.0\n start { seed = outer(1.0) }\n when { return a + seed } }",
+          "fn f(a: f64) -> f64 {\n cache last: f64 = 0.0\n stop { last = outer(1.0) }\n when { return a + last } }"}) {
+        Lowered valid{prelude + invocation + "\n"};
+        INFO(valid.diagnostics.render(valid.file));
+        CHECK_FALSE(valid.diagnostics.has_errors());
+    }
 }
 
 TEST_CASE("hgraph IR preserves parameter-pack cardinality", "[hgraph-ir][parameter-pack][cardinality]") {
@@ -440,7 +493,8 @@ fn adjusted(value: f64) -> f64 => double(value) - 1.0
 }
 
 TEST_CASE("hgraph IR owns descriptor-native exact calls and build metadata", "[hgraph-ir][native]") {
-    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    const bool throws = GENERATE(false, true);
+    const hgl::semantics::ModuleCatalog catalog = native_catalog(throws);
     Lowered                             lowered{R"(
 module checks.native
 use acme.stats::{blend}
@@ -456,6 +510,9 @@ fn smooth(value: f64) -> f64 {
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.identity == "acme.stats::blend");
     CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.throws == throws);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(
+              throws ? "phases=[evaluation] exception=translated" : "phases=[evaluation] exception=noexcept") != std::string::npos);
     CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
 
     const auto call = std::ranges::find_if(
@@ -480,7 +537,7 @@ module checks.source_native
 cpp include <hgraph/types/time_series/ts_input/list_view.h>
 cpp include "native/helpers.h"
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 throws {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
     }
@@ -502,6 +559,8 @@ fn list_size(value: list<i64, 2>) -> i64 {
     REQUIRE(lowered.graph->native_functions.size() == 1U);
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.source_defined);
+    CHECK(native.throws);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("phases=[evaluation] exception=translated") != std::string::npos);
     CHECK(native.identity == "checks.source_native::len");
     CHECK(native.candidate_identity == "checks.source_native::len#0");
     REQUIRE(native.generics.size() == 2U);
@@ -947,4 +1006,227 @@ TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]"
     const hgl::hgraph_ir::Module graph = hgl::hgraph_ir::lower(unresolved, diagnostics);
     CHECK(diagnostics.has_errors());
     CHECK(graph.completion == hgl::hgraph_ir::Completion::Interfaces);
+}
+
+TEST_CASE("hgraph IR keeps cache declarations distinct from recordable state", "[hgraph-ir][cache]") {
+    Lowered lowered{R"(
+module checks.cache_binding
+
+fn count(value: i64) -> i64 {
+    cache seen: i64 = 0
+    state total: i64 = 0
+    when modified(value) && valid(value) {
+        seen += 1
+        total += value
+        return total + seen
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    std::size_t caches = 0;
+    std::size_t states = 0;
+    for (const hgl::hgraph_ir::Statement &statement : lowered.graph->statements) {
+        const auto *binding = std::get_if<hgl::hgraph_ir::StateBinding>(&statement.node);
+        if (binding == nullptr) { continue; }
+        const hgl::hgraph_ir::Binding &declared = lowered.graph->bindings[binding->binding.value];
+        if (binding->cache) {
+            ++caches;
+            CHECK(declared.kind == hgl::hgraph_ir::BindingKind::Cache);
+            CHECK(declared.name == "seen");
+        } else {
+            ++states;
+            CHECK(declared.kind == hgl::hgraph_ir::BindingKind::State);
+            CHECK(declared.name == "total");
+        }
+    }
+    CHECK(caches == 1U);
+    CHECK(states == 1U);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(" cache seen:") != std::string::npos);
+}
+
+// ADR 0012: a recursive edge reaches hgraph IR marked, with its target named
+// by struct identity rather than expanded, and every pass shared by the two
+// backends terminates on it.
+TEST_CASE("recursive struct edges reach hgraph IR marked by identity", "[hgraph-ir][recursive]") {
+    Lowered lowered{R"(
+module t
+
+struct Node {
+    value: i64
+    next: atomic<Node> = null
+}
+
+struct A {
+    b: atomic<B> = null
+    tag: str = "a"
+}
+
+struct B {
+    a: atomic<A> = null
+}
+
+abstract struct Expr {}
+
+struct Add: Expr {
+    lhs: atomic<Expr> = null
+}
+
+struct Tree<T> {
+    value: T
+    left: atomic<Tree<T>> = null
+}
+
+struct Holder {
+    first: Node
+    tree: Tree<i64>
+}
+
+fn chain(x: i64) -> atomic<Node> => Node(value: x, next: Node(value: x, next: Node(value: x)))
+fn pair(x: str) -> atomic<A> => A(b: B(a: A(tag: x)), tag: x)
+fn tree(x: i64) -> atomic<Tree<i64>> => Tree<i64>(value: x, left: Tree<i64>(value: x))
+fn head(node: Node) -> atomic<Node> => node.next
+fn hold(x: i64) -> Holder => Holder(first: Node(value: x), tree: Tree<i64>(value: x))
+
+fn latest(node: atomic<Node>) -> i64 {
+    inject out
+    when modified(node) {
+        out = node.value
+    }
+}
+)"};
+    REQUIRE(lowered.graph);
+    const hgl::hgraph_ir::Module &graph = *lowered.graph;
+
+    const auto edge = [&](std::string_view identity, std::string_view field) -> const hgl::hgraph_ir::StructField & {
+        const hgl::hgraph_ir::StructContract *contract = structure(graph, identity);
+        REQUIRE(contract != nullptr);
+        const auto found = std::ranges::find(contract->fields, field, &hgl::hgraph_ir::StructField::name);
+        REQUIRE(found != contract->fields.end());
+        return *found;
+    };
+    CHECK(edge("t.Node", "next").recursive);
+    CHECK(edge("t.Node", "next").recursive_target == "t.Node");
+    CHECK(edge("t.A", "b").recursive_target == "t.B");
+    CHECK(edge("t.B", "a").recursive_target == "t.A");
+    CHECK(edge("t.Add", "lhs").recursive_target == "t.Expr");
+    CHECK(edge("t.Tree", "left").recursive_target == "t.Tree");
+    CHECK_FALSE(edge("t.Node", "value").recursive);
+    CHECK_FALSE(edge("t.Holder", "first").recursive);
+    CHECK_FALSE(edge("t.Holder", "tree").recursive);
+    CHECK(hgl::hgraph_ir::print(graph).find("next?:t") != std::string::npos);
+    CHECK(hgl::hgraph_ir::print(graph).find(" recursive->t.Node") != std::string::npos);
+
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    // The passes a backend runs next terminate on the recursive contracts.
+    REQUIRE(graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    hgl::hgraph_ir::Module      executable = graph;
+    hgl::syntax::DiagnosticSink later;
+    hgl::hgraph_ir::plan(executable, later);
+    CHECK(hgl::hgraph_ir::complete_execution(executable, {}, later));
+    for (const hgl::hgraph_ir::Callable &item : executable.callables) {
+        (void)hgl::hgraph_ir::binding_uses(executable, item.block_body);
+        (void)hgl::hgraph_ir::binding_uses(executable, item.concise_body);
+    }
+    INFO(later.render(lowered.file));
+    CHECK_FALSE(later.has_errors());
+}
+
+// A field inherited from a struct another module exports has no declaration
+// in this module to point at, so it carries its source as an identity through
+// both IRs (ADR 0013). Losing it would leave the outermost IR unable to say
+// which module declares the field, and both backends realize from that IR.
+TEST_CASE("hgraph IR keeps an imported field's declaring struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_origin
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_origin.Tick");
+    REQUIRE(tick != nullptr);
+    REQUIRE(tick->fields.size() == 4);
+
+    // A grandparent's fields name the ANCESTOR that declares them, not the
+    // immediate parent: each catalog record holds only what it declares, so a
+    // field stamped with the wrong source has no findable type.
+    CHECK(tick->fields[0].name == "id");
+    CHECK(tick->fields[0].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[0].type.valid());
+
+    // A layout field naming another struct resolves by identity rather than
+    // through the generic-binding path, which would leave it symbol-less.
+    CHECK(tick->fields[1].name == "venue");
+    CHECK(tick->fields[1].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[1].type.valid());
+    CHECK(lowered.graph->types[tick->fields[1].type.value].nominal_identity == "checks.shapes.Venue");
+
+    CHECK(tick->fields[2].name == "at");
+    CHECK(tick->fields[2].origin_identity == "checks.shapes.Base");
+    // The locally declared one names this struct.
+    CHECK(tick->fields[3].name == "bid");
+    CHECK(tick->fields[3].origin_identity == tick->identity);
+}
+
+// The importer re-describes the owner's layout (ADR 0013), so a struct another
+// module exports appears as a contract of its own in hgraph IR -- that is the
+// record both backends register the schema from, under the OWNER's identity.
+TEST_CASE("hgraph IR emits a contract for an imported struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_contract
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    // The whole imported ancestry is described, each under its own identity.
+    const hgl::hgraph_ir::StructContract *base = structure(*lowered.graph, "checks.shapes.Base");
+    REQUIRE(base != nullptr);
+    CHECK(base->abstract);
+    // This module declares nothing for it and must not re-export it: doing so
+    // would claim ownership of another module's type.
+    CHECK_FALSE(base->exported);
+    // A contract carries the WHOLE layout, ancestors first, exactly as a local
+    // declaration's does. A catalog record holds only the fields it declares,
+    // so the ancestry is flattened when the struct is re-described; hgraph's
+    // registry holds the same rule from the other side -- `bundle()` refuses a
+    // child that does not preserve its parents' fields (ADR 0013 slice 5).
+    REQUIRE(base->fields.size() == 3);
+    CHECK(base->fields[0].name == "id");
+    CHECK(base->fields[0].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[1].name == "venue");
+    CHECK(base->fields[1].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[2].name == "at");
+    CHECK(base->fields[2].origin_identity == "checks.shapes.Base");
+
+    const hgl::hgraph_ir::StructContract *root = structure(*lowered.graph, "checks.shapes.Root");
+    REQUIRE(root != nullptr);
+    CHECK(root->abstract);
+    CHECK_FALSE(root->exported);
+
+    // The local struct is still its own contract, and IS exported.
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_contract.Tick");
+    REQUIRE(tick != nullptr);
+    CHECK(tick->exported);
 }

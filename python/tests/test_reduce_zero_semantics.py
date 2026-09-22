@@ -218,3 +218,25 @@ def test_omitted_zero_matches_upstream_while_values_are_live():
         [{"a": 1, "b": 2, "c": 3}, {"a": 5}, {"c": hg.REMOVE}],
     )
     assert out == [6, 10, 7]
+
+
+@hg.generator
+def _ordered_delayed_source() -> hg.TS[int]:
+    yield 5 * hg.MIN_TD, 42
+    yield 3 * hg.MIN_TD, 43
+
+
+@hg.graph
+def _ordered_delayed_combiner(lhs: hg.TS[int], rhs: hg.TS[int]) -> hg.TS[int]:
+    return _ordered_delayed_source()
+
+
+@hg.graph
+def _ordered_delayed_reduce(values: hg.TSD[int, hg.TS[int]], zero: hg.TS[int]) -> hg.TS[int]:
+    return hg.reduce(_ordered_delayed_combiner, values, zero, is_associative=False)
+
+
+def test_ordered_reduce_retains_delayed_source_schedules():
+    assert eval_node(_ordered_delayed_reduce, [{0: 1}] + [None] * 9, [0] + [None] * 9) == [
+        None, None, None, None, None, 42, None, None, 43, None
+    ]

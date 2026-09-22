@@ -157,6 +157,17 @@ Two structural rules keep the package importable:
   ``._types`` ↔ the wiring layer). When moving code, preserve the lazy edge —
   promoting one to module top is how import-order bugs are born.
 
+**One result path for Python graph bodies.** A ``@graph`` function and a
+Python graph registered as an operator overload (the wire trampoline) both
+return through ``_graph_result_port`` in ``_graph.py``. A structural result
+stays structural, so the C++ sub-graph finalization gives it the zero-copy
+structural-REF terminal, and a projected result keeps its endpoint path. The
+trampoline used to copy both shapes through a ``__materialize`` value node
+instead. The copy gave every passed-through field a new identity, so a
+``dispatch`` branch returning ``state.copy_with(done=True)`` re-ticked any
+consumer later re-pointed back to ``state`` (:doc:`nested_graphs`,
+"Pass-through outputs").
+
 Teardown and immortality
 ------------------------
 
@@ -730,6 +741,14 @@ cover:
 - ``apply_ref_result`` still converts through ``py_to_value_as`` when a
   Python node writes a ``REF`` value directly (rare; not observed on any
   benchmarked path).
+- A ``dmap_`` / ``spawn_`` boundary whose schema can hold an ``Any`` -- which
+  is what a Python object is -- carries a codec session in each payload (RFC
+  0040), and that session binds a converter the first time it meets a content
+  schema, *per payload*. Such a boundary pickles or converts every value it
+  carries, which dominates the bind; a boundary with a schema binds everything
+  once, when it is wired, and takes no lock per cycle
+  (``test_distributed_protocol.cpp`` holds that). The fix, if it is ever
+  wanted, is a session the owning node keeps across cycles.
 
 Two sanctioned cache patterns keep hot paths off the mutexes without
 weakening reset semantics (the registry's ``reset()`` is test-only but

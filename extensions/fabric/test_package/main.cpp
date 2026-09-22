@@ -9,6 +9,7 @@
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/types/graph_wiring.h>
 
+#include <cstddef>
 #include <span>
 #include <string_view>
 
@@ -76,15 +77,31 @@ int main()
         return 2;
     }
 
-    // The stored bytes are the codec's output and nothing else, which is what
-    // makes an object readable by tools that know nothing about hgraph. Worth
-    // asserting from outside the library, where the promise actually matters.
-    const std::string_view document(reinterpret_cast<const char *>(encoded.data()),
-                                    encoded.size());
+    // Two promises worth asserting from outside the library, where they
+    // actually matter (RFC 0040).
+    //
+    // Metadata fabric STORES is state, so by default it is the binary value
+    // codec in a compression block, which begins with its codec byte: 0 to 2.
+    if (encoded.empty() || std::to_integer<unsigned>(encoded.front()) > 2)
+    {
+        return 9;
+    }
+    // What fabric puts onto KAFKA is an external message format, because the
+    // tools around a topic know nothing about hgraph: a readable document.
+    hg::persistence::store::ObjectBytes message;
+    hgf::notification_codec().encode(revision.view(), message);
+    const std::string_view document(reinterpret_cast<const char *>(message.data()),
+                                    message.size());
     if (!document.starts_with("{") || !document.ends_with("}") ||
         document.find("\"data_id\"") == std::string_view::npos)
     {
-        return 9;
+        return 12;
+    }
+    if (hgf::data_revision_input(
+            hgf::notification_codec().decode(hgf::data_revision_meta(), message).view()) !=
+        hgf::data_revision_input(revision.view()))
+    {
+        return 13;
     }
 
     if (hgf::decode_data_id_segment(

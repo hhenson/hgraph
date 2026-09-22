@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <hgraph/types/value/value_view.h>
 #include <cstddef>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -25,6 +26,12 @@ namespace hgraph
     struct TSDDataOps;
     struct IndexedTSDataOps;
     struct TSWDataOps;
+    struct TSCheckpointOps;
+
+    namespace ts_checkpoint_detail
+    {
+        [[nodiscard]] HGRAPH_EXPORT const TSCheckpointOps &unsupported_checkpoint_ops() noexcept;
+    }
 
     namespace detail
     {
@@ -158,6 +165,8 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool missing_window_full(const void *, const void *);
         HGRAPH_EXPORT void missing_window_push(const void *, void *, const ValueView &, DateTime);
         HGRAPH_EXPORT void missing_window_clear(const void *, void *, DateTime);
+        HGRAPH_EXPORT void missing_window_replace_samples(const void *, void *, const ValueView &,
+                                                           std::span<const DateTime>, DateTime);
 
         [[nodiscard]] Value empty_delta_atomic(const TSRoleTypeRef &binding);
         [[nodiscard]] Value empty_delta_tss(const TSRoleTypeRef &binding);
@@ -274,6 +283,9 @@ namespace hgraph
         // recover a representation from ``kind``.
         const TSCurrentStateOps *current_state_ops{
             &ts_current_state_detail::missing_current_state_ops()};
+        /** Quiet checkpoint policy selected by the concrete owning strategy. */
+        const TSCheckpointOps *checkpoint_ops{
+            &ts_checkpoint_detail::unsupported_checkpoint_ops()};
 
         const TSDataLayout *(*layout_impl)(const void *context) = &ts_data_detail::missing_layout;
         const TSDataTracking *(*tracking_impl)(const void *context,
@@ -389,6 +401,14 @@ namespace hgraph
                               const ValueView &key) = &ts_data_detail::missing_contains_key;
         std::size_t (*find_slot_impl)(const void *context, const void *memory,
                                       const ValueView &key) = &ts_data_detail::missing_find_key_slot;
+        /** The slot holding ``key`` whether it is live or removed and awaiting
+            erase; ``TS_DATA_NO_CHILD_ID`` when the key is not stored at all.
+            ``find_slot_impl`` deliberately sees live keys only, so a consumer
+            that must recognise a key removed this cycle -- a target link
+            deciding what a re-point added -- had to search the removed slots
+            for it, once per key. The key store already answers this by hash. */
+        std::size_t (*find_stored_slot_impl)(const void *context, const void *memory,
+                                             const ValueView &key) = &ts_data_detail::missing_find_key_slot;
         Range<ValueView> (*make_values_range_impl)(const void *context,
                                                    const void *memory) = &ts_data_detail::missing_value_range;
         Range<ValueView> (*make_added_values_range_impl)(const void *context,
@@ -420,6 +440,16 @@ namespace hgraph
 
     struct TSDDataOps : TSSDataOps
     {
+        /** Membership deltas include keys whose children are invalid; the
+         * inherited added/removed surface describes value publication. */
+        bool (*membership_slot_added_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_slot_predicate;
+        bool (*membership_slot_removed_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_slot_predicate;
+        std::size_t (*next_membership_added_slot_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_next_delta_slot;
+        std::size_t (*next_membership_removed_slot_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_next_delta_slot;
         /** True when the dictionary's structural delta window belongs to the supplied evaluation time. */
         bool (*structural_delta_current_impl)(const void *context, const void *memory,
                                               DateTime evaluation_time) =
@@ -541,6 +571,9 @@ namespace hgraph
 
     struct TSWDataOps : TSDataOps
     {
+        void (*replace_samples_impl)(const void *, void *, const ValueView &,
+                                      std::span<const DateTime>, DateTime) =
+            &ts_data_detail::missing_window_replace_samples;
         // Required window surface: defaults throw with the member's name so a
         // strategy that forgets an install fails loudly instead of crashing
         // through a null fn-ptr (audit finding, 2026-08-16).

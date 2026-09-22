@@ -26,20 +26,130 @@ namespace hgraph_::native
         // native.hgl:45
         hgraph::Bool active(const hgraph::TSInputView &value) noexcept { return value.active(); }
 
-        // scalar_values.hgl:7
+        // scalar_values.hgl:8
         hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // scalar_values.hgl:13
+        // scalar_values.hgl:14
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }
 
-        // scalar_values.hgl:19
+        // scalar_values.hgl:20
         hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept { return value.contains(needle); }
 
-        // scalar_values.hgl:25
+        // scalar_values.hgl:26
         hgraph::Bool starts_with(const hgraph::Str &value, const hgraph::Str &prefix) noexcept { return value.starts_with(prefix); }
 
-        // scalar_values.hgl:31
+        // scalar_values.hgl:32
         hgraph::Bool ends_with(const hgraph::Str &value, const hgraph::Str &suffix) noexcept { return value.ends_with(suffix); }
+
+        // scalar_values.hgl:45
+        hgraph::Bool truthy(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Bool>(value); }
+
+        // scalar_values.hgl:51
+        hgraph::Bool truthy__candidate_2(const hgraph::Int &value) noexcept { return static_cast<hgraph::Bool>(value); }
+
+        // scalar_values.hgl:57
+        hgraph::Bool truthy__candidate_3(const hgraph::Float &value) noexcept { return static_cast<hgraph::Bool>(value); }
+
+        // scalar_values.hgl:63
+        hgraph::Bool truthy__candidate_4(const hgraph::Str &value) noexcept { return !value.empty(); }
+
+        // scalar_values.hgl:69
+        hgraph::Int absolute(const hgraph::Int &value) noexcept { return std::abs(value); }
+
+        // scalar_values.hgl:75
+        hgraph::Float absolute__candidate_2(const hgraph::Float &value) noexcept { return std::abs(value); }
+
+        // scalar_values.hgl:81
+        hgraph::Float logarithm(const hgraph::Float &value) noexcept { return std::log(value); }
+
+        // scalar_values.hgl:87
+        hgraph::Float round_decimal(const hgraph::Float &value, const hgraph::Int &digits) {
+            return hgraph::stdlib::scalar_round_decimal(value, digits);
+        }
+
+        // scalar_values.hgl:93
+        hgraph::Int invert(const hgraph::Bool &value) noexcept { return ~static_cast<hgraph::Int>(value); }
+
+        // scalar_values.hgl:99
+        hgraph::Bool bit_and(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+            return static_cast<hgraph::Bool>(lhs & rhs);
+        }
+
+        // scalar_values.hgl:105
+        hgraph::Bool bit_or(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+            return static_cast<hgraph::Bool>(lhs | rhs);
+        }
+
+        // scalar_values.hgl:111
+        hgraph::Bool bit_xor(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept {
+            return static_cast<hgraph::Bool>(lhs ^ rhs);
+        }
+
+        // scalar_values.hgl:117
+        hgraph::Int invert__candidate_2(const hgraph::Int &value) noexcept { return ~static_cast<hgraph::Int>(value); }
+
+        // scalar_values.hgl:123
+        hgraph::Int bit_and__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+            return static_cast<hgraph::Int>(lhs & rhs);
+        }
+
+        // scalar_values.hgl:129
+        hgraph::Int bit_or__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+            return static_cast<hgraph::Int>(lhs | rhs);
+        }
+
+        // scalar_values.hgl:135
+        hgraph::Int bit_xor__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
+            return static_cast<hgraph::Int>(lhs ^ rhs);
+        }
+
+        // scalar_values.hgl:193
+        hgraph::Int as_int(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Int>(value); }
+
+        // scalar_values.hgl:209
+        void require_positive_delay(const hgraph::TimeDelta &delay) {
+            if (delay <= hgraph::TimeDelta{}) { throw std::invalid_argument("delay must be positive"); }
+        }
+
+        // scalar_values.hgl:215
+        hgraph::Int power(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:221
+        hgraph::Float power__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) {
+            return hgraph::stdlib::scalar_pow<hgraph::Float>::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:227
+        hgraph::Int shift_left(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_lshift::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:233
+        hgraph::Int shift_right(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+            return hgraph::stdlib::scalar_rshift::apply(lhs, rhs);
+        }
+
+        // scalar_values.hgl:241
+        hgraph::Str slice(const hgraph::Str &value, const hgraph::Int &begin, const hgraph::Int &end) noexcept {
+            const auto size      = static_cast<hgraph::Int>(value.size());
+            const auto normalize = [size](hgraph::Int index) {
+                return static_cast<std::size_t>(std::clamp(index < 0 ? size + index : index, hgraph::Int{0}, size));
+            };
+            const std::size_t first  = normalize(begin);
+            const std::size_t finish = std::max(first, normalize(end));
+            return value.substr(first, finish - first);
+        }
+
+        // scalar_values.hgl:276
+        hgraph::Int as_int__candidate_2(const hgraph::Float &value) noexcept { return static_cast<hgraph::Int>(value); }
+
+        // scalar_values.hgl:280
+        hgraph::Float as_float(const hgraph::Bool &value) noexcept { return static_cast<hgraph::Float>(value); }
+
+        // scalar_values.hgl:284
+        hgraph::Float as_float__candidate_2(const hgraph::Int &value) noexcept { return static_cast<hgraph::Float>(value); }
 
         // sequences.hgl:6
         hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
@@ -64,6 +174,133 @@ namespace hgraph_::native
 
         // sets_maps.hgl:24
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
+
+        // temporal_values.hgl:6
+        hgraph::Int year(const hgraph::Date &value) noexcept { return static_cast<hgraph::Int>(static_cast<int>((value).year())); }
+
+        // temporal_values.hgl:12
+        hgraph::Int month(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<unsigned>((value).month()));
+        }
+
+        // temporal_values.hgl:18
+        hgraph::Int day(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<unsigned>((value).day()));
+        }
+
+        // temporal_values.hgl:24
+        hgraph::Int weekday(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding() - 1);
+        }
+
+        // temporal_values.hgl:30
+        hgraph::Int isoweekday(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding());
+        }
+
+        // temporal_values.hgl:36
+        hgraph::Int year__candidate_2(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<int>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).year()));
+        }
+
+        // temporal_values.hgl:42
+        hgraph::Int month__candidate_2(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(
+                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).month()));
+        }
+
+        // temporal_values.hgl:48
+        hgraph::Int day__candidate_2(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(
+                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).day()));
+        }
+
+        // temporal_values.hgl:54
+        hgraph::Int weekday__candidate_2(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding() - 1);
+        }
+
+        // temporal_values.hgl:60
+        hgraph::Int isoweekday__candidate_2(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding());
+        }
+
+        // temporal_values.hgl:66
+        hgraph::Int hour(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 3600000000);
+        }
+
+        // temporal_values.hgl:72
+        hgraph::Int minute(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 60000000 % 60);
+        }
+
+        // temporal_values.hgl:78
+        hgraph::Int second(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 1000000 % 60);
+        }
+
+        // temporal_values.hgl:84
+        hgraph::Int microsecond(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds % 1000000);
+        }
+
+        // temporal_values.hgl:90
+        hgraph::Int hour__candidate_2(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 3600000000);
+        }
+
+        // temporal_values.hgl:96
+        hgraph::Int minute__candidate_2(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 60000000 % 60);
+        }
+
+        // temporal_values.hgl:102
+        hgraph::Int second__candidate_2(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 1000000 % 60);
+        }
+
+        // temporal_values.hgl:108
+        hgraph::Int microsecond__candidate_2(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds % 1000000);
+        }
+
+        // temporal_values.hgl:114
+        hgraph::Int days(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::days>(value).count());
+        }
+
+        // temporal_values.hgl:120
+        hgraph::Int seconds(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>(
+                std::chrono::floor<std::chrono::seconds>(value - std::chrono::floor<std::chrono::days>(value)).count());
+        }
+
+        // temporal_values.hgl:126
+        hgraph::Int microseconds(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>((value - std::chrono::floor<std::chrono::seconds>(value)).count());
+        }
+
+        // temporal_values.hgl:132
+        hgraph::Float total_seconds(const hgraph::TimeDelta &value) noexcept {
+            return std::chrono::duration<hgraph::Float>(value).count();
+        }
+
+        // temporal_values.hgl:138
+        hgraph::Float timestamp(const hgraph::DateTime &value) noexcept {
+            return std::chrono::duration<hgraph::Float>(value.time_since_epoch()).count();
+        }
+
+        // temporal_values.hgl:144
+        hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept { return std::chrono::floor<std::chrono::days>(value); }
+
+        // temporal_values.hgl:150
+        hgraph::Date calendar_date(const hgraph::DateTime &value) noexcept {
+            return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
+        }
+
+        // temporal_values.hgl:184
+        hgraph::DateTime midnight(const hgraph::Date &value) noexcept { return hgraph::DateTime{std::chrono::sys_days{value}}; }
 
         // windows.hgl:10
         hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }

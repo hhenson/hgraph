@@ -2,6 +2,138 @@
 
 ## Unreleased
 
+- Document recursive struct fields (ADR 0012): the user guide's "Recursive
+  fields" section, and `examples/recursive-fields.hgl`, a linked list and a
+  generic tree whose `test` blocks run under `hgl test` and again on the
+  generated C++.
+- Generate C++ for recursive struct fields (ADR 0012). An edge is an
+  `hgraph::Edge<Target>` field, and a `TS<Edge<Target>>` endpoint in the
+  temporal shape; generated structs register through hgraph's
+  `recursive_bundle_closure` (hgraph RFC 0041), which the direct backend's
+  type bridge now uses too, so both register the same schemas under the same
+  names and agree tick for tick on the recursive fixture. The emitter defines
+  each struct after the structs it holds inline and forward-declares only an
+  edge target defined later. Generic specializations are named
+  `Pair[int, str]` in both backends.
+- Module descriptor format 6 (ADR 0004) adds a required `recursive` Boolean
+  to every struct field, marking a recursive edge (ADR 0012) in an exported
+  struct's layout. The reader checks that an edge is optional and an `atomic`
+  type over a struct of the same module, and `hgl check` validates it without
+  loading code. Descriptors in format 5 are rejected; rebuild a module to
+  regenerate its descriptor.
+- Realize recursive struct fields (ADR 0012) in direct wiring. An edge is an
+  owner of its target, so a value is a finite tree compared, hashed and copied
+  through its whole depth; structs that reach one another through edges
+  register as one `recursive_bundles` batch per group of specializations, an
+  edge to an abstract parent owns that parent's schema, and the temporal
+  shape's edge is one `TS[Owned[T]]` endpoint that binds as `TS[T]`. `hgl
+  test` constructs, compares and round-trips three-deep values through
+  `eval`. The direct backend and its type bridge
+  also find struct contracts and constructor fields through indexes rather
+  than scans.
+- Carry recursive struct edges (ADR 0012) through the passes both backends
+  share. Typed HIR marks an admitted edge (`--dump-hir` prints ` recursive`),
+  and hgraph IR marks it with its target's identity (`--dump-hgraph-ir` prints
+  ` recursive->identity`). Every shared pass is shown to terminate on a
+  recursive type, since none follows a field into its type; the stop moves
+  from HIR lowering to hgraph-IR lowering, before the execution backends.
+- Admit recursive struct fields at name resolution (ADR 0012). A field
+  through which a value of a struct can contain another value of the same
+  struct is a recursive edge; the resolver accepts it as an optional
+  `atomic<T>` whose cycle runs through `T` and reports the rule any other
+  edge breaks: a required edge or a replaced null default (rule 2), a missing
+  atomic boundary with the fix spelled out (rule 3), a generic argument
+  that wraps a parameter and so denotes an unbounded family of
+  specializations (rule 4), and a cycle through a container or a generic
+  argument (rule 8). Generic structs may otherwise join any cycle hgraph can
+  register. A cycle through
+  inheritance is rejected because hgraph cannot register it. Admitted edges
+  stop at HIR lowering with a "not yet supported" diagnostic until the later
+  passes realize them.
+- Reject a struct field through which a value of the struct could contain
+  another value of the same struct, by any path. Only a field naming its own
+  struct was rejected before; a cycle through another struct of the module, a
+  bare generic argument (`Box<Node>`) or an abstract parent's family passed
+  `hgl check`, then crashed direct wiring with unbounded recursion, compared
+  equal values as unequal, or emitted C++ that did not compile. The resolver
+  now finds every such field in one pass over the module's struct references
+  and reports each field of the cycle. A generic family is followed only to
+  descendants that can be the field's specialization, so `inner: Event<f64>`
+  inside `struct IntEvent: Event<i64>` stays valid, also when `IntEvent`
+  reaches `Event` through a generic parent that passes its parameters
+  through, such as `abstract struct Middle<T>: Event<T>`. Struct
+  and constructor field names are looked up through an index rather than a
+  scan per field.
+- Check struct-heavy modules in time linear in their size. A constructor asked
+  the constraint solver for each argument's field type, and each request
+  rebuilt the struct's effective fields with a search per field: cubic in the
+  field count (checking a module whose one constructor names 4,000 fields
+  took 41 s). Effective fields are now
+  built once per applied struct type with a name index. The type checker also
+  scanned every type of the module for each declaration's generic struct
+  applications, and the resolver scanned whole scopes for each name and copied
+  the test overlay for every test declaration; types are now indexed by
+  owning declaration and scopes are hashed. `hgl check` of a module with
+  16,000 structs now takes 0.5 s, at a flat 32 us per struct from 4,000 up.
+- An `atomic<S>` struct construction aggregates only the fields that have a
+  value, so an omitted or `null` optional field stays unset instead of
+  stopping the value from ever ticking. Generated C++ previously combined
+  every field strictly and never published such a struct; direct wiring
+  rejected any `atomic<S>` construction from ports. Both backends now build
+  it the same way and agree tick for tick. The emitter also no longer reads a
+  freed type while stripping `atomic<...>` from a constructor, which could
+  report an unknown nominal type, and finds constructor arguments by name
+  rather than scanning them once per field.
+- Add `cache` declarations (ADR 0011): `cache name[: T] = init` is node-local
+  data outside record/replay, declared like `state` and re-initialized on
+  every start, lowered to the native `State<T>` selector. One scalar cache per
+  runtime function, not beside `state`; both limits are hgraph's static-node
+  contract and are reported as such. `hgraph.std` gains the parallel
+  `schedule` source with native-parity tests, including the native
+  positive-delay check in `start`.
+- A source native whose parameters are all values is available in every node
+  hook (`start`, `when`, `stop`), not only evaluation; a native taking a live
+  input view stays evaluation-only. Descriptors record the phases, and
+  imported natives may declare any subset of the node hook phases.
+- Stop emitting `[[maybe_unused]]`. A new hgraph-IR reachability pass
+  (`hgraph_ir::binding_uses`) tells the emitter which source bindings a hook
+  reaches, and the emitter records the backend names it writes; a generated
+  hook or `compose` signature names a parameter only when its body uses it
+  and leaves the rest unnamed, and unreached state locals are not emitted. A
+  `let` or `var` that is never read is now a diagnostic (dead code), and a
+  loop whose body reads no element iterates without binding one. The `name`
+  members of generated structs drop the attribute, and a module-internal
+  composition no longer declares one.
+- Repair strict MSVC builds of the HGL compiler and stage runtime DLLs beside
+  Windows compiler/test executables and the installed compiler. Driver
+  environment reads use the shared portable helper, and generated modules use
+  MSVC large-object support. A Windows regression
+  checks build-tree and installed compiler startup without developer DLL paths.
+- Preserve concrete input schemas in generated positional and keyword pack
+  calls, including lifted scalar constants. These calls previously attempted
+  to narrow ports to an unresolved type variable and failed during wiring.
+- Implement the `clock` and `scheduler` injectables (ADR 0010):
+  `clock.evaluation_time()`/`now()`/`next_cycle_evaluation_time()`,
+  `scheduler.schedule(delay[, on_wall_clock])`, `schedule_at`,
+  `is_scheduled()` and `next_scheduled_time()`; the `scheduled()` handler
+  selector, under which a handler adds no input to the activation set and a
+  runtime function may have no temporal parameters at all; and the
+  `passivate(input)`/`activate(input)` statements. `hgraph.std` gains parallel
+  `take`, `freeze` and `until_true` with native-parity tests. The `schedule`
+  operator remains blocked on non-recordable counter storage and start validation.
+- Admit native functions that raise: `native fn ... throws` emits the C++
+  body without `noexcept`, records the descriptor policy `translated`, and
+  the reader accepts that policy in the evaluation phase. A raise ends the
+  evaluation under hgraph's node error model, now the language rule
+  (ADR 0009). `hgraph.native` binds the checked `power`, `shift_left`,
+  `shift_right` kernels and a Python-slice `slice`; `hgraph.operators` gains
+  parallel `pow_`, `lshift_`, `rshift_` and `substr` with native-parity
+  tests, including the exceptions.
+- Record the standard-library migration requirements ledger
+  (`docs/design/migration-requirements.md`): the `HGL-MIG-001`–`015` and
+  `HGL-LIB-001`–`004` identifiers the catalogue cites, each mapped to its
+  catalogue blocker, accepted record and open decision. PR #801 is closed;
+  the roadmap's corrective-programme table now links the merged PRs.
 - Keep implementation-only constraints on `impl fn`: the executable HGL
   operator contracts no longer expose their candidates' native delegation
   requirements, and the guides distinguish public semantic constraints from

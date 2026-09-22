@@ -1,0 +1,972 @@
+RFC 0037: Distributed ``map_`` over Externally Timed Child Graphs
+=================================================================
+
+:Status: Accepted (v1 implemented; see *Implementation status*)
+:Author: Howard Henson
+:Created: 2026-09-16
+:Target: ``dmap_`` operator and the distributed runtime in ``runtime/``
+         (the proposed ``hgraph-distributed`` extension was folded into core —
+         see the note under *Two pieces*)
+:Related: RFC 0017 (binary value codec — hard dependency),
+          RFC 0022 (serializable graph manifest — identity check),
+          RFC 0023 (checkpoint recovery — worker restart, deferred),
+          RFC 0026 (versioned dataflow fabric — the coarse-grained sibling),
+          RFC 0027 (push-source queues), RFC 0036 (reference transparency),
+          ``developer_guide/nested_graphs.rst``, ``developer_guide/services.rst``
+
+Summary
+-------
+
+Add ``dmap_``: a ``map_`` whose per-key child graphs are evaluated in worker
+**processes** rather than in the calling graph, with engine time supplied from
+the outside and results copied back each cycle.
+
+The central claim of this RFC is that **this needs far less new machinery than
+it appears**, because an hgraph nested child graph is *already* an externally
+timed graph executor. The existing per-cycle contract between a nested node and
+its child is::
+
+    bool     GraphView::evaluate(DateTime evaluation_time)   // time supplied from outside
+    DateTime GraphView::next_scheduled_time()                // what the child wants next
+
+``src/hgraph/runtime/nested_graph_node.cpp`` drives exactly those two calls
+(``single_nested_graph_evaluate`` and ``single_nested_graph_propagate_schedule``).
+A child graph never reads a clock, never decides when it runs, and already
+publishes its internal scheduling intent as a value its parent reads back.
+
+``dmap_`` therefore does not invent a new execution model. It puts a transport
+between those two calls and their child, and adds the one thing a process
+boundary makes necessary: **copying** time-series deltas in and out instead of
+sharing memory. The delta copy primitive also already exists — ``ts_delta.h``'s
+``capture_delta`` / ``apply_delta`` reduce a cycle's delta to a canonical
+``Value`` and back, type-erased over every replayable schema, and are what
+``record`` / ``replay`` are built on.
+
+What is genuinely new is: a wire encoding (RFC 0017), a partition-to-worker
+mapping, a per-cycle request/reply barrier, and a **fail-closed wiring-time
+rule** that rejects the constructs which cannot cross a process boundary —
+references, services, contexts, shared outputs and push sources.
+
+Motivation
+----------
+
+hgraph evaluates one graph on one thread by ruling (``CLAUDE.md`` §7,
+2026-07-02). That ruling is about the *per-tick runtime path* being lock-free
+and ``shared_ptr``-free, and it has been good for both correctness and speed.
+It also means a single graph cannot use more than one core, and the workloads
+that most want more cores are precisely the ones ``map_`` already describes:
+the same computation over many independent keys.
+
+A ``map_`` over 10,000 instruments is embarrassingly parallel by construction.
+Each child graph is independent: it sees its own key, its own element of each
+multiplexed input, and whatever broadcast inputs it was wired to. Nothing in
+the child's evaluation reads another child's state. The only reason they run
+sequentially is that they share a thread.
+
+The existing distribution story, RFC 0026's ``hgraph-fabric``, deliberately
+works at a different granularity: whole components exchanging durable,
+versioned ``Frame`` values, with independent lifecycles and no shared engine
+clock. That is the right model for "a daily table is rebuilt, then a
+normalisation step follows". It is the wrong model for "evaluate these 10,000
+per-key subgraphs in lockstep, this cycle". ``dmap_`` fills that gap and the
+two do not compete.
+
+The central observation
+-----------------------
+
+A nested child graph is already externally timed
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``include/hgraph/runtime/graph.h`` exposes, through ``GraphOps``:
+
+* ``evaluate_impl(context, graph, evaluation_time)`` — the *caller* supplies
+  the cycle's evaluation time;
+* ``next_scheduled_time_impl(...)`` — the child's own scheduling intent,
+  readable from outside;
+* ``start_impl(..., DateTime start_time)`` / ``stop_impl(..., DateTime stop_time)``;
+* ``set_child_schedule_observer_impl(...)`` — so a child that becomes runnable
+  between cycles can tell its parent.
+
+and ``nested_graph_node.cpp`` uses them precisely as this RFC needs::
+
+    bool single_nested_graph_evaluate(view, evaluation_time) {
+        return nested.child_graph().evaluate(evaluation_time);
+    }
+
+    void single_nested_graph_propagate_schedule(nested) {
+        const DateTime next = nested.child_graph().next_scheduled_time();
+        nested.node().graph().schedule_node(nested.node().node_index(), next);
+    }
+
+The user-facing consequence is that the "hidden output carrying the next
+scheduled time" this design needs is not a new concept to be added — it is the
+existing ``next_scheduled_time()``, and ``propagate_child_schedule`` is already
+the option that controls whether a parent honours it.
+
+The partitioned / broadcast distinction already exists
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``include/hgraph/runtime/map_node.h`` classifies every child boundary argument
+already::
+
+    enum class MapArgSourceKind : std::uint8_t {
+        Key,         // the per-key constant
+        Element,     // the multiplexed TSD/TSL child output at this key   → PARTITIONED
+        OuterInput,  // an outer (broadcast) input, bound whole            → SHARED
+    };
+
+``Element`` arguments are copied only to the worker owning that key.
+``OuterInput`` arguments are broadcast to every worker that has at least one
+live key. ``Key`` is a per-key constant the worker can synthesise locally from
+the key itself and never needs to be sent at all. The copy-and-forward policy
+follows from the existing classification rather than from new annotations.
+
+Ownership boundary
+------------------
+
+**This is a C++ implementation.** The Python prototype
+(``prototypes/dmap/``) established the data path, but it also demonstrated why
+the real thing cannot live in Python: the worker had to be driven by a
+``push_queue`` under the real-time executor, because Python has no way to
+supply a cycle's evaluation time or to run a phase before the node loop. That
+compromise cost the prototype the entire scheduling half of this RFC's
+contract (see *Implementation status*).
+
+Two pieces, deliberately split:
+
+**Core (this repository, ``runtime/``)** — the externally timed child-graph
+host: the prepare phase described below, the per-cycle drive
+(``evaluate(evaluation_time)`` plus ``next_scheduled_time()``), and the
+boundary source-node kind the prepare phase populates. This is where control
+over the source-node phase and over scheduling lives, and it is not reachable
+from outside the runtime.
+
+**Extension (``extensions/distributed``, package ``hgraph-distributed``)** —
+the ``dmap_`` operator, the partition and placement policies, the worker
+process entry point and the IPC transport. It depends on the core SDK and on
+RFC 0017's codec.
+
+This split follows the promotion gate in ``rfc_0000.rst``: the transport is not
+mathematically general and has no claim on core. The child-graph host is a
+runtime facility that ``map_`` and ``dmap_`` should share.
+
+.. note::
+
+   **Superseded by the implementation.** Everything landed in core. The
+   extension was proposed to keep a transport dependency out of the runtime,
+   and that reason evaporated: the transport is a pair of blocking byte
+   streams (``socketpair``, or two anonymous pipes on Windows) and the process
+   launch is ``posix_spawn`` / ``CreateProcess``, so there is no dependency to
+   keep out. Against that, an extension would have cost a published package, a
+   build/install story, and a core/SDK boundary cutting through the middle of
+   one design. The promotion gate asks what a layer buys; here it bought
+   nothing.
+
+.. note::
+
+   Where exactly the line falls is still the part of this RFC least settled by
+   evidence. The prepare phase and the child-graph drive are clearly core; the
+   partition policy and transport are clearly not. Anything in between should
+   be settled by building the extension against the installed SDK and naming
+   what it cannot reach, rather than by moving the transport inward.
+
+Prepare, then evaluate
+----------------------
+
+A distributed child is driven in two steps per cycle, not one::
+
+    prepare(dispatch)             // populate the boundary source outputs
+    evaluate(evaluation_time)     // run the cycle, unchanged
+    collect() / next_scheduled_time()
+
+**Prepare is a phase, not a series of writes from outside.** The root graph
+already has exactly this shape and it is the model to follow. Push source
+nodes occupy a contiguous prefix of the node array, delimited by
+``GraphSchema::push_source_nodes_end``, and ``evaluate`` runs them in a
+dedicated phase before the normal node loop::
+
+    std::size_t first_normal_node = graph.schema()->push_source_nodes_end;
+    if (!resuming) {
+        // ... push phase over [0, first_normal_node) ...
+        state.lifecycle_observers->notify_after_graph_push_nodes_evaluation(graph);
+    }
+    // ... normal node loop from first_normal_node ...
+
+Two properties of that code matter here. It is guarded by ``!resuming``, so a
+mid-cycle pause does not re-run it — the same guard a prepare phase needs. And
+it is **root-graph only**: the branch is ``if constexpr
+(std::is_same_v<Storage, RootGraphRuntimeStorage>)``, so a nested graph has no
+source phase at all today.
+
+.. note::
+
+   **This section originally concluded that a distributed child needs a nested
+   analogue of that phase — a boundary source prefix evaluated inside
+   ``evaluate`` before the node loop. Building stage 2 showed it does not**,
+   and the reasoning that demanded it was wrong in an instructive way.
+
+   The argument was: a write performed outside ``evaluate`` would be stamped
+   against the previous cycle, because the graph's evaluation time is set at
+   the top of ``evaluate``. That is true of writing a **time-series output**
+   from outside — and it is precisely what the implementation does not do.
+
+   Staging writes a plain ``Value`` into ``GlobalState``; the time-series write
+   happens *inside* the boundary source node's ``eval``, during evaluation, at
+   the runtime's own evaluation time. Stamping is therefore correct by
+   construction rather than by phase placement, and the prepare step is an
+   ordinary ``schedule_node`` on nodes that already exist.
+
+   So the boundary is two ordinary nodes and no new evaluation phase:
+   ``include/hgraph/runtime/distributed_child.h``.
+
+The boundary sources are **pull** sources, not push sources: they produce a
+value when the driver has staged one, and they never wake anything. A worker
+built this way needs no queue, no background thread and no real-time executor.
+Its engine time is whatever the caller supplies, which is what makes a
+distributed run identical to the single-process one.
+
+A staged value is **consumed** when applied. The driver schedules every
+boundary source on a prepared cycle rather than tracking which slot changed, so
+a value left in place would re-tick on the following cycle and invent a tick the
+caller never sent.
+
+Push sources are **not** a counter-example to any of this, and an earlier draft
+of this section wrongly implied they might become one. They are a root-graph
+facility — the push phase is compiled only for ``RootGraphRuntimeStorage`` —
+and a ``dmap_`` child is a nested graph, so there is no push work for a prepare
+phase to carry and no signal for the reply to grow. That a worker happens to
+host its child under a root executor is an implementation detail of the host,
+not a capability of the child.
+
+The per-cycle contract
+----------------------
+
+The wire protocol is deliberately tiny, because the nested-graph contract it
+mirrors is tiny.
+
+Request (outer → worker), once per partition per cycle::
+
+    struct CycleRequest {
+        DateTime  evaluation_time;
+        KeyDelta  keys;             // keys added / removed for THIS partition
+        DeltaList shared;           // (arg_ordinal, delta Value) for OuterInput args
+        DeltaList partitioned;      // (key, arg_ordinal, delta Value) for Element args
+    };
+
+Reply (worker → outer)::
+
+    struct CycleReply {
+        DeltaList outputs;          // (key, output_ordinal, delta Value)
+        DateTime  next_scheduled_time;   // min over this partition's child graphs
+        Status    status;           // ok | node_error(payload)
+    };
+
+Every ``delta Value`` is exactly what ``capture_delta(TSInputView)`` produces —
+a ``Value`` over ``TSValueTypeMetaData::delta_value_schema`` — and is applied
+on the far side with ``apply_delta(TSOutputView, ValueView)``. Both are already
+implemented, already type-erased, and already exercised by ``record`` /
+``replay``. The only missing layer is the byte encoding, which is RFC 0017.
+
+Write the delta, then write it into the map
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each side is a stream, not a copy-and-merge.
+
+**Writing.** A worker's request carries the delta an ordinary capture would
+produce, minus the keys another worker owns:
+``capture_dict_delta_where(input, selects, context)``
+(``types/time_series/ts_delta.h``). It walks the caller's input once per group
+and builds only what that group owns, rather than capturing the whole delta and
+splitting it afterwards -- which would rebuild every element delta only to
+discard most of them, once per worker, every cycle.
+
+**Reading.** A reply is applied **straight into the output TSD** with
+``apply_delta``. There is no merge step, and that is a consequence of the
+partition rather than a convenience: because the partition function sends each
+key to exactly one group, the replies touch disjoint key sets, so applying them
+one after another is the same as applying their union. The equality is what
+licenses the direct write, so it is asserted directly
+(``tests/cpp/test_partitioned_delta.cpp``): no key appears in two groups, and
+the union of the groups is the unfiltered capture.
+
+An intermediate ``Value`` still exists on both sides -- the writer materialises
+one before encoding, the reader materialises one after decoding. Removing them,
+so the codec streams directly between the input and the bytes and between the
+bytes and the output, is a fast path over this one and must be held to RFC
+0017's rule for fast paths: identical results to the path it replaces, proven
+by test, not assumed.
+
+The worker hosts an ordinary ``map_``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A worker does **not** implement per-key lifecycle logic of its own. It runs a
+normal ``map_`` node over the key subset it owns, inside a graph it builds from
+the same wiring code as the caller. Key add/remove from ``CycleRequest::keys``
+is applied to that ``map_``'s key set; child construction, destruction, output
+element lifetime and ``__keys__`` semantics are then the existing, tested
+behaviour rather than a reimplementation.
+
+This is the main reason the design is small: ``dmap_`` is a *partitioning
+front-end plus N ordinary ``map_`` nodes*, not a new nested-graph engine.
+
+Scheduling
+~~~~~~~~~~
+
+The ``dmap_`` node schedules itself at ``min`` over the partitions'
+``next_scheduled_time`` replies, which is what
+``single_nested_graph_propagate_schedule`` does for one child. A worker whose
+children are all idle returns ``MAX_ET`` and costs nothing.
+
+The barrier, and why v1 is synchronous
+--------------------------------------
+
+In v1 the ``dmap_`` node **blocks inside its own** ``eval()`` until every
+partition with work has replied. Workers run concurrently with each other; the
+caller waits for the slowest.
+
+This is not the only option. ``graph.cpp``'s evaluation loop already supports a
+node returning ``false`` to request a **mid-cycle pause**, holding the cursor in
+graph state and resuming at the *same* evaluation time without redoing per-cycle
+setup::
+
+    // The node loop drives state.evaluation_cursor (the node_id) directly so a
+    // pause can resume mid-cycle. When a node returns false it has requested a
+    // pause: the cursor is already sitting on that node ... the next evaluate at
+    // the same time continues from there WITHOUT redoing the per-cycle setup
+
+That machinery is exactly what an asynchronous dispatch would want. It is
+**not** used in v1 for one concrete reason: today a pause is resolvable only by
+an enclosing ``mesh_``, and the root graph throws when one escapes —
+``"root graph evaluation paused with no resolver"`` (``executor.cpp``). Making
+the root executor a pause resolver that can wait on an external completion is a
+separate change with its own risks to the simulation and real-time executors.
+
+The cost of the synchronous choice is small: the runtime is single-threaded by
+ruling, downstream nodes need the results before they can run, and the only work
+lost is same-rank work independent of ``dmap_``. The pause path is recorded here
+as the v2 upgrade and the reason not to design the transport in a way that
+forecloses it.
+
+Determinism
+-----------
+
+This is the property that makes the feature worth having, and it should be
+stated as a contract rather than a hope.
+
+Because engine time is supplied by the caller and a worker never reads a clock,
+never runs a push source (banned below) and never advances its own time, a
+``dmap_`` run produces results **identical to the equivalent ``map_`` run**,
+regardless of how many partitions exist, how they are assigned, or how long any
+worker takes. Distribution changes throughput and latency. It must not change
+semantics.
+
+Two consequences follow:
+
+* The partition count and the partition function are **not** part of the
+  program's meaning, so they may be configuration rather than wiring.
+* The test plan below is largely differential: ``dmap_`` versus ``map_`` over
+  the same recorded inputs, asserting equality — which the record/replay and
+  parity machinery already supports.
+
+What v1 rejects, and why
+------------------------
+
+Each of these is a **wiring-time** rejection with a diagnostic naming the
+offending argument, not a runtime failure. Fail closed: a construct that cannot
+be shown to cross the boundary is refused.
+
+References (``REF<T>``)
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``TimeSeriesReference`` holds a ``TSOutputHandle target`` — a pointer into
+*this process's* graph memory — and composite references are trees of the same
+(``include/hgraph/types/time_series_reference.h``). There is no value to copy;
+a reference is an address. Every boundary argument must therefore be
+**dereferenced before it is sent**, so the child sees a value.
+
+RFC 0036 ("Reference Transparency Has Four Owners", Accepted) is the machinery
+that decides where a REF is transparent and where it is materialised. The
+``dmap_`` boundary is a forced materialisation point and should be expressed
+through that RFC's owners rather than as a special case beside them. Getting
+this wrong in the *other* direction is a known, expensive failure mode — see
+``nested-boundary-ref-rebind``: comparing the wrong handle at a nested boundary
+re-binds and re-ticks every cycle.
+
+Services, contexts and shared outputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Banned in v1, and the reason is structural rather than incidental. All three
+flavours are implemented as REF-over-graph-local-state
+(``developer_guide/services.rst``):
+
+    **Shared output** (``runtime/shared_output_node.h``): the source owns a
+    ``REF<T>`` output and graph-local REF state …
+    **Context** (``runtime/context_node.h``): the same primitive with
+    wiring-scoped keys …
+
+A child in another process has no access to that state. Request/reply services
+are worse than merely unreachable: they depend on a rank and cycle hand-off
+inside the *owning* graph, where "a dynamically started child cannot safely
+schedule an outer request source whose rank may already have passed, so its
+request reaches the owning graph on the following cycle". A cross-process child
+cannot participate in that protocol at all.
+
+The eventual answer is the wrapper the original sketch anticipates: a service
+proxy that presents itself to the child as an ordinary input and is serviced by
+the caller's graph across the transport. That is deferred deliberately —
+request/reply across a per-cycle barrier introduces a distributed round trip
+*inside* one engine cycle, which is a design problem in its own right and should
+not be smuggled into the first working model.
+
+Push sources inside a child
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Not banned so much as **not a thing a child can have**. A push source is a
+**root-graph** facility: the push phase in ``evaluate`` is guarded by
+``if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>)``, so a
+nested graph never runs one, and ``GraphExecutorValue``'s constructor already
+refuses push sources on any executor but ``RealTime``.
+
+A ``dmap_`` child is a nested graph. The question therefore does not arise at
+the child boundary at all, and this RFC should not be read as deferring a
+capability that could later be switched on there.
+
+Were it possible, it would also be wrong: a push source injects events on its
+own thread (``CLAUDE.md`` §7 — push-source senders and the real-time executor
+CV are the only sanctioned cross-thread runtime boundary), so inside a worker
+its events would arrive on the worker's timeline rather than the caller's,
+breaking the externally-timed contract and the determinism guarantee with it.
+
+Forwarding output modes
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``MapOutputBindingMode`` has three values; only one is transportable::
+
+    ChildTerminalWritesElement,              // value written through   → OK
+    OutputElementForwardsToChildTerminal,    // reference forwarding    → rejected
+    OutputElementForwardsToParentSource,     // reference forwarding    → rejected
+
+The two forwarding modes make the map output element a view onto the child's
+output rather than a copy of it. Across a process boundary there is nothing to
+forward to. ``dmap_`` forces ``ChildTerminalWritesElement``.
+
+Non-encodable schemas
+~~~~~~~~~~~~~~~~~~~~~
+
+Any boundary schema whose ``delta_value_schema`` the RFC 0017 codec cannot
+encode — most obviously Python-object scalars (RFC 0003 / RFC 0004) held by
+identity rather than by value. Rejected at wiring with the schema named.
+
+Partitioning: keys into groups, groups onto executors
+-----------------------------------------------------
+
+The live key set is the union of ``MapNodeSpec::multiplexed_inputs``, or the
+explicit ``__keys__`` ``TSS[K]`` when wired (``keys_input_index``) — unchanged
+from ``map_``. Placement is **two** mappings, not one::
+
+    partition : K       -> GroupId        // user-supplied policy, pure
+    placement : GroupId -> ExecutorId     // runtime assignment, may change
+
+A *group* is a set of keys guaranteed to share one executor. The partition
+function names the group; the runtime decides which executor hosts it.
+
+The indirection is the point. Collapsing it to ``hash(key) % workers`` ties a
+domain decision to a hardware one:
+
+* **Co-location becomes expressible.** Every key of one exchange, book or
+  underlier can be made to share a process by returning the same group. With a
+  direct key-to-worker hash the caller has no way to say so.
+* **Rebalancing moves a group, not a key.** Changing the executor count
+  re-places groups; the partition function is untouched, and the key-to-group
+  map does not move under a running child.
+* **Group count is a domain choice, executor count a deployment one.** They
+  should be able to vary independently.
+
+The default partition function is a stable hash of the key's canonical value
+encoding, giving one group per key — the degenerate case, and the right
+default when no co-location is required.
+
+**The worker never partitions.** The caller holds the authoritative
+key-to-group map, builds it by calling ``partition`` as keys appear, and tells
+each executor which keys it hosts. A worker computes nothing about placement;
+it is told.
+
+.. note::
+
+   An earlier draft of this RFC required the partition function to be "stable
+   across processes" and warned against ``std::hash``, on the assumption that
+   caller and worker would each compute ownership and have to agree. They do
+   not: ownership flows one way, in the dispatch. The requirement is therefore
+   only that ``partition`` be **deterministic within a run**, so a key does not
+   oscillate between groups, and that the key-to-group map be remembered by the
+   caller rather than recomputed. Cross-process hash agreement is not needed at
+   all.
+
+Rebalancing a live group between executors requires moving child state and is
+out of scope for v1: placement is fixed once assigned. The group indirection
+exists so that this can be added later without changing the partition
+contract.
+
+Worker bootstrap and identity
+-----------------------------
+
+A worker cannot be sent the graph. RFC 0022 is explicit that a manifest
+"does **not** serialize executable code, function pointers, credentials, or live
+resources", and that an application "reconstructs a graph through its ordinary
+C++ or Python wiring path and validates the resulting manifest".
+
+So the model is: **the worker runs the same program**, wires the same child
+template through the same code path, and the manifest is the *cross-process
+agreement check* rather than the transport. On a mismatch the run fails at
+startup with a manifest diff, which is exactly the failure RFC 0022 exists to
+make legible. This matches how Python's ``spawn`` start method already behaves
+(the module is re-imported in the child), which is why the original
+multiprocessing experiment works at all.
+
+**Native registered recipes** (``runtime/distributed_worker.h``,
+``runtime/distributed_process.h``):
+
+* A **recipe** is a pair of function pointers — build the child graph, declare
+  its boundary — registered under a name. ``register_distributed_map_worker<
+  Kernel, Key, Value, Result>()`` registers one; the registration must be in a
+  translation unit linked into both programs, which in the ordinary case means
+  one program launched twice.
+* The name is **derived, not chosen**: the worker graph's mangled type name
+  together with the kernel's mangled identity. Deriving it is what stops the
+  two sides drifting apart, since neither gets to spell it. Mangled *names*
+  rather than ``type_info`` addresses, for the reason recorded against
+  ``WiredFn``: the address does not survive an image boundary.
+* The name, the channel handles and the run's start/end times cross in
+  ``argv``. A native host program calls
+  ``run_worker_if_requested(argc, argv)`` first in ``main``; it returns false
+  when the program was not launched as a worker, so calling it costs an
+  argument scan.
+* A caller that asks for a kernel with no registration fails **before any
+  process starts**, naming the key it looked for and the call that would
+  register it. The alternative — discovering it as an exit code from a process
+  the caller never chose to look at — is the failure mode this exists to
+  avoid.
+
+The manifest check itself is still deferred: the derived name pins the kernel
+and the key/value/result types, which is the agreement that has actually gone
+wrong in practice, but it does not pin the child's internal shape. RFC 0022 is
+the mechanism when that becomes worth paying for.
+
+The Python frontend instead launches the same Python executable with an
+import recipe: the child's module-qualified name, boundary type annotations,
+and the caller's import paths. The worker imports that module and compiles the
+child through the same native prepared-plan API. This supports importable
+Python-authored nodes and graphs without serializing executable code. The
+import recipe is bootstrap metadata; time-series values still use the native
+binary protocol. The child must be defined in an importable module, and workers
+do not inherit live Python objects or the parent's runtime ``GlobalState``.
+
+**What this buys and what it costs.** A worker rebuilding its own child is why
+per-key state, construction and teardown are the existing ``map_`` behaviour
+rather than a reimplementation. Two costs follow, both from a recipe carrying
+only a *name*:
+
+* The child must be **nameable ahead of the run**. A kernel assembled at wiring
+  time from values only the caller has, such as a Python closure or lambda,
+  cannot be reconstructed. Importable module-level Python callables are
+  supported by the Python bootstrap described above.
+* The original registered scalar-only recipe reconstructs a child from its
+  type alone. Prepared recipes extend that contract with an explicit partition
+  group/count. The Python bootstrap also transports portable scalar
+  configuration and schema descriptors, supporting named/multiple inputs and
+  broadcasts without transporting executable code.
+
+A manifest still does not transport code. The expanded bootstrap identifies
+importable code and immutable values; it does not make arbitrary closures or
+live resources reconstructible.
+
+A quoting note, because it cost a Windows-only failure: the name travels in
+``argv``, and ``typeid(...).name()`` is a compact mangled string under the
+Itanium ABI but a readable one **containing spaces** under MSVC. Windows hands
+a process one command line and lets it split its own arguments, so the launch
+quotes; POSIX passes an array and never could have noticed.
+
+Known deviations from ``map_``
+------------------------------
+
+Criterion 1 says the worker count must not be observable in the result. One
+case currently fails that, and is recorded rather than hidden.
+
+**A key that has no value yet does not tick the caller.** When a child's output
+gains a key before that key has a value -- a child constructed this cycle that
+does not tick until later -- ``map_`` ticks its output on the structural change
+and ``dmap_`` does not. The key appears on the cycle it first has a value, and
+every value thereafter agrees; what is lost is the intermediate tick, so a
+consumer reacting to key *creation* rather than to values sees it later.
+
+The cause is below ``dmap_``. The canonical TSD delta is
+``Bundle{removed, modified}`` (``types/metadata/type_registry.cpp``), which has
+no way to express "this key exists and has no value yet", so ``capture_delta``
+/ ``apply_delta`` -- the same pair record/replay uses -- cannot carry it. The
+in-process worker mode is what makes that attribution sound: it encodes
+nothing, and the deviation survives it.
+
+Fixing it means changing the canonical delta shape, which is a change to the
+record/replay contract and needs its own design record; it is not a ``dmap_``
+change. Pinned by
+``tests/cpp/test_distributed_map.cpp`` -- "a key with no value yet does not
+tick the caller", which asserts both series exactly, so the deviation cannot be
+retired silently.
+
+Failure handling
+----------------
+
+v1: a worker that crashes, times out or reports a node error fails the
+``dmap_`` node with a ``NodeError`` naming the partition and the key, through
+the existing per-node capture path (``developer_guide/error_handling.rst``), so
+``try_except_`` behaves as it does for any other node.
+
+Recovery at a completed day is RFC 0039's: the owner's checkpoint state is one
+graph image per worker, and a restarted run raises its workers from them.
+Restarting a worker that fails *during* a run is still deferred. The mechanism
+is the same restore, but it needs the inputs the worker has consumed since its
+image, which nothing records.
+
+Python contract
+---------------
+
+.. code-block:: python
+
+    @graph
+    def dmap_(func, *args, __keys__=None, __workers__: int = 4, **kwargs):
+        """As map_, but evaluates per-key child graphs in worker processes."""
+
+Call-shape parity with ``map_`` is a requirement, not an aspiration: the point
+of a separate name is to keep the distribution decision explicit while the
+model is proven, not to grow a second dialect. ``__workers__`` and
+``__partition__`` (the ``K -> GroupId`` policy of *Partitioning* above) are the
+only additions, and both are wiring-time scalars.
+
+The C++ operator carries two further wiring scalars that bootstrap forced:
+``program``, the worker executable (empty meaning this one), and
+``in_process``, which runs the workers here instead. ``in_process`` defaults to
+**false** deliberately: a ``dmap_`` that quietly failed to distribute would be
+a silent performance fault, so the mode that is not distributed has to be asked
+for by name. Its purpose is attribution rather than deployment — when the two
+modes agree and both differ from ``map_`` the fault is in the model, and when
+they disagree it is in the transport.
+
+The Python surface is a **binding over the C++ operator**, not a Python
+implementation of it. A Python ``__partition__`` callable is evaluated at
+wiring time only — per-key placement is decided by the caller as keys appear,
+never inside a worker, so the policy never becomes a per-tick Python call.
+
+Serialization consequences
+--------------------------
+
+This RFC is blocked on RFC 0017 and should not be implemented before it.
+RFC 0017 is currently *Proposed*, states that it "deliberately decides **no
+transport**", and identifies itself as "the piece every candidate transport
+needs". ``dmap_`` is the first concrete consumer, and implementing it will
+therefore exercise RFC 0017's envelope — schema identity, monotonic sequence,
+image/delta discriminator — against a real bidirectional stream rather than a
+store.
+
+Performance and memory
+----------------------
+
+The gain is bounded by the fraction of cycle time spent in child evaluation,
+against a per-cycle cost of: one ``capture_delta`` per changed boundary input,
+one encode, one write, one read, one decode and one ``apply_delta`` per changed
+output, plus a barrier.
+
+That cost is per *changed* value, and deltas are already the unit, so a sparse
+cycle is cheap. It is emphatically not free, and it has been measured rather
+than asserted (``tests/cpp/distributed_perf.cpp``; raw JSON in
+``benchmarks/results/dmap-crossover-20260917-*.json``).
+
+**The answer is a single number: how much work one child does per tick.**
+``dmap_`` breaks even at roughly **0.6 microseconds of child work per key per
+tick**, and the figure is the same on a 128-core Linux host and a laptop, which
+is what one would expect of a ratio between two costs that both scale with the
+processor.
+
+``dmap_`` over processes as a ratio of ``map_`` (lower is better, best worker
+count of 1/2/4/8; 128-core Linux, GCC 14.3 ``-O3``):
+
+.. list-table::
+   :header-rows: 1
+
+   * - child work per key
+     - 64 keys
+     - 256 keys
+   * - 0 (an empty child)
+     - 2.52x
+     - 2.09x
+   * - 0.15 us
+     - 2.01x
+     - 1.69x
+   * - 0.6 us
+     - 1.39x
+     - **1.00x**
+   * - 2.4 us
+     - **0.66**
+     - **0.52**
+   * - 18 us
+     - **0.21**
+     - **0.20**
+
+Conclusions, which belong in the contract rather than in a benchmark file:
+
+* **A trivial child is hopeless, and more keys does not rescue it.** The
+  overhead is per cycle and per worker, not per key. This is the case a
+  wiring-time warning should probably catch.
+* **One worker is never worth it** (1.05x to 4.2x across every shape): overhead
+  with no parallelism bought. The ratio at one worker is a clean reading of what
+  distribution *costs* before it buys anything.
+* **Above the crossover it scales close to linearly**, reaching 0.20x at eight
+  workers — a 5x speed-up where the children are expensive enough.
+* **Eight workers is often worse than four at 64 keys** and better at 256: the
+  barrier waits for the slowest worker, and a worker with eight keys is mostly
+  overhead. Worker count should follow key count, not core count.
+* **In-process workers are always slower than ``map_``** (1.03x to 5.2x). That
+  is the point of the mode, not a defect: it is the model's overhead with the
+  parallelism removed, so it prices the machinery separately from the win.
+* **Starting a worker costs 7-14 ms on Linux and 100-113 ms on macOS**, once.
+  Both are paid on the first cycle rather than at graph start, because
+  ``posix_spawn`` and ``CreateProcess`` return when the child exists rather than
+  when it is ready.
+
+The parent still captures, encodes and applies every delta itself, serially,
+which is what flattens the curve at high worker counts. That points at the
+parent's own loop as the next thing to attack, ahead of the transport.
+
+Every point was checked against ``map_``'s own result, and all 80 agreed: a
+fast wrong answer is worthless, so the checksum is printed with the timing.
+
+.. note::
+
+   An **earlier table here reported the v0 Python prototype** (pickle over a
+   pipe, under the GIL) and showed 14x for trivial children and 0.14 at 16
+   workers. Those numbers describe a different program and have been replaced.
+   The shape of the conclusion survived — trivial children lose badly, one
+   worker never pays, returns flatten — which is some evidence the prototype was
+   measuring the model rather than Python.
+
+Shared memory for the delta payloads is the obvious optimisation and is
+deliberately not in v1: it should be chosen against a measured baseline, not
+assumed.
+
+Alternatives considered
+-----------------------
+
+**Threads instead of processes.** Rejected: the single-threaded ruling exists
+because the per-tick path is lock-free and ``shared_ptr``-free; making child
+graphs thread-safe would relitigate the ruling for the whole runtime. Processes
+keep that ruling intact — each worker is a single-threaded runtime.
+
+**Use ``hgraph-fabric`` (RFC 0026).** Right tool, wrong granularity: whole-value
+``Frame`` publication with independent lifecycles and no shared engine clock,
+where ``dmap_`` needs per-key deltas in lockstep with the caller's cycle.
+
+**Asynchronous dispatch via the pause cursor.** Deferred, not rejected; see
+*The barrier* above. It is the intended v2.
+
+**Distribute at the executor rather than at ``map_``.** Partitioning an
+arbitrary graph requires a cut with no reference-carrying edges and no shared
+services, which is the hard general problem. ``map_`` hands us a cut that is
+already clean by construction. Starting here buys a working model; generalising
+later remains open.
+
+Unresolved questions
+--------------------
+
+#. **Does the extension need core hooks the SDK does not expose?** The
+   core/extension split above is asserted, not proven. It should be settled by
+   attempting the extension against the installed SDK before any core refactor
+   lands.
+#. **Transport choice.** *Settled for v1.* A framed stream over a
+   ``socketpair``, and on Windows -- which has none -- two crossed anonymous
+   pipes, which suit a blocking request/reply exactly. Shared memory remains
+   the optimisation and RFC 0034 (NATS) the natural remote transport; both are
+   a different implementation of ``send``/``receive`` and change nothing above
+   ``distributed_transport.h``.
+#. **Does ``dmap_`` belong in the 1.0 surface?** RFC 0005 freezes the API. A
+   provisional operator inside an extension is the safer answer.
+#. **Worker-side scheduling fidelity.** ``next_scheduled_time`` is a ``min``
+   over the partition; whether a worker should report per-key times so the
+   caller can skip partitions with no due work is an optimisation to measure.
+#. **Key skew.** A hash partitioner handles cardinality, not cost. Cost-aware
+   assignment needs feedback the v1 protocol does not carry.
+#. **An optional broadcast input needs an explicit validity policy.** The
+   prototype found that an *unwired* optional ``TS[...]`` input stops a node
+   from ever evaluating -- silently, with an empty result and no error, because
+   a node waits for all its time-series inputs to be valid. A ``dmap_`` whose
+   broadcast argument is optional must therefore declare ``valid=`` naming only
+   the inputs that must be valid. The prototype sidesteps this with two node
+   variants; the operator cannot.
+
+Acceptance criteria and test plan
+---------------------------------
+
+The differential criterion is primary; everything else supports it.
+
+#. **Equivalence.** For a corpus of ``map_`` graphs, ``dmap_`` produces output
+   identical to ``map_`` — same values, same ticks, same engine times — across
+   worker counts 1, 2 and N > keys, and across partitioner permutations. Driven
+   by the existing record/replay machinery.
+#. **Scheduling.** A child using ``schedule`` / alarms fires at the same engine
+   times under ``dmap_`` as under ``map_``, including a child scheduled between
+   input ticks (the case that exercises ``next_scheduled_time`` rather than the
+   input path). This is the criterion the Python prototype could not attempt,
+   and the one the prepare phase exists to make reachable.
+#. **Prepare is a phase.** A cycle that pauses mid-way and resumes at the same
+   evaluation time must not re-run prepare — the same ``!resuming`` guard the
+   root graph's push phase already carries. A test that pauses a distributed
+   child and asserts its boundary sources tick once, not twice.
+#. **Grouping.** Keys that the partition function places in one group are
+   hosted by one executor, and remain so as other keys arrive and leave; and
+   the result is independent of the group-to-executor placement.
+#. **Lifecycle.** Keys added and removed mid-run build and tear down children in
+   the owning worker only; a key removed from all multiplexed inputs destroys
+   its child; ``__keys__`` semantics match ``map_``.
+#. **Rejections.** Each banned construct — a ``REF`` boundary argument, a
+   service or context consumer, a push source in the child, a forwarding output
+   mode, a non-encodable schema — fails at **wiring** with a diagnostic naming
+   the argument. One test per construct; a silent acceptance is a bug.
+#. **Failure.** A killed worker fails the node with a ``NodeError`` naming the
+   partition, and ``try_except_`` observes it as for any node.
+#. **Native and Python.** C++ behavioural tests in the extension's suite plus
+   the Python surface, per the parity acceptance rule
+   (``developer_guide/parity_matrix.rst``).
+#. **Benchmarks.** The crossover point reported, raw JSON committed. *Done:
+   see* Performance and memory *above.*
+
+Implementation status
+---------------------
+
+**v1 is implemented in core and runs across processes.** ``dmap_`` distributes
+a ``map_`` over spawned worker processes and produces what ``map_`` produces,
+at every worker count tested. The layers, each with its own tests, bottom up:
+
+``types/value/binary_codec.h``
+    RFC 0017's field-wise binary encoding for values. The ``trivial_layout``
+    fast path is still deferred, as are ``Any``, enums and the queue types.
+
+``runtime/executor.h`` — ``GraphExecutorMode::ExternallyDriven``
+    ``start_external`` / ``step`` / ``stop_external``: the caller supplies the
+    evaluation time. ``step`` **refuses** a time later than
+    ``next_scheduled_time()``, because silently skipping due work is how a
+    distributed run stops matching a local one.
+
+``runtime/distributed_child.h``
+    The boundary source and sink nodes, and ``DistributedChildHost`` —
+    stage / step / collect / ``next_scheduled_time``. A staged value is written
+    by a source node during evaluation, never into an output from outside, so
+    the modified-time stamping is the runtime's own.
+
+``runtime/distributed_protocol.h``
+    ``CycleRequest`` / ``CycleReply``, the ordered ``BoundarySlots`` both sides
+    index by position, and the length prefix that makes a byte stream carry
+    messages. ``BoundarySlots`` binds each slot's converter when the slot is
+    added, for RFC 0040's ``Fast`` profile, so encoding and decoding a cycle
+    take no type-system lock; a slot's payload follows a fixed four-byte
+    length, which lets it be written in place. Both sides are one build, so
+    the message layout carries no version.
+
+``runtime/distributed_transport.h``
+    ``PipeEndpoint`` and ``connected_pipe_pair``: blocking framed byte streams
+    over a ``socketpair``, or two crossed anonymous pipes on Windows.
+
+``runtime/distributed_worker.h``
+    The recipe registry, the serve loop, and ``run_worker_if_requested``.
+
+``runtime/distributed_process.h``
+    ``spawn_worker`` / ``WorkerProcess``: ``posix_spawn`` with the channel
+    placed at a fixed descriptor, or ``CreateProcess`` with an inheritable
+    handle list. Closing the channel is how a worker is asked to finish; one
+    that does not take the hint is killed after a grace period, because a
+    caller that blocks forever cannot report a failure.
+
+``runtime/distributed_map.h``
+    ``dmap_``, the worker pool, and the partition. Requests go to every worker
+    before any reply is collected — fused, the workers would run one after
+    another and ``dmap_`` would be ``map_`` with a pipe tax.
+
+Against the acceptance criteria: **1 (equivalence)** holds for the corpus
+tested, in process and across processes, at worker counts 1, 2, 4, 5 and 8 and
+at counts above the key count. **4 (grouping)** follows from the worker hosting an
+ordinary ``map_`` and is covered by the per-key state cases. **5 (lifecycle)**
+is tested directly rather than inferred: keys that appear, leave and return
+produce the same series as ``map_``, and a returning key gets a *fresh* child —
+which is what makes the case sensitive to a teardown that did not happen, since
+a worker holding the old child would carry its running total forward. **6 (rejections)** covers services/contexts/shared outputs and
+push sources; ``REF`` needs no rejection, because serialising and
+reconstructing a value resolves references implicitly. **7 (failure)** covers a
+worker that cannot be started and one that closes without replying.
+
+**2 (scheduling)** is covered end to end by native and Python self-scheduling
+children. **3 (prepare is a phase)** is moot: staging through a source node
+removed the need for a prepare phase. **8 (Python)** uses the same native map
+classification, partitioned child plans, worker pool and binary transfer as
+C++. Dictionary and list mappings support named/multiple inputs, scalar
+configuration, broadcast/pass-through arguments, key controls, sinks and
+recursive time-series boundary types. Importable Python children are rebuilt
+in fresh interpreters; closures, parent resources and code serialization
+remain outside the process contract. See :doc:`../user_guide/distributed_map`
+for the public API and process constraints.
+
+The expanded boundary protocol preserves invalid dictionary membership,
+partial structures, list extent and window history. It supersedes the
+canonical-delta-only transfer for prepared plans. Legacy scalar-only native
+recipes retain their original transfer API and its documented invalid-key
+limitation; new clients should use prepared plans.
+
+**9 (benchmarks)** is done: the native crossover is measured and the raw JSON
+committed (see *Performance and memory*). Those native timings do not measure
+Python interpreter startup or Python callback costs. Worker restart,
+rebalancing and the RFC 0022 manifest check remain deferred.
+
+A **validated v0 prototype** also exists on branch
+``prototype/dmap-experiments`` under ``prototypes/dmap/`` -- deliberately
+outside ``testpaths`` and ``wheel.packages`` so it collides with nothing. It
+uses pickle over a pipe, not RFC 0017.
+
+What it established:
+
+* **The central claim holds.** A worker hosting an ordinary ``map_`` needed no
+  per-key lifecycle code at all; keys added and removed mid-run work on the
+  existing behaviour. This was the RFC's main bet and it paid.
+* All five experiments produce output **identical to** ``map_`` at 1, 2 and 3
+  workers, in genuinely separate OS processes (verified by pid).
+* A **single** message per dispatch is required, not one queue per argument
+  kind: separate queues let the real-time executor split one dispatch across
+  engine cycles, and the worker then evaluates a half-applied dispatch.
+* The reply must be driven by the message as well as by the output, or a
+  dispatch whose keys produce nothing never replies and the caller deadlocks.
+* ``hash()`` cannot be the partitioner -- CPython salts string hashing per
+  process, so caller and worker disagree about where a key lives. The RFC
+  already required a stable hash; this is why.
+
+What it has **not** validated, and the reason: engine time is not yet
+external. ``GraphView::evaluate`` is not exposed to Python, so the prototype's
+worker runs ``REAL_TIME`` on its own clock. One dispatch is still one engine
+cycle, so the *sequence* is lockstep, but the second half of the per-cycle
+contract -- ``next_scheduled_time`` propagation -- and any self-scheduling or
+clock-reading child are entirely unexercised. Every prototype kernel is
+time-independent, which is what makes its results sound and also what limits
+them. Closing this is the first task, ahead of the codec, and it is the
+direct reason this RFC now targets a C++ implementation rather than an
+extension written in Python: the prototype's worker had to run under the
+real-time executor because Python cannot supply a cycle's evaluation time or
+run a phase before the node loop. Both are ordinary in C++.
+
+References
+----------
+
+* ``include/hgraph/runtime/graph.h`` — ``GraphOps::evaluate_impl``,
+  ``next_scheduled_time_impl``, ``set_child_schedule_observer_impl``
+* ``src/hgraph/runtime/nested_graph_node.cpp`` — ``single_nested_graph_evaluate``,
+  ``single_nested_graph_propagate_schedule``
+* ``include/hgraph/runtime/map_node.h`` — ``MapArgSourceKind``,
+  ``MapOutputBindingMode``, ``MapNodeSpec``
+* ``include/hgraph/types/time_series/ts_delta.h`` — ``capture_delta`` / ``apply_delta``
+* ``include/hgraph/types/time_series_reference.h`` — ``TimeSeriesReference``
+* ``src/hgraph/runtime/graph.cpp`` — the evaluation cursor and mid-cycle pause
+* ``developer_guide/nested_graphs.rst``, ``developer_guide/services.rst``,
+  ``developer_guide/error_handling.rst``

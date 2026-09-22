@@ -822,6 +822,12 @@ namespace hgraph
     struct WiringOptions
     {
         bool is_realtime{false};
+        /** Disallow external event sources throughout this wiring tree.
+         * Externally driven workers advance solely on their caller's clock.
+         */
+        bool allow_push_sources{true};
+        /** Bind the active authoring GlobalContext; isolated workers opt out. */
+        bool inherit_global_context{true};
     };
 
     struct WiringObserverRegistry;
@@ -909,6 +915,8 @@ namespace hgraph
         [[nodiscard]] WiringKind kind() const noexcept;
         /** Whether this graph is being composed for a real-time executor. */
         [[nodiscard]] bool is_realtime() const noexcept;
+        /** Immutable composition policies, including isolated-worker restrictions. */
+        [[nodiscard]] WiringOptions options() const noexcept;
 
         /** User-facing label copied to the produced graph. */
         Wiring &label(std::string label);
@@ -1269,8 +1277,64 @@ namespace hgraph
 
         /** Claim a component's fully-qualified recordable id for this wiring;
             a second claim of the same id throws (one component instance per
-            id per graph build - python parity). */
-        void claim_component_id(std::string_view fq_recordable_id);
+            id per graph build - python parity).
+
+            The one exception is ``InlineRepeat``: a function wired once per
+            index on this wiring claims the same id each time, and those are
+            instances of ONE component, not two components that collide. Such a
+            claim returns ``false``. Only a repeat ACROSS indices is an
+            instance: an id claimed twice within one index is two call sites
+            sharing an id, and an id first claimed outside the repeat is
+            another component altogether. Both are still duplicates. */
+        bool claim_component_id(std::string_view fq_recordable_id);
+        /**
+         * A user function unrolled inline, once per index, on this wiring --
+         * what ``map_`` over a fixed-size list does. A keyed ``map_`` wires its
+         * function once, as a child template, and needs none of this.
+         *
+         * While one is open a repeated component id is an instance rather than
+         * a duplicate (``claim_component_id``), and a worker graph's runtime
+         * scope gives way to the user's: the function is the user's, so its
+         * nodes are processed unless a component says otherwise, exactly as in
+         * the child wiring a keyed ``map_`` makes (RFC 0039).
+         */
+        class HGRAPH_CLASS_EXPORT InlineRepeat
+        {
+          public:
+            explicit InlineRepeat(Wiring &wiring);
+            ~InlineRepeat();
+            /** Begin the next index. What one index claims twice is a duplicate;
+                what the next index claims again is an instance. */
+            void next_index();
+            InlineRepeat(const InlineRepeat &) = delete;
+            InlineRepeat &operator=(const InlineRepeat &) = delete;
+
+          private:
+            Wiring     &wiring_;
+            std::string scope_;
+            bool        rescoped_{false};
+        };
+        /** Select the checkpoint ownership scope; returns the previous scope. */
+        std::string checkpoint_component(std::string component_id);
+        /** Current checkpoint ownership scope, including for child-plan caches. */
+        [[nodiscard]] std::string_view checkpoint_component() const noexcept;
+        /** Include the component's complete returned binding in its compatibility identity. */
+        void checkpoint_component_output(const WiringPortRef &output);
+        /** Wire this whole graph as a worker-hosted graph (RFC 0039): every
+            node receives an identity, and one that cannot be checkpointed
+            RECORDS why (``NodeCheckpointIdentity::refusal``) instead of
+            refusing to wire. Most worker graphs are never captured and must
+            still wire; the caller and the worker process must still arrive at
+            the same identities without being told to. Call before adding a
+            node. */
+        void checkpoint_worker_graph();
+        /** True inside a worker graph: a component wired here is an identity
+            scope whether or not recovery is configured, and what it would
+            refuse is recorded (``refuse_checkpoint_component``). */
+        [[nodiscard]] bool checkpoint_records_refusals() const noexcept;
+        /** Record ``reason`` on every node of the current component scope that
+            has none. The worker-graph form of a component refusing to wire. */
+        void refuse_checkpoint_component(std::string_view reason);
 
       private:
         friend class WiringObservationScope;
@@ -1283,6 +1347,8 @@ namespace hgraph
         void end_observation(const WiringScopeEvent &event, std::string_view error);
         void apply_service_rank_dependencies();
         void finalize_extensions();
+        void assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs);
+        [[nodiscard]] NodeCheckpointIdentity checkpoint_identity_for(NodeBuilder &builder, std::span<const WiringInputRef> inputs);
         /** Shared body of finish()/snapshot(): validate + rank + build; the
             wiring GlobalState is moved when consuming, copied otherwise. */
         [[nodiscard]] GraphBuilder finish_top_level(bool consume_state);
@@ -2235,6 +2301,19 @@ namespace hgraph
 
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef adapt_source_for_input(
             Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source);
+
+        /** The structural-REF node over ``source``: it publishes
+            ``REF<value of schema>`` (``schema`` may itself be a ``REF``) for
+            what ``source`` is bound to, without copying a value. A
+            structural source becomes a composite reference over its leaves,
+            a peered source a reference to its output, and a REF source
+            republishes its token. Sub-graph finalization uses it as the
+            terminal of a composed structure; ``switch_`` / ``dispatch_`` use
+            it for a branch that returns a boundary input unchanged
+            (nested_graphs.rst, "Pass-through outputs"). The caller binds the
+            node's ``ts`` input. */
+        [[nodiscard]] HGRAPH_EXPORT NodeBuilder reference_terminal_builder(
+            const TSValueTypeMetaData *schema, const WiringPortRef &source);
 
         // ---- context scopes (see *Contexts* in services.rst) ----
         // The wiring-time context stack lives on the OperatorRegistry singleton
@@ -3486,6 +3565,13 @@ namespace hgraph
             auto arg_tuple    = std::forward_as_tuple(args...);
             auto default_args = call_args_detail::default_args_for<X>();
             call_args_detail::validate_call_args<typename sig::param_types>("wire<G>", arg_tuple, default_args);
+#if defined(_MSC_VER)
+            // Metadata-only callable instantiations can have unresolved graph
+            // arguments that always refuse wiring. MSVC then reports this
+            // forwarding call as C4702; valid graph specializations require it.
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
             auto compose = [&]() -> decltype(auto) {
                 return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
                     return X::compose(
@@ -3495,6 +3581,9 @@ namespace hgraph
                                                           default_args)...);
                 }(std::make_index_sequence<sig::param_count()>{});
             };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
             if (!w.has_wiring_observers()) { return compose(); }
 
             const std::string label = static_node_detail::diagnostic_name<X>();

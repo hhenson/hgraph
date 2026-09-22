@@ -4,6 +4,7 @@
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/graph.h>
+#include <hgraph/runtime/node_scheduler_checkpoint.h>
 #include <hgraph/util/date_time.h>
 
 #include <algorithm>
@@ -111,6 +112,34 @@ namespace hgraph
               wall_clock_(wall_clock),
               supports_wall_clock_(supports_wall_clock)
         {
+        }
+
+        /** Capture only alarms still pending after the completed cycle. */
+        [[nodiscard]] NodeSchedulerCheckpoint capture_checkpoint(DateTime cut) const
+        {
+            require_state("capture_checkpoint");
+            NodeSchedulerCheckpoint image;
+            for (const auto &event : state_->events)
+                if (event.first > cut) { image.events.push_back(event); }
+            return image;
+        }
+
+        /** Validate before the coordinator imports any node endpoints. */
+        static void validate_checkpoint(const NodeSchedulerCheckpoint &image, DateTime restart)
+        {
+            (void)checkpoint_state(image, restart);
+        }
+
+        /** Replace start-hook alarms and re-arm through ordinary graph notification.
+         * An alarm exactly at restart is due in the first resumed cycle.
+         */
+        void restore_checkpoint(const NodeSchedulerCheckpoint &image) const
+        {
+            require_state("restore_checkpoint");
+            auto restored = checkpoint_state(image, now_);
+            *state_ = std::move(restored);
+            if (graph_ != nullptr && !state_->events.empty())
+                graph_->schedule_node(node_index_, state_->events.begin()->first);
         }
 
         /** The current evaluation time. */
@@ -302,6 +331,21 @@ namespace hgraph
                 throw std::logic_error("NodeScheduler: wall-clock alarms require a real-time graph executor");
             }
             return std::max(now_, wall_clock_.now());
+        }
+
+        static NodeSchedulerState checkpoint_state(const NodeSchedulerCheckpoint &image, DateTime restart)
+        {
+            NodeSchedulerState restored;
+            for (const auto &event : image.events)
+            {
+                if (event.first < restart)
+                    throw std::runtime_error("node scheduler checkpoint: deadline precedes restart");
+                if ((!restored.events.empty() && event <= *restored.events.rbegin()) ||
+                    (!event.second.empty() && !restored.tags.emplace(event.second, event.first).second))
+                    throw std::runtime_error("node scheduler checkpoint: events are unordered or tags are duplicated");
+                restored.events.insert(restored.events.end(), event);
+            }
+            return restored;
         }
 
         NodeSchedulerState *state_{nullptr};

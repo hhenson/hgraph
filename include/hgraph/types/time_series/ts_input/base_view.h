@@ -3,10 +3,12 @@
 
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
+#include <hgraph/types/time_series/ts_input/activity.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace hgraph
@@ -94,6 +96,8 @@ namespace hgraph
         }
         /** Underlying TSData projection; empty for unbound peered terminals. */
         [[nodiscard]] const TSDataView &data_view() const noexcept;
+        /** Erased input observation, retaining keyed sampling and withdrawal state. */
+        [[nodiscard]] TSDataView input_data_view() const noexcept;
 
         /** True when this view or at least one structural child has a current value. */
         [[nodiscard]] bool valid() const;
@@ -204,6 +208,18 @@ namespace hgraph
         void make_passive();
         [[nodiscard]] bool active() const;
 
+        /** Capture the complete endpoint's active observations without ticks.
+         * Root views only. Active paths inside a peered target are refused.
+         */
+        [[nodiscard]] std::vector<TSInputActivityEntry> checkpoint_activity() const;
+        /** Validate static paths and modes before changing any subscriptions. */
+        void validate_checkpoint_activity(std::span<const TSInputActivityEntry> activity) const;
+        /** Replace all activity after node start, without publishing or notifying.
+         * Returns whether a restored active observation changed at this view's
+         * evaluation time, so recovery can retain a newly admitted input event.
+         */
+        [[nodiscard]] bool restore_checkpoint_activity(std::span<const TSInputActivityEntry> activity);
+
         /** Shape-erased indexed child projection for TSB/TSL-like inputs. */
         [[nodiscard]] TSInputView indexed_child_at(std::size_t index) const;
 
@@ -282,15 +298,15 @@ namespace hgraph
             [[nodiscard]] TSRoleTypeRef storage_type() const noexcept;
             [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
             [[nodiscard]] const TSValueTypeMetaData *target_path_schema() const noexcept;
-            [[nodiscard]] const TSDataView &resolved_value_data() const noexcept;
+            [[nodiscard]] const TSDataView &resolved_value_data(DateTime evaluation_time = MIN_DT) const noexcept;
             [[nodiscard]] bool value_live() const noexcept;
-            [[nodiscard]] DateTime last_modified_time() const;
+            [[nodiscard]] DateTime last_modified_time(DateTime evaluation_time) const;
             [[nodiscard]] bool modified(DateTime evaluation_time) const;
             [[nodiscard]] TSDataView &checked_value_data(const char *what) const;
             [[nodiscard]] InputDataCursor target_child(TSDataView child, std::size_t index) const;
             void bind_target(const TSOutputView &output);
             void bind_target_sampled(const TSOutputView &output, DateTime modified_time);
-            void unbind_target();
+            void unbind_target(DateTime evaluation_time);
             void make_active(TSInput *input, Notifiable *scheduling_notifier) const;
             void make_structural_active(TSInput *input, Notifiable *scheduling_notifier) const;
             void make_passive(TSInput *input) const;
@@ -332,7 +348,7 @@ namespace hgraph
         [[nodiscard]] bool inherited_sampled_transition() const noexcept;
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] const TSValueTypeMetaData *target_path_schema() const noexcept;
-        [[nodiscard]] TSDataView input_data_view() const noexcept;
+
         [[nodiscard]] TSDataView resolve_target_data_view() const noexcept;
         [[nodiscard]] bool target_view_live() const noexcept;
         [[nodiscard]] TSDataView &checked_target_data_view(const char *what) const;

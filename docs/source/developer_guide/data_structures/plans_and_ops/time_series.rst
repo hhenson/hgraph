@@ -62,7 +62,7 @@ The implementation uses the following names consistently:
 ``TSDataOps``
     The type-erased operation table over a ``TSData`` memory region:
     the literal ``allows_mutation`` property, common layout access,
-    current-value validity, recursive ``all_valid`` checks, read/write
+    current-value validity, ``all_valid`` checks, read/write
     memory access, delta reset, copy/move value assignment, canonical delta construction,
     erased delta capture/apply, and the per-kind hook used when a child
     time-series value reports that it modified. Implementations that own
@@ -75,6 +75,12 @@ The implementation uses the following names consistently:
     operations are explicit throwing thunks rather than missing
     pointers.
 
+Structural ``all_valid`` requires the endpoint and each immediate live child
+to have a current value. It never invokes a child's ``all_valid``. TSD slot
+strategies scan retained slot capacity, skipping removed keys; a projected TSD
+checks its projected children rather than the source dictionary's children.
+TSW intentionally uses ``all_valid`` for minimum-window readiness instead.
+
 ``TSDataObserverSet``
     The compact observer set stored in each ``TSDataTracking`` record.
     Empty levels store a null tagged pointer, a single observer stores the
@@ -84,10 +90,19 @@ The implementation uses the following names consistently:
     bindings at the same time-series level. Removing an observer during
     notification marks a tombstone in the active vector and compacts after
     the outermost notification pass completes; normal removal outside
-    notification remains swap-with-back and pop. Observers added during a
-    notification pass are appended but are not notified for the already
-    in-flight modification. Producer invalidation is a distinct detached
-    traversal: the set becomes empty before callbacks run, callbacks receive
+    notification remains swap-with-back and pop, without a compaction scan.
+    Up to eight vector entries use a bounded linear lookup. Appending a ninth
+    entry creates a hash index from observer pointer to vector position;
+    subsequent registration is amortized expected O(1), and lookup, replacement
+    and ordinary removal are expected O(1). Swap-with-back removal updates the
+    moved observer's index entry. The index is retained while the list shrinks,
+    then released when storage collapses to the single-observer representation.
+    Notification and deferred compaction remain O(n). Index growth is
+    transactional; removal, replacement and compaction never allocate.
+    Observers added during a notification pass are appended but are not
+    notified for the already in-flight modification. Producer invalidation
+    is a distinct detached traversal: the set becomes empty before callbacks
+    run, callbacks receive
     ``source_invalidated``, and the detached storage is reclaimed after the
     outermost pass. This path performs no allocation and observers must not
     use ordinary unsubscribe against the invalidating source.
@@ -145,7 +160,15 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 16. ABI 16 adds
+    ``TS_DATA_OPS_ABI_VERSION`` is 22. ABI 22 adds the dictionary
+    ``membership_slot_removed`` predicate, separating membership observations
+    from child value withdrawal; compiled native extensions must be rebuilt.
+    ABI 21 adds ``find_stored_slot`` to
+    the set ops -- the hashed lookup that also answers for a key awaiting
+    erase (see "TSS Storage" below). ABI 20 added the membership delta
+    slots and ``replace_samples`` for the distributed-map boundaries. ABI 17
+    to 19 (RFC 0023) added the checkpoint ops table, the target link's
+    key-set time for recovery, and the checkpoint context parameter. ABI 16 adds
     ``TSDataLayout::canonical_delta_binding`` -- the portable delta type a
     captured or empty delta is built as, resolved when the layout is built
     so per-tick delta capture never consults the realization snapshot
@@ -494,14 +517,25 @@ their cached local child storage types and in-plan storage addresses; regular
 fixed contexts return their cached fixed child types and local absolute
 addresses. Dynamic lists expose their owned child handles to this traversal;
 windows and TargetLinks are leaves. Keyed shapes coordinate child destruction
-through their slot stores. No function address or schema kind is used as a
+through their slot stores.
+
+The projection's ``child_count`` is the size of an **ordinal space**, not a
+number of children: an ordinal may be vacant, ``child_at`` answers a vacant
+ordinal with an empty child, and every traversal skips it. Both operations are
+constant time. Each traversal visits the whole space, so a ``child_at`` that
+searched for the *n*-th occupied entry made start, stop and teardown of a keyed
+collection quadratic in its size (found 2026-09-18 as the dominant cost of
+tearing down a large ``map_``). Keyed shapes therefore use their slot bank as
+the ordinal space -- ordinal 0 is the key set and ordinal *n* + 1 is slot *n* --
+and report the slot as the child's identity. No function address or schema kind is used as a
 runtime implementation identifier. Consequently attach, reparent,
 invalidation, and auxiliary-memory accounting cannot follow a visible
 TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 16.
+``TS_DATA_OPS_ABI_VERSION`` (the ops-ABI ledger in :doc:`ops_catalogue` has
+the current value).
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the
@@ -1376,6 +1410,20 @@ do not use the slot stores.
     slot's last value during the tick of its removal without making the
     utility store track mutation epochs.
 
+    Free slots are handed out last-in first-out, and keys iterate in slot
+    order, so the free order decides what every later consumer observes.
+    Two rules keep it a function of the key history alone. ``erase_pending()``
+    returns its slots to the TOP of the pool. ``reserve_to()`` adds new
+    capacity UNDERNEATH it, so holes are reused before fresh slots. Growth
+    and the flush therefore commute: the pool is the same whether a caller
+    reserved before the flush or after it. A checkpoint depends on this. It
+    records the pool as it will stand after the next flush
+    (``checkpoint_free_slots()``), so a restored store has already flushed
+    where the uninterrupted one may not have; a caller that reserves ahead of
+    its first mutation -- the Python result path does, for the size of the
+    delta -- would otherwise give the two stores different slots for the same
+    key.
+
 ``ValueSlotStore``
     Standalone parallel value memory keyed off externally supplied slot
     ids. As a reusable utility it owns per-slot constructed state
@@ -1458,10 +1506,18 @@ container.
 The C++ TSData API uses the standard set-view names:
 ``TSDataView::as_set()``
 returns ``TSSDataView`` with ``size()``, ``empty()``, ``contains()``,
-``find_slot()``, ``values()``, ``added_values()``,
+``find_slot()``, ``find_stored_slot()``, ``values()``, ``added_values()``,
 ``removed_values()``, ``added()``, ``removed()``,
 ``slot_added()``, and ``slot_removed()``. ``TSSDataMutationView`` adds
 ``add()``, ``remove()``, ``clear()``, and ``reserve()``.
+
+``find_slot()`` is the membership lookup: it answers only for a live key.
+``find_stored_slot()`` also answers for a key removed this cycle and awaiting
+erase, which is what lets a reader ask about a removed key by hash rather than
+by walking the removed slots. Both are O(1). ``TSDDataView`` exposes the same
+pair, and a key-set projection or target link forwards them to the collection
+it reads. Adding the op moved ``TS_DATA_OPS_ABI_VERSION`` (20 → 21); compiled
+extensions must be rebuilt.
 
 TSD Storage
 -----------

@@ -541,6 +541,187 @@ TEST_CASE("mutually recursive Bundles resolve owned edges across one "
               .checked_as<std::int64_t>() == 3);
 }
 
+TEST_CASE("recursive Bundles hash, compare and order through their owned "
+          "edges") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  // An owned edge into the batch does not remove a capability by itself.
+  const auto *node = registry.recursive_bundle(
+      "tests.recursion.capabilities", "Node",
+      {{"value", integer}, {"next", nullptr}});
+  CHECK(node->is_hashable());
+  CHECK(node->is_equatable());
+  CHECK(node->is_comparable());
+  const auto *owner = node->fields[1].type;
+  CHECK(owner->is_hashable());
+  CHECK(owner->is_equatable());
+  CHECK(owner->is_comparable());
+  CHECK(node->wrapped_un_named->is_hashable());
+
+  const auto chain = [&](std::int64_t first, std::int64_t second) {
+    Value root{ValuePlanFactory::instance().type_for(node)};
+    auto fields = root.as_bundle().begin_mutation();
+    fields["value"].set(first);
+    fields["next"].as_bundle().begin_mutation()["value"].set(second);
+    return root;
+  };
+  const Value left = chain(1, 2);
+  const Value same = chain(1, 2);
+  const Value deeper = chain(1, 3);
+  CHECK(left.view().equals(same.view()));
+  CHECK(left.view().hash() == same.view().hash());
+  CHECK_FALSE(left.view().equals(deeper.view()));
+  CHECK(left.view().compare(deeper.view()) == std::partial_ordering::less);
+
+  // A member keeps a capability only while every direct field and every
+  // member it owns keeps it: `set<int>` is not comparable, and the loss
+  // travels back along the owned edge to the member that holds it.
+  const auto *unordered = registry.set(integer);
+  REQUIRE_FALSE(unordered->is_comparable());
+  const auto schemas = registry.recursive_bundles({
+      RecursiveBundleDefinition{
+          .bundle_namespace = "tests.recursion.capabilities",
+          .local_name = "Holder",
+          .fields = {{.name = "value", .type = integer},
+                     {.name = "tagged", .owned_target = 1}},
+      },
+      RecursiveBundleDefinition{
+          .bundle_namespace = "tests.recursion.capabilities",
+          .local_name = "Tagged",
+          .fields = {{.name = "tags", .type = unordered},
+                     {.name = "holder", .owned_target = 0}},
+      },
+  });
+  CHECK_FALSE(schemas[1]->is_comparable());
+  CHECK_FALSE(schemas[0]->is_comparable());
+  CHECK(schemas[0]->is_hashable());
+  CHECK(schemas[0]->is_equatable());
+  CHECK(schemas[1]->is_hashable());
+  CHECK_FALSE(schemas[0]->fields[1].type->is_comparable());
+}
+
+TEST_CASE("recursive_bundle_closure registers each strongly connected "
+          "component once") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  // Specializations by name: A <-> B is one cycle, B -> C leaves it, C names
+  // itself, and D is an ordinary Bundle that C's cycle does not reach.
+  std::vector<std::string> described;
+  const auto request = [&](std::string_view local,
+                           std::vector<std::pair<std::string, std::string>> edges) {
+    RecursiveBundleRequest result;
+    result.definition.bundle_namespace = "tests.closure";
+    result.definition.local_name = std::string{local};
+    result.definition.fields.push_back({.name = "value", .type = integer});
+    for (auto &[field, target] : edges) {
+      result.edges.emplace_back(result.definition.fields.size(),
+                                "tests.closure::" + target);
+      result.definition.fields.push_back({.name = field});
+    }
+    return result;
+  };
+  const RecursiveBundleDescriber describe = [&](std::string_view name) {
+    described.emplace_back(name);
+    if (name == "tests.closure::A") { return request("A", {{"b", "B"}}); }
+    if (name == "tests.closure::B") { return request("B", {{"a", "A"}, {"c", "C"}}); }
+    if (name == "tests.closure::C") { return request("C", {{"next", "C"}}); }
+    if (name == "tests.closure::D") { return request("D", {}); }
+    throw std::logic_error("undescribed " + std::string{name});
+  };
+
+  const auto *a = registry.recursive_bundle_closure("tests.closure::A", describe);
+  const auto *b = registry.value_type("tests.closure::B");
+  const auto *c = registry.value_type("tests.closure::C");
+  REQUIRE(b != nullptr);
+  REQUIRE(c != nullptr);
+  CHECK(described == std::vector<std::string>{"tests.closure::A", "tests.closure::B",
+                                              "tests.closure::C"});
+  CHECK(a->fields[1].type->element_type == b);
+  CHECK(b->fields[1].type->element_type == a);
+  CHECK(b->fields[2].type->element_type == c);
+  CHECK(c->fields[1].type->element_type == c);
+  CHECK(a->is_equatable());
+
+  // Registered names are reused without describing them again.
+  CHECK(registry.recursive_bundle_closure("tests.closure::B", describe) == b);
+  CHECK(described.size() == 3U);
+
+  // A component of one struct without an edge to itself is the ordinary
+  // named Bundle `bundle()` returns for the same description.
+  const auto *d = registry.recursive_bundle_closure("tests.closure::D", describe);
+  CHECK(registry.bundle("tests.closure", "D", {{"value", integer}}) == d);
+
+  // A describer must answer the name it was asked for.
+  CHECK_THROWS_AS(registry.recursive_bundle_closure(
+                      "tests.closure::E",
+                      [&](std::string_view) { return request("F", {}); }),
+                  std::invalid_argument);
+}
+
+TEST_CASE("recursive_bundle_closure registers a cyclic component once under "
+          "contention") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  constexpr std::size_t thread_count = 8;
+  constexpr int rounds = 64;
+
+  // A mutually recursive pair, so the component is cyclic and registers
+  // through recursive_bundles(), which refuses a name the registry already
+  // holds. Each round takes a fresh namespace: the race is reachable only
+  // while a closure is unregistered, and the early value_type() short
+  // circuit would retire it after the first round.
+  const auto describer = [integer](const std::string &space) {
+    return [integer, space](std::string_view name) {
+      const bool is_a = name == space + "::A";
+      RecursiveBundleRequest result;
+      result.definition.bundle_namespace = space;
+      result.definition.local_name = is_a ? "A" : "B";
+      result.definition.fields.push_back({.name = "value", .type = integer});
+      result.edges.emplace_back(result.definition.fields.size(),
+                                space + (is_a ? "::B" : "::A"));
+      result.definition.fields.push_back({.name = is_a ? "b" : "a"});
+      return result;
+    };
+  };
+
+  std::array<std::string, thread_count> errors{};
+  for (int round = 0; round < rounds; ++round) {
+    const std::string space = "tests.closure.race" + std::to_string(round);
+    std::array<const ValueTypeMetaData *, thread_count> seen{};
+    std::atomic<std::size_t> ready{0};
+    std::array<std::thread, thread_count> threads;
+    for (std::size_t index = 0; index < thread_count; ++index) {
+      threads[index] = std::thread([&, index] {
+        // Start together, so every thread is inside this round's first
+        // realization at the same time.
+        ready.fetch_add(1);
+        while (ready.load() < thread_count) { std::this_thread::yield(); }
+        try {
+          seen[index] =
+              registry.recursive_bundle_closure(space + "::A", describer(space));
+        } catch (const std::exception &error) { errors[index] = error.what(); }
+      });
+    }
+    for (auto &thread : threads) { thread.join(); }
+
+    for (std::size_t index = 0; index < thread_count; ++index) {
+      INFO("round " << round << " thread " << index << ": " << errors[index]);
+      REQUIRE(errors[index].empty());
+      REQUIRE(seen[index] == seen[0]);
+    }
+    REQUIRE(seen[0] != nullptr);
+  }
+}
+
 TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
           "taxing leaves") {
   using namespace hgraph;

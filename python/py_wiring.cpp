@@ -495,9 +495,9 @@ namespace
     }
 
     /** Immortal callable records (stable scalar identity by pointer). */
-    [[nodiscard]] std::unordered_map<PyObject *, PyNodeRecord *> &py_node_registry()
+    [[nodiscard]] std::unordered_map<PyObject *, std::unordered_map<std::string, PyNodeRecord *>> &py_node_registry()
     {
-        static auto *registry = new std::unordered_map<PyObject *, PyNodeRecord *>{};
+        static auto *registry = new std::unordered_map<PyObject *, std::unordered_map<std::string, PyNodeRecord *>>{};
         return *registry;
     }
 
@@ -580,7 +580,23 @@ namespace
                 graph_wiring_detail::adapt_source_for_input(w, expected, args[index])}));
         }
         nb::object borrowed = nb::cast(PyWiring::borrow(w));
-        nb::object result   = record.wrapper(borrowed, nb::tuple(ports));
+        nb::object result;
+        if (w.options().inherit_global_context)
+        {
+            result = record.wrapper(borrowed, nb::tuple(ports));
+        }
+        else
+        {
+            // Graph injectables must see the worker's native wiring seed,
+            // never the caller's Python thread-local authoring state.
+            PyTsLease lease{std::make_shared<PyTsGuard>(), 0, true};
+            auto invalidate = UnwindCleanupGuard([&] { lease.invalidate(); });
+            result = nb::module_::import_("hgraph._wiring._state")
+                .attr("_with_worker_wiring_state")(
+                    nb::cast(PyRuntimeGlobalState{w.operator_state(), lease}),
+                    record.wrapper, borrowed, nb::tuple(ports));
+            invalidate.complete();
+        }
         if (result.is_none()) { return {}; }
         return nb::cast<PyPort &>(result).ref;
     }
@@ -589,10 +605,18 @@ namespace
         const PyGraphFnRecord &record, Wiring *parent,
         std::span<const TSValueTypeMetaData *const> input_schemas)
     {
+        const auto options = parent != nullptr ? parent->options() : WiringOptions{};
+        // Reuse a probe within one worker, but compose again for each fresh
+        // worker seed so graph-level configuration initializes every worker.
+        if (parent != nullptr && !options.inherit_global_context &&
+            record.retained_compilation_wiring != parent->identity()) return false;
         return record.last_compiled_generation ==
                    TypeRegistry::instance().reset_generation() &&
-               record.retained_compilation_realtime ==
-                   (parent != nullptr && parent->is_realtime()) &&
+               record.retained_compilation_options.is_realtime == options.is_realtime &&
+               record.retained_compilation_options.allow_push_sources == options.allow_push_sources &&
+               record.retained_compilation_options.inherit_global_context == options.inherit_global_context &&
+               record.retained_compilation_component ==
+                   (parent != nullptr ? parent->checkpoint_component() : std::string_view{}) &&
                record.last_compiled_inputs.size() == input_schemas.size() &&
                std::equal(record.last_compiled_inputs.begin(),
                           record.last_compiled_inputs.end(), input_schemas.begin());
@@ -637,8 +661,11 @@ namespace
         record.last_compiled_output_schema = out.schema;
         record.last_compiled_generation =
             TypeRegistry::instance().reset_generation();
-        record.retained_compilation_realtime =
-            parent != nullptr && parent->is_realtime();
+        record.retained_compilation_options =
+            parent != nullptr ? parent->options() : WiringOptions{};
+        record.retained_compilation_wiring = parent != nullptr ? parent->identity() : 0;
+        record.retained_compilation_component =
+            parent != nullptr ? parent->checkpoint_component() : std::string_view{};
         // The Python wrapper emits the nested graph scope while invoking the
         // callable. The call result is authoritative: an unannotated lambda
         // is provisionally output-producing but may compile to an actual sink.
@@ -1229,15 +1256,24 @@ namespace hgraph::python_bridge
     nb::class_<PyScalarValue>(m, "ScalarValue");
     nb::class_<PySender>(m, "Sender").def("send", &PySender::send, nb::arg("value"));
 
-    m.def("node_ref", [](nb::object fn) {
-        auto &registry = py_node_registry();
-        auto  found    = registry.find(fn.ptr());
+    m.def("node_ref", [](nb::object fn, const std::string &recordable_id) {
+        auto &registry = py_node_registry()[fn.ptr()];
+        auto  found    = registry.find(recordable_id);
         if (found == registry.end())
         {
-            auto *record = new PyNodeRecord{fn};   // immortal: scalar identity by pointer
-            found        = registry.emplace(fn.ptr(), record).first;
+            auto *record = new PyNodeRecord{fn, recordable_id};   // immortal: scalar identity by pointer
+            found        = registry.emplace(recordable_id, record).first;
         }
         return PyNodeHandle{found->second};
+    }, nb::arg("fn"), nb::arg("recordable_id") = "");
+
+    m.def("component_checkpoint_active", [](PyWiring &wiring) {
+        const auto &scope = record_replay::current_scope().recordable_id;
+        // A worker graph wires every component as an identity scope (RFC 0039).
+        if (wiring.wiring_ref().checkpoint_records_refusals() && !scope.empty()) { return true; }
+        // ``operator_state``, as ``stdlib::component`` asks: a child wiring (a map_
+        // child) has an empty store of its own, and the configuration is the root's.
+        return component_recovery_selected(wiring.wiring_ref().operator_state(), scope);
     });
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,

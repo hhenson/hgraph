@@ -1,3 +1,4 @@
+#include <hgraph/types/value/binary_codec.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/registry_reset.h>
@@ -41,6 +42,7 @@ namespace hgraph
         OperatorRegistry::instance().reset();
         ValueConversionRegistry::instance().reset();
         clear_json_converters();   // interns by meta/binding pointer — must precede the lenders below
+        clear_binary_converters();  // same rule: it caches a ValueTypeRef per meta
         // NOT here: the table type-ops overrides and their cached layouts.
         // They live in hgraph_stdlib, ABOVE this function in the link order,
         // and naming them here made hgraph_wiring reference a symbol it does

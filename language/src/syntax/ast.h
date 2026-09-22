@@ -265,11 +265,14 @@ namespace hgl::syntax::ast
         TypeId type{no_node};
         ExprId init{no_node};
     };
+    /// `state` or, with `cache`, a reconstructible node-local `cache`:
+    /// outside record/replay, re-initialized on every start (ADR 0011).
     struct StateDecl
     {
         Name   name{};
         TypeId type{no_node};
         ExprId init{no_node};
+        bool   cache{false};
     };
     struct InjectDecl
     { std::vector<Name> names{}; };
@@ -514,6 +517,9 @@ namespace hgl::syntax::ast
         Name                          name{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
+        /// `throws`: the C++ body may raise; the exception ends the evaluation
+        /// under hgraph's node error model (ADR 0009).
+        bool                          throws{false};
         ConstraintId                  requirements{no_node};
         CppImplementation             implementation{};
     };

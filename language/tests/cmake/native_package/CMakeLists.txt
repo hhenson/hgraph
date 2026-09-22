@@ -44,6 +44,24 @@ target_link_libraries(hgl_native_package_consumer PRIVATE
 set_target_properties(hgl_native_package_consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")
 
+# A facade-only consumer cannot accidentally preload simdjson through core's
+# dependency interface. Its sole runtime path remains valid when OUT moves.
+if(UNIX)
+    add_executable(hgl_native_package_relocation_consumer relocation.cpp)
+    target_compile_features(hgl_native_package_relocation_consumer PRIVATE cxx_std_23)
+    target_link_libraries(hgl_native_package_relocation_consumer PRIVATE hgl::native_package)
+    if(APPLE)
+        set(_relocation_origin "@loader_path")
+    else()
+        set(_relocation_origin "$ORIGIN")
+    endif()
+    set_target_properties(hgl_native_package_relocation_consumer PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "${_relocation_origin}/../../sdk/${SDK_LIBDIR}"
+        INSTALL_RPATH_USE_LINK_PATH FALSE)
+endif()
+
 if(NOT HGL_STDLIB_SOURCE)
     message(FATAL_ERROR "HGL_STDLIB_SOURCE is required")
 endif()
@@ -54,9 +72,14 @@ hgl_add_module(rebuilt_native STATIC
         ${HGL_STDLIB_SOURCE}/native/sets_maps.hgl
         ${HGL_STDLIB_SOURCE}/native/windows.hgl
         ${HGL_STDLIB_SOURCE}/native/scalar_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/temporal_values.hgl
 )
+hgl_add_module(rebuilt_standard STATIC
+    HGL ${HGL_STDLIB_SOURCE}/standard.hgl
+    PARTS ${HGL_STDLIB_SOURCE}/control.hgl ${HGL_STDLIB_SOURCE}/stream.hgl ${HGL_STDLIB_SOURCE}/temporal.hgl
+    LINK_LIBRARIES rebuilt_native)
 add_executable(hgl_native_parts_consumer parts.cpp)
-target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_native)
+target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_standard)
 set_target_properties(hgl_native_parts_consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")
 

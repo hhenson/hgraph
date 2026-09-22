@@ -1,3 +1,4 @@
+#include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/base_view.h>
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -80,7 +81,7 @@ namespace hgraph
 
     bool TSOutputView::valid() const
     {
-        return data_.has_current_value();
+        return detail::ts_data_alive_at(data_.borrowed_ref(), evaluation_time_) && data_.has_current_value();
     }
 
     bool TSOutputView::all_valid() const
@@ -131,6 +132,115 @@ namespace hgraph
                 "TSOutputView::bind_forwarding_target_sampled requires an evaluation time");
         }
         detail::bind_target_link_sampled(data_, source, evaluation_time_);
+    }
+
+    TSCheckpointImage TSOutputView::checkpoint_forwarding() const
+    {
+        if (!bound()) { throw std::invalid_argument("checkpoint forwarding image requires endpoint storage"); }
+        TSCheckpointImage image;
+        image.schema = schema();
+        image.last_modified_time = data_.tracking().last_modified_time;
+        if (const auto *link = detail::target_link_storage(data_))
+        {
+            image.payload = Value{link->bound()};
+            image.key_set_last_modified_time = link->checkpoint_key_set_time();
+            return image;
+        }
+        if (schema()->kind != TSTypeKind::TSB &&
+            (schema()->kind != TSTypeKind::TSL || schema()->is_unbounded_tsl()))
+        {
+            throw std::invalid_argument("checkpoint forwarding image requires a forwarding endpoint tree");
+        }
+        for (std::size_t slot = 0; slot < data_.indexed_child_count(); ++slot)
+        {
+            image.children.push_back(indexed_child_at(slot).checkpoint_forwarding());
+        }
+        return image;
+    }
+
+    void TSOutputView::validate_checkpoint_forwarding(const TSCheckpointImage &image) const
+    {
+        if (!bound() || image.version != TSCheckpointImage::current_version ||
+            !time_series_schema_equivalent(schema(), image.schema) ||
+            !image.keys.empty() || !image.slots.empty() || !image.free_slots.empty() ||
+            !image.published.empty() || !image.window_times.empty() || image.slot_capacity != 0 ||
+            image.reference.has_value() ||
+            data_.tracking().last_modified_time != MIN_DT)
+        {
+            throw std::invalid_argument("checkpoint forwarding image or fresh target is inconsistent");
+        }
+        if (const auto *link = detail::target_link_storage(data_))
+        {
+            if (link->bound() || !image.children.empty() || !image.payload.has_value() ||
+                image.key_set_last_modified_time > image.last_modified_time ||
+                ((schema()->kind != TSTypeKind::TSD && schema()->kind != TSTypeKind::TSS) &&
+                 image.key_set_last_modified_time != MIN_DT))
+            {
+                throw std::invalid_argument("checkpoint forwarding leaf is inconsistent");
+            }
+            static_cast<void>(image.payload.view().checked_as<bool>());
+            return;
+        }
+        if ((schema()->kind != TSTypeKind::TSB &&
+             (schema()->kind != TSTypeKind::TSL || schema()->is_unbounded_tsl())) ||
+            image.payload.has_value() || image.key_set_last_modified_time != MIN_DT ||
+            image.children.size() != data_.indexed_child_count())
+        {
+            throw std::invalid_argument("checkpoint forwarding prefix is inconsistent");
+        }
+        for (std::size_t slot = 0; slot < image.children.size(); ++slot)
+        {
+            if (image.children[slot].last_modified_time > image.last_modified_time)
+            {
+                throw std::invalid_argument("checkpoint forwarding child clock exceeds its parent");
+            }
+            indexed_child_at(slot).validate_checkpoint_forwarding(image.children[slot]);
+        }
+    }
+
+    void TSOutputView::restore_checkpoint_forwarding(const TSOutputView &source,
+                                                    const TSCheckpointImage &image) const
+    {
+        validate_checkpoint_forwarding(image);
+        const auto validate_source = [](const auto &self, const TSOutputView &target,
+                                         const TSOutputView &from, const TSCheckpointImage &saved) -> void {
+            if (from.bound() && !time_series_schema_equivalent(target.schema(), from.schema()))
+            {
+                throw std::invalid_argument("checkpoint forwarding source schema mismatch");
+            }
+            if (target.forwarding())
+            {
+                if (saved.payload.view().checked_as<bool>() != from.bound())
+                {
+                    throw std::invalid_argument("checkpoint forwarding source binding mismatch");
+                }
+                return;
+            }
+            for (std::size_t slot = 0; slot < saved.children.size(); ++slot)
+            {
+                self(self, target.indexed_child_at(slot),
+                     from.bound() ? from.indexed_child_at(slot) : TSOutputView{}, saved.children[slot]);
+            }
+        };
+        validate_source(validate_source, *this, source, image);
+        const auto restore = [](const auto &self, const TSOutputView &target,
+                                 const TSOutputView &from, const TSCheckpointImage &saved) -> void {
+            if (auto *link = detail::mutable_target_link_storage(target.data_view()))
+            {
+                link->restore_binding(*target.schema(), from, saved.last_modified_time,
+                                      saved.key_set_last_modified_time);
+                return;
+            }
+            for (std::size_t slot = 0; slot < saved.children.size(); ++slot)
+            {
+                self(self, target.indexed_child_at(slot),
+                     from.bound() ? from.indexed_child_at(slot) : TSOutputView{}, saved.children[slot]);
+            }
+            const auto *ops = target.data_view().storage_type().ops();
+            ops->mutable_tracking_impl(ops->context, const_cast<void *>(target.data_view().data()))
+                ->last_modified_time = saved.last_modified_time;
+        };
+        restore(restore, *this, source, image);
     }
 
     void TSOutputView::clear_forwarding_target() const

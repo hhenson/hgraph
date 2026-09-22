@@ -112,8 +112,12 @@ The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
 the syntax guide ("Scopes and name lookup"), checks `use` declarations against
 the interim kernel table (below, "Interim kernel table"), resolves nominal
-struct hierarchies and effective fields, validates construction and closed
-generic-struct requirements, classifies every function by the rule of
+struct hierarchies and effective fields, finds every field through which a
+struct can contain itself (one strongly-connected-components pass over the
+module's struct references and abstract families) and admits it only as an
+ADR 0012 recursive edge, marking it on the struct's fields and reporting the
+rule any other edge breaks, validates construction and closed generic-struct
+requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
 bindings, constraint identities, struct metadata, and function kinds.
@@ -263,8 +267,8 @@ reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
 through each applied parent, so a child contract refers only to its own generic
 scope even when parent parameters have different names. `hgl check
---dump-hgraph-ir` prints that representation. The
-result is marked `Bodies`. No HIR symbol, expression, statement, block, or
+--dump-hgraph-ir` prints that representation, including each native function's
+`exception=noexcept` or `exception=translated` policy. The result is marked `Bodies`. No HIR symbol, expression, statement, block, or
 declaration ID remains in it. The direct evaluator can consume this form and
 perform in-process registry resolution while it wires.
 
@@ -303,7 +307,8 @@ unsupported collection kinds. `report_first_pass_rules`, run by hgraph IR
 lowering, reports the context-free issues together with the other shared
 rules (assignment places that are not plain bindings, the shape of a
 `map(...)` call with an anonymous function, runtime-only intrinsics in a
-composition body, clearing an optional field through a sparse delta), so
+composition body, clearing an optional field through a sparse delta, a `let`
+or `var` that is never read), so
 `hgl check` rejects them before either backend runs. A backend forwards a
 plan's remaining issues and otherwise keeps only invariant checks about the IR
 it consumes, whose messages begin with `hgraph IR`. The CTest case
@@ -581,8 +586,13 @@ metadata does not alter native Bundle type identity. Complete construction
 validates the effective metadata and produces the Bundle value or field-wise
 wiring shape selected by context. Scalar arguments in temporal construction
 are lifted; construction expected as `atomic<S>` generates one aggregation
-node that activates on any supplied temporal field and publishes only once all
-non-optional fields are valid.
+node over the fields that have a value: each required field, each default,
+and each optional field given a non-null argument. It activates on any of
+them and publishes once all of them are valid. An omitted optional field, or
+one given `null`, is not an input, so it stays unset and cannot hold the
+value back; an optional field given a port is part of the value the program
+built and is waited for like any other. A construction whose fields all lack
+a value is the empty struct, a constant.
 
 Hierarchy resolution runs before temporal expansion and generic reflection. It
 rejects cycles, concrete parents, abstract construction, inherited type or
@@ -731,6 +741,76 @@ named `SIZE<"n">` variable that binds the argument's concrete size, and an
 unbounded list binds it to `-1`. A concrete `TSL<T, 0>` is a fixed empty list.
 The source sentinel `unbounded` lowers to `-1`, and a `const` generic in a
 list-size position lowers to the existing size variable.
+
+### Recursive struct edges
+
+[ADR 0012](../design/decisions/0012-recursive-struct-fields.md) admits a
+field through which a value of a struct can hold another value of the same
+struct, as an optional `atomic<T>`. The resolver finds these edges and applies
+the rules (syntax guide, "Compilation-unit grammar"); every later pass sees an
+edge only as a mark on a field:
+
+- `semantics::StructField::recursive` marks an admitted edge on each struct's
+  effective fields, including a struct that inherits it;
+- `hir::StructField::recursive` carries the mark into typed HIR, printed as a
+  trailing ` recursive` by `--dump-hir`;
+- `hgraph_ir::StructField` carries `recursive` and `recursive_target`, the
+  identity of the struct inside the edge's `atomic<...>`, printed as
+  ` recursive->identity` by `--dump-hgraph-ir`.
+
+The target is named, never expanded. The passes the two backends share
+terminate on a recursive type because none of them follows a field into its
+type: canonical types and generic substitution intern struct types
+nominally, by symbol and arguments; the type checker and constraint solver
+build effective fields by walking parents, whose cycles the resolver
+rejects, and read one field at a time for construction, field access and
+reflection (`fields`, `has_fields`, `field_type`); hgraph-IR lowering lowers
+types by nominal identity and maps inherited fields by walking parents; and
+activation planning, execution completion and binding reachability walk
+bodies, not types. `tests/hgraph_ir/lower_tests.cpp` drives a direct edge, a
+mutual pair, an abstract-family edge and a generic self edge through all of
+them.
+
+What expands fields is type realization. Both backends realize an edge as
+`Owned[T]`, one owner pointer, so a value is a finite tree. Both register it
+through one hgraph operation, `TypeRegistry::recursive_bundle_closure` (hgraph
+RFC 0041), which gives them the same schemas under the same names:
+
+- the closure describes each specialization an edge reaches, on demand, and
+  groups them by Tarjan's algorithm; each strongly connected component is one
+  `recursive_bundles` batch, whose edges between members are batch indices,
+  registered as soon as the component closes, after every component it
+  reaches;
+- an edge that leaves its component, such as `lhs: atomic<Expr>` inside
+  `struct Add: Expr`, owns an already registered schema, and the struct is an
+  ordinary Bundle;
+- a specialization already registered under its name is reused, not
+  described again;
+- the temporal shape is a named TSB whose recursive field is a
+  `TS[Owned[T]]` endpoint, so the bundle's value schema is the struct itself.
+  hgraph treats the owner as storage (`value_schema_without_storage`), so the
+  endpoint binds where `TS[T]` is expected, and the direct backend passes
+  such a port through without a conversion;
+- a constant struct value copies each edge's target into its owner.
+
+Direct wiring's type bridge (`wiring/type_bridge`) is the closure's describer:
+it describes a specialization from its struct contract, substituting generic
+arguments, and names each edge's target specialization. Generated C++ spells
+an edge with the static schema's marker: the field is
+`hgraph::Edge<Target>` in `value_type` and `hgraph::TS<hgraph::Edge<Target>>`
+in `time_series`, and a `NominalBundle` with an edge registers through the
+same closure. The emitter defines each struct after every struct it holds
+inline, and declares an edge's target first only when the target is defined
+later; `Edge` needs only the target's name.
+
+A module descriptor records an exported struct's layout. Format 6 (ADR 0004)
+marks each field's `recursive` edge, so no reader takes an edge for an
+ordinary field; the reader checks that an edge is an optional `atomic` record
+over a struct of the same module, and `hgl check <module>.hgl-module.json`
+validates it without loading code. A second module imports that struct and
+rebuilds its edges from the mark (ADR 0013); the edge's mandatory `= null` is
+the one field default the catalog carries, which is what lets a recursive
+struct cross at all.
 
 ## Generic constraint IR and lowering
 
@@ -1021,9 +1101,21 @@ record/replay restoration is preserved. They may read scalar `const`
 parameters, which are included in the generated lifecycle signature. Explicit
 source `start` and `stop` blocks become the corresponding static hooks and may
 likewise read state and `const` parameters, but not temporal inputs or output.
-All state variables share one typed state schema. A future ephemeral-cache form
-must lower separately and must not cause one node to mix incompatible state
-selectors.
+All state variables share one typed state schema. Scalar cache variables lower
+separately through one native `State<>`: multiple fields use a generated struct.
+A function may declare both, and the two storages are planned independently --
+native static nodes admit one of each. `start` seeds a state field only when it
+is not already valid, so a restored value wins, and assigns every cache field
+its initializer unconditionally; that asymmetry is what separates recordable
+history from reconstructible data.
+
+The shared runtime plan identifies scheduler sources whose complete runtime
+state is their endpoints and pending alarms. Generated C++ gives these sources
+an explicit `NodeCheckpointOps` contract and signs their scalar configuration.
+State is restored before `start`; saved alarms replace startup scheduling after
+`start`. Cache-bearing sources and sources injecting clock or logger remain
+outside this recovery slice. Generated `schedule` keeps its finite emission
+counter in recordable state, with compiled checkpoint/restart tests.
 
 An inject declaration maps each approved source capability to its public
 hgraph selector. The canonical signature includes lifecycle-only selectors
@@ -1079,8 +1171,9 @@ eventually resolve to an admitted scalar kernel or another implementation that
 can execute without wiring. The first slice may reject such calls until that
 contract is designed.
 
-Output access during lifecycle hooks, ephemeral caches, and generated sink
-behavior remain future source-design work.
+Output access during lifecycle hooks and non-scalar caches remain unsupported.
+Outputless runtime functions already lower to generated sinks; scheduler-driven
+sources use the lifecycle capabilities in ADR 0010.
 
 ## Metadata and collection-view lowering
 
@@ -1116,8 +1209,8 @@ membership history across source rebinds; use a composition projection for it.
 Runtime `contains`, strict `at`, `front`/`back`, and window `time_at`/
 `removed_value` lower directly to the typed public input APIs. Child value reads
 check validity before accessing retained storage. These are compiler intrinsics,
-not source-native `noexcept` functions: lookup errors propagate through node
-evaluation. See the [surface completion record](../design/native-surface-proposal.md)
+not source-native functions: lookup errors propagate through node evaluation,
+the same path a `throws` native takes (ADR 0009). See the [surface completion record](../design/native-surface-proposal.md)
 for current shape coverage and the outstanding nullable `get` lowering.
 
 For runtime collection-value operands, the typed HIR represents `keys`,
@@ -1281,8 +1374,9 @@ or consult the registry.
 The descriptor's native section shares the same type and signature arenas as
 the HGL interface. It records opaque and atomic native types plus declaration
 phase, effects, ownership and borrowed-lifetime relationships, exception
-policy, and thread-safety policy. The reader enforces the first native safety
-envelope: evaluation declarations cannot block or translate exceptions,
+policy, and thread-safety policy. The reader enforces the native safety
+envelope: evaluation declarations cannot block (a `translated` exception
+policy is admitted there since ADR 0009; a raise ends the evaluation),
 mutation must name exactly one mutable borrowed argument, shared ownership is
 not part of ABI version 1, borrowed results must name a borrowed argument, and
 lifecycle metadata must match the installed ABI contract.
@@ -1561,7 +1655,8 @@ walk:
   Bundle without defaults. A constructor containing ports produces a public
   structural `WiringPortRef` at the recursively expanded named TSB schema,
   lifting scalar fields and filling absent optional fields with typed null
-  sources. Type-only generic applications use hgraph's generic Bundle metadata;
+  sources. Expected as `atomic<S>`, the fields that have a value form an
+  un-named TSB that `combine_cs` aggregates into `TS[S]`. Type-only generic applications use hgraph's generic Bundle metadata;
   constructor inference and typed `const` generic arguments are rejected
   explicitly rather than encoded into an unstable name;
 - calling a registry operator builds `WiringArg`s in the source order with
@@ -1686,6 +1781,11 @@ compiler, so invoking an installed `hgl` from a project with a different
 compilation diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT`
 overrides the executable selected when `hgl` was built.
 
+The checked-in generated C++ snapshots use `clang-format` 23.1.x. Select a
+matching version with `HGL_CLANG_FORMAT_EXECUTABLE` at CMake configure time when
+running snapshot checks; other versions can produce whitespace-only differences
+even with the same style policy.
+
 What is emitted, in this order:
 
 Before emission, hgraph IR determines the module namespace (`module_namespace`
@@ -1728,10 +1828,12 @@ expression is read from the syntax tree.
 - **Structural types.** An exported source struct becomes a readable C++
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic
-  arguments; `NominalTSB` preserves the recursively temporalized fields.
-  Constructors lower to `to_tsb`, an `atomic<S>` result aggregates that TSB
-  through `combine_cs`, and a runtime `delta<S>` builds and applies only its
-  supplied fields.
+  arguments; `NominalTSB` preserves the recursively temporalized fields. A
+  recursive edge is an `Edge<Target>` field ("Recursive struct edges").
+  Constructors lower to `to_tsb`; an `atomic<S>` result aggregates the fields
+  that have a value, as an `UnNamedTSB`, through `combine_cs`, or is a
+  `const_` of the empty struct when none has; and a runtime `delta<S>` builds
+  and applies only its supplied fields.
 - **Generic and window types.** Source type parameters become hgraph `TsVar`
   patterns at temporal operator boundaries, `ScalarVar` in scalar-only value
   positions, and ordinary C++ template parameters for structural declarations.
@@ -1783,7 +1885,15 @@ expression is read from the syntax tree.
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
-  block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`.
+  block. A `cache` declaration lowers to the native `State<T>` selector
+  (`hgl_cache`; multiple fields share a generated struct accessed through
+  `ref()`/`modify()`), and `start` seeds it
+  unconditionally because a cache is outside record/replay (ADR 0011). `inject logger` lowers `logger.info(message)` to `LoggerView::log`;
+  `inject clock` and `inject scheduler` add `EvaluationClockView` and
+  `NodeScheduler` selectors to every hook, `scheduled()` lowers to
+  `scheduler.is_scheduled_now()` and marks a handler as adding no input to
+  the activation set, and `passivate`/`activate` lower to the input view's
+  `make_passive`/`make_active` (ADR 0010).
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
   `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
@@ -1807,7 +1917,9 @@ expression is read from the syntax tree.
   implicitly lifts the native function into a node. Argument order/names,
   exact types, and `const` roles are rechecked at the IR and emission boundaries.
   A source native emits a plain `noexcept` function in the generated module's
-  `native` namespace and a descriptor declaration naming that exact symbol.
+  `native` namespace and a descriptor declaration naming that exact symbol;
+  with `throws` the function has no exception specification and the
+  declaration's policy is `translated`.
   Same-named HGL candidates receive stable `__candidate_N` suffixes after the
   first candidate, preventing erased view projections with identical C++
   signatures from becoming redefinitions.
@@ -1823,6 +1935,25 @@ expression is read from the syntax tree.
   The HGL lexer balances its C++ delimiters but does not parse C++; native
   compilation validates the projected parameter declarations and body. Both
   generated files then pass through the normal `clang-format` stage.
+- **Names only where used.** Generated code carries no `[[maybe_unused]]`.
+  Reachability is decided in two places, each by the layer that knows.
+  `hgraph_ir::binding_uses` (`src/hgraph_ir/uses.{h,cpp}`) walks a block,
+  statement, or value and counts every reference to a source binding; the
+  emitter asks it, per hook, whether a state field, a `let`, or a loop binding
+  is reached. A state local (`auto total = hgl_state.field<"total">()`) is
+  emitted only in the hooks that reach it (start always, since it seeds every
+  field). A `let` or `var` nothing reads never reaches the emitter: the shared
+  rules reject it as dead code. A loop whose body reads no element iterates
+  without binding one (a positional loop skips the element local; a range loop
+  becomes an explicit iterator loop over the bound range); a pair with one
+  side read keeps its structured binding, which no compiler reports.
+  The backend's own names (`w`, `hgl_state`, `hgl_output`, the capability
+  selectors) are not in the IR, so the emitter records each one at the point
+  it writes it (`Emitter::use`, in `wire()`, output writes, state locals, and
+  capability calls) and records a source parameter when it lowers a reference
+  to it. A hook or `compose` signature is written as a placeholder and filled
+  from that recorded set once the body is emitted: a parameter the body never
+  refers to stays unnamed. Nothing is inferred from the generated text.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each concrete non-generic `impl fn`, plus every concrete generic
@@ -1855,25 +1986,22 @@ packages, imported targets, and runtime images with its own build boundary.
 Every emitted function is preceded by a `// file:line` comment; output is
 deterministic (basenames, no timestamps).
 
-The first pass still fails closed, before writing either file, on: generated
-runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
-native state, output kinds other than the
-implemented scalar, nominal-struct, map, and reference forms, lifecycle access
-to temporal inputs, a list or rolling size given by a `const` generic, optional
-field clearing in a sparse delta, generic constructor inference and typed
-`const` generic struct metadata, tuple and list literals and other compound
-constants, runtime-node `if` or a block used as a value, temporal conditionals
-embedded inside another expression, zoned and civil temporal literals,
-an `impl fn` of an imported operator, wiring-time access through a reference,
-unresolved collection-reference mappings, and a missing module declaration.
-Each is a diagnostic naming the construct.
+Unsupported forms fail closed before either generated file is written. These
+include calls to another temporal HGL function during runtime evaluation,
+non-scalar or opaque state/cache, lifecycle
+access to temporal inputs/output, optional-field clearing, generic constructor
+inference and typed `const` generic struct metadata, compound constant
+literals, runtime-node `if` used as a value, zoned/civil temporal literals, and
+wiring-time dereference. Imported operator implementations and scheduler-driven
+sources are supported within their documented type boundaries. The
+[status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07) owns the
+remaining restrictions; do not infer support from a target mapping alone.
 
 The rules the language reference states as semantic restrictions are typed
 HIR completion's, not a backend's (`type_check.cpp`, `check_type_shape`,
 `check_runtime_layout`, the `inject` and `out` checks): rolling-window size
-kinds and ranges, positive fixed list sizes, the approved injectable list
-(`out` and `logger` lower; `clock` and `scheduler` are agreed names that fail
-closed), `out` requiring a function output, `state` and `inject` before the
+kinds and ranges, non-negative fixed list sizes, the approved injectable list
+(`out`, `logger`, `clock` and `scheduler`), `out` requiring a function output, `state` and `inject` before the
 executable blocks, at most one `start` and one `stop`, no nested `when`, and
 no `out` or `return` inside a lifecycle block. `hgl check` reports them; the
 copies both backends used to carry are now internal consistency assertions
@@ -2014,3 +2142,14 @@ selectable or return after reset.
 
 A future JIT must consume the same classified semantic IR and pass backend
 parity before it can replace either backend.
+
+### Shared admission plans
+
+Graph-IR planning owns runtime validity dominance, index bounds, activation
+policy, lifecycle/state capability admission and callable-cycle rejection.
+`check`, direct execution and C++ emission consume that same validated module.
+The emitter selects C++ spellings from typed extent facts; generated type text
+is not a source of semantic decisions. Retained generic list indexing remains
+unsupported and is diagnosed during planning. Wiring-time integer arithmetic
+uses the shared `hgl/constant_arithmetic.h` contract in folding, direct execution
+and generated compositions; runtime node arithmetic remains a distinct phase.

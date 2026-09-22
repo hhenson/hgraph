@@ -65,17 +65,20 @@ arguments retain the existing validity checks. A native call does not itself
 establish HGL flow-sensitive validity for subsequent payload reads.
 
 The `cpp(...)` list states the exact C++ parameter declarations received by the
-body. The compiler supplies the function name, C++ result type, and `noexcept`,
-then emits a plain function in the generated module's `native` namespace.
+body. The compiler supplies the function name and C++ result type, adds
+`noexcept` unless `throws` is declared, then emits a plain function in the generated module's `native` namespace.
 Same-named HGL candidates use distinct generated symbols: the first keeps the
 short name and later candidates use `__candidate_N`. This is necessary because
 two distinct HGL patterns can intentionally project to the same erased C++
 view type, such as fixed and unbounded lists.
 
 The source form is deliberately top-level. It cannot occur inside a graph or
-node body, so it cannot introduce new wiring. Its first implemented phase is
-runtime-node evaluation: a call inside `when` is a direct C++ call on current
-values or views. A native declaration is automatically public because a
+node body, so it cannot introduce new wiring. A call is a direct C++ call on
+current values or views. A native whose parameters are all values is
+available in every node hook (`start`, `when`, `stop`), which is how a node
+validates its configuration in `start` as the native library does; a native
+that takes a live input view is evaluation-only, because lifecycle blocks
+have no inputs. The descriptor records the phases accordingly. A native declaration is automatically public because a
 downstream module must be able to import it, and declarations with the same
 name form one HGL overload family. Source-native `requires` clauses are rejected
 until the version-one descriptor catalog can reconstruct them; the compiler
@@ -96,14 +99,31 @@ generated header. They are local to the defining source module and do not
 propagate through HGL imports. Macro, computed, and conditional includes are
 rejected; CMake supplies header search paths and linked targets.
 
+A native function whose body may raise says so with `throws` after its
+signature ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)):
+
+```hgl
+native fn power(lhs: i64, rhs: i64) -> i64 throws {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return hgraph::stdlib::scalar_pow<hgraph::Int>::apply(lhs, rhs);
+    }
+}
+```
+
+The generated function then has no exception specification and the descriptor
+records the `translated` policy. A raise ends the evaluation under hgraph's
+node error model; HGL has no exception surface of its own. Without `throws`
+the function is emitted `noexcept`.
+
 There is currently no general HGL spelling for a link dependency, effect,
-throwing policy, state type, lifecycle phase, or ownership annotation. The
-`schema` parameter's immutable call-confined borrow is fixed by that type;
-separately built libraries use descriptors for all other ownership concerns. A
-future source feature must define those contracts before widening this form.
+state type, lifecycle phase, or ownership annotation. The `schema` parameter's
+immutable call-confined borrow is fixed by that type; separately built
+libraries use descriptors for all other ownership concerns. A future source
+feature must define those contracts before widening this form.
 
 This decision is recorded in
-[ADR 0005](decisions/0005-inline-cpp-native-functions.md).
+[ADR 0005](decisions/0005-inline-cpp-native-functions.md) and, for `throws`,
+[ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md).
 
 The first shipped use of this form is
 [`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
@@ -151,7 +171,7 @@ library or consulting a registry. Native declarations now encode exact C++
 symbols, permitted phases, effects, parameter/result ownership and dependent
 lifetimes, exception policy, thread-safety policy, opaque or atomic native type
 associations, runtime images, and lifecycle ABI metadata. The reader enforces
-the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
+the non-blocking evaluation envelope, declared exception policy, explicit mutable state,
 borrow rules, and lifecycle consistency. The compiler can build an explicit
 module catalog from one or more descriptors, resolve a selective or aliased
 `use`, select an exact overload from canonical scalar or collection types,
@@ -216,7 +236,7 @@ separate erased-value accessors. The remaining implementation gaps are:
 | `reference()` | a dependent reference result whose target schema is selected from the argument |
 | `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
 | `compare()` | an HGL ordering result which represents less, equal, greater, and unordered |
-| `to_string()` / `format_string()` | allocation and exception/effect declarations for source-native functions |
+| `to_string()` / `format_string()` | a generic value parameter; a `str` result by value and a `throws` policy are already admitted |
 | erased output access and mutation | an output-view parameter mode with explicit mutation and lifetime rules |
 
 Specialized collection iteration remains on typed views and HGL intrinsics; it
@@ -270,9 +290,9 @@ shutdown exposes a permitted stop-phase operation in addition to its destructor.
 Opaque storage is not an exemption from the language's persistence contract.
 Reconstructible non-recordable data belongs in HGL cache (native `State<T>`);
 semantic history belongs in HGL `state` (native `RecordableState<TSchema>`) and
-requires recordable types. The cache/state source and lifecycle bridge remain
-implementation work, including the current native restriction against mixing
-the two selectors in one node.
+requires recordable types. Native nodes support both selectors with independent
+storage and restore recordable state before `start` rebuilds the cache. Mixed
+HGL lowering and the opaque-type lifecycle bridge remain implementation work.
 
 Borrowed values are confined to the call or evaluation that produced them.
 They cannot be returned, stored in state or output, captured, placed in a
@@ -304,7 +324,9 @@ The first native-value interface is intentionally narrow at its HGL boundary:
 - collection type and extent generics participate in compile-time selection but
   are not automatically exposed as runtime values;
 - opaque state uses owned RAII storage and cannot cross a temporal port;
-- evaluation functions are non-blocking and `noexcept`;
+- evaluation functions are non-blocking; they are `noexcept` unless declared
+  `throws` (descriptor policy `translated`), in which case a raise ends the
+  evaluation under hgraph's node error model (ADR 0009);
 - mutation is restricted to an explicitly identified state argument;
 - raw pointers, lifetimes, callbacks, variadic calls, and open C++ templates are
   not representable in the HGL signature or descriptor; a local C++ body is

@@ -1528,8 +1528,14 @@ namespace hgraph::python_bridge
              },
              "Run a callable once after the current graph evaluation cycle.")
         .def_prop_ro("evaluation_mode", [](const PyEvaluationEngineApi &self) {
-            return self.checked().mode() == GraphExecutorMode::RealTime ? "real_time" : "simulation";
-        }, "The active execution mode: 'simulation' or 'real_time'.")
+            switch (self.checked().mode())
+            {
+                case GraphExecutorMode::RealTime: return "real_time";
+                case GraphExecutorMode::ExternallyDriven: return "externally_driven";
+                case GraphExecutorMode::Simulation: break;
+            }
+            return "simulation";
+        }, "The active execution mode: 'simulation', 'real_time' or 'externally_driven'.")
         .def_prop_ro("start_time", [](const PyEvaluationEngineApi &self) { return self.checked().start_time(); },
                      "The inclusive start of the configured run interval.")
         .def_prop_ro("end_time", [](const PyEvaluationEngineApi &self) { return self.checked().end_time(); },

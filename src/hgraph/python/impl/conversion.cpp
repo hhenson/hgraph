@@ -155,13 +155,13 @@ namespace hgraph::python_bridge
 
     nb::object delta_value_to_python(const TSInputView &view)
     {
-        const auto &data = view.data_view();
+        const auto data = view.input_data_view();
         if (!data.valid()) { return nb::none(); }
 
         // Sampled target rebinds carry the modification on the input link,
         // not on the already-valid target. In that case the input delta is
         // the target's current value, exported by the target TSData strategy.
-        if (view.delta_is_sampled_rebind()) { return value_to_python(data); }
+        if (!data.ops().is_target_link && view.delta_is_sampled_rebind()) { return value_to_python(data); }
 
         nb::object delta = delta_value_to_python(data, view.evaluation_time());
         if (!delta.is_none()) { return delta; }

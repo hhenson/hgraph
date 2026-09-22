@@ -15,10 +15,12 @@
 #include "py_bindings.h"
 #include "py_runtime.h"
 
+#include <hgraph/util/scope.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/manifest/schema_descriptor.h>
 
 namespace nb = nanobind;
 using namespace hgraph;
@@ -109,6 +111,107 @@ struct PyCallShape {
     names.remove_prefix(comma + 1);
   }
   return shape;
+}
+
+/** Python adapter state consists only of call leases and caches when the
+ * actual user signatures do not request runtime services or semantic local
+ * state. Beside RECORDABLE_STATE, STATE is a reconstructible cache. Validate
+ * those signatures while wiring a checkpointed component; the native bridge's
+ * broad injectable tuple is not the user's semantic state contract. */
+[[nodiscard]] std::string py_checkpoint_signature(const NodeBuilder &builder) {
+  const nb::gil_scoped_acquire gil;
+  const auto scalars = builder.scalars().view().as_bundle();
+  manifest::CanonicalWriter writer;
+  for (const auto phase : {std::string_view{}, std::string_view{"start_"},
+                           std::string_view{"stop_"}}) {
+    const std::string prefix{phase};
+    const bool enabled = prefix.empty() ||
+        scalars[prefix + "enabled"].checked_as<Bool>();
+    writer.varint(enabled);
+    if (!enabled) { continue; }
+    const auto config = scalars[prefix + "config"].checked_as<Str>();
+    std::vector<std::size_t> cache_factories;
+    std::size_t scalar_index = 0;
+    for (const char marker : parse_py_call_shape(config).layout) {
+      if (marker == 'Q') { cache_factories.push_back(scalar_index); }
+      if (marker == 's' || marker == 'i' || marker == 'Q') { ++scalar_index; }
+      const bool cache = (marker == 'S' || marker == 'Q') &&
+          builder.type().schema()->recordable_state_schema != nullptr;
+      if (!cache && std::string_view{"tuaTUARosid"}.find(marker) == std::string_view::npos) {
+        throw std::invalid_argument(
+            "component checkpoint: Python node signature requires unsupported "
+            "local state or runtime services (layout marker '" +
+            std::string{marker} + "')");
+      }
+    }
+    writer.string_field(config);
+    const auto function = scalars[prefix + "fn"].checked_as<PyNodeRef>();
+    if (function.record != nullptr &&
+        nb::hasattr(function.record->fn, "__closure__") &&
+        !function.record->fn.attr("__closure__").is_none()) {
+      throw std::invalid_argument(
+          "component checkpoint: Python callbacks with captured closure state are unsupported; "
+          "declare scalar arguments or RECORDABLE_STATE instead");
+    }
+    if (function.record == nullptr ||
+        !nb::hasattr(function.record->fn, "__module__") ||
+        !nb::hasattr(function.record->fn, "__qualname__")) {
+      throw std::invalid_argument(
+          "component checkpoint: Python callbacks require a stable module and qualified name");
+    }
+    writer.string_field(nb::cast<std::string>(function.record->fn.attr("__module__")));
+    writer.string_field(nb::cast<std::string>(function.record->fn.attr("__qualname__")));
+    const auto values = scalars[prefix + "scalars"].as_list();
+    writer.varint(values.size());
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      auto value = values[index].as_any().get();
+      if (std::find(cache_factories.begin(), cache_factories.end(), index) != cache_factories.end()) {
+        // A typed cache is reconstructed, not serialized. Its class identity
+        // participates in compatibility; the application revision covers code.
+        const auto factory = value_to_py(value);
+        if (!PyType_Check(factory.ptr())) {
+          throw std::invalid_argument("component checkpoint: typed STATE requires a cache class");
+        }
+        writer.string_field(nb::cast<std::string>(factory.attr("__module__")));
+        writer.string_field(nb::cast<std::string>(factory.attr("__qualname__")));
+      } else {
+        // What cannot be signed cannot be held to a contract, so it cannot be
+        // recovered: a REFUSAL, naming the callback and the argument. The signer
+        // reports a value with no canonical form as a runtime_error, and the
+        // value layer reports a scalar stored another way than its flags say --
+        // a Python Enum is flagged Enum and is not an Int -- as a bare "type
+        // mismatch". Neither is an invalid_argument, and a worker graph records
+        // only refusals, so left alone this stopped a graph nobody would ever
+        // capture from wiring.
+        annotate_on_exception<std::exception>(
+            [&] {
+              manifest::append_value_descriptor(writer, value.schema());
+              manifest::encode_manifest_scalar(writer, value);
+            },
+            [&](const std::exception &error) {
+              throw std::invalid_argument(
+                  "component checkpoint: scalar argument " + std::to_string(index) + " of Python node '" +
+                  nb::cast<std::string>(function.record->fn.attr("__qualname__")) +
+                  "' cannot be signed, so the node cannot be recovered: " + error.what());
+            });
+      }
+    }
+  }
+  const auto &bytes = writer.bytes();
+  return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
+
+[[nodiscard]] const NodeCheckpointOps &py_managed_checkpoint_ops() noexcept {
+  static const NodeCheckpointOps ops{
+      .supported = true,
+      .signature_impl = &py_checkpoint_signature,
+      .id_impl = [](const NodeBuilder &builder) {
+        const auto values = builder.scalars().view().as_bundle();
+        const auto function = values["fn"].checked_as<PyNodeRef>();
+        return function.record == nullptr ? std::string{} : function.record->recordable_id;
+      },
+  };
+  return ops;
 }
 
 /**
@@ -779,6 +882,9 @@ struct py_compute_node {
       "hgraph.python.compute";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -875,6 +981,9 @@ struct py_fast_compute_node {
       "hgraph.python.compute.fast";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1021,6 +1130,9 @@ struct py_compute_recordable_node {
       "hgraph.python.compute_recordable";
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
+  static const NodeCheckpointOps &checkpoint_ops() noexcept {
+    return py_managed_checkpoint_ops();
+  }
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1030,7 +1142,7 @@ struct py_compute_recordable_node {
       Scalar<"start_config", Str>, Scalar<"start_scalars", ScalarVar<"SSV">>,
       Scalar<"stop_fn", PyNodeRef>, Scalar<"stop_enabled", Bool>,
       Scalar<"stop_config", Str>, Scalar<"stop_scalars", ScalarVar<"XSV">>,
-      RecordableState<TsVar<"RS">>, NodeScheduler, DateTime, GlobalStateView,
+      State<PyStateRef>, RecordableState<TsVar<"RS">>, NodeScheduler, DateTime, GlobalStateView,
       EngineControlView, NodeView, Out<TsVar<"O">>>;
 
   static void resolve_default_types(ResolutionMap &resolution,
@@ -1052,26 +1164,32 @@ struct py_compute_recordable_node {
         Scalar<"start_enabled", Bool> enabled,
         Scalar<"start_config", Str> config,
         Scalar<"start_scalars", ScalarVar<"SSV">> scalars,
-        RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+        State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
         SingleShotScheduler initial_sample, GlobalStateView global_state,
         EngineControlView engine, NodeView node) {
+    auto rollback = UnwindCleanupGuard([&] {
+      py_clear_input_activity(parse_py_call_shape(eval_config.value()).layout, args.base());
+      py_release_state(cache);
+    });
     const auto layout = parse_py_call_shape(eval_config.value()).layout;
     py_apply_input_activity(layout, args.base());
     py_schedule_initial_reference_sample(layout, args.base(), initial_sample);
     if (!enabled.value()) {
+      rollback.release();
       return;
     }
     translate_python_error([&] {
       nb::list call_args;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(config.value(), global_state, lease);
+          py_runtime_global_state_for_call(config.value(), global_state, lease,
+                                           cache.get().call_lease);
       py_assemble_lifecycle_args(
           config.value(), scalars.value(),
-          static_cast<PyStateRef *>(nullptr), &state_view,
+          &cache, &state_view,
           state.evaluation_time(), scheduler, runtime_state, engine, lease,
           node, call_args);
       (void)py_call_with_contexts(fn.value().record->fn, call_args,
@@ -1079,6 +1197,7 @@ struct py_compute_recordable_node {
       invalid.release();
       lease.invalidate();
     });
+    rollback.release();
   }
 
   static void
@@ -1086,22 +1205,23 @@ struct py_compute_recordable_node {
            args,
        Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
        Scalar<"scalars", ScalarVar<"SV">> scalars,
-       RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+       State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
        DateTime now, GlobalStateView global_state, EngineControlView engine,
        NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       const auto &out_view = static_cast<const TSOutputView &>(out);
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(shape.layout, global_state, lease);
+          py_runtime_global_state_for_call(shape.layout, global_state, lease,
+                                           cache.get().call_lease);
       if (!py_assemble_args(shape.layout, args.base(), scalars.value(),
-                            PyInvocationState{.recordable = &state_view},
+                            PyInvocationState{.local = &cache, .recordable = &state_view},
                             scheduler, now, call_args, context_values, lease,
                             runtime_state, engine, node, &out_view)) {
         return;
@@ -1124,24 +1244,29 @@ struct py_compute_recordable_node {
        Scalar<"stop_enabled", Bool> enabled,
        Scalar<"stop_config", Str> config,
        Scalar<"stop_scalars", ScalarVar<"XSV">> scalars,
-       RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
+       State<PyStateRef> cache, RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
        GlobalStateView global_state, EngineControlView engine, NodeView node) {
     auto cleanup = UnwindCleanupGuard([&] {
       py_clear_input_activity(
           parse_py_call_shape(eval_config.value()).layout, args.base());
+      py_release_state(cache);
     });
-    if (!enabled.value()) { return; }
+    if (!enabled.value()) {
+      cleanup.complete();
+      return;
+    }
     translate_python_error([&] {
       nb::list call_args;
-      auto lease = py_ts_lease_for_call();
+      auto lease = py_ts_lease_for_node(cache);
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       TSOutputView state_view =
           static_cast<const TSOutputView &>(state).borrowed_ref();
       nb::object runtime_state =
-          py_runtime_global_state_for_call(config.value(), global_state, lease);
+          py_runtime_global_state_for_call(config.value(), global_state, lease,
+                                           cache.get().call_lease);
       py_assemble_lifecycle_args(
           config.value(), scalars.value(),
-          static_cast<PyStateRef *>(nullptr), &state_view,
+          &cache, &state_view,
           state.evaluation_time(), scheduler, runtime_state, engine, lease,
           node, call_args, &args.base());
       (void)py_call_with_contexts(fn.value().record->fn, call_args,
@@ -1497,22 +1622,6 @@ struct op_harness_record
     : Operator<"__harness_record", In<"ts", TsVar<"S">>, Scalar<"key", Str>,
                Scalar<"sparse", Bool>> {};
 
-/** Materialize a STRUCTURAL port through a real node output (child
-    sub-graph outputs must be node outputs - a python function returning
-    combine[TSB[...]](...) produces a structural source). Canonical
-    delta capture/apply keeps every kind's granularity. */
-struct materialize_node {
-  static constexpr auto name = "__materialize";
-
-  static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"S">> out) {
-    const Value delta = capture_delta(ts.base());
-    apply_delta(static_cast<const TSOutputView &>(out), delta.view());
-  }
-};
-
-struct op_materialize
-    : Operator<"__materialize", In<"ts", TsVar<"S">>, Out<TsVar<"S">>> {};
-
 /** Python-authored const fallback. The ordinary const overload keeps its
     fully typed wiring-time value; this overload preserves legacy generator
     semantics only when the binding layer supplies an opaque PyObj. */
@@ -1758,9 +1867,10 @@ namespace hgraph::python_bridge {
 void register_python_overloads() {
   (void)
       scalar_descriptor<PyObj>::value_meta(); // opaque fallback held inside Any
+  // Cleared with the registries, so it is registered wherever they are rebuilt.
+  register_python_object_wire_form();
   TypeRegistry::instance().register_value_type_alias(
       "object", TypeRegistry::instance().any());
-  register_overload<op_materialize, materialize_node>();
   register_overload<op_py_compute, py_fast_compute_node>();
   register_overload<op_py_compute, py_compute_node>();
   register_overload<op_py_compute_recordable, py_compute_recordable_node>();

@@ -17,9 +17,22 @@
 
 namespace hgraph::persistence::store
 {
-    /** The codec every conforming build provides, and the default when a store
-        names none. RFC 0030. */
+    /** The binary value codec's ``Compact`` profile in a compression block
+        (RFC 0040): what a store holds unless it is told otherwise. Every
+        conforming build provides it. */
+    inline constexpr std::string_view BINARY_VALUE_CODEC{"binary"};
+
+    /** The ``Fast`` profile, never compressed: for a store used as a channel
+        between processes rather than as a place to keep things. */
+    inline constexpr std::string_view BINARY_FAST_VALUE_CODEC{"binary-fast"};
+
+    /** For a store that is *meant* to hold JSON -- objects another system
+        reads. JSON is a representation, not a serialization format, so it is
+        never a default (RFC 0040). Every conforming build provides it. */
     inline constexpr std::string_view JSON_VALUE_CODEC{"json"};
+
+    /** The codec when a store names none. */
+    inline constexpr std::string_view DEFAULT_VALUE_CODEC{BINARY_VALUE_CODEC};
 
     /** Explicit erased ownership for schema-dependent codec state. */
     struct ValueCodecBinding
@@ -63,7 +76,25 @@ namespace hgraph::persistence::store
         /** Decode with a handle from `bind`. Same constraints as `encode`. */
         Value (*decode)(void *context, const void *bound,
                         std::span<const std::byte> encoded);
+
+        /** Optional: decode, refusing an object that would expand beyond
+            `max_decoded_bytes`.
+
+            A codec whose stored form is no smaller than what it decodes to --
+            json -- has nothing to bound and leaves this null. One that
+            compresses must supply it: the size of the stored object then says
+            nothing about what decoding it allocates, so an owner's limit on
+            the stored bytes (fabric's 16 MiB of metadata) would otherwise be a
+            limit on nothing. */
+        Value (*decode_limited)(void *context, const void *bound,
+                                std::span<const std::byte> encoded,
+                                std::size_t max_decoded_bytes){nullptr};
     };
+
+    /** What a compressing codec lets one object expand to when its owner states
+        no limit, and the most it will write. A larger value belongs in a
+        FrameStore, or in more than one object. */
+    inline constexpr std::size_t DEFAULT_MAX_DECODED_BYTES = std::size_t{1} << 30;   // 1 GiB
 
     /** A codec bound to one schema: the run-local per-tick handle.
 
@@ -97,6 +128,9 @@ namespace hgraph::persistence::store
         void encode(const ValueView &value, ObjectBytes &out) const;
         [[nodiscard]] ObjectBytes encode(const ValueView &value) const;
         [[nodiscard]] Value decode(std::span<const std::byte> encoded) const;
+        /** The owner of the bytes says how large the decoded object may be. */
+        [[nodiscard]] Value decode(std::span<const std::byte> encoded,
+                                   std::size_t max_decoded_bytes) const;
 
       private:
         [[nodiscard]] static const ValueCodecOps &empty_ops() noexcept;

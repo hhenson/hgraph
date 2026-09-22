@@ -1,11 +1,15 @@
 Specification
 =============
 
-The HGraph Runtime Design Specification is a precise, language-neutral
-definition of HGraph semantics: the type system, the wiring model, the runtime
-execution model, the time-series types, the node kinds, and the operator
-contracts. It is written so that a conforming HGraph runtime could be
-implemented from it.
+The current concept-first model is the
+:doc:`runtime behaviour specification <../runtime_spec/index>`. It combines
+runtime chapters, explicit conformance cases and source evidence, and replaces
+the unmerged runtime-specification experiments.
+
+The chapters below are the earlier Python-era draft. They remain reference
+material for wiring, operators and other areas outside the new runtime core;
+they are not a second authoritative runtime model. Their unreconciled claims
+remain provisional.
 
 .. note::
 

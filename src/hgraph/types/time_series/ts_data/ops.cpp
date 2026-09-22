@@ -205,6 +205,7 @@ namespace hgraph::ts_data_detail
             table.key_at_slot_impl                = &sentinel_empty_key;
             table.contains_impl                   = &sentinel_contains;
             table.find_slot_impl                  = &sentinel_find;
+            table.find_stored_slot_impl           = &sentinel_find;
             table.make_values_range_impl          = &sentinel_value_range;
             table.make_added_values_range_impl    = &sentinel_value_range;
             table.make_removed_values_range_impl  = &sentinel_value_range;
@@ -242,6 +243,10 @@ namespace hgraph::ts_data_detail
             t.child_at_slot_impl                 = &sentinel_null_slot;
             t.slot_modified_impl                 = &sentinel_false_slot;
             t.next_modified_slot_impl            = &sentinel_next;
+            t.membership_slot_added_impl         = &sentinel_false_slot;
+            t.membership_slot_removed_impl       = &sentinel_false_slot;
+            t.next_membership_added_slot_impl    = &sentinel_next;
+            t.next_membership_removed_slot_impl  = &sentinel_next;
             t.make_ts_values_range_impl          = &sentinel_ts_range;
             t.make_valid_keys_range_impl         = &sentinel_value_range;
             t.make_valid_ts_values_range_impl    = &sentinel_ts_range;
@@ -507,6 +512,9 @@ namespace hgraph::ts_data_detail
     }
 
     void missing_window_clear(const void *, void *, DateTime) { missing_ts_data_op("window clear"); }
+    void missing_window_replace_samples(const void *, void *, const ValueView &,
+                                         std::span<const DateTime>, DateTime)
+    { missing_ts_data_op("window replace samples"); }
 }  // namespace hgraph::ts_data_detail
 
 namespace hgraph

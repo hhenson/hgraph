@@ -1,0 +1,20 @@
+{"variant":"map_ component (the bar)","keys":5000,"save_ms":11.04,"restore_ms":20.18,"save_us_per_key":2.21,"restore_us_per_key":4.04,"bytes_per_key":2.27}
+{"variant":"map_ component (the bar)","keys":10000,"save_ms":31.11,"restore_ms":52.15,"save_us_per_key":3.11,"restore_us_per_key":5.22,"bytes_per_key":2.25}
+{"variant":"map_ component (the bar)","keys":20000,"save_ms":60.61,"restore_ms":132.15,"save_us_per_key":3.03,"restore_us_per_key":6.61,"bytes_per_key":2.08}
+{"variant":"map_ component (the bar)","keys":40000,"save_ms":118.81,"restore_ms":281.97,"save_us_per_key":2.97,"restore_us_per_key":7.05,"bytes_per_key":1.97}
+{"variant":"dmap_ member, in process","keys":5000,"save_ms":10.90,"restore_ms":21.49,"save_us_per_key":2.18,"restore_us_per_key":4.30,"bytes_per_key":6.93}
+{"variant":"dmap_ member, in process","keys":10000,"save_ms":22.17,"restore_ms":48.58,"save_us_per_key":2.22,"restore_us_per_key":4.86,"bytes_per_key":6.80}
+{"variant":"dmap_ member, in process","keys":20000,"save_ms":48.54,"restore_ms":116.01,"save_us_per_key":2.43,"restore_us_per_key":5.80,"bytes_per_key":5.60}
+{"variant":"dmap_ member, in process","keys":40000,"save_ms":108.12,"restore_ms":236.98,"save_us_per_key":2.70,"restore_us_per_key":5.92,"bytes_per_key":4.07}
+{"variant":"dmap_ hosting a component, in process","keys":5000,"save_ms":10.94,"restore_ms":20.97,"save_us_per_key":2.19,"restore_us_per_key":4.19,"bytes_per_key":6.07}
+{"variant":"dmap_ hosting a component, in process","keys":10000,"save_ms":22.88,"restore_ms":45.99,"save_us_per_key":2.29,"restore_us_per_key":4.60,"bytes_per_key":5.35}
+{"variant":"dmap_ hosting a component, in process","keys":20000,"save_ms":48.99,"restore_ms":116.25,"save_us_per_key":2.45,"restore_us_per_key":5.81,"bytes_per_key":4.52}
+{"variant":"dmap_ hosting a component, in process","keys":40000,"save_ms":103.14,"restore_ms":259.68,"save_us_per_key":2.58,"restore_us_per_key":6.49,"bytes_per_key":4.66}
+{"variant":"dmap_ member, processes","keys":5000,"save_ms":12.23,"restore_ms":18.97,"save_us_per_key":2.45,"restore_us_per_key":3.79,"bytes_per_key":6.93}
+{"variant":"dmap_ member, processes","keys":10000,"save_ms":21.71,"restore_ms":30.22,"save_us_per_key":2.17,"restore_us_per_key":3.02,"bytes_per_key":6.80}
+{"variant":"dmap_ member, processes","keys":20000,"save_ms":37.47,"restore_ms":56.65,"save_us_per_key":1.87,"restore_us_per_key":2.83,"bytes_per_key":5.60}
+{"variant":"dmap_ member, processes","keys":40000,"save_ms":67.92,"restore_ms":113.18,"save_us_per_key":1.70,"restore_us_per_key":2.83,"bytes_per_key":4.07}
+{"variant":"dmap_ hosting a component, processes","keys":5000,"save_ms":10.08,"restore_ms":21.66,"save_us_per_key":2.02,"restore_us_per_key":4.33,"bytes_per_key":6.07}
+{"variant":"dmap_ hosting a component, processes","keys":10000,"save_ms":21.71,"restore_ms":34.09,"save_us_per_key":2.17,"restore_us_per_key":3.41,"bytes_per_key":5.35}
+{"variant":"dmap_ hosting a component, processes","keys":20000,"save_ms":34.21,"restore_ms":73.02,"save_us_per_key":1.71,"restore_us_per_key":3.65,"bytes_per_key":4.52}
+{"variant":"dmap_ hosting a component, processes","keys":40000,"save_ms":78.22,"restore_ms":108.55,"save_us_per_key":1.96,"restore_us_per_key":2.71,"bytes_per_key":4.66}

@@ -325,6 +325,32 @@ needed again, construct a new value builder or copy the resulting
 This keeps compact container storage immutable after construction
 while still letting callers build a value in stages.
 
+**Built storage is given to the ``Value``, not copied into it.** ``build()``
+hands its storage over through ``Value(binding, storage, Value::AdoptStorage{})``,
+which move-constructs the payload. ``Value(binding, source)`` copies, and a
+builder that used it built every element twice -- once into its storage and
+once into the copy. A binding whose owning representation differs
+(``Shared<T>`` and the like) is materialised by its own ops and still copies.
+
+Two pieces exist for a reader that knows its row count before its rows (the
+binary codec's column form, RFC 0040):
+
+- ``ListBuilder::append_default(count)`` appends ``count`` default-constructed,
+  *set* elements in one allocation, and ``element_memory(index)`` reaches one
+  to fill it in place. Building each row aside and pushing it costs every row
+  twice.
+- ``CompositeFieldLayout`` is the one owner of where a composite binding keeps
+  its fields and its validity words: a component per field, plus -- for a
+  Bundle, not a dense Tuple -- one more holding the validity bits.
+  ``BundleBuilder`` marks a field live through it, and a bulk reader or writer
+  reaches a field of many rows through it without a call per access. Only
+  composite (assembly) storage has one; a wrapped bundle keeps its fields
+  behind its own ops.
+
+``compact_detail::copy_construct_elements`` copies trivially copyable elements
+packed at the plan's own stride as one block, from a source of any alignment.
+That is what lets a compact container be built straight from a byte buffer.
+
 Status. The compact value-layer storage shapes, builders, specialised
 read-only views, and ``ValuePlanFactory`` compact container types
 are implemented. The slot-store-based shapes used by the time-series layer

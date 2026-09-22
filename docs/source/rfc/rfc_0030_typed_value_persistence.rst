@@ -16,6 +16,17 @@ a fixed format, selected by a store-level default and overridable per call. JSON
 is the required baseline and the initial default; RFC 0017's binary codec,
 protobuf, and avro register the same way without touching a caller.
 
+.. note::
+
+   **Amended by RFC 0040 (2026-09-18).** JSON is a representation, not a
+   serialization format, so it is no longer the default. ``"binary"`` -- the
+   binary value codec's ``Compact`` profile in a compression block -- is what a
+   store holds unless it is told otherwise, and ``"binary-fast"`` is the
+   ``Fast`` profile, never compressed. ``"json"`` stays registered and stays
+   required of a conforming build, for a store that is *meant* to hold JSON:
+   objects another system reads. No store of the old default exists, so there
+   is nothing to migrate and the ``"binary"`` codec reads nothing else.
+
 **Stored bytes are exactly the codec's output.** A JSON object is a JSON
 document a text editor opens and ``jq`` reads; an Arrow object is a file polars
 loads directly. The store adds no header, framing, or trailer, and it does not
@@ -154,7 +165,8 @@ Selection
 
 The codec is **configuration**, at two levels:
 
-* **Store default.** ``ValueStoreConfig::codec``, unset meaning ``"json"``.
+* **Store default.** ``ValueStoreConfig::codec``, unset meaning ``"binary"``
+  (``"json"`` until RFC 0040).
 * **Per call.** An optional codec argument on ``write``, ``read``,
   ``try_read``, ``try_read_versioned`` and ``compare_exchange``, which is what
   makes a mixed store possible -- small metadata as JSON beside a large record

@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::ir
@@ -92,6 +93,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
                 case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
+                case semantics::ImportedTypeKind::Atomic: return hir::TypeKind::Atomic;
             }
             std::unreachable();
         }
@@ -163,6 +165,21 @@ namespace hgl::ir
                 case ConstraintRelationOp::Is: return hir::ConstraintRelationOp::Is;
             }
             std::unreachable();
+        }
+
+        /// A descriptor spells its relation and logic operators as text, so an
+        /// imported requirement rebuilds from the spelling rather than an enum
+        /// (ADR 0013). These are the spellings module_descriptor.cpp writes;
+        /// the catalog converts only these, so the fallbacks are unreachable
+        /// by construction rather than silent defaults.
+        [[nodiscard]] inline hir::ConstraintRelationOp imported_relation_op(std::string_view spelling) noexcept {
+            if (spelling == "in") { return hir::ConstraintRelationOp::In; }
+            if (spelling == "is") { return hir::ConstraintRelationOp::Is; }
+            return hir::ConstraintRelationOp::Equal;
+        }
+
+        [[nodiscard]] inline hir::ConstraintLogicOp imported_logic_op(std::string_view spelling) noexcept {
+            return spelling == "or" ? hir::ConstraintLogicOp::Or : hir::ConstraintLogicOp::And;
         }
 
         [[nodiscard]] constexpr hir::ConstraintLogicOp lower_constraint_logic_op(ast::ConstraintLogicOp op) noexcept {
@@ -511,8 +528,8 @@ namespace hgl::ir
                                     add_symbol(node.mutable_ ? hir::SymbolKind::LocalVar : hir::SymbolKind::LocalLet,
                                                node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
-                                statement_symbols_[statement].push_back(
-                                    add_symbol(hir::SymbolKind::State, node.name.text, node.name.range, owner));
+                                statement_symbols_[statement].push_back(add_symbol(
+                                    node.cache ? hir::SymbolKind::Cache : hir::SymbolKind::State, node.name.text, node.name.range, owner));
                             } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                                 for (const ast::Name &name : node.names) {
                                     statement_symbols_[statement].push_back(
@@ -608,6 +625,30 @@ namespace hgl::ir
                 }
             }
 
+            /// A field's HIR type. A field this module declares has an AST type;
+            /// one inherited from a struct another module exports does not --
+            /// its type lives in the owner's layout (ADR 0013), so it is
+            /// lowered from there rather than left absent, which would leave
+            /// the field typeless in both IRs.
+            [[nodiscard]] hir::TypeId imported_field_type(const semantics::StructField &field, syntax::SourceRange range) {
+                if (!field.origin.is_imported()) { return id<hir::TypeId>(field.type); }
+                const semantics::ImportedStruct &owner = resolved_.imported_structs[field.origin.imported];
+                const auto found = std::ranges::find(owner.fields, field.name, &semantics::ImportedStructField::name);
+                if (found == owner.fields.end()) { return hir::no_type; }
+                if (!owner.generics.empty()) {
+                    // A generic imported family needs its parameters mapped
+                    // into this module's symbols, which applying an imported
+                    // family will establish; until then the field would be
+                    // typed against the wrong scope.
+                    diagnostics_.report(syntax::Category::Type, range,
+                                        "inheriting a generic imported struct is not supported yet: '" + owner.identity +
+                                            "' declares generic parameters");
+                    return hir::no_type;
+                }
+                static const std::unordered_map<std::string, hir::SymbolId> none;
+                return imported_type(found->type, none, range);
+            }
+
             [[nodiscard]] hir::SymbolId external_symbol(hir::SymbolKind kind, std::string_view name, std::string_view external_name,
                                                         std::string_view canonical_name, syntax::SourceRange range) {
                 const std::string identity = canonical_name.empty() ? std::string{external_name} : std::string{canonical_name};
@@ -655,12 +696,24 @@ namespace hgl::ir
                 target.value_position = true;
                 target.unbounded      = source.unbounded;
                 if (source.kind == semantics::ImportedTypeKind::Symbol) {
-                    const auto found = generics.find(source.binding_identity);
-                    if (found == generics.end()) {
-                        diagnostics_.report(syntax::Category::Name, range,
-                                            "native type pattern names unknown type generic '" + source.binding_identity + "'");
+                    if (source.binding_identity.empty() && !source.nominal_identity.empty()) {
+                        // A layout's Symbol may name a STRUCT rather than a
+                        // generic parameter (ADR 0013) -- a field type, or an
+                        // ADR 0012 edge's target. It interns by identity, the
+                        // way the struct itself does; the generic-only path
+                        // would report an unknown generic and leave the type
+                        // without a symbol.
+                        target.symbol = external_symbol(hir::SymbolKind::ImportedStruct, source.nominal_identity,
+                                                        source.nominal_identity, source.nominal_identity, range);
                     } else {
-                        target.symbol = found->second;
+                        const auto found = generics.find(source.binding_identity);
+                        if (found == generics.end()) {
+                            diagnostics_.report(syntax::Category::Name, range,
+                                                "native type pattern names unknown type generic '" + source.binding_identity +
+                                                    "'");
+                        } else {
+                            target.symbol = found->second;
+                        }
                     }
                 }
                 for (const semantics::ImportedType &child : source.children) {
@@ -713,6 +766,282 @@ namespace hgl::ir
                 target.contract.signature.result = source->result ? imported_type(*source->result, generics, range) : void_type();
                 result_.imported_operators.push_back(std::move(target));
                 return symbol;
+            }
+
+            /// Rebuilds one node of an imported `where` as typed HIR (ADR 0013).
+            /// `generics` maps the exporting module's binding identities to this
+            /// module's symbols -- the same table `imported_type` uses -- so the
+            /// requirement refers to the symbols an application binds.
+            [[nodiscard]] hir::ConstraintId imported_constraint(const std::vector<semantics::ImportedConstraint> &arena,
+                                                                std::uint32_t index,
+                                                                const std::unordered_map<std::string, hir::SymbolId> &generics,
+                                                                std::vector<hir::ConstraintId> &cache,
+                                                                syntax::SourceRange range) {
+                if (index == semantics::no_imported_constraint || index >= arena.size()) { return hir::no_constraint; }
+                if (cache[index] != hir::no_constraint) { return cache[index]; }
+                const semantics::ImportedConstraint &source = arena[index];
+                const hir::ConstraintId reserved{static_cast<std::uint32_t>(result_.constraints.size())};
+                result_.constraints.emplace_back();
+                cache[index] = reserved;
+                const auto child  = [&](std::uint32_t id) { return imported_constraint(arena, id, generics, cache, range); };
+                const auto symbol = [&](const std::string &identity) {
+                    const auto found = generics.find(identity);
+                    return found == generics.end() ? hir::no_symbol : found->second;
+                };
+                hir::Constraint target;
+                target.range = range;
+                using K      = semantics::ImportedConstraintKind;
+                switch (source.kind) {
+                    case K::Symbol: target.node = hir::ConstraintSymbol{symbol(source.identity)}; break;
+                    case K::Type:
+                        target.node =
+                            hir::ConstraintType{source.type ? imported_type(*source.type, generics, range) : hir::no_type};
+                        break;
+                    case K::Value: target.node = hir::ConstraintValue{imported_constant(source.value, generics, range)}; break;
+                    case K::Set: {
+                        hir::ConstraintSet set;
+                        for (const std::uint32_t element : source.elements) { set.elements.push_back(child(element)); }
+                        target.node = std::move(set);
+                        break;
+                    }
+                    case K::Call: {
+                        hir::ConstraintCall call{symbol(source.identity), {}};
+                        for (const std::uint32_t argument : source.arguments) { call.arguments.push_back(child(argument)); }
+                        target.node = std::move(call);
+                        break;
+                    }
+                    case K::Each:
+                        target.node = hir::ConstraintEach{symbol(source.identity), child(source.source), child(source.body)};
+                        break;
+                    case K::Operator: {
+                        // An operator requirement names an OPERATOR, not one of
+                        // the struct's generic parameters, so the generics table
+                        // never holds it. It interns as an imported operator by
+                        // its canonical identity, carrying the registry name the
+                        // solver dispatches on -- looking it up among the
+                        // generics yields no symbol, and the solver then refuses
+                        // every application.
+                        hir::SymbolId op = hir::no_symbol;
+                        if (!source.identity.empty()) {
+                            // `external_name` IS the registry key the solver
+                            // dispatches on; `canonical_name` is the defining
+                            // module's identity, independent of that spelling.
+                            op = external_symbol(hir::SymbolKind::ImportedOperator, source.identity, source.registry_name,
+                                                 source.identity, range);
+                        }
+                        hir::OperatorRequirement requirement{op, {}, hir::no_type};
+                        for (const std::uint32_t argument : source.arguments) {
+                            requirement.arguments.push_back(child(argument));
+                        }
+                        if (source.type) { requirement.result = imported_type(*source.type, generics, range); }
+                        target.node = std::move(requirement);
+                        break;
+                    }
+                    case K::Relation:
+                        target.node = hir::ConstraintRelation{imported_relation_op(source.operator_spelling), child(source.lhs),
+                                                              child(source.rhs), source.relation_category};
+                        break;
+                    case K::Not: target.node = hir::ConstraintNot{child(source.operand)}; break;
+                    case K::Logic:
+                        target.node = hir::ConstraintLogic{imported_logic_op(source.operator_spelling), child(source.lhs),
+                                                           child(source.rhs)};
+                        break;
+                }
+                result_.constraints[reserved.value] = std::move(target);
+                return reserved;
+            }
+
+
+            /// Re-describes a struct another module exports into this module's
+            /// HIR (ADR 0013), so hgraph IR can emit a contract both backends
+            /// register from, and the EXISTING solver can check the family's
+            /// requirements when it is applied -- not a second checker beside
+            /// it (CLAUDE.md guardrail iii). Nothing here declares the struct:
+            /// its identity stays the owner's.
+            /// Lowers `source` and everything its layout reaches, ANCESTORS
+            /// FIRST, without putting the closure's depth on the stack.
+            ///
+            /// This is the ONLY thing that orders ancestors before
+            /// descendants: `lower_imported_struct` reaches for an ancestor's
+            /// flattened fields and does not describe one itself, so an
+            /// ordering slip here is a diagnostic there rather than a silent
+            /// re-descent. A descriptor is an input: the chain `A0 -> A1 ->
+            /// ...` is as long as the supplying module chose, and descending
+            /// it per struct was the compiler's stack.
+            void lower_imported_closure(const semantics::ImportedStruct &source, hir::SymbolId symbol,
+                                        syntax::SourceRange range) {
+                struct Pending
+                {
+                    semantics::ImportedStruct record{};
+                    hir::SymbolId             symbol{};
+                    std::size_t               parent{0};
+                };
+                const auto record_for = [&](const std::string &identity) -> const semantics::ImportedStruct * {
+                    const auto found =
+                        std::ranges::find(resolved_.imported_structs, identity, &semantics::ImportedStruct::identity);
+                    return found == resolved_.imported_structs.end() ? nullptr : &*found;
+                };
+                // QUEUED IS NOT LOWERED. One set for both answers let a parent
+                // that a sibling field had queued as a root be skipped by the
+                // walk that inherits it, and the descendant was then flattened
+                // against an ancestry nothing had described. So: `queued`
+                // answers "is a root already waiting", and only
+                // `described_imported_structs_` answers "is it lowered".
+                std::unordered_set<std::string> queued{source.identity};
+                std::vector<Pending>            roots{Pending{source, symbol, 0}};
+                std::vector<std::string>        references;
+                while (!roots.empty()) {
+                    // Post-order over PARENTS: an ancestor's fields are read
+                    // when its descendant is flattened, so it has to be
+                    // recorded first.
+                    std::vector<Pending> stack{std::move(roots.back())};
+                    roots.pop_back();
+                    // What stops THIS walk going round: an ancestry cycle is
+                    // refused upstream, so this only guards a diamond whose
+                    // two sides meet before either is lowered.
+                    std::unordered_set<std::string> visiting{stack.back().record.identity};
+                    while (!stack.empty()) {
+                        if (stack.back().parent < stack.back().record.parents.size()) {
+                            const semantics::ImportedType &parent =
+                                stack.back().record.parents[stack.back().parent++];
+                            if (parent.nominal_identity.empty()) { continue; }
+                            if (described_imported_structs_.contains(parent.nominal_identity)) { continue; }
+                            if (!visiting.insert(parent.nominal_identity).second) { continue; }
+                            const semantics::ImportedStruct *ancestor = record_for(parent.nominal_identity);
+                            if (ancestor == nullptr) { continue; }
+                            const semantics::ImportedStruct copy = *ancestor;
+                            const hir::SymbolId              ancestor_symbol =
+                                external_symbol(hir::SymbolKind::ImportedStruct, copy.identity, copy.identity,
+                                                copy.identity, range);
+                            stack.push_back(Pending{copy, ancestor_symbol, 0});
+                            continue;
+                        }
+                        const Pending done = std::move(stack.back());
+                        stack.pop_back();
+                        lower_imported_struct(done.record, done.symbol, range);
+                        // Whatever its fields NAME becomes a root of its own;
+                        // those are referred to by identity, so they need no
+                        // ordering against this one.
+                        references.clear();
+                        for (const semantics::ImportedStructField &field : done.record.fields) {
+                            layout_nominals(field.type, references);
+                        }
+                        for (const std::string &identity : references) {
+                            if (described_imported_structs_.contains(identity)) { continue; }
+                            if (!queued.insert(identity).second) { continue; }
+                            const semantics::ImportedStruct *referenced = record_for(identity);
+                            if (referenced == nullptr) { continue; }
+                            const semantics::ImportedStruct copy = *referenced;
+                            const hir::SymbolId              referenced_symbol =
+                                external_symbol(hir::SymbolKind::ImportedStruct, copy.identity, copy.identity,
+                                                copy.identity, range);
+                            roots.push_back(Pending{copy, referenced_symbol, 0});
+                        }
+                    }
+                }
+            }
+
+            /// The nominal identities a layout type names, at any depth.
+            static void layout_nominals(const semantics::ImportedType &type, std::vector<std::string> &out) {
+                if (!type.nominal_identity.empty()) { out.push_back(type.nominal_identity); }
+                for (const semantics::ImportedType &child : type.children) { layout_nominals(child, out); }
+            }
+
+            void lower_imported_struct(const semantics::ImportedStruct &source, hir::SymbolId symbol,
+                                       syntax::SourceRange range) {
+                // The guard covers a struct still BEING described, not only
+                // one already recorded: a recursive edge (ADR 0012) names its
+                // own struct, and the record is pushed only once its fields
+                // are lowered -- so a scan of `result_.imported_structs`
+                // would never see it and the description would not terminate.
+                if (!described_imported_structs_.insert(source.identity).second) { return; }
+                hir::ImportedStructDecl target;
+                target.identity       = source.identity;
+                target.symbol         = symbol;
+                target.abstract       = source.abstract;
+                target.public_headers = source.public_headers;
+                target.range          = range;
+
+                std::unordered_map<std::string, hir::SymbolId> generics;
+                for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                    const semantics::ImportedGeneric &generic = source.generics[index];
+                    const hir::SymbolId               id      = add_symbol(
+                        generic.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::TypeParameter, generic.name, range,
+                        ast::no_node, static_cast<std::uint32_t>(index), {}, generic.binding_identity);
+                    generics.emplace(generic.binding_identity, id);
+                    target.generics.push_back({id, generic.is_const, {}});
+                }
+                for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                    if (!source.generics[index].type) { continue; }
+                    const hir::TypeId type                                    = imported_type(*source.generics[index].type, generics, range);
+                    target.generics[index].type                               = type;
+                    result_.symbols[target.generics[index].symbol.value].type = type;
+                }
+                for (const semantics::ImportedType &parent : source.parents) {
+                    target.parents.push_back(imported_type(parent, generics, range));
+                    // An ancestor is named only through this parent, never in
+                    // the source, and a backend cannot register a family whose
+                    // ancestors it has no layout for. Describing it HERE is
+                    // what put the chain's length on the stack, so this asks
+                    // rather than descends: `lower_imported_closure` owns the
+                    // ordering, and if it ever stops holding, the flattening
+                    // below would quietly drop every inherited field instead.
+                    if (parent.nominal_identity.empty()) { continue; }
+                    if (described_imported_structs_.contains(parent.nominal_identity)) { continue; }
+                    const auto ancestor = std::ranges::find(resolved_.imported_structs, parent.nominal_identity,
+                                                            &semantics::ImportedStruct::identity);
+                    if (ancestor == resolved_.imported_structs.end()) { continue; }
+                    diagnostics_.report(syntax::Category::Name, range,
+                                        "imported struct '" + source.identity + "' was described before its parent '" +
+                                            parent.nominal_identity + "'");
+                }
+                // A catalog record holds only the fields it DECLARES, while
+                // every consumer of `hir::StructField` -- the type checker,
+                // hgraph IR, and through it both backends -- reads a struct's
+                // fields as its WHOLE layout, the way a local declaration's
+                // are (`seed_imported_fields` seeds a local child the same
+                // way). hgraph's registry holds the same rule from the other
+                // side: `bundle()` refuses a child that does not preserve its
+                // parents' fields. So the ancestry is flattened here,
+                // ancestors first, each field still naming the ancestor that
+                // declares it. The ancestors were lowered just above, and
+                // theirs are flattened already, so a diamond dedupes by name.
+                std::unordered_set<std::string> present;
+                for (const semantics::ImportedType &parent : source.parents) {
+                    if (parent.nominal_identity.empty()) { continue; }
+                    const auto ancestor = std::ranges::find(result_.imported_structs, parent.nominal_identity,
+                                                            &hir::ImportedStructDecl::identity);
+                    if (ancestor == result_.imported_structs.end()) { continue; }
+                    // By value: lowering a field's type below can describe a
+                    // further struct and grow the vector this points into.
+                    const std::vector<hir::StructField> inherited = ancestor->fields;
+                    for (const hir::StructField &field : inherited) {
+                        // Indexed, not scanned: an ancestor's fields are
+                        // already flattened, so a chain of N structs copies
+                        // O(N) fields into each descendant and a linear dedupe
+                        // per copied field makes the whole flattening cubic in
+                        // the chain length (CLAUDE.md guardrail iv).
+                        if (!present.insert(field.name).second) { continue; }
+                        target.fields.push_back(field);
+                    }
+                }
+                for (const semantics::ImportedStructField &field : source.fields) {
+                    if (!present.insert(field.name).second) { continue; }
+                    target.fields.push_back(hir::StructField{field.name, imported_type(field.type, generics, range),
+                                                             hir::no_expr, hir::no_declaration, source.identity,
+                                                             field.optional, range, field.recursive});
+                    // A field's type may name another exported struct, and a
+                    // recursive edge names its target (ADR 0012) -- those are
+                    // described too, but by `lower_imported_closure`, which
+                    // queues them as roots of their own. Descending into them
+                    // from here put the chain's length on the stack, which is
+                    // the whole reason that driver exists.
+                }
+                // The `where` the exporting module declared, rebuilt for the
+                // solver that already checks a local family's.
+                std::vector<hir::ConstraintId> cache(source.constraints.size(), hir::no_constraint);
+                target.requirements = imported_constraint(source.constraints, source.requirements, generics, cache, range);
+                result_.imported_structs.push_back(std::move(target));
             }
 
             [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
@@ -771,6 +1100,7 @@ namespace hgl::ir
                                                  parameter.is_const, lower_native_access(parameter.access)});
                     }
                     target.result = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
+                    target.throws = source.throws;
                     for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
                     result_.native_functions.push_back(std::move(target));
                 }
@@ -812,6 +1142,20 @@ namespace hgl::ir
                             return symbol;
                         }
                         break;
+                    case BindingKind::ImportedStruct: {
+                        // A struct another module exports has no declaration
+                        // here, so it is an external symbol interned by the
+                        // owner's identity (ADR 0013) -- the same way an
+                        // imported function or operator is. Re-describing it
+                        // into this module's IR happens once, here, so hgraph
+                        // IR can emit a contract the backends register from.
+                        const semantics::ImportedStruct structure = resolved_.imported_structs[binding.index];
+                        const hir::SymbolId             symbol =
+                            external_symbol(hir::SymbolKind::ImportedStruct, spelling, structure.identity,
+                                            structure.identity, range);
+                        lower_imported_closure(structure, symbol, range);
+                        return symbol;
+                    }
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
@@ -1133,7 +1477,7 @@ namespace hgl::ir
                                                          id<hir::ExprId>(node.init)};
                         } else if constexpr (std::is_same_v<T, ast::StateDecl>) {
                             target.node = hir::StateDecl{statement_symbols_[index].front(), id<hir::TypeId>(node.type),
-                                                         id<hir::ExprId>(node.init)};
+                                                         id<hir::ExprId>(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                             target.node = hir::InjectDecl{statement_symbols_[index]};
                         } else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) {
@@ -1295,9 +1639,21 @@ namespace hgl::ir
                             if (index < resolved_.struct_info.size()) {
                                 for (const semantics::StructField &field : resolved_.structure(index).fields) {
                                     structure.fields.push_back(
-                                        hir::StructField{field.name, id<hir::TypeId>(field.type),
-                                                         id<hir::ExprId>(field.default_value), id<hir::DeclarationId>(field.origin),
-                                                         field.optional, field_range(field.origin, field.name)});
+                                        // A field inherited from another module's struct has no
+                                        // An inherited field keeps the struct that declares
+                                        // it. When that is another module's struct there is
+                                        // no declaration here to point at, so it travels as
+                                        // an identity and its type comes from that owner's
+                                        // layout (ADR 0013).
+                                        hir::StructField{field.name,
+                                                         imported_field_type(field, field_range(field.origin.decl, field.name)),
+                                                         id<hir::ExprId>(field.default_value),
+                                                         id<hir::DeclarationId>(field.origin.decl),
+                                                         field.origin.is_imported()
+                                                             ? resolved_.imported_structs[field.origin.imported].identity
+                                                             : std::string{},
+                                                         field.optional, field_range(field.origin.decl, field.name),
+                                                         field.recursive});
                                 }
                             }
                             target.node = std::move(structure);
@@ -1388,8 +1744,18 @@ namespace hgl::ir
                                     input_view && !item.is_const ? hir::NativeParameterAccess::InputView
                                                                  : hir::NativeParameterAccess::Value});
                             }
-                            function.result         = signature.result;
-                            function.phases         = {hir::NativePhase::Evaluation};
+                            // A native without `->` returns void, as an imported void native does.
+                            function.result = signature.result.valid() ? signature.result : void_type();
+                            // A value function has no live-input dependency, so it
+                            // is available in every node hook; a view function needs
+                            // the inputs and is evaluation-only.
+                            const bool views = std::ranges::any_of(function.parameters, [](const hir::NativeParameter &parameter) {
+                                return parameter.access == hir::NativeParameterAccess::InputView;
+                            });
+                            function.phases = views ? std::vector{hir::NativePhase::Evaluation}
+                                                    : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation,
+                                                                  hir::NativePhase::Stop};
+                            function.throws = node.throws;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;
@@ -1422,6 +1788,9 @@ namespace hgl::ir
             std::unordered_map<std::string, hir::SymbolId>   global_symbols_{};
             std::unordered_map<std::string, hir::SymbolId>   external_symbols_{};
             std::unordered_map<std::uint32_t, hir::SymbolId> imported_function_symbols_{};
+            /// Imported struct identities already described OR in progress
+            /// (see `lower_imported_struct`).
+            std::unordered_set<std::string>                  described_imported_structs_{};
             std::unordered_map<std::uint8_t, hir::TypeId>    literal_types_{};
             hir::TypeId                                      void_type_{};
         };

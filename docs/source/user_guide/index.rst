@@ -33,6 +33,9 @@ library authors and performance-sensitive integrations.
 
    data_and_analytics
    analytics
+   component_recovery
+   distributed_map
+   spawn_pipelines
    adaptors/index
    tools/index
 

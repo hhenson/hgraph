@@ -1,0 +1,35 @@
+{
+  "description": "Issue #818 item 2.3: the fold is pairwise and n-ary for union, which is what upstream's answer for three inputs shows.",
+  "features": [
+    "family:set",
+    "operation:union",
+    "shape:TSD",
+    "topology:operator-family",
+    "type:int"
+  ],
+  "id": "issue-818-union-over-three-dictionaries",
+  "inputs": {
+    "a": [
+      {
+        "a": 1
+      }
+    ],
+    "b": [
+      {
+        "b": 2
+      }
+    ],
+    "c": [
+      {
+        "c": 3
+      }
+    ]
+  },
+  "parameters": {
+    "element_type": "int",
+    "operation": "union",
+    "shape": "tsd"
+  },
+  "schema_version": 1,
+  "template": "set_operator"
+}

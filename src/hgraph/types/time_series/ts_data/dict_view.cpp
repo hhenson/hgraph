@@ -133,6 +133,27 @@ namespace hgraph
         return ops.slot_modified_impl(ops.context, storage_.data(), slot);
     }
 
+    bool TSDDataView::membership_slot_added(std::size_t slot) const
+    {
+        const auto &ops = dict_ops();
+        return ops.membership_slot_added_impl(ops.context, storage_.data(), slot);
+    }
+    bool TSDDataView::membership_slot_removed(std::size_t slot) const
+    {
+        const auto &ops = dict_ops();
+        return ops.membership_slot_removed_impl(ops.context, storage_.data(), slot);
+    }
+    std::size_t TSDDataView::next_membership_added_slot(std::size_t previous) const
+    {
+        const auto &ops = dict_ops();
+        return ops.next_membership_added_slot_impl(ops.context, storage_.data(), previous);
+    }
+    std::size_t TSDDataView::next_membership_removed_slot(std::size_t previous) const
+    {
+        const auto &ops = dict_ops();
+        return ops.next_membership_removed_slot_impl(ops.context, storage_.data(), previous);
+    }
+
     std::size_t TSDDataView::next_modified_slot(std::size_t previous) const
     {
         const auto &ops = dict_ops();
@@ -166,6 +187,12 @@ namespace hgraph
     {
         const auto &ops = dict_ops();
         return ops.find_slot_impl(ops.context, storage_.data(), key);
+    }
+
+    std::size_t TSDDataView::find_stored_slot(const ValueView &key) const
+    {
+        const auto &ops = dict_ops();
+        return ops.find_stored_slot_impl(ops.context, storage_.data(), key);
     }
 
     TSDataView TSDDataView::at_slot(std::size_t slot) const
@@ -252,7 +279,8 @@ namespace hgraph
 
     Range<ValueView> TSDDataView::added_keys() const
     {
-        return key_set().added();
+        const auto &ops = dict_ops();
+        return ops.make_added_values_range_impl(ops.context, storage_.data());
     }
 
     Range<TSDataView> TSDDataView::added_values() const
@@ -269,7 +297,8 @@ namespace hgraph
 
     Range<ValueView> TSDDataView::removed_keys() const
     {
-        return key_set().removed();
+        const auto &ops = dict_ops();
+        return ops.make_removed_values_range_impl(ops.context, storage_.data());
     }
 
     Range<TSDataView> TSDDataView::removed_values() const

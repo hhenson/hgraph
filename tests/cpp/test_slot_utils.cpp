@@ -1,12 +1,17 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/utils/stable_slot_storage.h>
 #include <hgraph/types/utils/value_slot_store.h>
+#include <hgraph/types/value/value.h>
 
 #include <array>
+#include <chrono>
+#include <iostream>
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
@@ -41,8 +46,28 @@ struct TrackedKey
     }
 };
 
+struct CheckpointCopyKey
+{
+    static inline bool fail_copy{false};
+    int value{0};
+    CheckpointCopyKey() = default;
+    explicit CheckpointCopyKey(int value_) : value{value_} {}
+    CheckpointCopyKey(const CheckpointCopyKey &) = default;
+    CheckpointCopyKey &operator=(const CheckpointCopyKey &other)
+    {
+        if (fail_copy) { throw std::runtime_error("checkpoint key copy failed"); }
+        value = other.value;
+        return *this;
+    }
+    bool operator==(const CheckpointCopyKey &) const = default;
+};
+
 namespace std
 {
+    template <> struct hash<CheckpointCopyKey>
+    {
+        size_t operator()(const CheckpointCopyKey &key) const noexcept { return hash<int>{}(key.value); }
+    };
     template <> struct hash<TrackedKey>
     {
         [[nodiscard]] size_t operator()(const TrackedKey &key) const noexcept { return hash<int>{}(key.value); }
@@ -76,6 +101,172 @@ TEST_CASE("SlotBitmap preserves visible bits and clears reused capacity", "[slot
     REQUIRE(bits.count() == 0);
     REQUIRE(bits.words != nullptr);
     REQUIRE(bits.bit_count == 130);
+}
+
+TEST_CASE("KeySlotStore restores recorded live slots without reassigning keys", "[slot-utils][checkpoint]")
+{
+    using namespace hgraph;
+    const Value first{std::int64_t{10}};
+    const Value second{std::int64_t{20}};
+    const Value third{std::int64_t{30}};
+    KeySlotStore keys{first.binding()};
+    keys.reserve_to(8);
+    keys.restore_key_at_slot(5, first.view());
+    keys.restore_key_at_slot(2, second.view());
+
+    CHECK(keys.size() == 2);
+    CHECK(keys.find_slot(first.view()) == 5);
+    CHECK(keys.find_slot(second.view()) == 2);
+    CHECK(keys.slot_live(5));
+    CHECK_FALSE(keys.slot_constructed(3));
+    CHECK_THROWS_AS(keys.restore_key_at_slot(5, third.view()), std::invalid_argument);
+    CHECK_THROWS_AS(keys.restore_key_at_slot(3, first.view()), std::invalid_argument);
+    CHECK_THROWS_AS(keys.restore_key_at_slot(KeySlotStore::npos, third.view()), std::invalid_argument);
+
+    const auto inserted = keys.insert(third.view());
+    CHECK(inserted.slot != 5);
+    CHECK(inserted.slot != 2);
+    CHECK(keys.remove_slot(5));
+    CHECK(keys.remove_slot(inserted.slot));
+    CHECK(keys.insert(first.view()).slot == 5);
+    CHECK(keys.remove_slot(5));
+    CHECK(keys.insert(third.view()).slot == inserted.slot);
+    const auto checkpoint_free = keys.checkpoint_free_slots();
+    KeySlotStore restored{first.binding()};
+    restored.reserve_to(keys.slot_capacity());
+    restored.restore_key_at_slot(2, second.view());
+    restored.restore_key_at_slot(inserted.slot, third.view());
+    restored.restore_free_slots(checkpoint_free);
+    keys.erase_pending();
+    CHECK_FALSE(keys.contains(first.view()));
+    CHECK(keys.find_slot(second.view()) == 2);
+    CHECK(keys.insert(first.view()).slot == restored.insert(first.view()).slot);
+    CHECK_THROWS_AS(restored.restore_free_slots(checkpoint_free), std::invalid_argument);
+}
+
+TEST_CASE("KeySlotStore planned checkpoint import preserves sparse slots and allocation order", "[slot-utils][checkpoint]")
+{
+    using namespace hgraph;
+    const Value seed{std::int64_t{0}};
+    KeySlotStore keys{seed.binding()};
+    const std::vector<std::size_t> live{5, 2, 7};
+    const std::vector<std::size_t> free{4, 1, 6, 0, 3};
+    keys.prepare_checkpoint_restore(live, free);
+    const auto before = keys.checkpoint_free_slots();
+    CHECK_THROWS(keys.restore_key_at_slot(5, Value{std::string{"wrong type"}}.view()));
+    CHECK(keys.checkpoint_free_slots() == before);
+    for (const auto slot : live)
+        keys.restore_key_at_slot(slot, Value{static_cast<std::int64_t>(slot)}.view());
+    CHECK(keys.checkpoint_free_slots() == free);
+    CHECK_THROWS(keys.prepare_checkpoint_restore(live, free));
+    for (auto it = free.rbegin(); it != free.rend(); ++it)
+        CHECK(keys.insert(Value{static_cast<std::int64_t>(*it + 100)}.view()).slot == *it);
+}
+
+TEST_CASE("KeySlotStore capacity growth commutes with the pending-erase flush", "[slot-utils][checkpoint]")
+{
+    // A checkpoint records the free order as it will stand AFTER the next flush
+    // (checkpoint_free_slots), so a restored store has already flushed where the
+    // uninterrupted one has not. A caller may grow capacity before that flush --
+    // the Python result path reserves for a delta ahead of its first mutation --
+    // so the two must commute, or the stores hand the next key different slots.
+    // Found by the recovery campaign (tools/recovery).
+    using namespace hgraph;
+    const auto key = [](std::int64_t value) { return Value{value}; };
+    const auto history = [&](KeySlotStore &keys) {
+        keys.reserve_to(1);
+        REQUIRE(keys.insert(key(2).view()).slot == 0);
+        keys.reserve_to(2);
+        REQUIRE(keys.remove_slot(0));
+        REQUIRE(keys.insert(key(1).view()).slot == 1);
+    };
+
+    SECTION("either order leaves one free order")
+    {
+        KeySlotStore grow_first{key(0).binding()}, flush_first{key(0).binding()};
+        history(grow_first);
+        history(flush_first);
+        grow_first.reserve_to(5);
+        grow_first.erase_pending();
+        flush_first.erase_pending();
+        flush_first.reserve_to(5);
+        CHECK(grow_first.checkpoint_free_slots() == flush_first.checkpoint_free_slots());
+    }
+
+    SECTION("a restored store allocates as the uninterrupted one does")
+    {
+        KeySlotStore uninterrupted{key(0).binding()};
+        history(uninterrupted);
+        const std::vector<std::size_t> live{1};
+        const auto free = uninterrupted.checkpoint_free_slots();
+        KeySlotStore restored{key(0).binding()};
+        restored.prepare_checkpoint_restore(live, free);
+        restored.restore_key_at_slot(1, key(1).view());
+        restored.restore_free_slots(free);
+
+        // The next cycle: reserve for a three-entry delta, flush, then apply it.
+        for (auto *keys : {&uninterrupted, &restored})
+        {
+            keys->reserve_to(3);
+            keys->erase_pending();
+            REQUIRE(keys->remove_slot(1));
+        }
+        CHECK(uninterrupted.insert(key(0).view()).slot == restored.insert(key(0).view()).slot);
+        CHECK(uninterrupted.insert(key(3).view()).slot == restored.insert(key(3).view()).slot);
+    }
+}
+
+TEST_CASE("KeySlotStore checkpoint plan rejects malformed slot partitions before allocation", "[slot-utils][checkpoint]")
+{
+    using namespace hgraph;
+    const Value seed{std::int64_t{0}};
+    KeySlotStore keys{seed.binding()};
+    const std::vector<std::size_t> live{0, 2};
+    const std::vector<std::size_t> duplicate{2}, outside{99};
+    CHECK_THROWS(keys.prepare_checkpoint_restore(live, duplicate));
+    CHECK_THROWS(keys.prepare_checkpoint_restore(live, outside));
+    CHECK(keys.slot_capacity() == 0);
+    CHECK(keys.size() == 0);
+}
+
+TEST_CASE("KeySlotStore planned import retries a throwing key copy at the same slot", "[slot-utils][checkpoint]")
+{
+    using namespace hgraph;
+    TypeRegistry::instance().register_scalar<CheckpointCopyKey>("CheckpointCopyKey");
+    const Value key{CheckpointCopyKey{42}};
+    KeySlotStore keys{key.binding()};
+    const std::vector<std::size_t> live{2}, free{1, 0};
+    keys.prepare_checkpoint_restore(live, free);
+    const auto before = keys.checkpoint_free_slots();
+    CheckpointCopyKey::fail_copy = true;
+    auto reset = make_scope_exit([] { CheckpointCopyKey::fail_copy = false; });
+    CHECK_THROWS_WITH(keys.restore_key_at_slot(2, key.view()), "checkpoint key copy failed");
+    CHECK(keys.size() == 0);
+    CHECK_FALSE(keys.slot_constructed(2));
+    CHECK(keys.checkpoint_free_slots() == before);
+    CheckpointCopyKey::fail_copy = false;
+    keys.restore_key_at_slot(2, key.view());
+    CHECK(keys.find_slot(key.view()) == 2);
+    CHECK(keys.checkpoint_free_slots() == free);
+}
+
+TEST_CASE("KeySlotStore checkpoint import scaling", "[.][checkpoint-scaling]")
+{
+    using namespace hgraph;
+    const Value seed{std::int64_t{0}};
+    for (const std::size_t count : {10000, 20000, 40000, 80000})
+    {
+        std::vector<std::size_t> live(count);
+        for (std::size_t index = 0; index < count; ++index) { live[index] = index; }
+        KeySlotStore keys{seed.binding()};
+        const auto start = std::chrono::steady_clock::now();
+        keys.prepare_checkpoint_restore(live, {});
+        for (const auto slot : live)
+            keys.restore_key_at_slot(slot, Value{static_cast<std::int64_t>(slot)}.view());
+        const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        REQUIRE(keys.size() == count);
+        std::cout << "checkpoint_key_import count=" << count << " ms=" << elapsed << '\n';
+    }
 }
 
 namespace
@@ -698,6 +889,55 @@ TEST_CASE("slot observer visitor restores traversal state after exceptions", "[v
     CHECK(observers.size() == 1);
     CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
     CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+}
+
+TEST_CASE("slot observers compact nested removals before ordinary removal", "[v2 slot utils][observers]") {
+    SlotObserverList observers;
+    CallbackSlotObserver remover;
+    CallbackSlotObserver removed_before_turn;
+    CallbackSlotObserver survivor;
+    CallbackSlotObserver second_survivor;
+    CallbackSlotObserver removed_tail;
+
+    observers.add(&remover);
+    observers.add(&removed_before_turn);
+    observers.add(&survivor);
+    observers.add(&second_survivor);
+    observers.add(&removed_tail);
+
+    bool throw_after_nested = false;
+    SECTION("outer notification completes") {}
+    SECTION("outer notification throws") { throw_after_nested = true; }
+
+    remover.insert = [&](std::size_t slot) {
+        observers.remove(&remover);
+        observers.remove(&removed_before_turn);
+        observers.remove(&removed_tail);
+        REQUIRE(observers.size() == 2);
+        observers.notify_insert(slot);
+        REQUIRE(observers.size() == 2);
+        if (throw_after_nested) { throw std::runtime_error("observer failed"); }
+    };
+
+    if (throw_after_nested)
+    {
+        REQUIRE_THROWS_AS(observers.notify_insert(1), std::runtime_error);
+    }
+    else { observers.notify_insert(1); }
+
+    CHECK(remover.calls == 1);
+    CHECK(removed_before_turn.calls == 0);
+    CHECK(removed_tail.calls == 0);
+    CHECK(survivor.calls == (throw_after_nested ? 1 : 2));
+    CHECK(second_survivor.calls == survivor.calls);
+    REQUIRE(observers.size() == 2);
+
+    observers.remove(&second_survivor);
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&survivor));
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+    observers.remove(&survivor);
+    CHECK(observers.empty());
 }
 
 TEST_CASE("value slot store supports default construction before plan binding", "[v2 slot utils]") {

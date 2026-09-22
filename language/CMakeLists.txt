@@ -74,7 +74,7 @@ endif()
 # Shared warning settings for every language target.
 function(hgl_apply_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /bigobj)
         if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()
@@ -155,7 +155,7 @@ add_library(hgl_ir STATIC
 )
 add_library(hgl::ir ALIAS hgl_ir)
 target_compile_features(hgl_ir PUBLIC cxx_std_23)
-target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(hgl_ir PUBLIC hgl::semantics)
 hgl_apply_warnings(hgl_ir)
 
@@ -165,8 +165,10 @@ hgl_apply_warnings(hgl_ir)
 add_library(hgl_graph_ir STATIC
     src/hgraph_ir/complete.cpp
     src/hgraph_ir/control_flow.cpp
+    src/hgraph_ir/plan.cpp
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
+    src/hgraph_ir/uses.cpp
 )
 add_library(hgl::graph_ir ALIAS hgl_graph_ir)
 target_compile_features(hgl_graph_ir PUBLIC cxx_std_23)
@@ -221,6 +223,18 @@ target_include_directories(hgl_native_package PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(hgl_native_package PRIVATE hgl::descriptor_reader)
+# The shared facade owns the reader's private simdjson dependency. Installed
+# consumers cannot supply its runtime search path through their link interface.
+# Preserve CMAKE_INSTALL_RPATH (which initializes the target property), then
+# search beside the installed library without capturing producer cache paths.
+if(UNIX)
+    if(APPLE)
+        set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "@loader_path")
+    else()
+        set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+    endif()
+    set_property(TARGET hgl_native_package PROPERTY INSTALL_RPATH_USE_LINK_PATH OFF)
+endif()
 hgl_apply_warnings(hgl_native_package)
 
 # Canonical hgraph metadata materialization for execution backends. Keeping
@@ -260,6 +274,8 @@ function(hgl_link_runtime_executable target)
         hgraph_link_python_embedding(${target})
     endif()
 endfunction()
+
+include(cmake/HglStageRuntimeDlls.cmake)
 
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
 # authoring code plus its module descriptor (developer guide, "C++ backend,
@@ -380,6 +396,7 @@ if(UNIX)
         INSTALL_RPATH_USE_LINK_PATH ON)
 endif()
 hgl_link_runtime_executable(hgl)
+hgl_stage_runtime_dlls(hgl)
 hgl_apply_warnings(hgl)
 
 # `hgl_add_module()` for consumers building packages from .hgl sources
@@ -399,6 +416,7 @@ set(_hgl_core_native_parts
     stdlib/hgl/hgraph/native/sets_maps.hgl
     stdlib/hgl/hgraph/native/windows.hgl
     stdlib/hgl/hgraph/native/scalar_values.hgl
+    stdlib/hgl/hgraph/native/temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
     HGL stdlib/hgl/hgraph/native.hgl
@@ -424,7 +442,8 @@ set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
     HGL stdlib/hgl/hgraph/standard.hgl
-    PARTS stdlib/hgl/hgraph/control.hgl
+    PARTS stdlib/hgl/hgraph/control.hgl stdlib/hgl/hgraph/stream.hgl
+          stdlib/hgl/hgraph/temporal.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
@@ -511,6 +530,16 @@ install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+if(WIN32)
+    set(_hgl_support_dlls)
+    if(HGRAPH_USE_PYARROW_ARROW)
+        file(GLOB _hgl_support_dlls LIST_DIRECTORIES false
+            "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll")
+    endif()
+    install(FILES $<TARGET_RUNTIME_DLLS:hgl> ${_hgl_support_dlls}
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Runtime)
+endif()
 install(TARGETS hgl_native_interface hgl_native_package hgl_core_native hgl_standard_library
     EXPORT HglLanguageTargets
     COMPONENT Development
@@ -547,6 +576,8 @@ install(FILES
     stdlib/hgl/hgraph/standard.hgl
     stdlib/hgl/hgraph/control.hgl
     stdlib/hgl/hgraph/operators.hgl
+    stdlib/hgl/hgraph/stream.hgl
+    stdlib/hgl/hgraph/temporal.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )

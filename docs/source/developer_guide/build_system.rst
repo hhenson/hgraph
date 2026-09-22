@@ -34,8 +34,8 @@ Boost dependency to installed consumers.
 ``simdjson`` **requires version 4.5 or newer** — ``json_impl.cpp`` uses
 ``simdjson::dom::element_type::BIGINT``, which first appeared in 4.5. Wheel
 builds (``HGRAPH_BUILD_PYTHON_BINDINGS=ON``) fetch a pinned release (currently
-v4.6.4) and link it statically; the default C++ build resolves a system package
-via ``find_package(simdjson CONFIG REQUIRED)`` followed by an explicit
+v4.6.4) and link it statically. Native builds prefer a system package and fetch it if missing;
+``HGRAPH_FETCH_SIMDJSON=ON`` forces fetching. System discovery uses ``find_package(simdjson CONFIG REQUIRED)`` followed by an explicit
 ``simdjson_VERSION`` check, which rejects older distro packages (Ubuntu 24.04
 ships 3.x) at configure time instead of failing mid compile. The check is
 explicit rather than a ``find_package`` version argument because simdjson's
@@ -45,6 +45,16 @@ reject 4.6.x). The installed ``hgraphConfig.cmake`` carries the same floor.
 ``HGRAPH_WARNINGS_AS_ERRORS`` applies to this project's targets only;
 third-party dependencies such as simdjson build with their own flags and are
 not expected to be warning-clean under ours.
+
+The installed ``hgl::native_package`` shared library finds private shared
+dependencies beside itself using ``$ORIGIN`` (``@loader_path`` on macOS).
+It preserves an explicitly supplied ``CMAKE_INSTALL_RPATH`` before that entry,
+but never appends dependency discovery or build-cache directories automatically.
+Packagers must place shared simdjson beside the library or provide a runtime
+search path appropriate to their distribution. The installed-consumer test
+checks the library's actual runtime paths, stages shared simdjson beside it,
+then moves the SDK and runs a consumer linked only to ``hgl::native_package``.
+It also verifies that dependency resolution uses the relocated simdjson copy.
 
 Translation-Unit Budget
 -----------------------
@@ -154,7 +164,14 @@ would fail the tag part-way through. The PyPI trusted publishers are bound to th
 the GitHub ``release`` environment.
 
 The macOS build uses the current system Clang from the latest Apple Silicon
-runner image while retaining a macOS 15 deployment target.
+runner image with a macOS 26 deployment target (ruling 2026-09-19: support the
+current macOS and its predecessor, nothing earlier). The floor is not
+arbitrary: libc++ marks parts of C++23 unavailable below it -- the
+floating-point ``std::from_chars`` is "introduced in macOS 26.0" -- and a
+machine on 26 or later compiles such code happily, so only the wheel job, which
+pins the target, ever saw the error. With the floor at 26 the wheel is built
+against the same library surface developers and the ``macos-26`` native leg
+already use.
 
 .. _self-hosted-linux-runner:
 
@@ -385,3 +402,24 @@ Open Design Items
 - Decide whether the shared extension ABI needs an explicit compatibility
   version independent of the Python distribution version; this is assessed in
   :doc:`extension_policy`.
+
+Missing native dependencies
+---------------------------
+
+``HGRAPH_FETCH_MISSING_DEPENDENCIES=ON`` is the default for the producer and
+installed native SDK consumers. Missing supported fmt and spdlog packages use
+the same pinned FetchContent recipes; SDK consumers also fetch missing
+simdjson. ``HGRAPH_FETCH_DATE`` also defaults to ``ON`` for a missing date/tz
+package. The native acceptance preset explicitly fetches simdjson. Keep missing
+package fetching enabled on clean validation hosts. An offline/package-manager build
+can disable fetching after providing compatible CMake packages.
+
+Arrow remains an explicit external dependency. ``HGRAPH_USE_PYARROW_ARROW=ON``
+uses an existing compatible PyArrow installation and the selected
+``Python_EXECUTABLE`` for discovery, without linking the Python runtime.
+Producer and native SDK consumer share this discovery implementation. Arrow,
+ArrowCompute and ArrowAcero are discovered independently: an existing target
+for one component does not suppress discovery of the others. Existing component
+targets are preserved, including with explicit PyArrow discovery. The
+installed language consumer test passes that explicit choice through, so it
+cannot accidentally rely on a different globally installed Arrow package.

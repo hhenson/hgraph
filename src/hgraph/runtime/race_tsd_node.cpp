@@ -67,14 +67,17 @@ namespace hgraph
         {
             struct Subscription
             {
-                TSOutputHandle       handle{};
-                const TSDataTracking *tracking{nullptr};
-                std::size_t           references{0};
+                TSOutputHandle handle{};
+                std::size_t    references{0};
             };
 
             RaceTsdNotifier notifier{};
             std::vector<RaceFieldState> fields{};
-            std::vector<Subscription>   subscriptions{};
+            // One shared subscription per observed source, by its tracking
+            // record. Every candidate key subscribes and unsubscribes here on
+            // every evaluation until a winner exists, so this is a map: finding
+            // the source in a list made n pending keys cost n * n.
+            ankerl::unordered_dense::map<const TSDataTracking *, Subscription> subscriptions{};
             TimeSeriesReference         published{};
 
             void subscribe(RaceTsdEntry &entry, TSOutputHandle handle)
@@ -87,15 +90,13 @@ namespace hgraph
                 }
 
                 const auto *tracking = &handle.data_view().tracking();
-                auto subscription = std::ranges::find_if(
-                    subscriptions,
-                    [&](const Subscription &existing) { return existing.tracking == tracking; });
+                auto subscription = subscriptions.find(tracking);
                 if (subscription == subscriptions.end())
                 {
                     handle.data_view().subscribe(&notifier);
-                    subscriptions.push_back(Subscription{handle, tracking, 1});
+                    subscriptions.emplace(tracking, Subscription{handle, 1});
                 }
-                else { ++subscription->references; }
+                else { ++subscription->second.references; }
                 entry.subscribed.push_back(std::move(handle));
             }
 
@@ -104,14 +105,11 @@ namespace hgraph
                 for (TSOutputHandle &handle : entry.subscribed)
                 {
                     static_cast<void>(fallback_on_exception(false, [&] {
-                        const auto *tracking = &handle.data_view().tracking();
-                        const auto subscription = std::ranges::find_if(
-                            subscriptions,
-                            [&](const Subscription &existing) { return existing.tracking == tracking; });
+                        const auto subscription = subscriptions.find(&handle.data_view().tracking());
                         if (subscription == subscriptions.end()) { return true; }
-                        if (--subscription->references == 0)
+                        if (--subscription->second.references == 0)
                         {
-                            subscription->handle.data_view().unsubscribe(&notifier);
+                            subscription->second.handle.data_view().unsubscribe(&notifier);
                             subscriptions.erase(subscription);
                         }
                         return true;
@@ -122,9 +120,7 @@ namespace hgraph
 
             void source_invalidated(const TSDataTracking *source) noexcept
             {
-                const auto subscription = std::ranges::find_if(
-                    subscriptions,
-                    [&](const Subscription &existing) { return existing.tracking == source; });
+                const auto subscription = subscriptions.find(source);
                 if (subscription == subscriptions.end()) { return; }
 
                 for (auto &field : fields)

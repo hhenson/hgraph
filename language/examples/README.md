@@ -40,10 +40,16 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   predicates,
   `last_modified`, and mutable lexical `var`. Tests: none in the file; native
   behaviour in `generated_example_tests.cpp`.
+- [`lifecycle-capabilities.hgl`](lifecycle-capabilities.hgl) injects the
+  node scheduler and the evaluation clock: a scheduler-driven source with no
+  temporal input (`start { scheduler.schedule(0s) }`, `when scheduled()`),
+  `passivate(input)` after a count, and `clock.evaluation_time()` (ADR 0010).
 - [`native-functions.hgl`](native-functions.hgl) defines real top-level C++
   scalar and collection-view helpers with `native fn`, declares their public
   hgraph view headers with `cpp include`, overloads `len` across list, set, and
   map HGL types, and calls the selected plain C++ function from runtime nodes.
+  Its `throws` native shows a C++ body that raises: the exception ends the
+  evaluation under hgraph's node error model (ADR 0009).
   Tests: generated C++ formatting and descriptor import plus scalar/list/set/map
   ticks in `generated_inline_native_tests.cpp`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
@@ -59,6 +65,12 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   runtime function, alongside temporal maps and an anonymous `fn`. Tests: none
   in the file; `generated_structural_tests.cpp`, and direct-wiring struct
   cases in `../tests/wiring/backend_tests.cpp`.
+- [`recursive-fields.hgl`](recursive-fields.hgl) declares recursive struct
+  fields (ADR 0012): a linked list and a generic tree whose edges are optional
+  `atomic` fields, a construction whose edge is a port, and field access
+  through an edge. Tests: 3 `test` blocks under `hgl test`
+  (`hgraph_language_test_recursive-fields`), asserted again on the generated
+  C++ in `generated_recursive_tests.cpp`.
 - [`reference-routing.hgl`](reference-routing.hgl) demonstrates `ref<T>`
   parameters and results in runtime functions: forwarding a reference, and
   routing one element of a `list<ref<T>, 3>` by a temporal index. Tests: none

@@ -1,0 +1,416 @@
+--- a/tools/parity/catalog.py
++++ b/tools/parity/catalog.py
+@@ -5821,6 +5821,14 @@
+         )
+
+
++from . import fixed_contracts
++
++CATALOG["fixed_contract_probe"] = TemplateSpec(
++    name="fixed_contract_probe", required_inputs=("step",),
++    features=("shape:TSL", "shape:TSB", "reference:REF"),
++    operators=(), execute=fixed_contracts.execute,
++)
++
+ def validate_recipe(recipe):
+     spec = CATALOG.get(recipe.template)
+     if spec is None:
+@@ -5833,6 +5841,8 @@
+             f"got {tuple(recipe.inputs)}"
+         )
+     _validate_reference_source(recipe)
++    if recipe.template == "fixed_contract_probe":
++        fixed_contracts.validate(recipe)
+     if recipe.template == "declaration_shape":
+         _validate_declaration_shape(recipe)
+     if recipe.template == "scalar_expression":
+--- /dev/null
++++ b/tools/parity/fixed_contracts.py
+@@ -0,0 +1,204 @@
++"""Fixed, bounded collection graphs; observations use public runtime APIs."""
++import json
++from collections.abc import Mapping
++from .model import RecipeError
++from . import fixed_complex
++
++MODES = {**{f'{s}_{r}': 10 for s in ('tsl', 'tsb') for r in ('owned', 'assembled')},
++         **{f'{a}_{b}_{r}': 8 for a in ('tsl', 'tsb') for b in ('tsl', 'tsb') for r in ('owned', 'assembled')},
++         'tsl_tsb_mixed': 8, 'tsb_tsl_mixed': 8,
++         **{f'{s}_ref_{r}': 9 for s in ('tsl', 'tsb') for r in ('whole', 'items')},
++         'tsl_passive': 7, 'tsb_passive': 7, 'tsl_latest_invalid': 6, 'tsb_latest_invalid': 6}
++
++MODES.update({f'{a}_{b}_{r}_invalidate': 9 for a in ('tsl', 'tsb') for b in ('tsl', 'tsb') for r in ('owned', 'assembled')})
++MODES.update(fixed_complex.MODES)
++
++
++def validate(recipe):
++    mode = recipe.parameters.get('mode')
++    if mode not in MODES or recipe.parameters != {'mode': mode}:
++        raise RecipeError('fixed contract mode must name a bounded case')
++    if recipe.to_dict()['inputs'] != {'step': list(range(MODES[mode]))}:
++        raise RecipeError('fixed contract steps must match the bounded case')
++
++
++def execute(hg, recipe):
++    from hgraph.test import eval_node
++    validate(recipe)
++    mode = recipe.parameters['mode']
++    if mode in fixed_complex.MODES:
++        return fixed_complex.execute(hg, recipe)
++    names = mode.split('_')
++    outer = names[0]
++    inner = names[1] if names[1] in ('tsl', 'tsb') else None
++    steps = list(range(MODES[mode]))
++
++    pair_names = iter(("InnerPair", "OuterPair"))
++
++    def pair_type(kind, item):
++        if kind == 'tsl':
++            return hg.TSL[item, hg.Size[2]]
++        class Pair(hg.TimeSeriesSchema):
++            left: item
++            right: item
++        Pair.__name__ = Pair.__qualname__ = next(pair_names)
++        return hg.TSB[Pair]
++
++    item = pair_type(inner, hg.TS[int]) if inner else hg.TS[int]
++    shape = pair_type(outer, item)
++
++    def children(ts, kind):
++        return [ts[0], ts[1]] if kind == 'tsl' else [ts.left, ts.right]
++
++    def convert(v):
++        if isinstance(v, Mapping):
++            return {str(k): convert(x) for k, x in v.items()}
++        if isinstance(v, (tuple, list)):
++            return [convert(x) for x in v]
++        return v
++
++    def snapshot(ts, kind=None, child_kind=None):
++        stamp = ts.last_modified_time
++        result = {'valid': ts.valid, 'modified': ts.modified,
++                  'last': 'never' if stamp == hg.MIN_DT else (stamp-hg.MIN_ST)//hg.MIN_TD,
++                  'value': convert(ts.value) if ts.valid else None,
++                  'delta': convert(ts.delta_value) if ts.modified else None}
++        if kind:
++            keys = ['0', '1'] if kind == 'tsl' else ['left', 'right']
++            result.update(all_valid=ts.all_valid, peer=ts.has_peer,
++                          children={k: snapshot(c, child_kind) for k, c in zip(keys, children(ts, kind))})
++        return result
++
++    def encode(ts):
++        first = snapshot(ts, outer, inner)
++        assert first == snapshot(ts, outer, inner), 'reading changed collection state'
++        return json.dumps(first, sort_keys=True)
++
++    def assemble(typ, kind, left, right):
++        return typ.from_ts(left, right) if kind == 'tsl' else typ.from_ts(left=left, right=right)
++
++    observed = []
++
++    @hg.compute_node(valid=('step',), active=('step',))
++    def observe(step: hg.TS[int], ts: shape) -> hg.TS[str]:
++        encoded = encode(ts)
++        observed.append(json.loads(encoded))
++        return encoded
++
++    if names[1] == 'ref':
++        @hg.compute_node
++        def a_source(step: hg.TS[int], _output: hg.OUT = None) -> shape:
++            a, b = children(_output, outer)
++            if step.value == 0:
++                a.value = 7
++                b.value = 9
++            elif step.value == 3:
++                a.value = 8
++
++        @hg.compute_node
++        def b_source(step: hg.TS[int], _output: hg.OUT = None) -> shape:
++            a, b = children(_output, outer)
++            if step.value == 0:
++                a.value = 20
++                b.value = 30
++            elif step.value == 5:
++                b.value = 31
++
++        @hg.compute_node(valid=('step',), active=('step',))
++        def select(step: hg.TS[int], a: hg.REF[shape], b: hg.REF[shape], mixed: hg.REF[shape], partial: hg.REF[shape]) -> hg.REF[shape]:
++            t = step.value
++            if t in (0, 6) and (t == 0 or names[2] == 'whole'):
++                return hg.TimeSeriesReference.make()
++            if t in (1, 2, 7):
++                return a.value
++            if t == 4:
++                if names[2] == 'whole':
++                    return b.value
++                return mixed.value
++            if t == 6:
++                return partial.value
++
++        @hg.compute_node(valid=('step',), active=('step',))
++        def ref_observe(step: hg.TS[int], ts: shape, a: shape, b: shape, ref: hg.REF[shape]) -> hg.TS[str]:
++            return json.dumps({'data': snapshot(ts, outer), 'a': snapshot(a, outer), 'b': snapshot(b, outer), 'ref_valid': ref.valid, 'ref_modified': ref.modified}, sort_keys=True)
++
++        @hg.compute_node
++        def empty(step: hg.TS[int]) -> hg.REF[hg.TS[int]]:
++            if step.value == 0:
++                return hg.TimeSeriesReference.make()
++
++        @hg.graph
++        def graph(step: hg.TS[int]) -> hg.TS[str]:
++            a, b = a_source(step), b_source(step)
++            mixed = assemble(shape, outer, children(a, outer)[0], children(b, outer)[1])
++            partial = assemble(shape, outer, empty(step), children(b, outer)[1])
++            selected = select(step, a, b, mixed, partial)
++            return ref_observe(step, selected, a, b, selected)
++        trace = eval_node(graph, steps)
++    elif names[1] == 'passive':
++        @hg.graph
++        def graph(step: hg.TS[int], left: hg.TS[int], right: hg.TS[int]) -> hg.TS[str]:
++            return observe(step, assemble(shape, outer, left, right))
++        trace = eval_node(graph, [None, 1, None, None, 4, None, 6], [None, 7, None, 8, None, None, None], [None, None, 9, None, None, 10, None])
++    else:
++        nested = inner is not None
++        invalidate_nested = nested and names[-1] == 'invalidate'
++        role = names[-2] if invalidate_nested else names[-1]
++        # Each source's permitted actions are fixed here, never supplied as code.
++        def action(t, index):
++            if names[1] == 'latest':
++                return {(0, 0): 7, (1, 1): 9, (2, 1): 'invalidate', (4, 1): 11}.get((t, index))
++            if nested:
++                if invalidate_nested and t == 7:
++                    return 'invalidate'
++                return {(1, 0): 7, (2, 2): 9, (3, 1): 8, (5, 3): 10, (6, 0): 11}.get((t, index))
++            if (t, index) in ((4, 0), (5, 1), (7, 0)):
++                return 'invalidate'
++            return {(1, 0): 7, (2, 1): 9, (6, 0): 7, (8, 1): 11}.get((t, index))
++
++        @hg.compute_node
++        def scalar_source(step: hg.TS[int], index: int, _output: hg.OUT = None) -> hg.TS[int]:
++            v = action(step.value, index)
++            if v == 'invalidate':
++                _output.invalidate()
++            elif v is not None:
++                _output.value = v
++
++        @hg.compute_node
++        def owned_source(step: hg.TS[int], _output: hg.OUT = None) -> shape:
++            cs = children(_output, outer)
++            leaves = [c for parent in cs for c in children(parent, inner)] if nested else cs
++            if (not nested or invalidate_nested) and step.value == 7:
++                _output.invalidate()
++            else:
++                for i, c in enumerate(leaves):
++                    v = action(step.value, i)
++                    if v == 'invalidate': c.invalidate()
++                    elif v is not None: c.value = v
++
++        if nested:
++            @hg.compute_node
++            def left_source(step: hg.TS[int], _output: hg.OUT = None) -> item:
++                for i, c in enumerate(children(_output, inner)):
++                    v = action(step.value, i)
++                    if v is not None: c.value = v
++
++        @hg.graph
++        def graph(step: hg.TS[int]) -> hg.TS[str]:
++            if role == 'owned':
++                ts = owned_source(step)
++            elif nested:
++                left = left_source(step) if role == 'mixed' else assemble(item, inner, scalar_source(step, 0), scalar_source(step, 1))
++                right = assemble(item, inner, scalar_source(step, 2), scalar_source(step, 3))
++                ts = assemble(shape, outer, left, right)
++            else:
++                ts = assemble(shape, outer, scalar_source(step, 0), scalar_source(step, 1))
++            return observe(step, ts)
++        try:
++            trace = eval_node(graph, steps)
++        except Exception as error:
++            cause = error
++            while cause.__cause__ or cause.__context__:
++                cause = cause.__cause__ or cause.__context__
++            return {"ticks": observed, "failure": {"type": type(cause).__name__, "message": str(cause).split("\n")[0]}}
++    return {'ticks': [json.loads(t) if t is not None else None for t in trace]}
+--- /dev/null
++++ b/tools/parity/fixed_complex.py
+@@ -0,0 +1,180 @@
++"""Bounded nested REF, heterogeneous bundle and graph-boundary observations."""
++import json
++from collections.abc import Mapping
++
++MODES = {**{f'{a}_{b}_ref': 9 for a,b in [('tsl','tsb'),('tsb','tsl')]},
++         'tsb_heterogeneous_owned': 6, 'tsb_heterogeneous_assembled': 6,
++         'tsd_tsl_tsb': 6, 'tsd_tsb_tsl': 6,
++         **{f'{s}_dictionary_{r}': 6 for s in ('tsl','tsb') for r in ('owned','assembled')},
++         **{f'{a}_{b}_graph_{r}': 11 for a,b in [('tsl','tsb'),('tsb','tsl')] for r in ('owned','assembled')}}
++
++
++def execute(hg, recipe):
++    from hgraph.test import eval_node
++    mode = recipe.parameters['mode']
++    names = mode.split('_')
++    dictionary = names[0] == 'tsd'
++    heterogeneous = names[1] == 'heterogeneous'
++    dict_children = names[1] == 'dictionary'
++    outer = names[1] if dictionary else names[0]
++    inner = names[2] if dictionary else ('tsd' if dict_children else None if heterogeneous else names[1])
++    steps = list(range(MODES[mode]))
++    events = []
++
++    def pair_type(kind, item, label, right=None):
++        if kind == 'tsl': return hg.TSL[item, hg.Size[2]]
++        other = right or item
++        class Pair(hg.TimeSeriesSchema):
++            left: item
++            right: other
++        Pair.__name__ = Pair.__qualname__ = label
++        return hg.TSB[Pair]
++
++    item = hg.TSD[str,hg.TS[int]] if dict_children else pair_type(inner, hg.TS[int], 'Inner') if inner else hg.TS[int]
++    shape = pair_type(outer, item, 'Outer', hg.TS[bool] if heterogeneous else None)
++
++    def children(ts, kind):
++        return [ts[0],ts[1]] if kind == 'tsl' else [ts.left,ts.right]
++
++    def leaves(ts):
++        return [c for p in children(ts, outer) for c in children(p, inner)]
++
++    def convert(v):
++        if v is hg.REMOVE or v is hg.REMOVE_IF_EXISTS: return {'$remove':True}
++        if isinstance(v, Mapping): return {str(k):convert(x) for k,x in v.items()}
++        if isinstance(v, (tuple,list)): return [convert(x) for x in v]
++        return v
++
++    def snapshot(ts, kind=None, child_kind=None, peering=True):
++        stamp=ts.last_modified_time
++        result={'valid':ts.valid,'modified':ts.modified,'last':'never' if stamp==hg.MIN_DT else (stamp-hg.MIN_ST)//hg.MIN_TD,'value':convert(ts.value) if ts.valid else None,'delta':convert(ts.delta_value) if ts.modified else None}
++        if kind=='tsd':
++            result.update(all_valid=ts.all_valid,peer=ts.has_peer,children={k:snapshot(v) for k,v in ts.items()})
++        elif kind:
++            keys=['0','1'] if kind=='tsl' else ['left','right']
++            result.update(all_valid=ts.all_valid,children={k:snapshot(c,child_kind,peering=peering) for k,c in zip(keys,children(ts,kind))})
++            if peering: result['peer']=ts.has_peer
++        return result
++
++    def assemble(typ,kind,left,right):
++        return typ.from_ts(left,right) if kind=='tsl' else typ.from_ts(left=left,right=right)
++
++    @hg.compute_node(valid=('step',),active=('step',))
++    def observe(step:hg.TS[int],ts:shape)->hg.TS[str]:
++        first=snapshot(ts,outer,inner)
++        assert first==snapshot(ts,outer,inner), 'observation changed collection state'
++        return json.dumps(first,sort_keys=True)
++
++    if dict_children:
++        def change(ts,t,index):
++            if index==0:
++                if t in (0,4): ts.get_or_create('X').value=7 if t==0 else 11
++                elif t==2: del ts['X']
++            elif t==1: ts.get_or_create('Y').value=9
++
++        @hg.compute_node
++        def owned(step:hg.TS[int],_output:hg.OUT=None)->shape:
++            for index,ts in enumerate(children(_output,outer)): change(ts,step.value,index)
++
++        @hg.compute_node
++        def child(step:hg.TS[int],index:int,_output:hg.OUT=None)->item:
++            change(_output,step.value,index)
++
++        @hg.graph
++        def graph(step:hg.TS[int])->hg.TS[str]:
++            ts=owned(step) if names[-1]=='owned' else assemble(shape,outer,child(step,0),child(step,1))
++            return observe(step,ts)
++        trace=eval_node(graph,steps)
++    elif heterogeneous:
++        @hg.compute_node
++        def source(step:hg.TS[int],_output:hg.OUT=None)->shape:
++            t=step.value
++            if t in (1,3): _output.left.value=7 if t==1 else 8
++            if t in (2,4): _output.right.value=t==4
++
++        @hg.graph
++        def graph(step:hg.TS[int],left:hg.TS[int],right:hg.TS[bool])->hg.TS[str]:
++            ts=source(step) if names[-1]=='owned' else assemble(shape,outer,left,right)
++            return observe(step,ts)
++        trace=eval_node(graph,steps,[None,7,None,8,None,None],[None,None,False,None,True,None])
++    elif dictionary:
++        @hg.compute_node
++        def source(step:hg.TS[int],_output:hg.OUT=None)->hg.TSD[str,shape]:
++            t=step.value
++            if t in (0,1,4):
++                row=_output.get_or_create('X')
++                leaves(row)[2 if t==1 else 0].value={0:7,1:9,4:11}[t]
++            elif t==2: del _output['X']
++
++        @hg.compute_node(valid=('step',),active=('step',))
++        def observe_dict(step:hg.TS[int],ts:hg.TSD[str,shape])->hg.TS[str]:
++            stamp=ts.last_modified_time
++            return json.dumps({'valid':ts.valid,'all_valid':ts.all_valid,'modified':ts.modified,'last':'never' if stamp==hg.MIN_DT else (stamp-hg.MIN_ST)//hg.MIN_TD,'keys':sorted(ts.keys()),'added':sorted(ts.added_keys()),'removed':sorted(ts.removed_keys()),'children':{k:snapshot(v,outer,inner,False) for k,v in ts.items()},'retired':{k:snapshot(v,outer,inner,False) for k,v in ts.removed_items()},'delta':convert(ts.delta_value) if ts.modified else None},sort_keys=True)
++
++        @hg.graph
++        def graph(step:hg.TS[int])->hg.TS[str]: return observe_dict(step,source(step))
++        trace=eval_node(graph,steps)
++    elif names[-1]=='ref':
++        @hg.compute_node
++        def source(step:hg.TS[int],which:int,_output:hg.OUT=None)->shape:
++            t=step.value;cs=leaves(_output)
++            if t==0:
++                for i,v in ([(0,7),(2,9)] if which==0 else [(0,20),(1,21)]): cs[i].value=v
++            elif t==3 and which==0: cs[1].value=8
++            elif t==5 and which==1: cs[2].value=30
++
++        @hg.compute_node(valid=('step',),active=('step',))
++        def select(step:hg.TS[int],a:hg.REF[shape],b:hg.REF[shape])->hg.REF[shape]:
++            t=step.value
++            if t in (0,6): return hg.TimeSeriesReference.make()
++            if t in (1,2,7): return a.value
++            if t==4: return b.value
++
++        @hg.graph
++        def graph(step:hg.TS[int])->hg.TS[str]:
++            return observe(step,select(step,source(step,0),source(step,1)))
++        trace=eval_node(graph,steps)
++    else:
++        @hg.compute_node
++        def total(ts:shape,_state:hg.STATE=None,_scheduler:hg.SCHEDULER=None)->hg.TS[int]:
++            if ts.modified:
++                _state.total += leaves(ts)[0].value
++                _scheduler.schedule(hg.MIN_TD*2,'timer')
++                return _state.total
++            if _scheduler.is_scheduled_now: return -_state.total
++
++        @total.start
++        def start(_state:hg.STATE):
++            _state.total=0;events.append('start')
++
++        @total.stop
++        def stop(): events.append('stop')
++
++        @hg.compute_node(valid=('selector',),active=('selector',))
++        def select(selector:hg.TS[int],a:hg.REF[shape],b:hg.REF[shape])->hg.REF[shape]:
++            return a.value if selector.value==0 else b.value
++
++        @hg.graph
++        def per_key(selector:hg.TS[int],a:shape,b:shape)->hg.TS[int]:
++            return total(select(selector,a,b))
++
++        @hg.graph
++        def inner_graph(selectors:hg.TSD[str,hg.TS[int]],a:shape,b:shape)->hg.TSD[str,hg.TS[int]]:
++            return hg.map_(per_key,selectors,hg.pass_through(a),hg.pass_through(b))
++
++        @hg.compute_node
++        def owned(v:hg.TS[int],_output:hg.OUT=None)->shape:
++            leaves(_output)[0].value=v.value
++
++        @hg.graph
++        def collection(v:hg.TS[int])->shape:
++            if names[-1]=='owned': return owned(v)
++            nil=hg.nothing(hg.TS[int])
++            return assemble(shape,outer,assemble(item,inner,v,nil),assemble(item,inner,nil,nil))
++
++        @hg.graph
++        def graph(selectors:hg.TSD[str,hg.TS[int]],a:hg.TS[int],b:hg.TS[int])->hg.TSD[str,hg.TS[int]]:
++            return hg.switch_(hg.const(True),{True:inner_graph},selectors,collection(a),collection(b))
++        trace=eval_node(graph,[{'X':0},None,{'X':1},None,None,{'X':hg.REMOVE},None,{'X':0},None,None,None],[2,3,None,4,None,None,5,None,None,None,None],[10]+[None]*10,__end_time__=hg.MIN_ST+len(steps)*hg.MIN_TD)
++        return {'ticks':convert(trace),'events':events}
++    return {'ticks':[json.loads(t) if t is not None else None for t in trace]}

@@ -193,6 +193,33 @@ def _check_declared_output(declared_expr, raw, label):
     )
 
 
+def _graph_result_port(raw, declared_expr):
+    """The port a Python graph body's result is wired as.
+
+    Every Python-authored graph -- a ``@graph`` function and a graph
+    registered as an operator overload -- returns through here, so both keep
+    the identity of what they return. Common C++ subgraph finalization
+    converts a structural result into its zero-copy REF terminal. Leaving the
+    structural port intact here keeps Python and native graph functions on
+    the same wiring path and preserves partially-bound field references.
+    Copying the result through a value node instead would give every
+    passed-through field a new identity, so a reference to it would compare
+    unequal to a reference to the upstream field (nested_graphs.rst,
+    "Pass-through outputs").
+    """
+    if not raw.is_structural and raw.has_path:
+        # Python graph outputs expose referenced values unless the
+        # author explicitly declares a REF return: the output is
+        # observed as its declaration would observe it (RFC 0036,
+        # value_port), an undeclared one as its own observed schema.
+        # The projected endpoint path is preserved while map_/mesh_
+        # get the plain child schema used by equivalent C++ wiring.
+        declared = (declared_expr.handle if isinstance(declared_expr, _TsExpr)
+                    else _hgraph.value_ts(raw.ts_type))
+        raw = _hgraph.value_port(_current_wiring(), raw, declared)
+    return raw
+
+
 def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                    signature=None):
     """Erase a Python @graph function into a WiredFn: the wrapper runs the
@@ -258,21 +285,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                 out = wire("const", out)
             raw = _unwrap(out)
             _check_declared_output(out_tp, raw, label)
-            # Common C++ subgraph finalization converts a structural result
-            # into its zero-copy REF terminal. Leaving the structural port
-            # intact here keeps Python and native graph functions on the same
-            # wiring path and preserves partially-bound field references.
-            if not raw.is_structural and raw.has_path:
-                # Python graph outputs expose referenced values unless the
-                # author explicitly declares a REF return: the output is
-                # observed as its declaration would observe it (RFC 0036,
-                # value_port), an undeclared one as its own observed schema.
-                # The projected endpoint path is preserved while map_/mesh_
-                # get the plain child schema used by equivalent C++ wiring.
-                declared = (out_tp.handle if isinstance(out_tp, _TsExpr)
-                            else _hgraph.value_ts(raw.ts_type))
-                raw = _hgraph.value_port(_current_wiring(), raw, declared)
-            return raw
+            return _graph_result_port(raw, out_tp)
         finally:
             _wiring_stack.pop()
 
@@ -303,22 +316,29 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
         user_callable=gfn)
 
 
-def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
+def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_observer=None):
     """Bind wiring-time scalar parameters into a Python mapped callable.
 
     Native nested graphs expose only time-series boundaries. Python scalar
     parameters are therefore configuration captured while wiring the child,
     rather than const time-series inputs owned by every child instance.
     """
+    # A component is a graph with a boundary (RFC 0039), so its scalar
+    # parameters are bound exactly as a graph's are. Left to ``_as_wired`` a
+    # scalar reached C++ as one more argument and ``map_(pricing, ticks,
+    # scale=2.0)`` matched no overload, where the same @graph wired.
+    bindable = (_GraphFn, _PyNode, _Component)
     if isinstance(func, (_hgraph.WiredFn, str)) or not isinstance(
-            func, (_GraphFn, _PyNode)) and not callable(func):
+            func, bindable) and not callable(func):
         return _as_wired(func), args, kwargs
-    if (not isinstance(func, (_GraphFn, _PyNode))
+    if (not isinstance(func, bindable)
             and getattr(func, "__name__", None) != "<lambda>"):
         return _as_wired(func), args, kwargs
 
-    user_fn = func.fn if isinstance(func, (_GraphFn, _PyNode)) else func
+    user_fn = func.fn if isinstance(func, bindable) else func
     signature = getattr(func, "_wiring_signature", None)
+    if signature is None and isinstance(func, _Component):
+        signature = func._graph._wiring_signature
     if signature is None:
         signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [
@@ -331,7 +351,7 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
             inspect.Parameter.VAR_KEYWORD) for parameter in parameters):
         return _as_wired(func), args, kwargs
 
-    key_arg = kwargs.get("__key_arg__") or default_key_arg
+    key_arg = kwargs.get("__key_arg__", default_key_arg)
     takes_key = bool(parameters and parameters[0].name == key_arg)
     call_parameters = parameters[1:] if takes_key else parameters
     callable_signature = signature.replace(parameters=call_parameters)
@@ -374,6 +394,8 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         name: value for name, value in kwargs.items()
         if name.startswith("__")
     }
+    if binding_observer is not None:
+        binding_observer(tuple(input_names), scalar_bindings)
     wrapped = None
     cache = (_wired_fn_cache(func)
              if hasattr(func, "_wired_fn_cache") else None)
@@ -428,6 +450,11 @@ def _as_wired(func):
         return _hgraph.wired_op(func._registry_name, output_handle)
     if isinstance(func, (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)):
         return _wrap_graph_fn(func)
+    if isinstance(func, _Component):
+        # A component is a graph with a boundary, so it goes wherever a graph
+        # does: map_(pricing, ...), and dmap_(pricing, ...), which is where a
+        # recoverable component is expected to live (RFC 0039).
+        return _wrap_graph_fn(func, signature=func._graph._wiring_signature)
     if callable(func) and not isinstance(func, str):
         name = getattr(func, "__name__", None)
         if name is not None and name in _hgraph.operator_names():

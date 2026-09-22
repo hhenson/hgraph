@@ -3,11 +3,11 @@
 #include "driver/process.h"
 #include "hgl_native_compile_config.h"
 
+#include <hgraph/util/environment.h>
 #include <hgraph/util/scope.h>
 
 #include <atomic>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -95,9 +95,9 @@ namespace hgl::driver
 
         std::string formatter()
         {
-            if (const char *configured = std::getenv("HGL_CLANG_FORMAT"); configured != nullptr && *configured != '\0')
+            if (const auto configured = hgraph::environment_variable("HGL_CLANG_FORMAT"); configured && !configured->empty())
             {
-                return configured;
+                return *configured;
             }
             const std::filesystem::path built_with{native_config::clang_format};
             std::error_code ec;

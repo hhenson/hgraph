@@ -3,12 +3,14 @@
 // a type-erased ops table — there is deliberately no separate
 // EvaluationEngine/EvaluationClock object (recorded decision);
 // EvaluationClockView is a borrowed read-only projection over this storage.
-// Modes: GraphExecutorMode::{Simulation, RealTime}. Design record:
+// Modes: GraphExecutorMode::{Simulation, RealTime, ExternallyDriven}.
+// Design record:
 // docs/source/developer_guide/architecture.rst.
 #ifndef HGRAPH_RUNTIME_EXECUTOR_H
 #define HGRAPH_RUNTIME_EXECUTOR_H
 
 #include <hgraph/runtime/executor_type_ref.h>
+#include <hgraph/runtime/executor_activity.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
 
@@ -23,6 +25,7 @@ namespace spdlog
 
 namespace hgraph
 {
+    class GraphCheckpointSelection;
     namespace detail
     {
         struct GraphExecutorPhaseActionAccess;
@@ -42,6 +45,21 @@ namespace hgraph
     {
         Simulation,
         RealTime,
+        /**
+         * Neither the schedule nor the wall clock decides when a cycle runs:
+         * the caller does. The executor is **stepped**, not run -- ``run()``
+         * throws for this mode -- so ``start_external`` / ``step`` /
+         * ``stop_external`` replace the run loop and the caller's thread does
+         * the driving. There is no queue and no extra thread.
+         *
+         * This is the substrate for a distributed nested graph (RFC 0037):
+         * a worker is handed an evaluation time, evaluates one cycle, and
+         * reports what its children want next via
+         * ``GraphView::next_scheduled_time()``. Because the time comes from
+         * outside, the result is identical to the same graph evaluated in one
+         * process, whatever the transport costs.
+         */
+        ExternallyDriven,
     };
 
     /** Complete root-executor phases that may be wrapped by an embedding
@@ -114,6 +132,23 @@ namespace hgraph
         const void *context{nullptr};
 
         void (*run_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
+        // The run loop turned inside out: the caller owns the iteration.
+        // Populated by EVERY mode -- the looping modes bind a canonical
+        // refusal table rather than leaving these null, so a caller dispatches
+        // through the contract instead of testing for a missing slot
+        // (AGENTS.md, "Keep erased ops pointers non-null").
+        void (*external_start_impl)(const void *context, const GraphExecutorView &executor,
+                                    DateTime start_time) = nullptr;
+        bool (*external_step_impl)(const void *context, const GraphExecutorView &executor,
+                                   DateTime evaluation_time) = nullptr;
+        void (*external_stop_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
+        // Whole-graph recovery of a stepped graph (RFC 0039). Same rule: every
+        // mode binds them, and the looping modes bind the refusal.
+        void (*external_start_restored_impl)(const void *context, const GraphExecutorView &executor,
+                                             DateTime start_time, const GraphCheckpointImage &image,
+                                             const GraphCheckpointSelection &selection) = nullptr;
+        GraphCheckpointImage (*external_capture_impl)(const void *context, const GraphExecutorView &executor,
+                                                      const GraphCheckpointSelection &selection) = nullptr;
         void (*request_stop_impl)(const void *context, void *memory) noexcept = nullptr;
         /** One-shot cycle-boundary notification (2026-08-01): ``before``
             selects the FIFO queue drained just before the next root
@@ -122,6 +157,8 @@ namespace hgraph
             Eval-thread only. */
         void (*add_evaluation_notification_impl)(const void *context, void *memory,
                                                  std::function<void()> fn, bool before) = nullptr;
+        ExecutorActivityWake (*attach_activity_impl)(const void *context, void *memory, ExecutorActivity activity) = nullptr;
+        void (*detach_activity_impl)(const void *context, void *memory, ExecutorActivity activity) = nullptr;
         bool (*stop_requested_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*start_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*end_time_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -196,6 +233,10 @@ namespace hgraph
         void add_before_evaluation_notification(std::function<void()> fn) const;
         void add_after_evaluation_notification(std::function<void()> fn) const;
 
+        /** Owner-thread only. Externally driven executors refuse activities. */
+        [[nodiscard]] ExecutorActivityWake attach_activity(ExecutorActivity activity) const;
+        void detach_activity(ExecutorActivity activity) const;
+
       private:
         ExecutorPtr pointer_{};
     };
@@ -259,6 +300,78 @@ namespace hgraph
          * external state they deliberately share between graphs.
          */
         void run() const;
+
+        /**
+         * Drive an ``ExternallyDriven`` executor one cycle at a time.
+         *
+         * ``start_external`` runs the start phase; ``step`` evaluates exactly
+         * one cycle at the supplied time and returns whether the cycle
+         * completed (``false`` means a node requested a mid-cycle pause and
+         * the same time must be stepped again); ``stop_external`` runs the
+         * stop phase. Each throws ``std::logic_error`` on an executor that is
+         * not ``ExternallyDriven``.
+         *
+         * The caller reads what the graph wants next from
+         * ``graph().next_scheduled_time()`` after a completed step -- that
+         * value is the whole of the scheduling contract a distributed parent
+         * needs back from its child.
+         *
+         * ``step`` refuses an evaluation time later than
+         * ``next_scheduled_time()``. A node runs only when its scheduled slot
+         * is exactly the evaluation time, so overrunning due work would
+         * discard it silently; the caller is expected to honour the reported
+         * time exactly as a local nested parent does.
+         *
+         * Lifecycle: a throwing ``step`` applies the builder's
+         * ``cleanup_on_error`` policy, as ``run()`` does -- the graph is
+         * stopped unless the caller asked to keep it for inspection.
+         * Destruction stops a still-started graph either way, and
+         * ``stop_external`` is a no-op once stopped, so a caller may call it
+         * unconditionally from a catch block.
+         *
+         * Unlike ``run()``, nothing here bounds the cycle against ``end_time``,
+         * applies the consecutive immediate-cycle guard, or observes
+         * ``request_stop`` -- the caller supplies every time, so it polls
+         * ``stop_requested()`` between steps and decides when to finish.
+         */
+        void start_external(DateTime start_time) const;
+        [[nodiscard]] bool step(DateTime evaluation_time) const;
+        void stop_external() const;
+
+        /**
+         * Whole-graph recovery of a stepped graph (RFC 0039).
+         *
+         * ``capture_external`` returns the owned image of every node at the
+         * last completed step. Between two calls a stepped executor has no
+         * cycle in flight, so that boundary is the consistency cut; a node
+         * with a schedule still pending beyond it is refused. So is a graph
+         * with work still DUE at the cut -- a fresh start that has not been
+         * stepped at ``next_scheduled_time()`` -- because a restored start
+         * discards bootstrap schedules and that work would never run. A
+         * restored graph may be captured again without a step.
+         *
+         * ``start_external_restored`` replaces ``start_external``: it imports
+         * ``image`` into the unstarted graph and then runs the start phase, so
+         * start hooks see restored state. Every restored timestamp must
+         * precede ``start_time``. A refused image leaves the graph unstarted.
+         * Afterwards ``graph().next_scheduled_time()`` reports what the
+         * restored graph wants, as it does after any step.
+         *
+         * The graph must be wired inside a checkpoint scope
+         * (``Wiring::checkpoint_component``): an image names its nodes by
+         * checkpoint identity. Both throw ``std::logic_error`` on an executor
+         * that is not ``ExternallyDriven``. Neither is component recovery --
+         * that completed-day policy stays refused on this mode.
+         */
+        void start_external_restored(DateTime start_time, const GraphCheckpointImage &image) const;
+        [[nodiscard]] GraphCheckpointImage capture_external() const;
+        /** The same, for the part of the graph ``selection`` names. Nodes it
+         * leaves out are neither captured nor restored: they start fresh,
+         * bootstrap schedule and all, and a schedule they leave pending does
+         * not stop a capture. */
+        void start_external_restored(DateTime start_time, const GraphCheckpointImage &image,
+                                     const GraphCheckpointSelection &selection) const;
+        [[nodiscard]] GraphCheckpointImage capture_external(const GraphCheckpointSelection &selection) const;
         void request_stop() const noexcept;
 
       private:

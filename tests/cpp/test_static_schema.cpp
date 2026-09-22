@@ -326,3 +326,105 @@ TEST_CASE("static_schema: shaped arrays retain rank and dimensions")
     CHECK(TypeRegistry::array_dimensions(dynamic) == std::vector<std::size_t>{0});
     CHECK(dynamic != registry.list(integer, 0, true));
 }
+
+// RFC 0041: an Edge names a generated struct that may be the enclosing one or
+// one declared later; a NominalBundle with an edge registers with every
+// struct its edges reach, one batch per strongly connected component.
+namespace static_edge
+{
+    struct Node
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Node", false, hgraph::BundleParents<>,
+                                                 hgraph::BundleArguments<>, hgraph::Field<"value", hgraph::Int>,
+                                                 hgraph::Field<"next", hgraph::Edge<Node>>>;
+        using time_series = hgraph::NominalTSB<value_type, hgraph::Field<"value", hgraph::TS<hgraph::Int>>,
+                                               hgraph::Field<"next", hgraph::TS<hgraph::Edge<Node>>>>;
+    };
+
+    struct Forest;
+
+    struct Tree
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Tree", false, hgraph::BundleParents<>,
+                                                 hgraph::BundleArguments<>, hgraph::Field<"value", hgraph::Int>,
+                                                 hgraph::Field<"forest", hgraph::Edge<Forest>>>;
+    };
+
+    struct Forest
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Forest", false, hgraph::BundleParents<>,
+                                                 hgraph::BundleArguments<>, hgraph::Field<"tree", hgraph::Edge<Tree>>>;
+    };
+
+    template <typename X, typename Y>
+    struct Pair
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Pair", false, hgraph::BundleParents<>,
+                                                 hgraph::BundleArguments<X, Y>, hgraph::Field<"first", X>,
+                                                 hgraph::Field<"swapped", hgraph::Edge<Pair<Y, X>>>>;
+    };
+
+    struct Expr
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Expr", true, hgraph::BundleParents<>,
+                                                 hgraph::BundleArguments<>>;
+    };
+
+    struct Add
+    {
+        using value_type = hgraph::NominalBundle<"tests.static_edge", "Add", false,
+                                                 hgraph::BundleParents<Expr::value_type>, hgraph::BundleArguments<>,
+                                                 hgraph::Field<"lhs", hgraph::Edge<Expr>>>;
+    };
+}  // namespace static_edge
+
+TEST_CASE("static_schema: Edge registers recursive NominalBundles as closures", "[static-schema][recursive]") {
+    using namespace hgraph;
+    auto      &registry = TypeRegistry::instance();
+    const auto owned_target = [](const ValueTypeMetaData *meta, std::size_t field) {
+        REQUIRE(field < meta->field_count);
+        REQUIRE(meta->fields[field].type->is_owned());
+        return meta->fields[field].type->element_type;
+    };
+
+    // A struct naming itself.
+    const auto *node = scalar_descriptor<static_edge::Node::value_type>::value_meta();
+    REQUIRE(node != nullptr);
+    CHECK(std::string{node->name()} == "tests.static_edge::Node");
+    CHECK(owned_target(node, 1) == node);
+    CHECK(node->is_equatable());
+    CHECK(scalar_descriptor<static_edge::Node::value_type>::value_meta() == node);
+    CHECK(scalar_descriptor<Edge<static_edge::Node>>::value_meta() == registry.owned(node));
+
+    // Its temporal shape: the edge is one endpoint whose value is the owner, so
+    // the bundle's value schema is the struct itself.
+    const auto *temporal = schema_descriptor<static_edge::Node::time_series>::ts_meta();
+    REQUIRE(temporal != nullptr);
+    CHECK(temporal->value_schema == node);
+    CHECK(temporal->fields()[1].type == registry.ts(registry.owned(node)));
+
+    // A mutual pair, declared in either order, registers as one batch.
+    const auto *forest = scalar_descriptor<static_edge::Forest::value_type>::value_meta();
+    const auto *tree   = registry.value_type("tests.static_edge::Tree");
+    REQUIRE(tree != nullptr);
+    CHECK(owned_target(forest, 0) == tree);
+    CHECK(owned_target(tree, 1) == forest);
+    CHECK(scalar_descriptor<static_edge::Tree::value_type>::value_meta() == tree);
+
+    // Generic specializations that name each other, and ones that coincide.
+    const auto *pair    = scalar_descriptor<static_edge::Pair<Int, Str>::value_type>::value_meta();
+    const auto *swapped = owned_target(pair, 1);
+    CHECK(std::string{pair->name()} == "tests.static_edge::Pair[int, str]");
+    CHECK(std::string{swapped->name()} == "tests.static_edge::Pair[str, int]");
+    CHECK(owned_target(swapped, 1) == pair);
+    const auto *same = scalar_descriptor<static_edge::Pair<Int, Int>::value_type>::value_meta();
+    CHECK(owned_target(same, 1) == same);
+
+    // An edge that leaves its component owns a registered struct, and the
+    // struct holding it is an ordinary named Bundle.
+    const auto *add  = scalar_descriptor<static_edge::Add::value_type>::value_meta();
+    const auto *expr = scalar_descriptor<static_edge::Expr::value_type>::value_meta();
+    CHECK(owned_target(add, 0) == expr);
+    CHECK(registry.value_is_a(add, expr));
+    CHECK(registry.bundle("tests.static_edge", "Add", {{"lhs", registry.owned(expr)}}, {expr}) == add);
+}

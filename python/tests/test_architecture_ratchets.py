@@ -105,7 +105,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=0,
+        baseline=1,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
@@ -114,7 +114,9 @@ RATCHETS: tuple[Ratchet, ...] = (
         "hop goes through TSOutputView::through_reference(), the shared-output "
         "capture reads the link's bind-time record "
         "(TSInputView::bound_target_is_reference()), a reference to a possibly "
-        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036",
+        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036. "
+        "The sole exception is BoundaryTransfer::Plan rejecting REF during "
+        "wiring-time codec construction; testing.rst documents this boundary",
     ),
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(
@@ -246,6 +248,46 @@ RATCHETS: tuple[Ratchet, ...] = (
         owner="per-graph state binds to the running graph, never the thread "
         "(CLAUDE.md conventions)",
     ),
+    # --- JSON is a representation, not a serialization format (RFC 0040) ------
+    # State that is stored -- checkpoints, stores, journals, recordings -- and
+    # hgraph's internal communication -- what crosses a dmap_ / spawn boundary
+    # -- use the binary codecs. JSON got onto those paths twice (the ValueStore
+    # default, the version 1 checkpoint store) because the rule was only ever
+    # spoken; these two pin where it may still appear. An EXTERNAL boundary is
+    # the opposite case: what hgraph encodes onto Kafka is JSON, Avro or
+    # protobuf, because those are what the tools around a topic rely on.
+    Ratchet(
+        id="json-in-runtime",
+        baseline=14,
+        roots=("src/hgraph/runtime", "include/hgraph/runtime"),
+        suffixes=(".h", ".cpp"),
+        pattern=r"\b(?:to_json_string|from_json_string|bind_json_converter|BoundJsonConverter|JsonConverter|json_converter)\b",
+        owner="graph_diagnostics.cpp renders values for a person to read in the "
+        "inspector, and is the whole of the floor. Nothing the runtime stores, "
+        "checkpoints or sends to another process is JSON: that is "
+        "runtime/checkpoint_codec.h and types/value/binary_codec.h",
+    ),
+    Ratchet(
+        id="json-in-persistence-and-fabric",
+        baseline=10,
+        roots=(
+            "extensions/persistence/src",
+            "extensions/persistence/include",
+            "extensions/fabric/src",
+            "extensions/fabric/include",
+            "extensions/kafka/src",
+            "extensions/kafka/include",
+        ),
+        suffixes=(".h", ".cpp"),
+        pattern=r"\b(?:to_json_string|from_json_string|bind_json_converter|BoundJsonConverter|JsonConverter|json_converter|JSON_VALUE_CODEC)\b",
+        owner="three things only: the named 'json' store codec (value_codec.h/.cpp), "
+        "for a store that is MEANT to hold JSON and never a default; the "
+        "read-only version 1 checkpoint reader (component_checkpoint_store.cpp), "
+        "for images hgraph 0.8.25-0.8.27 published; and fabric's notification "
+        "codec (metadata_codec.cpp), because Kafka is an external boundary and "
+        "what hgraph puts onto it is JSON, Avro or protobuf. ValueStore and "
+        "fabric's metadata store default to the binary codecs",
+    ),
 )
 
 
@@ -322,3 +364,14 @@ def test_architecture_ratchet(ratchet: Ratchet, pytestconfig: pytest.Config):
 def test_ratchet_ids_are_unique():
     ids = [ratchet.id for ratchet in RATCHETS]
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.skipif(not _SOURCE_PRESENT, reason="ratchets read the source tree")
+def test_runtime_ref_probe_is_boundary_plan_validation():
+    # Keep the count exception tied to its owner and construction-time phase;
+    # it must not become an allowance for a per-tick REF consumer elsewhere.
+    source = (REPO_ROOT / "src/hgraph/runtime/distributed_boundary.cpp").read_text()
+    constructor = source.split("explicit Plan(", 1)[1].split("void write(", 1)[0]
+    assert re.search(
+        r"case TSTypeKind::REF:\s*throw std::invalid_argument\(", constructor
+    )

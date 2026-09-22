@@ -1,4 +1,5 @@
 #include "wiring/backend.h"
+#include <hgl/constant_arithmetic.h>
 
 #include "hgraph_ir/control_flow.h"
 #include "syntax/temporal.h"
@@ -21,6 +22,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
@@ -208,32 +210,9 @@ namespace hgl::wiring
             return "?";
         }
 
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_add(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
-            return lhs + rhs;
-        }
-
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_subtract(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
-            return lhs - rhs;
-        }
-
-        [[nodiscard]] std::optional<hgraph::Int> checked_integer_multiply(hgraph::Int lhs, hgraph::Int rhs) noexcept {
-            constexpr auto min = std::numeric_limits<hgraph::Int>::min();
-            constexpr auto max = std::numeric_limits<hgraph::Int>::max();
-            if (lhs == 0 || rhs == 0) { return 0; }
-            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
-            if (lhs > 0) {
-                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
-            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
-                return std::nullopt;
-            }
-            return lhs * rhs;
-        }
+        using constant_arithmetic::checked_add;
+        using constant_arithmetic::checked_mul;
+        using constant_arithmetic::checked_sub;
 
         std::string describe_view(const hgraph::ValueView &view) {
             if (view.schema() == standard_types().float_type) {
@@ -278,13 +257,17 @@ namespace hgl::wiring
           public:
             Compiler(const syntax::SourceFile &file, const gir::Module &module, syntax::DiagnosticSink &diagnostics)
                 : file_{file}, module_{module}, diagnostics_{diagnostics}, bridge_{module, diagnostics},
-                  registry_{hgraph::TypeRegistry::instance()} {}
+                  registry_{hgraph::TypeRegistry::instance()} {
+                structures_.reserve(module.structures.size());
+                for (const gir::StructContract &contract : module.structures) { structures_.emplace(contract.identity, &contract); }
+            }
 
             [[nodiscard]] std::vector<TestResult>      run_tests(const TestOptions &options);
             [[nodiscard]] bool                         run_program(const RunOptions &options, std::ostream &out);
             [[nodiscard]] std::optional<hgraph::Value> evaluate_constant(gir::ValueId value);
 
           private:
+            std::vector<gir::CallableId> invocations_{};
             [[noreturn]] void fail(Category category, SourceRange range, std::string message) {
                 diagnostics_.report(category, range, std::move(message));
                 throw Abort{};
@@ -309,7 +292,8 @@ namespace hgl::wiring
                 return module_.bindings[id.value];
             }
 
-            [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
+            /// The struct type inside any `atomic<...>` around it.
+            [[nodiscard]] gir::TypeId struct_type(gir::TypeId type) {
                 if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid hgraph IR type ID"); }
                 while (module_.types[type.value].kind == hir::TypeKind::Atomic) {
                     if (module_.types[type.value].children.size() != 1U) {
@@ -318,13 +302,15 @@ namespace hgl::wiring
                     type = module_.types[type.value].children.front();
                     if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid atomic child type ID"); }
                 }
+                return type;
+            }
+
+            [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
+                type                        = struct_type(type);
                 const std::string &identity = module_.types[type.value].nominal_identity;
-                const auto         found = std::find_if(module_.structures.begin(), module_.structures.end(),
-                                                        [&](const gir::StructContract &item) { return item.identity == identity; });
-                if (found == module_.structures.end()) {
-                    backend(module_.types[type.value].range, "unknown struct '" + identity + "'");
-                }
-                return *found;
+                const auto         found    = structures_.find(identity);
+                if (found == structures_.end()) { backend(module_.types[type.value].range, "unknown struct '" + identity + "'"); }
+                return *found->second;
             }
 
             [[nodiscard]] const hgraph::ValueTypeMetaData *value_meta(gir::TypeId type) {
@@ -477,6 +463,8 @@ namespace hgl::wiring
             syntax::DiagnosticSink                        &diagnostics_;
             TypeBridge                                     bridge_;
             hgraph::TypeRegistry                          &registry_;
+            /// Contracts by identity, so each construct finds its struct without a scan.
+            std::unordered_map<std::string_view, const gir::StructContract *> structures_{};
             const hgraph::stdlib::RegisteredStandardTypes &types_{standard_types()};
             hgraph::Wiring                                *wiring_{nullptr};
             std::string                                    comparison_detail_{};
@@ -497,7 +485,8 @@ namespace hgl::wiring
                         return make_marker(Slot::Kind::Null, range);
                     } else if constexpr (std::is_same_v<T, hir::PlaceholderValue>) {
                         return make_marker(Slot::Kind::Placeholder, range);
-                    } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                    } else {
+                        static_assert(std::is_same_v<T, syntax::TemporalValue>);
                         switch (item.kind) {
                             case syntax::TemporalKind::Date:
                                 return make_const(
@@ -513,8 +502,8 @@ namespace hgl::wiring
                             case syntax::TemporalKind::TimeZone:
                                 backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                         }
+                        backend(range, "unsupported hgraph IR constant");
                     }
-                    backend(range, "unsupported hgraph IR constant");
                 },
                 source);
         }
@@ -536,6 +525,16 @@ namespace hgl::wiring
                         convert(hgraph::Value{input.at(index)}, target->fields[index].type, range, role).view());
                 }
                 return result;
+            }
+            if (target->is_owned()) {
+                // A recursive edge (ADR 0012) owns a deep copy of its target value.
+                const hgraph::ValueTypeRef owner = hgraph::ValuePlanFactory::instance().type_for(target);
+                const hgraph::ValueView    input = source.view();
+                if (owner.ops_ref().accepts_source(owner, input.binding())) {
+                    hgraph::Value result{owner};
+                    owner.ops_ref().copy_assign_from(owner, result.begin_mutation().mutable_data(), input.binding(), input.data());
+                    return result;
+                }
             }
             if (actual->try_value_kind() == hgraph::ValueTypeKind::List &&
                 target->try_value_kind() == hgraph::ValueTypeKind::List) {
@@ -605,8 +604,8 @@ namespace hgl::wiring
             switch (op) {
                 case hir::BinaryOp::Add:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_add(lhs.value.view().checked_as<hgraph::Int>(),
-                                                           rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_add(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) + number(rhs)}, range); }
                     if (lhs.meta() == types_.str_type && rhs.meta() == types_.str_type) {
@@ -629,8 +628,8 @@ namespace hgl::wiring
                     return type_error();
                 case hir::BinaryOp::Sub:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_subtract(lhs.value.view().checked_as<hgraph::Int>(),
-                                                                rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_sub(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) - number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs.meta() == types_.timedelta_type) {
@@ -654,8 +653,8 @@ namespace hgl::wiring
                     return type_error();
                 case hir::BinaryOp::Mul:
                     if (lhs_int && rhs_int) {
-                        return integer(checked_integer_multiply(lhs.value.view().checked_as<hgraph::Int>(),
-                                                                rhs.value.view().checked_as<hgraph::Int>()));
+                        return integer(
+                            checked_mul(lhs.value.view().checked_as<hgraph::Int>(), rhs.value.view().checked_as<hgraph::Int>()));
                     }
                     if (numeric) { return make_const(hgraph::Value{number(lhs) * number(rhs)}, range); }
                     if (lhs.meta() == types_.timedelta_type && rhs_int) {
@@ -955,9 +954,20 @@ namespace hgl::wiring
             return wire("const", {scalar_arg(slot.value, "value")}, slot.range, true, target);
         }
 
+        /// A recursive edge's endpoint carries its target through an owner
+        /// (ADR 0012). hgraph treats that storage layer as part of no type, so a
+        /// `TS[Owned[T]]` port binds where `TS[T]` is expected, and back.
+        [[nodiscard]] bool same_through_storage(const hgraph::TSValueTypeMetaData *lhs, const hgraph::TSValueTypeMetaData *rhs) {
+            return lhs == rhs ||
+                   (lhs != nullptr && rhs != nullptr && lhs->kind == hgraph::TSTypeKind::TS &&
+                    rhs->kind == hgraph::TSTypeKind::TS &&
+                    hgraph::value_schema_without_storage(lhs->value_type) == hgraph::value_schema_without_storage(rhs->value_type));
+        }
+
         Slot Compiler::convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
             if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
             if (slot.port.schema == target) { return slot; }
+            if (same_through_storage(slot.port.schema, target)) { return slot; }
             const bool fixed_list_refines_dynamic =
                 slot.port.schema != nullptr && target != nullptr && slot.port.schema->kind == hgraph::TSTypeKind::TSL &&
                 target->kind == hgraph::TSTypeKind::TSL && !slot.port.schema->is_unbounded_tsl() && target->is_unbounded_tsl() &&
@@ -1075,15 +1085,20 @@ namespace hgl::wiring
                 backend(range, "struct metadata does not match '" + contract.identity + "'");
             }
             std::vector<std::optional<Slot>> supplied(contract.fields.size());
+            // Fields by name, so a wide constructor does not scan its fields per argument.
+            std::unordered_map<std::string_view, std::size_t> field_index;
+            field_index.reserve(contract.fields.size());
+            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                field_index.try_emplace(contract.fields[index].name, index);
+            }
             for (auto &[name, slot] : supplied_values) {
                 if (name.empty()) { fail(Category::Type, slot.range, "struct construction uses named arguments"); }
-                const auto found = std::find_if(contract.fields.begin(), contract.fields.end(),
-                                                [&](const gir::StructField &field) { return field.name == name; });
-                if (found == contract.fields.end()) {
+                const auto found = field_index.find(name);
+                if (found == field_index.end()) {
                     fail(Category::Name, slot.range,
                          "struct '" + local_name(contract.identity) + "' has no field named '" + name + "'");
                 }
-                const std::size_t index = static_cast<std::size_t>(found - contract.fields.begin());
+                const std::size_t index = found->second;
                 if (supplied[index]) { fail(Category::Name, slot.range, "field '" + name + "' is given twice"); }
                 supplied[index] = std::move(slot);
             }
@@ -1117,27 +1132,40 @@ namespace hgl::wiring
             if (temporal) {
                 if (delta) { backend(range, "a temporal structured delta is only available in a runtime function"); }
                 const hgraph::TSValueTypeMetaData *target = schema(type);
-                if (target->kind != hgraph::TSTypeKind::TSB || target->field_count() != contract.fields.size()) {
+                // `atomic<S>` aggregates the fields of S's TSB into one value.
+                const bool                         atomic = target->kind == hgraph::TSTypeKind::TS && target->value_schema == meta;
+                const hgraph::TSValueTypeMetaData *shape  = atomic ? schema(struct_type(type)) : target;
+                if (shape->kind != hgraph::TSTypeKind::TSB || shape->field_count() != contract.fields.size()) {
                     backend(range, "temporal struct metadata does not match '" + contract.identity + "'");
                 }
-                std::vector<hgraph::WiringPortRef> children;
+                std::vector<hgraph::WiringPortRef>                                       children;
+                std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> present;
                 for (std::size_t index = 0; index < contract.fields.size(); ++index) {
-                    const auto *field_schema = target->fields()[index].type;
+                    const auto *field_schema = shape->fields()[index].type;
                     if (!effective[index] || effective[index]->kind == Slot::Kind::Null) {
-                        children.push_back(hgraph::WiringPortRef::null_source(field_schema));
-                    } else if (effective[index]->is_const()) {
+                        if (!atomic) { children.push_back(hgraph::WiringPortRef::null_source(field_schema)); }
+                        continue;
+                    }
+                    if (atomic) { present.emplace_back(contract.fields[index].name, field_schema); }
+                    if (effective[index]->is_const()) {
                         Slot converted = make_const(convert(effective[index]->value, meta->fields[index].type,
                                                             effective[index]->range, "field '" + contract.fields[index].name + "'"),
                                                     effective[index]->range);
                         children.push_back(wire_constant(converted, field_schema).port);
-                    } else if (effective[index]->is_port() && effective[index]->port.schema == field_schema) {
+                    } else if (effective[index]->is_port() && same_through_storage(effective[index]->port.schema, field_schema)) {
                         children.push_back(effective[index]->port);
                     } else {
                         fail(Category::Type, effective[index]->range,
                              "field '" + contract.fields[index].name + "' expects " + std::string{field_schema->name()});
                     }
                 }
-                return make_port(hgraph::WiringPortRef::structural_source(target, std::move(children)), range);
+                if (!atomic) { return make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range); }
+                // Only the fields that have a value take part, so the value
+                // publishes once each of them is valid; an absent optional field
+                // stays unset instead of holding the value back.
+                const Slot fields = make_port(
+                    hgraph::WiringPortRef::structural_source(registry_.un_named_tsb(present), std::move(children)), range);
+                return wire("combine_cs", {argument_of(fields, "ts")}, range, true, target);
             }
 
             hgraph::BundleBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta)};
@@ -1231,6 +1259,11 @@ namespace hgl::wiring
         }
 
         Slot Compiler::invoke(gir::CallableId id, Frame &frame) {
+            if (std::ranges::find(invocations_, id) != invocations_.end() || invocations_.size() >= 512) {
+                backend(callable(id).range, "recursive or excessively deep wiring invocation");
+            }
+            invocations_.push_back(id);
+            auto                 pop_invocation = hgraph::make_scope_exit([&]() noexcept { invocations_.pop_back(); });
             const gir::Callable &target = callable(id);
             Slot                 result =
                 target.concise_body.valid() ? eval_value(target.concise_body, frame) : exec_block(target.block_body, frame);

@@ -120,8 +120,17 @@ return a boundary input directly. This compiles to the ``ParentInput`` output
 binding kind: at runtime the outer node's forwarding output aliases whatever
 upstream output the outer *input* is bound to (re-resolved each cycle, cleared
 while the upstream is unbound). This is the RFC's ``alias_parent_input`` mode
-and is what identity branches of ``switch_`` / ``map_`` and component-style
-wrappers rely on.
+and is what identity children of ``map_`` and component-style wrappers rely
+on. ``switch_`` / ``dispatch_`` branches instead get a child terminal, so every
+branch uses the same terminal protocol. That terminal is the structural-REF
+node over the returned input (``graph_wiring_detail::reference_terminal_builder``).
+It publishes a reference to whatever the input is bound to: the upstream output,
+a composite over the upstream fields, or the upstream token when the input is
+itself a ``REF``. The switch then republishes that reference (``RefCopy``, see
+"``switch_`` output modes"). A value-copying terminal would give the passed-through
+series a new identity. A consumer re-pointed between the switch and the input it
+passed through would then see a different reference and re-tick a stale value;
+hgraph sees the same reference and does not.
 
 **Forwarding links are transparent parents.** Views projected THROUGH a
 forwarding link (a nested map's output operating on its element, a child
@@ -437,17 +446,53 @@ wiring/runtime errors rather than an arbitrary dictionary ordering. Python
 ``TS[tuple[E, ...]]`` uses the existing native enumerated-TSD conversion and
 then this same ordered kernel; it is not a second Python reduction runtime.
 
-Each chain generation occupies one ``InPlaceGraphSlotStore`` bank. A length
-change builds and binds the replacement chain in the inactive bank, forwards
-the outer output to its new tail, then stops the old chain from tail to head.
-The stopped generation remains alive through the engine cycle and is destroyed
-tail-first on a later evaluation. Stable addresses, stop-before-destroy, and
-subscriber-before-producer teardown therefore hold without per-child graph
-allocations. Value changes and live-zero ticks use standing bindings and do
-not rebuild the chain.
+The chain is **extended and truncated at its tail, and nothing else is
+touched** (corrected 2026-09-18). The input is an ordered list, so only its
+tail can change: growing constructs, binds and starts the new links alone;
+shrinking stops the removed links alone. No surviving link is rebuilt, rebound
+or restarted, so its state survives a change of length. This is the contract
+of the reference implementation
+(hgraph 0.5, ``PythonTsdNonAssociativeReduceNodeImpl._extend_nodes_to`` /
+``_erase_nodes_from``), of which this node is the native form.
+
+An earlier version built a complete replacement chain in a second bank on
+every change of length. That reset every link's state and made a list grown one
+element at a time cost the square of its length -- growing to 4,000 elements
+took 10.3 s and now takes 12 ms, at a flat ~3 µs per element. Four things keep
+it linear, and each was separately quadratic before:
+
+* **Links live in one ``InPlaceGraphSlotStore``**, slot = position. A truncated
+  tail is stopped at once but destroyed only on a later evaluation, because the
+  node's output and anything sampled this cycle may still read its last link;
+  stop-before-destroy and tail-first teardown hold as before.
+* **Each link caches what it publishes**, resolved when it is bound, so binding
+  link *n* to link *n* - 1 never walks the chain.
+* **A link is rebound only when what it is bound to has moved**: the collection
+  or the zero re-pointed (every link, which is inherent), or an element was
+  removed and put back in the same cycle (that link and everything after it,
+  since they may publish something different). A collection that merely ticks
+  rebinds nothing; value changes and live-zero ticks use the standing bindings.
+* **Only due links are visited.** A link is scheduled by its element or by the
+  link before it, and its graph reports that through the child-schedule
+  observer; the node keeps a heap of due link indices and visits those in
+  order, rather than asking every link whether it is due. Schedules a link makes
+  while it is itself evaluating are not observed, so they are pulled after it
+  runs, exactly as the keyed map does.
+
+The length and the ``0..n-1`` key contract are checked from the change, not by
+walking every key: the keys are distinct and non-negative, so they are exactly
+``0..n-1`` as soon as none is ``n`` or more, and only an added key or a key in
+the removed tail can break that. A first bind or a re-point walks the keys once.
+
+``InPlaceGraphSlotStore`` grows to exactly the capacity it is asked for,
+copying its slot table and allocating one block each time. A node that grows an
+element at a time must therefore request capacity geometrically; the ordered
+chain and the list map both do.
 
 Runtime: ``runtime/ordered_reduce_node.{h,cpp}``. Tests:
-``tests/cpp/test_reduce.cpp`` and ``python/tests/test_python_authoring.py``.
+``tests/cpp/test_reduce.cpp`` -- including the link start/stop counts that tell
+a kept link from a rebuilt one, and the ``[ordered-reduce-scaling]`` benchmark --
+and ``python/tests/test_python_authoring.py``.
 
 
 Scheduling delegation
@@ -529,6 +574,22 @@ ts…)``).
   or compiles into a child graph; the caller chooses). All branches must
   produce the same output schema after dereferencing. If branches differ only
   in root ``REF``-ness, the switch output takes the ``REF`` shape.
+- **A branch that passes series through publishes their reference**
+  (``switch_branch_published_schema``, shared by ``switch_`` and
+  ``dispatch_``). This covers a boundary input returned unchanged, and a
+  composed structure whose structural-REF adapter references its fields
+  (``state.copy_with(done=True)``). Such a branch contributes ``REF<output>`` to
+  the rule above, so the switch takes the ``REF`` shape and copies that token.
+  This is the hgraph contract, where a ``switch_`` output is always
+  ``as_reference(output)``. A field passed straight through keeps the identity
+  of its upstream output, and a branch change ticks only the fields whose
+  series changed. A switch whose branches all compute values in nodes they own
+  keeps a value output (below), as does one whose branch ends in an
+  operator-authored REF terminal under a value declaration: that output
+  forwards to the terminal (the request/reply branch-flip contract, issues
+  #105/#117/#119/#133/#145, depends on it). A value terminal that already owns
+  forwarding topology, such as a ``map_`` result, keeps it under a REF-shaped
+  switch, which publishes a reference to that endpoint.
 - **The key is just a boundary input.** The outer switch node's inputs are
   ``[key, ts…]``. A branch consumes outer input ``0`` as the key only when its
   first parameter is named ``key``; non-key branch binding paths simply shift
@@ -553,10 +614,11 @@ ts…)``).
   runtime never re-derives it from a schema kind):
 
   ``RefCopy``
-     the output schema is a ``REF``: the switch copies the selected
-     terminal's reference token (a VALUE terminal is published as a peered
-     reference to it; whether a terminal is a reference is recorded on the
-     branch as ``output_terminal_is_reference``).
+     the output schema is a ``REF`` (some branch publishes a reference, see
+     above): the switch copies the selected terminal's reference token (a
+     VALUE terminal is published as a peered reference to it; whether a
+     terminal is a reference is recorded on the branch as
+     ``output_terminal_is_reference``).
   ``Forwarding``
      a value output where some branch needs its terminal preserved (a
      terminal at a sub-path): the switch output forwards to the active
@@ -608,7 +670,7 @@ ts…)``).
   sampled-input and lifecycle rules. This outputless path is covered alongside
   value-producing switches in ``tests/cpp/test_switch.cpp``.
 
-Tests: ``tests/cpp/test_switch.cpp``.
+Tests: ``tests/cpp/test_switch.cpp``, ``python/tests/test_switch_reference_identity.py``.
 
 
 ``map_``

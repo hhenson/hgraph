@@ -14,7 +14,10 @@
 #include <algorithm>
 #include <ranges>
 #include <stdexcept>
+#include <limits>
+#include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgraph
@@ -754,6 +757,7 @@ namespace hgraph
         deref_cache_.clear();
 
         // Drop auxiliary storage referenced by metadata.
+        name_index_.clear();
         name_storage_.clear();
         value_field_storage_.clear();
         ts_field_storage_.clear();
@@ -782,6 +786,7 @@ namespace hgraph
     {
         auto stored = std::make_unique<std::string>(name);
         const char *ptr = stored->c_str();
+        name_index_.try_emplace(std::string_view{*stored}, ptr);
         name_storage_.push_back(std::move(stored));
         return ptr;
     }
@@ -793,12 +798,9 @@ namespace hgraph
             return nullptr;
         }
 
-        for (const auto &entry : name_storage_)
+        if (const auto found = name_index_.find(name); found != name_index_.end())
         {
-            if (*entry == name)
-            {
-                return entry->c_str();
-            }
+            return found->second;
         }
         return store_name(name);
     }
@@ -1047,6 +1049,11 @@ namespace hgraph
 
         std::vector<std::string> qualified_names;
         qualified_names.reserve(definitions.size());
+        // Names and field names are checked through hash sets: a scan per
+        // definition or per field would be quadratic in the batch.
+        std::unordered_set<std::string_view> batch_names;
+        batch_names.reserve(definitions.size());
+        std::unordered_map<std::string_view, const RecursiveBundleFieldDefinition *> field_by_name;
         for (const auto &definition : definitions)
         {
             const std::string qualified_name =
@@ -1055,8 +1062,7 @@ namespace hgraph
             {
                 throw std::invalid_argument("recursive bundle requires a non-empty local name");
             }
-            if (value_type(qualified_name) != nullptr ||
-                std::ranges::count(qualified_names, qualified_name) != 0)
+            if (value_type(qualified_name) != nullptr || batch_names.contains(qualified_name))
             {
                 throw std::invalid_argument(
                     "recursive bundle '" + qualified_name + "' is already registered");
@@ -1083,11 +1089,11 @@ namespace hgraph
                     throw std::invalid_argument(
                         "recursive bundle owned target is outside the declaration batch");
                 }
-                if (std::ranges::count_if(
-                        definition.fields,
-                        [&](const auto &candidate) {
-                            return candidate.name == field.name;
-                        }) != 1)
+            }
+            field_by_name.clear();
+            for (const auto &field : definition.fields)
+            {
+                if (!field_by_name.emplace(field.name, &field).second)
                 {
                     throw std::invalid_argument(
                         "recursive bundle fields must have unique names");
@@ -1110,15 +1116,12 @@ namespace hgraph
                      field_index < parent->field_count; ++field_index)
                 {
                     const auto &parent_field = parent->fields[field_index];
-                    const auto child_field = std::ranges::find_if(
-                        definition.fields,
-                        [&](const auto &field) {
-                            return parent_field.name != nullptr &&
-                                   field.name == parent_field.name;
-                        });
-                    if (child_field == definition.fields.end() ||
-                        child_field->owned_target.has_value() ||
-                        child_field->type != parent_field.type)
+                    const auto found = parent_field.name == nullptr
+                                           ? field_by_name.end()
+                                           : field_by_name.find(parent_field.name);
+                    if (found == field_by_name.end() ||
+                        found->second->owned_target.has_value() ||
+                        found->second->type != parent_field.type)
                     {
                         throw std::invalid_argument(
                             "recursive bundle '" + qualified_name +
@@ -1127,15 +1130,22 @@ namespace hgraph
                 }
             }
             qualified_names.push_back(qualified_name);
+            batch_names.insert(qualified_names.back());
         }
 
+        // Hashing, equality and ordering of a member run through its owned
+        // edges into the batch, so a member's capabilities depend on its own.
+        // Seed every member with them, as the greatest fixed point starts, so
+        // an owned edge interned below does not remove one by itself.
+        constexpr ValueTypeFlags capabilities =
+            ValueTypeFlags::Hashable | ValueTypeFlags::Equatable | ValueTypeFlags::Comparable;
         std::vector<ValueTypeMetaData *> named;
         named.reserve(definitions.size());
         for (std::size_t index = 0; index < definitions.size(); ++index)
         {
             const auto &definition = definitions[index];
             auto record = std::make_unique<ValueTypeMetaData>(
-                ValueTypeKind::Bundle, ValueTypeFlags::None,
+                ValueTypeKind::Bundle, capabilities,
                 store_name_interned(qualified_names[index]));
             auto hierarchy = std::make_unique<BundleHierarchyMetaData>();
             hierarchy->namespace_name =
@@ -1181,6 +1191,58 @@ namespace hgraph
             named[index]->wrapped_un_named = un_named;
         }
 
+        // The fixed point: a member keeps a capability while every field that
+        // is not an owned edge into the batch has it and every member it owns
+        // keeps it. Each loss travels back along owned edges once per
+        // capability, so this is linear in the batch's fields.
+        std::vector<ValueTypeFlags> held(definitions.size(), capabilities);
+        std::vector<std::vector<std::size_t>> owners(definitions.size());
+        std::vector<bool> owns(definitions.size(), false);
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            for (const auto &field : definitions[index].fields)
+            {
+                if (field.owned_target.has_value())
+                {
+                    owners[*field.owned_target].push_back(index);
+                    owns[index] = true;
+                }
+                else
+                {
+                    held[index] = intersect_with(held[index], field.type) & capabilities;
+                }
+            }
+        }
+        std::vector<std::size_t> losses;
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            if (held[index] != capabilities) { losses.push_back(index); }
+        }
+        while (!losses.empty())
+        {
+            const std::size_t member = losses.back();
+            losses.pop_back();
+            for (const std::size_t owner : owners[member])
+            {
+                const ValueTypeFlags reduced = held[owner] & held[member];
+                if (reduced == held[owner]) { continue; }
+                held[owner] = reduced;
+                losses.push_back(owner);
+            }
+        }
+        for (std::size_t index = 0; index < definitions.size(); ++index)
+        {
+            named[index]->flags = (named[index]->flags & ~capabilities) | held[index];
+            // A member with an owned edge has an un-named shape of its own,
+            // since the edge's owner schema is new; one without keeps the
+            // shared shape, whose capabilities its direct fields already set.
+            if (owns[index])
+            {
+                auto *shape = const_cast<ValueTypeMetaData *>(named[index]->wrapped_un_named);
+                shape->flags = named[index]->flags;
+            }
+        }
+
         for (std::size_t index = 0; index < definitions.size(); ++index)
         {
             auto *owned_meta =
@@ -1204,6 +1266,180 @@ namespace hgraph
             register_value_alias(qualified_names[index], named[index]);
         }
         return {named.begin(), named.end()};
+    }
+
+    const ValueTypeMetaData *TypeRegistry::recursive_bundle_closure(std::string_view root,
+                                                                    const RecursiveBundleDescriber &describe)
+    {
+        if (const ValueTypeMetaData *existing = value_type(root)) { return existing; }
+
+        constexpr std::uint32_t unvisited = std::numeric_limits<std::uint32_t>::max();
+        struct Node
+        {
+            std::string            name{};
+            RecursiveBundleRequest request{};
+            std::uint32_t          order{unvisited};
+            std::uint32_t          low{unvisited};
+            bool                   on_stack{false};
+        };
+        std::vector<Node>                                           nodes;
+        std::unordered_map<std::string, std::uint32_t>              index;
+        std::unordered_map<std::string, const ValueTypeMetaData *>  done;
+        std::vector<std::uint32_t>                                  stack;
+        std::vector<std::pair<std::uint32_t, std::size_t>>          frames;  // node, next edge
+        std::uint32_t                                               next_order = 0;
+
+        // Registered earlier, by another caller, or by a component this call closed.
+        const auto registered = [&](const std::string &name) -> const ValueTypeMetaData * {
+            if (const auto found = done.find(name); found != done.end()) { return found->second; }
+            return value_type(name);
+        };
+        const auto enter = [&](std::string name) {
+            RecursiveBundleRequest request = describe(name);
+            const RecursiveBundleDefinition &definition = request.definition;
+            const std::string qualified = qualified_bundle_name(definition.bundle_namespace, definition.local_name);
+            if (qualified != name)
+            {
+                throw std::invalid_argument("recursive bundle closure asked for '" + name + "' and was described '" +
+                                            qualified + "'");
+            }
+            std::vector<bool> edge(definition.fields.size(), false);
+            for (const auto &[position, target] : request.edges)
+            {
+                if (position >= definition.fields.size() || edge[position] || target.empty())
+                {
+                    throw std::invalid_argument("recursive bundle '" + name + "' names an invalid edge");
+                }
+                edge[position] = true;
+            }
+            for (std::size_t position = 0; position < definition.fields.size(); ++position)
+            {
+                const auto &field = definition.fields[position];
+                if (field.owned_target.has_value() || (field.type == nullptr) != edge[position])
+                {
+                    throw std::invalid_argument("recursive bundle '" + name + "' field '" + field.name +
+                                                "' needs exactly one direct type or edge");
+                }
+            }
+            const auto id = static_cast<std::uint32_t>(nodes.size());
+            index.emplace(name, id);
+            nodes.push_back(Node{.name = std::move(name), .request = std::move(request), .order = next_order,
+                                 .low = next_order, .on_stack = true});
+            ++next_order;
+            stack.push_back(id);
+            frames.emplace_back(id, 0U);
+        };
+        // Registers one closed component, members in discovery order.
+        const auto close = [&](std::vector<std::uint32_t> members) {
+            // The recheck below and the registration that follows it are one
+            // step. Two callers first realizing the same cyclic closure would
+            // otherwise both pass the recheck, and the loser's
+            // recursive_bundles() refuses a name the winner has just
+            // registered. mutex_ is recursive, so the registry calls made here
+            // re-enter it, and close() never runs the describer, so no caller
+            // code is held under the lock.
+            const std::lock_guard lock(mutex_);
+            std::ranges::sort(members);
+            std::unordered_map<std::string_view, std::size_t> position;
+            for (std::size_t member = 0; member < members.size(); ++member)
+            {
+                position.emplace(nodes[members[member]].name, member);
+            }
+            const Node &first  = nodes[members.front()];
+            const bool  cyclic = members.size() > 1U || std::ranges::any_of(first.request.edges, [&](const auto &edge) {
+                                    return edge.second == first.name;
+                                });
+            // A concurrent caller may have registered the component meanwhile.
+            if (const ValueTypeMetaData *existing = value_type(first.name))
+            {
+                for (const std::uint32_t member : members)
+                {
+                    const ValueTypeMetaData *meta = value_type(nodes[member].name);
+                    if (meta == nullptr)
+                    {
+                        throw std::logic_error("recursive bundle '" + nodes[member].name +
+                                               "' was registered without its batch");
+                    }
+                    done.emplace(nodes[member].name, meta);
+                }
+                (void)existing;
+                return;
+            }
+            if (!cyclic)
+            {
+                const RecursiveBundleDefinition &definition = first.request.definition;
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+                fields.reserve(definition.fields.size());
+                for (const auto &field : definition.fields) { fields.emplace_back(field.name, field.type); }
+                for (const auto &[field, target] : first.request.edges) { fields[field].second = owned(registered(target)); }
+                done.emplace(first.name, bundle(definition.bundle_namespace, definition.local_name, fields,
+                                                definition.parents, definition.is_abstract, definition.discriminator,
+                                                definition.generic_arguments, definition.discriminator_value));
+                return;
+            }
+            std::vector<RecursiveBundleDefinition> definitions;
+            definitions.reserve(members.size());
+            for (const std::uint32_t member : members)
+            {
+                RecursiveBundleDefinition definition = nodes[member].request.definition;
+                for (const auto &[field, target] : nodes[member].request.edges)
+                {
+                    if (const auto inside = position.find(target); inside != position.end())
+                    {
+                        definition.fields[field].owned_target = inside->second;
+                    }
+                    else
+                    {
+                        definition.fields[field].type = owned(registered(target));
+                    }
+                }
+                definitions.push_back(std::move(definition));
+            }
+            const std::vector<const ValueTypeMetaData *> metas = recursive_bundles(definitions);
+            for (std::size_t member = 0; member < members.size(); ++member)
+            {
+                done.emplace(nodes[members[member]].name, metas[member]);
+            }
+        };
+
+        enter(std::string{root});
+        while (!frames.empty())
+        {
+            const std::uint32_t node = frames.back().first;
+            if (const std::size_t next = frames.back().second++; next < nodes[node].request.edges.size())
+            {
+                const std::string target = nodes[node].request.edges[next].second;
+                if (const auto found = index.find(target); found != index.end())
+                {
+                    if (nodes[found->second].on_stack)
+                    {
+                        nodes[node].low = std::min(nodes[node].low, nodes[found->second].order);
+                    }
+                    continue;
+                }
+                if (registered(target) != nullptr) { continue; }
+                enter(target);
+                continue;
+            }
+            frames.pop_back();
+            if (!frames.empty())
+            {
+                const std::uint32_t parent = frames.back().first;
+                nodes[parent].low          = std::min(nodes[parent].low, nodes[node].low);
+            }
+            if (nodes[node].low != nodes[node].order) { continue; }
+            std::vector<std::uint32_t> members;
+            std::uint32_t              member = unvisited;
+            while (member != node)
+            {
+                member = stack.back();
+                stack.pop_back();
+                nodes[member].on_stack = false;
+                members.push_back(member);
+            }
+            close(std::move(members));
+        }
+        return registered(std::string{root});
     }
 
     const ValueTypeMetaData *
@@ -1245,6 +1481,13 @@ namespace hgraph
         }
         const ValueTypeMetaData *un_named = un_named_bundle(fields);
 
+        // Inherited fields are found by name, not by a scan per parent field.
+        std::unordered_map<std::string_view, const ValueTypeMetaData *> field_types;
+        if (!parents.empty())
+        {
+            field_types.reserve(fields.size());
+            for (const auto &[field_name, field_type] : fields) { field_types.try_emplace(field_name, field_type); }
+        }
         for (const ValueTypeMetaData *parent : parents)
         {
             if (parent == nullptr || !parent->is_named_bundle() || parent->bundle_hierarchy == nullptr)
@@ -1262,10 +1505,9 @@ namespace hgraph
             for (std::size_t index = 0; index < parent->field_count; ++index)
             {
                 const auto &parent_field = parent->fields[index];
-                const auto child_field = std::ranges::find_if(fields, [&](const auto &field) {
-                    return parent_field.name != nullptr && field.first == parent_field.name;
-                });
-                if (child_field == fields.end())
+                const auto child_field =
+                    parent_field.name == nullptr ? field_types.end() : field_types.find(parent_field.name);
+                if (child_field == field_types.end())
                 {
                     throw std::invalid_argument(
                         "bundle '" + qualified_name + "' must preserve inherited field '" +
@@ -1296,7 +1538,9 @@ namespace hgraph
         }
 
         NamedBundleKey key{std::string{bundle_namespace}, std::string{local_name}, un_named};
+        bool created = false;
         const ValueTypeMetaData &meta = named_bundle_cache_.intern(std::move(key), [&]() {
+            created = true;
             // Named bundle wraps the un-named: shares the same field array
             // (no duplication), records its own name, and sets
             // wrapped_un_named so consumers can navigate to the structural
@@ -1332,12 +1576,13 @@ namespace hgraph
             throw std::invalid_argument("named bundle '" + qualified_name +
                                         "' is already registered with different hierarchy metadata");
         }
-        for (const ValueTypeMetaData *parent : parents)
+        // A re-registration finds its parents already listing it; only the
+        // registration that created the bundle adds it, without a search.
+        if (created)
         {
-            auto &children = parent->bundle_hierarchy->children;
-            if (std::ranges::find(children, &meta) == children.end())
+            for (const ValueTypeMetaData *parent : parents)
             {
-                children.push_back(&meta);
+                parent->bundle_hierarchy->children.push_back(&meta);
                 parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
             }
         }
@@ -1628,6 +1873,12 @@ namespace hgraph
         return &meta;
     }
 
+    const ValueTypeMetaData *TypeRegistry::named_opaque_python(std::string_view name) const
+    {
+        const std::lock_guard lock(mutex_);
+        return opaque_python_cache_.find(std::string{name});
+    }
+
     const ValueTypeMetaData *TypeRegistry::opaque_python(
         std::string_view name,
         const std::vector<const ValueTypeMetaData *> &parents)
@@ -1645,7 +1896,9 @@ namespace hgraph
         }
 
         const std::string key{name};
+        bool created = false;
         const ValueTypeMetaData &meta = opaque_python_cache_.intern(key, [&]() {
+            created = true;
             ValueTypeMetaData m(
                 ValueTypeKind::Any,
                 ValueTypeFlags::Hashable | ValueTypeFlags::Equatable |
@@ -1668,13 +1921,9 @@ namespace hgraph
         }
         for (const ValueTypeMetaData *parent : parents)
         {
-            if (parent->bundle_hierarchy == nullptr) { continue; }
-            auto &children = parent->bundle_hierarchy->children;
-            if (std::ranges::find(children, &meta) == children.end())
-            {
-                children.push_back(&meta);
-                parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
-            }
+            if (!created || parent->bundle_hierarchy == nullptr) { continue; }
+            parent->bundle_hierarchy->children.push_back(&meta);
+            parent->bundle_hierarchy->generation = ++bundle_hierarchy_generation_;
         }
         return &meta;
     }

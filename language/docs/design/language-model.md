@@ -411,10 +411,11 @@ list size, lowered to hgraph's named `SIZE` variable. Generic reification and
 residual constraints are deliberately unresolved rather than simulated by
 runtime schema inspection.
 
-The current compiler implements this rule for a contract declared in the same
-module. Applying it to an implementation of a selectively imported contract
-is part of the descriptor-backed imported-contract work; the source form fails
-closed until that metadata can identify and emit the external C++ contract.
+The compiler implements this rule for local and selectively imported operator
+contracts. Imported contracts retain their external C++ marker and nominal
+identity through both IRs. The import catalog rejects unsupported contract
+constraints, properties, generic packs, and type shapes before registration;
+see `src/descriptor/import_catalog.cpp` and the imported-operator codegen tests.
 
 Two operator contracts with the same short name but different defining modules
 are unrelated. A namespace import such as `use my.module as mm` permits an
@@ -505,23 +506,23 @@ Temporalization proceeds recursively:
 This distinguishes:
 
 ```hgl
-tuple<f64, f64>                   // independently temporal children
-atomic<tuple<f64, f64>>           // one tuple-valued endpoint
+tuple<f64, f64>                   # independently temporal children
+atomic<tuple<f64, f64>>           # one tuple-valued endpoint
 
-list<f64>                         // unbounded temporal list
-list<f64, 3>                      // exactly three temporal elements
+list<f64>                         # unbounded temporal list
+list<f64, 3>                      # exactly three temporal elements
 
-map<str, f64>                     // keyed temporal map
-atomic<map<str, f64>>             // stream of complete map snapshots
-map<str, atomic<tuple<f64, f64>>> // keyed atomic tuple values
+map<str, f64>                     # keyed temporal map
+atomic<map<str, f64>>             # stream of complete map snapshots
+map<str, atomic<tuple<f64, f64>>> # keyed atomic tuple values
 
-set<str>                          // set-valued time series
-atomic<set<str>>                  // stream of complete set snapshots
+set<str>                          # set-valued time series
+atomic<set<str>>                  # stream of complete set snapshots
 
-rolling<f64, 20>                 // maximum and minimum size are both 20
-rolling<f64, 20, 5>              // maximum 20, valid from 5 values
-rolling<f64, 5m>                 // the last five minutes, valid once spanned
-rolling<f64, 5m, 1m>             // the last five minutes, valid from a 1m span
+rolling<f64, 20>                 # maximum and minimum size are both 20
+rolling<f64, 20, 5>              # maximum 20, all-valid from 5 values
+rolling<f64, 5m>                 # the last five minutes, all-valid once spanned
+rolling<f64, 5m, 1m>             # the last five minutes, all-valid from a 1m span
 ```
 
 `const` bypasses temporalization. `const value: atomic<T>` is invalid because
@@ -550,8 +551,8 @@ counts or `duration` spans, omission of `min_size` normalizes it to
 `max_size`, and the kind and both resolved sizes form part of the type
 identity. The semantics are hgraph's: a tick window keeps the newest
 `max_size` values, a duration window keeps every value within `max_size` of
-the evaluation time, and either is invalid until it holds `min_size` values
-or spans `min_size`. Rolling-window iteration and a spelling that accepts
+the evaluation time. Current native `valid` becomes true on the first value;
+`all_valid` separately requires `min_size` values or a `min_size` span. Rolling-window iteration and a spelling that accepts
 either kind remain open.
 
 Every expanded type must map to an existing public hgraph schema. A structural
@@ -667,18 +668,23 @@ loopback state. Reconstructible node-local data has the separate agreed
 `RecordableState<TSchema>`. It need not be global or module-owned. Cache does
 not require recordability, but rebuilding it must preserve observable
 computation; arbitrary resources still need a native ownership/lifecycle
-contract. Full cache declaration syntax and compiler support remain open.
+contract. `cache name[: T] = init` is the declaration
+([ADR 0011](decisions/0011-cache-declarations.md)): scalar cache fields share one generated native struct, re-initialized on
+every start, and may be declared beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for the reconstruction contract and the current C++ restriction against
-combining both state selectors.
+for the reconstruction contract. Native nodes support both state selectors, and
+a function declaring `state` and `cache` lowers to both: a restored state field
+wins over its initializer, a cache field is rebuilt by every start.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special
 injectable whose type comes from the function result and permits the runtime
 body to inspect or incrementally update its output. Other injectables, such as
-`logger`, `clock`, and `scheduler`, map to their hgraph selector contracts.
+`logger`, `clock`, and `scheduler`, map to their hgraph selector contracts
+(`LoggerView`, `EvaluationClockView`, `NodeScheduler`; ADR 0010 fixes the
+clock and scheduler method surfaces).
 
 `start` and `stop` execute once at node startup and teardown. State storage and
 injected capabilities are runtime-owned; `stop` expresses semantic
@@ -714,15 +720,22 @@ It is equivalent to `when modified() && valid() { ... }`. The compiler
 converts activation predicates into hgraph input metadata when they are
 statically representable and retains admission and residual conditions in the
 ordered per-tick body. Empty selector calls outside a function-level `when`
-are rejected because this decision assigns them no meaning there. The behavior
-of a bare handler in a runtime function with no temporal parameters but an
-explicit scheduler remains a separate lifecycle decision.
+are rejected because this decision assigns them no meaning there.
 
-Because empty `modified()` and `valid()` mean the complete input list, they
-cannot also spell an explicitly empty activation or validity set. That source
-form remains open. It is required by scheduler-only handlers and native nodes
-that intentionally admit invalid inputs; the backend contract must keep its
-empty selector distinct from its default selector in the meantime.
+`scheduled()` is the scheduler's handler selector
+([ADR 0010](decisions/0010-lifecycle-capabilities.md)): true when the current
+evaluation is the node's alarm. A handler naming it at top level receives no
+implicit `modified()` and contributes no input to the activation set; its
+implicit `valid()` is unchanged. When no handler names an input the activation
+set is explicitly empty, which is the agreed spelling of that set. A runtime
+function with no temporal parameters is a source and must inject `scheduler`;
+its implicit `valid()` is vacuous and its implicit `modified()` never holds.
+The other half of the open question, a handler that intentionally admits
+invalid inputs with an explicitly empty validity set, remains open.
+
+`passivate(input)` and `activate(input)` are runtime statements on a direct
+temporal parameter; they change what activates the node from that evaluation
+on, not the node's static activation policy.
 
 In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation
@@ -805,8 +818,10 @@ are evaluator-local metadata in runtime functions. Empty `modified()` and
 `valid()` have meaning only in a function-level `when` predicate. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
-validity; recursive child validity is a distinct operation named
-`all_valid(value)`. In runtime evaluation, `last_modified(value)` returns the
+validity; `all_valid(value)` additionally checks each immediate live child
+of a TSD, TSB or TSL for `valid`, without recursion. Removed dictionary keys
+do not participate. TSW intentionally uses a separate rule: `all_valid` checks
+the window minimum while `valid` becomes true on the first value. In runtime evaluation, `last_modified(value)` returns the
 endpoint's native `last_modified_time` as `datetime`. The `delta` result shape
 remains open.
 
@@ -919,7 +934,9 @@ Later decisions must define:
 
 - `i64` overflow, conversion, and division behavior;
 - NaN comparison;
-- self-recursive fields, destructuring, and copy-with-update syntax;
+- destructuring and copy-with-update syntax; recursive struct fields are
+  agreed in [ADR 0012](decisions/0012-recursive-struct-fields.md) and are
+  rejected by the compiler until it is implemented;
 - runtime type tests, concrete downcasts, exhaustive abstract-family matching,
   the temporal base-projection spelling, and multiple-parent field ordering;
 - explicit generic arguments on function and operator calls, generic parameter
@@ -935,7 +952,7 @@ Later decisions must define:
 - collection delta literals and the native encoding for explicit optional-field
   clearing;
 - remaining phase/effect and modifier rules for value-level `const fn`,
-  cache declaration/initializer syntax, native type/target mappings, lifecycle
+  non-scalar cache storage, native type/target mappings, lifecycle
   output access, and sinks; the agreed direction is in
   [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md).
 
@@ -946,10 +963,13 @@ decisions below. Each entry records what the compiler does today as observed
 behavior; none of it is an agreed language rule until its design record
 exists, and a backend description is not a substitute for one.
 
-- **Error model for runtime nodes.** No language rule. A generated node has
-  no exception surface of its own; what a throwing native kernel or a failed
-  evaluation does to the graph is whatever hgraph's node error capture does
-  ([Switch](switch.md) says only "the normal error path").
+- **Error model for runtime nodes.** Decided
+  ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)): a
+  raise, from a `throws` native, a strict intrinsic or a delegated native
+  operator, ends the evaluation under hgraph's node error model. Earlier
+  writes in that evaluation stand; a captured error output ticks a
+  `NodeError`, otherwise the exception propagates. HGL has no exception
+  surface of its own.
 - **Integer division, overflow, and NaN.** `i64 / i64` is typed `f64` by the
   checker (`src/ir/type_check.cpp`, `arithmetic_result`) and folded as a
   `Float` division (compiler-and-lowering.md, "Bodies"); the other operators

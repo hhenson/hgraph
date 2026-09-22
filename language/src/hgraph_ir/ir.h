@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -216,6 +218,11 @@ namespace hgl::hgraph_ir
         ConstExprId         default_value{};
         std::string         origin_identity{};
         bool                optional{false};
+        /// An admitted recursive edge (ADR 0012), and the identity of the struct
+        /// inside its `atomic<...>`. Backends realize the edge as an owner of
+        /// that struct; nothing expands the target's fields through it.
+        bool                recursive{false};
+        std::string         recursive_target{};
         syntax::SourceRange range{};
     };
 
@@ -225,6 +232,13 @@ namespace hgl::hgraph_ir
     {
         std::string                   identity{};
         bool                          exported{false};
+        /// Described by this module but declared by another (ADR 0013): the
+        /// importer re-described the owner's layout so a backend can register
+        /// the same schema. It is not a declaration of this module, so it has
+        /// no source-order handle, and generated C++ includes the exporter's
+        /// headers rather than re-declaring the type.
+        bool                          imported{false};
+        std::vector<std::string>      public_headers{};
         bool                          abstract{false};
         std::vector<GenericParameter> generics{};
         std::vector<TypeId>           parents{};
@@ -276,15 +290,18 @@ namespace hgl::hgraph_ir
         std::vector<NativeParameter>      parameters{};
         TypeId                            result{};
         std::vector<ir::hir::NativePhase> phases{};
-        std::vector<std::string>          public_headers{};
-        std::vector<std::string>          cmake_packages{};
-        std::vector<std::string>          imported_targets{};
-        std::vector<std::string>          runtime_images{};
-        std::string                       descriptor_fingerprint{};
-        bool                              source_defined{false};
-        std::string                       cpp_parameters{};
-        std::string                       cpp_body{};
-        syntax::SourceRange               range{};
+        /// The call may raise (descriptor policy "translated"); a source
+        /// native is then emitted without `noexcept`.
+        bool                     throws{false};
+        std::vector<std::string> public_headers{};
+        std::vector<std::string> cmake_packages{};
+        std::vector<std::string> imported_targets{};
+        std::vector<std::string> runtime_images{};
+        std::string              descriptor_fingerprint{};
+        bool                     source_defined{false};
+        std::string              cpp_parameters{};
+        std::string              cpp_body{};
+        syntax::SourceRange      range{};
         /// Imported dependencies absent from production expression ownership.
         /// Source-defined native declarations remain part of the public package.
         bool test_only{false};
@@ -304,6 +321,7 @@ namespace hgl::hgraph_ir
         LocalLet,
         LocalVar,
         State,
+        Cache,
         Capability,
         LoopValue,
         LambdaParameter,
@@ -476,11 +494,14 @@ namespace hgl::hgraph_ir
         TypeId    type{};
         ValueId   init{};
     };
+    /// `state`, or with `cache` a node-local cache outside record/replay
+    /// that is re-initialized on every start (ADR 0011).
     struct StateBinding
     {
         BindingId binding{};
         TypeId    type{};
         ValueId   init{};
+        bool      cache{false};
     };
     struct Inject
     { std::vector<BindingId> bindings{}; };
@@ -618,6 +639,53 @@ namespace hgl::hgraph_ir
         friend bool operator==(const ProviderPlan &, const ProviderPlan &) = default;
     };
 
+    struct RuntimeState
+    {
+        BindingId           binding{};
+        std::string         name{};
+        TypeId              type{};
+        ValueId             init{};
+        syntax::SourceRange range{};
+        /// Position among ALL state and cache declarations of the function, so
+        /// a backend can run the initializers in source order. Splitting them
+        /// into two vectors loses that, and one initializer may name an
+        /// earlier declaration of the other kind -- rebuilding a cache from
+        /// recordable state is the whole point of the pair (ADR 0011).
+        /// Resolution already requires a declaration to precede its use, so
+        /// source order is the order in which every dependency is ready.
+        std::size_t declaration_order{0};
+    };
+
+    struct RuntimeActivation
+    {
+        bool explicit_modified{};
+        bool explicit_valid{};
+    };
+
+    struct RuntimeInfo
+    {
+        std::vector<RuntimeState> states{};
+        /// Source cache fields; native lowering may bundle them in one State<T>.
+        std::vector<RuntimeState>                            caches{};
+        std::vector<BlockId>                                 start_blocks{};
+        std::vector<BlockId>                                 stop_blocks{};
+        std::unordered_set<std::size_t>                      active_parameters{};
+        std::unordered_set<std::size_t>                      structural_parameters{};
+        std::unordered_set<std::size_t>                      value_active_parameters{};
+        BindingId                                            out_binding{};
+        BindingId                                            logger_binding{};
+        BindingId                                            clock_binding{};
+        BindingId                                            scheduler_binding{};
+        std::unordered_map<std::uint32_t, RuntimeActivation> activations{};
+        bool                                                 has_when{false};
+        /// A handler is activated by `scheduled()` (ADR 0010); such a
+        /// handler adds no input to the node's activation set.
+        bool uses_scheduled{false};
+        /// A source whose complete runtime state is endpoints and NodeScheduler.
+        /// Cache and external clock/logger capabilities remain fail-closed.
+        bool checkpoint_source{false};
+    };
+
     struct Module
     {
         std::string             path{};
@@ -626,17 +694,19 @@ namespace hgl::hgraph_ir
         std::vector<Type>       types{};
         std::vector<Constraint> constraints{};
         /// Local source-native C++ dependencies; never propagated by HGL imports.
-        std::vector<std::string>      cpp_includes{};
-        std::vector<StructContract>   structures{};
-        std::vector<OperatorContract> operators{};
-        std::vector<NativeFunction>   native_functions{};
-        std::vector<Callable>         callables{};
-        std::vector<Materialization>  materializations{};
-        std::vector<Binding>          bindings{};
-        std::vector<Value>            values{};
-        std::vector<Statement>        statements{};
-        std::vector<Block>            blocks{};
-        std::vector<TestPlan>         tests{};
+        std::vector<std::string>                cpp_includes{};
+        std::vector<StructContract>             structures{};
+        std::vector<OperatorContract>           operators{};
+        std::vector<NativeFunction>             native_functions{};
+        std::vector<Callable>                   callables{};
+        std::vector<CallableId>                 callable_order{};
+        std::vector<std::optional<RuntimeInfo>> runtime_plans{};
+        std::vector<Materialization>            materializations{};
+        std::vector<Binding>                    bindings{};
+        std::vector<Value>                      values{};
+        std::vector<Statement>                  statements{};
+        std::vector<Block>                      blocks{};
+        std::vector<TestPlan>                   tests{};
         /// Stable keyed providers selected by concrete native operator calls,
         /// sorted for deterministic execution planning. Deferred calls and
         /// source-defined candidates do not contribute an external provider.

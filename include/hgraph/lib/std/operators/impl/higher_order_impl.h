@@ -1156,6 +1156,23 @@ namespace hgraph::stdlib
                                                  : SwitchOutputMode::Local;
         }
 
+        /** True when a branch's whole-node terminal already owns forwarding
+            or structural endpoint topology (a nested map_ or switch_ result,
+            say): re-homing that endpoint onto switch-owned storage would
+            strand the tree it forwards through. */
+        [[nodiscard]] inline bool switch_terminal_owns_endpoint_topology(const SingleNestedGraphNodeSpec &spec)
+        {
+            const NodeBuilder &terminal = spec.graph_builder.nodes().at(spec.output_binding->source.node);
+            const TSEndpointSchema &terminal_override = terminal.output_endpoint();
+            const NodeTypeMetaData *terminal_meta = terminal.type().schema();
+            const TSEndpointSchema &terminal_declared =
+                terminal_meta != nullptr ? terminal_meta->output_endpoint_schema : terminal_override;
+            const TSEndpointSchema &terminal_endpoint =
+                !terminal_override.empty() ? terminal_override : terminal_declared;
+            return !terminal_endpoint.empty() &&
+                   (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered());
+        }
+
         [[nodiscard]] inline bool switch_branch_requires_preserved_terminal(
             const SingleNestedGraphNodeSpec &spec,
             const TSValueTypeMetaData *switch_output_schema)
@@ -1169,13 +1186,8 @@ namespace hgraph::stdlib
             const NestedGraphEndpoint &source = spec.output_binding->source;
             if (!source.path.empty()) { return true; }
 
-            const NodeBuilder &terminal = spec.graph_builder.nodes().at(source.node);
-            const TSEndpointSchema &terminal_override = terminal.output_endpoint();
-            const NodeTypeMetaData *terminal_meta = terminal.type().schema();
-            const TSEndpointSchema &terminal_declared =
-                terminal_meta != nullptr ? terminal_meta->output_endpoint_schema : terminal_override;
-            const TSEndpointSchema &terminal_endpoint =
-                !terminal_override.empty() ? terminal_override : terminal_declared;
+            const NodeTypeMetaData *terminal_meta =
+                spec.graph_builder.nodes().at(source.node).type().schema();
             const auto *terminal_schema =
                 terminal_meta != nullptr ? terminal_meta->output_schema : nullptr;
             const auto *branch_output_schema =
@@ -1187,8 +1199,96 @@ namespace hgraph::stdlib
             {
                 return true;
             }
-            return !terminal_endpoint.empty() &&
-                   (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered());
+            return switch_terminal_owns_endpoint_topology(spec);
+        }
+
+        /** The schema a compiled branch publishes through its switch
+            (nested_graphs.rst, "switch_ output modes"). A branch that passes
+            through time-series it does not compute publishes their reference,
+            REF<logical>: a boundary input returned unchanged, or a composed
+            structure whose structural-REF adapter references its fields. Any
+            such branch makes the switch take the REF shape, so the switch
+            copies the reference token rather than a value. This is the
+            hgraph switch_ contract (its output is always
+            ``as_reference(output)``): a field passed straight through keeps
+            the identity of its upstream output, and a consumer re-pointed
+            between the switch and that upstream sees the same reference.
+            An operator-authored REF terminal under a value declaration keeps
+            the value output that forwards to it. */
+        [[nodiscard]] inline const TSValueTypeMetaData *switch_branch_published_schema(
+            const CompiledSubGraph &compiled)
+        {
+            const auto *logical = compiled.output_schema;
+            if (logical == nullptr) { return logical; }
+            const bool passes_input_through =
+                compiled.output_binding.has_value() &&
+                compiled.output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput;
+            return passes_input_through || compiled.terminal_is_structural_adapter
+                       ? TypeRegistry::instance().ref(logical)
+                       : logical;
+        }
+
+        /** A branch that returns a boundary input unchanged (``ParentInput``)
+            has no child terminal of its own. Give it the structural-REF node
+            over that input: it publishes a reference to whatever the input is
+            bound to (the upstream output, a composite over the upstream
+            fields, or the upstream token when the input is itself a REF). A
+            value-copying terminal would give the passed-through series a new
+            identity. ``source_path`` is already over the outer switch input
+            root, where ``{0}`` is the key. */
+        inline void materialize_switch_pass_through_terminal(
+            SingleNestedGraphNodeSpec &spec, const char *operation_name,
+            const TSValueTypeMetaData *output_schema, const WiringPortRef *key_source,
+            std::span<const WiringPortRef> slot_sources)
+        {
+            const auto &source_path = spec.output_binding->parent_source_path;
+            const WiringPortRef *terminal_source = nullptr;
+            if (source_path[0] == 0)
+            {
+                if (key_source == nullptr)
+                {
+                    throw std::logic_error(std::string{operation_name} +
+                                           ": direct branch output source is the key input");
+                }
+                terminal_source = key_source;
+            }
+            else
+            {
+                const std::size_t slot = source_path[0] - 1;
+                if (slot >= slot_sources.size())
+                {
+                    throw std::logic_error(std::string{operation_name} +
+                                           ": direct branch output source is outside the input slots");
+                }
+                terminal_source = &slot_sources[slot];
+            }
+            std::size_t path_index = 1;
+            for (; path_index < source_path.size() && terminal_source->is_structural_source(); ++path_index)
+            {
+                const auto &children = terminal_source->structural_children();
+                if (source_path[path_index] >= children.size())
+                {
+                    throw std::logic_error(std::string{operation_name} +
+                                           ": direct branch output path is outside a structural source");
+                }
+                terminal_source = &children[source_path[path_index]];
+            }
+
+            // Below a peered port the rest of the path is one bound field,
+            // described by the branch's own result schema.
+            WiringPortRef source = *terminal_source;
+            if (path_index != source_path.size()) { source.schema = output_schema; }
+
+            const std::size_t terminal_index = spec.graph_builder.node_count();
+            spec.graph_builder.add_node(
+                graph_wiring_detail::reference_terminal_builder(output_schema, source));
+            spec.input_bindings.push_back(NestedGraphInputBinding{
+                .source_path = source_path,
+                .target = NestedGraphEndpoint{.node = terminal_index, .path = {0}},
+            });
+            spec.output_binding = NestedGraphOutputBinding{
+                .source = NestedGraphEndpoint{.node = terminal_index},
+            };
         }
 
         inline void configure_switch_branch_output(SingleNestedGraphNodeSpec &spec,
@@ -1218,6 +1318,17 @@ namespace hgraph::stdlib
             if (switch_output_schema != nullptr &&
                 switch_output_schema->kind == TSTypeKind::REF &&
                 branch_output_schema->kind == TSTypeKind::REF)
+            {
+                return;
+            }
+
+            // A VALUE terminal that already owns forwarding or structural
+            // endpoint topology (a map_ result, say) keeps it under a
+            // REF-shaped switch: the switch publishes a reference to that
+            // endpoint, and re-homing it would strand the forwarding tree.
+            if (switch_output_schema != nullptr &&
+                switch_output_schema->kind == TSTypeKind::REF &&
+                source.path.empty() && switch_terminal_owns_endpoint_topology(spec))
             {
                 return;
             }
@@ -1307,7 +1418,7 @@ namespace hgraph::stdlib
             }
 
             const bool branch_has_output = compiled.output_schema != nullptr;
-            const auto *branch_output_schema = compiled.output_schema;
+            const auto *branch_output_schema = switch_branch_published_schema(compiled);
             if (!branches_have_output.has_value()) { branches_have_output = branch_has_output; }
             else if (*branches_have_output != branch_has_output)
             {
@@ -1381,64 +1492,9 @@ namespace hgraph::stdlib
                 spec.output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput)
             {
                 retarget_boundary_path(spec.output_binding->parent_source_path);
-
-                // Direct boundary returns have no child terminal to re-home
-                // into the switch output. Materialise the identity as an
-                // ordinary child node so every branch uses the same terminal
-                // forwarding protocol.
-                ResolutionMap resolution;
-                resolution.bind_ts("S", compiled.output_schema);
-
-                NodeBuilder terminal;
-                terminal.implementation<pass_through_node>(resolution);
-
-                const auto &source_path = spec.output_binding->parent_source_path;
-                const WiringPortRef *terminal_source = nullptr;
-                if (source_path[0] == 0)
-                {
-                    terminal_source = &key_source;
-                }
-                else
-                {
-                    const std::size_t slot = source_path[0] - 1;
-                    if (slot >= slot_sources.size())
-                    {
-                        throw std::logic_error("switch_: direct branch output source is outside the input slots");
-                    }
-                    terminal_source = &slot_sources[slot];
-                }
-                for (std::size_t path_index = 1;
-                     path_index < source_path.size() && terminal_source->is_structural_source();
-                     ++path_index)
-                {
-                    const auto &children = terminal_source->structural_children();
-                    if (source_path[path_index] >= children.size())
-                    {
-                        throw std::logic_error("switch_: direct branch output path is outside a structural source");
-                    }
-                    terminal_source = &children[source_path[path_index]];
-                }
-
-                const NodeTypeMetaData *terminal_meta = terminal.type().schema();
-                if (terminal_meta == nullptr || terminal_meta->input_schema == nullptr)
-                {
-                    throw std::logic_error("switch_: direct branch terminal has no input schema");
-                }
-                std::vector<TSEndpointSchema> terminal_inputs;
-                terminal_inputs.push_back(graph_wiring_detail::endpoint_for_source(
-                    compiled.output_schema, *terminal_source));
-                terminal.input_endpoint(TSEndpointSchema::non_peered(
-                    terminal_meta->input_schema, std::move(terminal_inputs)));
-
-                const std::size_t terminal_index = spec.graph_builder.node_count();
-                spec.graph_builder.add_node(std::move(terminal));
-                spec.input_bindings.push_back(NestedGraphInputBinding{
-                    .source_path = spec.output_binding->parent_source_path,
-                    .target = NestedGraphEndpoint{.node = terminal_index, .path = {0}},
-                });
-                spec.output_binding = NestedGraphOutputBinding{
-                    .source = NestedGraphEndpoint{.node = terminal_index},
-                };
+                materialize_switch_pass_through_terminal(
+                    spec, "switch_", compiled.output_schema, &key_source,
+                    {slot_sources.data(), slot_sources.size()});
             }
             return spec;
         }
@@ -2341,14 +2397,15 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument("dispatch_: every branch must produce an output");
             }
-            if (output_schema == nullptr) { output_schema = compiled.output_schema; }
-            else if (!time_series_schema_equivalent(output_schema, compiled.output_schema))
+            const auto *branch_output_schema = switch_branch_published_schema(compiled);
+            if (output_schema == nullptr) { output_schema = branch_output_schema; }
+            else if (!time_series_schema_equivalent(output_schema, branch_output_schema))
             {
-                if (time_series_value_equivalent(output_schema, compiled.output_schema))
+                if (time_series_value_equivalent(output_schema, branch_output_schema))
                 {
-                    if (compiled.output_schema->kind == TSTypeKind::REF)
+                    if (branch_output_schema->kind == TSTypeKind::REF)
                     {
-                        output_schema = compiled.output_schema;
+                        output_schema = branch_output_schema;
                     }
                 }
                 else
@@ -2398,19 +2455,9 @@ namespace hgraph::stdlib
                 spec.output_binding->kind == NestedGraphOutputBinding::Kind::ParentInput)
             {
                 retarget_boundary_path(spec.output_binding->parent_source_path);
-                ResolutionMap resolution;
-                resolution.bind_ts("S", compiled.output_schema);
-                NodeBuilder terminal;
-                terminal.implementation<pass_through_node>(resolution);
-                const std::size_t terminal_index = spec.graph_builder.node_count();
-                spec.graph_builder.add_node(std::move(terminal));
-                spec.input_bindings.push_back(NestedGraphInputBinding{
-                    .source_path = spec.output_binding->parent_source_path,
-                    .target = NestedGraphEndpoint{.node = terminal_index, .path = {0}},
-                });
-                spec.output_binding = NestedGraphOutputBinding{
-                    .source = NestedGraphEndpoint{.node = terminal_index},
-                };
+                materialize_switch_pass_through_terminal(
+                    spec, "dispatch_", compiled.output_schema, nullptr,
+                    {slot_sources.data(), slot_sources.size()});
             }
             return spec;
         }
@@ -4281,7 +4328,9 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline WiringPortRef wire_fixed_map_tsl(Wiring &w, const WiredFn &func, bool takes_key,
-                                                              std::vector<WiringPortRef> ordered, bool output_required) {
+                                                              std::vector<WiringPortRef> ordered, bool output_required,
+                                                              TslMapPartition partition = {}) {
+            partition.validate();
             auto &registry = TypeRegistry::instance();
 
             // The first fixed TSL anchors the size; every same-size fixed TSL
@@ -4310,10 +4359,10 @@ namespace hgraph::stdlib
             const auto *key_ts   = registry.ts(key_meta);
 
             const TSValueTypeMetaData *empty_element_schema = nullptr;
-            if (size == 0) {
-                // No child is wired for a fixed-empty TSL, but compiling the
-                // child once against its projected schemas still validates
-                // both its inputs and whether it is a graph or sink.
+            if (partition.child_count(size) == 0) {
+                // Empty lists and workers with no assigned indices still
+                // compile the projected signature once to validate its inputs
+                // and discover the graph or sink output shape.
                 std::vector<const TSValueTypeMetaData *> schemas;
                 schemas.reserve(func.arity);
                 if (takes_key) { schemas.push_back(key_ts); }
@@ -4336,7 +4385,14 @@ namespace hgraph::stdlib
 
             std::vector<WiringPortRef> children;
             if (output_required) { children.reserve(size); }
-            for (std::size_t i = 0; i < size; ++i) {
+            // ``func`` is wired once per index on THIS wiring rather than once
+            // as a child template: a component in it is one component with
+            // several instances, and in a worker graph it is the user's code,
+            // not the runtime's.
+            Wiring::InlineRepeat unrolled{w};
+            for (std::size_t slot = 0; slot < partition.child_count(size); ++slot) {
+                unrolled.next_index();
+                const auto i = partition.logical_index(slot);
                 std::vector<WiringPortRef> args;
                 args.reserve(func.arity);
                 if (takes_key) {
@@ -4367,6 +4423,13 @@ namespace hgraph::stdlib
             if (!output_required) { return {}; }
             const TSValueTypeMetaData *element_schema = children.empty() ? empty_element_schema : children.front().schema;
             const auto *output_schema = registry.tsl(element_schema, size);
+            if (partition.count != 1)
+            {
+                std::vector<WiringPortRef> indexed(size, WiringPortRef::null_source(element_schema));
+                for (std::size_t slot = 0; slot < children.size(); ++slot)
+                    indexed[partition.logical_index(slot)] = std::move(children[slot]);
+                return WiringPortRef::structural_source(output_schema, std::move(indexed));
+            }
             return WiringPortRef::structural_source(output_schema, std::move(children));
         }
 
@@ -4477,7 +4540,8 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline WiringPortRef wire_dynamic_map_tsl(Wiring &w, const WiredFn &func, std::string_view key_arg,
                                                                 bool takes_index, std::vector<WiringPortRef> ordered,
-                                                                bool output_required) {
+                                                                bool output_required, TslMapPartition partition = {}) {
+            partition.validate();
             std::vector<const TSValueTypeMetaData *> ts_schemas;
             std::vector<std::uint8_t>                arg_tags;
             ts_schemas.reserve(ordered.size());
@@ -4493,6 +4557,7 @@ namespace hgraph::stdlib
             TslMapNodeSpec spec = compile_dynamic_tsl_map_child(func, takes_index, {ts_schemas.data(), ts_schemas.size()},
                                                                 {arg_tags.data(), arg_tags.size()}, output_schema, captured,
                                                                 external_services, &w);
+            spec.partition = partition;
             if ((output_schema != nullptr) != output_required) {
                 throw std::invalid_argument(output_required ? "map_: 'func' must produce an output"
                                                             : "map_sink_: 'func' must be a sink");
@@ -4526,7 +4591,7 @@ namespace hgraph::stdlib
                 {passive_materializers.data(), passive_materializers.size()});
             return w.add_node(std::type_index(typeid(dynamic_tsl_map_node_tag)), node_schema,
                               std::span<const WiringInputRef>{input_refs.data(), input_refs.size()},
-                              Value{MapCallConfig{func, Str{key_arg}, Str{}, arg_tags}}, [&]() {
+                              Value{MapCallConfig{func, Str{key_arg}, Str{}, arg_tags, partition.group, partition.count}}, [&]() {
                                   NodeTypeMetaData meta;
                                   meta.display_name  = "map_";
                                   meta.input_schema  = input_schema;
@@ -4542,7 +4607,9 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline WiringPortRef wire_map_tsl(Wiring &w, const WiredFn &func, std::string_view key_arg, bool takes_key,
-                                                        std::vector<WiringPortRef> ordered, bool output_required) {
+                                                        std::vector<WiringPortRef> ordered, bool output_required,
+                                                        TslMapPartition partition = {}) {
+            partition.validate();
             bool        found_collection = false;
             std::size_t size             = 0;
             for (const WiringPortRef &port : ordered) {
@@ -4558,8 +4625,8 @@ namespace hgraph::stdlib
                 }
             }
             if (!found_collection) { throw std::invalid_argument("map_: at least one input must be a TSL"); }
-            if (size == unbounded_tsl_size) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required); }
-            return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required);
+            if (size == unbounded_tsl_size) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required, partition); }
+            return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required, partition);
         }
 
         /** Bind the output var ``O`` for the resolver: ``TSL<OUT(func), SIZE>``. */

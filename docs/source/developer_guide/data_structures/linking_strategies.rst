@@ -469,6 +469,16 @@ keeps its storage alive until erase. No key/value snapshot or retired-entry
 allocation is required. The borrowed handle is considered only while the
 link's modification time matches the structural transition time.
 
+A key the old source dropped in the very cycle of the rebind has still been
+seen by the consumer, so when the new source holds it, it is neither added nor
+removed. The old source no longer lists it as live, so the link asks for it
+through ``find_stored_slot`` -- the set/dictionary op that also answers for a
+key awaiting erase -- and then checks that slot was removed this cycle and had
+been published. That is one hashed lookup per key of the new source. Searching
+the old source's slots for the key instead made a rebind cost new keys times
+removed keys (14 s at 32,000 keys; 2 ms with the lookup, flat per key --
+``hgraph_unit_tests '[target-link-scaling]'``).
+
 **A container's delta capture must carry such a child.** The rule above makes
 an emptied ``TSS`` or ``TSD`` invalid *and* newsworthy at the same time, so a
 ``TSD``, ``TSL`` or ``TSB`` walking its modified children cannot read

@@ -119,8 +119,8 @@ impl fn preserve_window<
 ```
 
 `rolling<f64, 20>` omits the optional minimum size and currently means the
-same maximum and minimum size. `rolling<f64, 20, 5>` becomes valid from five
-values while retaining at most twenty.
+same maximum and minimum size. `rolling<f64, 20, 5>` is valid from its first
+value and becomes all-valid at five values, while retaining at most twenty.
 
 Generic declarations may carry compile-time requirements:
 
@@ -144,8 +144,8 @@ type. The first contract restricts that type to `f64` or `i64` because that is
 part of its public meaning. `double` places the `add_` requirement on the
 addition-based implementation instead: another candidate may implement the
 same contract as `value * 2` without requiring addition. `hgl check` evaluates
-closed requirements during typed-HIR completion and asks the hgraph operator
-registry to decide native operator viability. Cases needing native
+requirements it can decide while checking and verifies that the required
+operator is available. Cases needing native
 nominal-struct metadata, arbitrary constant predicates, or source candidate
 ranking remain explicitly deferred or fail closed as described in the roadmap.
 Requirements are never tested per tick.

@@ -38,7 +38,7 @@ namespace hgraph::persistence::store
     {
         ObjectStore objects{};
 
-        /** Codec for calls that name none. Empty selects "json". */
+        /** Codec for calls that name none. Empty selects "binary" (RFC 0040). */
         std::string codec{};
     };
 
@@ -160,7 +160,7 @@ namespace hgraph::persistence::store
         [[nodiscard]] bool uses_default(std::optional<std::string_view> codec) const noexcept;
 
         ObjectStore objects_{};
-        std::string default_codec_{JSON_VALUE_CODEC};
+        std::string default_codec_{DEFAULT_VALUE_CODEC};
 
         /** Resolved once at construction. Evaluation-path users of the default
             must not reach the registry per value: that would take a

@@ -42,6 +42,26 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT Value capture_delta(const TSInputView &in);
 
+    /** Accepts or rejects one key of a TSD while its delta is captured. */
+    using DeltaKeySelector = bool (*)(const void *context, const ValueView &key);
+
+    /**
+     * ``capture_delta`` over a TSD, restricted to the keys ``selects`` accepts.
+     *
+     * A distributed ``map_`` sends each worker the same delta an ordinary
+     * capture would produce, minus the keys another worker owns (RFC 0037).
+     * Doing that by capturing the whole delta and splitting it afterwards
+     * would rebuild every element delta only to discard most of them; this
+     * builds each one directly.
+     *
+     * A null ``selects`` is exactly ``capture_delta``. The selector is a
+     * function pointer and a context rather than a ``std::function`` because
+     * it runs once per key per cycle and the per-tick path does not allocate.
+     */
+    [[nodiscard]] HGRAPH_EXPORT Value capture_dict_delta_where(const TSInputView &in,
+                                                               DeltaKeySelector selects,
+                                                               const void *context);
+
     /** Rebuild a canonical delta containing every currently-valid value.
         Unlike ``capture_delta``, this is independent of per-cycle modified
         flags and is used when a transport first observes an already-partial

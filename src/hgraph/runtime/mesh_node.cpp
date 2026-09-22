@@ -1,13 +1,17 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/mesh_node.h>
 
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/value/impl/graph_local_value.h>
 #include <hgraph/types/value/value_hash.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/scope.h>
 
@@ -22,6 +26,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -82,6 +87,13 @@ struct MeshEntry {
   // Pause/resume settle state, per cycle:
   bool paused{false};            // paused this cycle, awaiting a dependency
   DateTime settled_time{MIN_DT}; // completed (no pause) at this evaluation time
+  // Dependency-aware wake-up. An instance that pauses on a dependency which
+  // will settle this cycle is PARKED on it: it leaves the candidate set and is
+  // offered again only when that dependency settles or is removed. Retrying
+  // every paused instance on every pass made a chain of depth D discovered in
+  // one cycle cost D * D child evaluations.
+  std::size_t awaiting_slot{KeySlotStore::npos}; // the dependency parked on, if any
+  std::vector<std::size_t> waiters{};            // instances parked on this one
 };
 
 struct MeshNodeStorage final : SlotObserver {
@@ -132,6 +144,31 @@ struct MeshNodeStorage final : SlotObserver {
   // depends_on -> set of keys that depend on it (reverse edges).
   ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
       dependents{};
+  // requester -> the keys it depends on: the mirror of ``dependents``, so that
+  // removing an instance visits its own edges rather than every dependency in
+  // the mesh. The two maps change together, and only through add_edge,
+  // remove_edge and remove_requester_edges.
+  ankerl::unordered_dense::map<Value, ValueSet, ValueHash, ValueEqual>
+      dependencies{};
+
+  void add_edge(const Value &depends_on, const Value &requester) {
+    dependents[depends_on].insert(requester);
+    dependencies[requester].insert(depends_on);
+  }
+
+  /** True when ``depends_on`` lost its last dependent and left the map. */
+  bool remove_edge(const ValueView &depends_on, const ValueView &requester) {
+    auto it = dependents.find(depends_on);
+    if (it == dependents.end()) { return false; }
+    it->second.erase(value_impl::graph_local_value(requester));
+    if (auto forward = dependencies.find(requester); forward != dependencies.end()) {
+      forward->second.erase(value_impl::graph_local_value(depends_on));
+      if (forward->second.empty()) { dependencies.erase(forward); }
+    }
+    if (!it->second.empty()) { return false; }
+    dependents.erase(it);
+    return true;
+  }
 
   std::vector<Value>
       graphs_to_remove{}; // lost a dependent; remove if unreferenced
@@ -139,15 +176,29 @@ struct MeshNodeStorage final : SlotObserver {
   // sparse worklist. Only those slots need dependency-rank ordering.
   SlotBitmap evaluation_candidates{};
   std::vector<std::pair<int, std::size_t>> evaluation_order{};
+  // Set by add_dependency when the evaluating instance should park on a
+  // dependency rather than simply be retried; read by the settle loop when that
+  // evaluation pauses.
+  std::size_t pause_dependency_slot{KeySlotStore::npos};
+  // Instances currently parked. Non-zero when the settle loop runs dry means a
+  // dependency never settled, which is the failure the pass guard reports.
+  std::size_t parked_count{0};
   // Min-heap of child wake-ups, fed by the nested out-of-band observer and by
   // the pull after mesh-driven child evaluation.
   std::vector<MeshChildSchedule> child_schedule_queue{};
-  int max_rank{0};
+  // Requested instances start high so that a dependency created on demand can
+  // take the rank just below its requester. Putting every new dependency at
+  // rank zero forced the whole chain above it up by one each time, so a chain
+  // discovered from its top cost the square of its depth in re-ranking alone.
+  // Ranks stay non-negative, which the checkpoint image requires.
+  static constexpr int base_rank = 1 << 30;
+  int max_rank{base_rank};
   bool primed{false};
   // The instance whose child graph is currently being evaluated; a
   // mesh_subscribe inside it reads this as its "my_key" (the requester).
   ValuePtr current_eval_key{};
   DateTime retirement_time{MIN_DT};
+  FirstExceptionRecorder removal_exceptions{};
 
   void push_child_schedule(MeshChildSchedule schedule) {
     child_schedule_queue.push_back(schedule);
@@ -237,13 +288,16 @@ struct MeshNodeStorage final : SlotObserver {
     }
     entries.destroy_all();
     dependents.clear();
+    dependencies.clear();
     graphs_to_remove.clear();
     outer_sources.clear();
     refresh_all_bindings = false;
     evaluation_candidates.reset();
+    parked_count = 0;
+    pause_dependency_slot = KeySlotStore::npos;
     evaluation_order.clear();
     child_schedule_queue.clear();
-    max_rank = 0;
+    max_rank = base_rank;
     primed = false;
     current_eval_key = {};
     retirement_time = MIN_DT;
@@ -276,6 +330,10 @@ struct MeshNodeStorage final : SlotObserver {
     evaluation_candidates.reset(slot);
     retirement_time = evaluation_time;
     static_cast<void>(instance_keys->remove_slot(slot));
+    // Slot observers run before the store finishes its pending-erase
+    // bookkeeping. Surface stop failures only after that transition commits.
+    auto exceptions = std::exchange(removal_exceptions, FirstExceptionRecorder{});
+    exceptions.rethrow_if_any();
   }
 
   void erase_retired_before(DateTime evaluation_time) noexcept {
@@ -302,16 +360,14 @@ struct MeshNodeStorage final : SlotObserver {
     }
     if (entry != nullptr && entry->graph.has_value() &&
         entry->graph.view().started()) {
-      static_cast<void>(fallback_on_exception(false, [&] {
-        entry->graph.view().stop();
-        return true;
-      }));
+      removal_exceptions.capture([&] { entry->graph.view().stop(); });
     }
   }
 
   void on_erase(std::size_t slot) override { entries.destroy_at(slot); }
   void on_clear() override {
     evaluation_candidates.reset();
+    parked_count = 0;
     entries.destroy_all();
   }
 };
@@ -650,15 +706,50 @@ void queue_graph_removal(MeshNodeStorage &storage, const ValueView &key) {
   storage.graphs_to_remove.push_back(value_impl::graph_local_value(key));
 }
 
+/** Offer every instance parked on ``dependency`` again. */
+void wake_waiters(MeshNodeStorage &storage, MeshEntry &dependency,
+                  std::size_t dependency_slot) {
+  for (const std::size_t waiter : dependency.waiters) {
+    MeshEntry *requester = storage.entries.entry_at(waiter);
+    // A waiter re-selected for another reason has already left this list in
+    // all but name; only one still parked on this slot is woken.
+    if (requester == nullptr || requester->awaiting_slot != dependency_slot) {
+      continue;
+    }
+    requester->awaiting_slot = KeySlotStore::npos;
+    --storage.parked_count;
+    storage.evaluation_candidates.set(waiter);
+    // Join the pass in progress. The order is a worklist, not a snapshot: a
+    // woken instance handled only on the NEXT pass made a chain of depth D
+    // take D passes to unwind, one instance each.
+    storage.evaluation_order.emplace_back(requester->rank, waiter);
+  }
+  dependency.waiters.clear();
+}
+
+/** A parked instance chosen for evaluation anyway is no longer parked. */
+void unpark(MeshNodeStorage &storage, MeshEntry &entry) {
+  if (entry.awaiting_slot == KeySlotStore::npos) { return; }
+  entry.awaiting_slot = KeySlotStore::npos;
+  --storage.parked_count;
+}
+
+// Walks the requester's own edges. Sweeping every dependency in the mesh for
+// it made removing k instances cost k times the number of dependencies.
 void remove_requester_edges(MeshNodeStorage &storage,
                             const ValueView &requester) {
-  for (auto it = storage.dependents.begin(); it != storage.dependents.end();) {
-    it->second.erase(value_impl::graph_local_value(requester));
+  auto forward = storage.dependencies.find(requester);
+  if (forward == storage.dependencies.end()) { return; }
+  const ValueSet depends_on = std::move(forward->second);
+  storage.dependencies.erase(forward);
+  const Value local_requester = value_impl::graph_local_value(requester);
+  for (const Value &dependency : depends_on) {
+    auto it = storage.dependents.find(dependency);
+    if (it == storage.dependents.end()) { continue; }
+    it->second.erase(local_requester);
     if (it->second.empty()) {
       queue_graph_removal(storage, it->first.view());
-      it = storage.dependents.erase(it);
-    } else {
-      ++it;
+      storage.dependents.erase(it);
     }
   }
 }
@@ -701,7 +792,8 @@ void clear_instance_output_binding(const NodeView &view,
 void stop_and_clear_all_instances(const NodeView &view,
                                   const MeshNodeContext &context,
                                   MeshNodeStorage &storage,
-                                  DateTime evaluation_time) noexcept {
+                                  DateTime evaluation_time) {
+  FirstExceptionRecorder exceptions;
   if (storage.instance_keys.has_value()) {
     for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
          ++slot) {
@@ -710,26 +802,28 @@ void stop_and_clear_all_instances(const NodeView &view,
       }
       MeshEntry *entry = storage.entries.entry_at(slot);
       if (entry != nullptr) {
-        static_cast<void>(fallback_on_exception(false, [&] {
+        exceptions.capture([&] {
           clear_instance_output_binding(view, context, *entry, evaluation_time);
-          return true;
-        }));
+        });
       }
-      static_cast<void>(fallback_on_exception(false, [&] {
+      exceptions.capture([&] {
         storage.retire_slot(slot, evaluation_time);
-        return true;
-      }));
+      });
     }
   }
   storage.dependents.clear();
+  storage.dependencies.clear();
   storage.graphs_to_remove.clear();
   storage.evaluation_candidates.reset();
+  storage.parked_count = 0;
+  storage.pause_dependency_slot = KeySlotStore::npos;
   storage.evaluation_order.clear();
   storage.child_schedule_queue.clear();
   storage.refresh_all_bindings = false;
-  storage.max_rank = 0;
+  storage.max_rank = MeshNodeStorage::base_rank;
   storage.primed = false;
   storage.current_eval_key = {};
+  exceptions.rethrow_if_any();
 }
 
 MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
@@ -759,6 +853,8 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
   entry.rank = rank;
   entry.paused = true;
   entry.settled_time = MIN_DT;
+  entry.awaiting_slot = KeySlotStore::npos;
+  entry.waiters.clear();
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();
@@ -820,6 +916,8 @@ void remove_instance(const NodeView &view, const MeshNodeContext &context,
   }
 
   clear_instance_output_binding(view, context, *entry, evaluation_time);
+  wake_waiters(storage, *entry, slot);
+  unpark(storage, *entry);
 
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();
@@ -909,8 +1007,11 @@ void reconcile_requested_keys(const NodeView &view,
   storage.primed = true;
 }
 
+// ``on_stack`` holds the keys of the re-ranking in progress, for cycle
+// detection. It is a set: asking "is this dependent already on the stack?" by
+// scanning a list cost the depth of the recursion for every edge visited.
 void re_rank(MeshNodeStorage &storage, const ValueView &key,
-             const ValueView &depends_on, std::vector<Value> &stack) {
+             const ValueView &depends_on, ValueSet &on_stack) {
   MeshEntry *key_entry = storage.find(key);
   MeshEntry *dep_entry = storage.find(depends_on);
   if (key_entry == nullptr || dep_entry == nullptr) {
@@ -923,20 +1024,18 @@ void re_rank(MeshNodeStorage &storage, const ValueView &key,
   key_entry->rank = dep_entry->rank + 1;
   storage.max_rank = std::max(storage.max_rank, key_entry->rank);
 
-  stack.push_back(value_impl::graph_local_value(key));
+  const Value local_key = value_impl::graph_local_value(key);
+  on_stack.insert(local_key);
   // Re-rank everything that depends on ``key``.
   if (auto it = storage.dependents.find(key); it != storage.dependents.end()) {
     for (const Value &dependent : it->second) {
-      const bool on_stack =
-          std::any_of(stack.begin(), stack.end(),
-                      [&](const Value &s) { return s.equals(dependent); });
-      if (on_stack) {
+      if (on_stack.contains(dependent)) {
         throw std::runtime_error("mesh_ has a dependency cycle");
       }
-      re_rank(storage, dependent.view(), key, stack);
+      re_rank(storage, dependent.view(), key, on_stack);
     }
   }
-  stack.pop_back();
+  on_stack.erase(local_key);
 }
 
 // ---- evaluation ----
@@ -1017,6 +1116,36 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
   //    can add/rank a missing dependency for the next pass.
   prepare_mesh_evaluation_candidates(view, context, storage, evaluation_time);
 
+  const auto unsettled_detail = [&] {
+    std::string detail;
+    for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
+         ++slot) {
+      if (!storage.instance_keys->slot_live(slot)) {
+        continue;
+      }
+      const MeshEntry *entry = storage.entries.entry_at(slot);
+      if (entry == nullptr || !entry->graph.has_value()) {
+        continue;
+      }
+      const auto child = entry->graph.view();
+      if (entry->settled_time == evaluation_time ||
+          (!entry->paused && child.next_scheduled_time() > evaluation_time)) {
+        continue;
+      }
+      if (!detail.empty()) {
+        detail.append(", ");
+      }
+      detail.append(entry->key.view().to_string());
+      detail.append(fmt::format("[rank={}, paused={}, settled={}, next={}]",
+                                entry->rank, entry->paused,
+                                entry->settled_time == evaluation_time,
+                                child.next_scheduled_time()
+                                    .time_since_epoch()
+                                    .count()));
+    }
+    return detail;
+  };
+
   std::size_t guard = 0;
   while (true) {
     static_cast<void>(drain_due_mesh_schedules(storage, evaluation_time));
@@ -1025,7 +1154,14 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     materialize_mesh_evaluation_order(storage);
     bool evaluated = false;
 
-    for (const auto &ranked : storage.evaluation_order) {
+    // A worklist, not a snapshot: an instance woken by a dependency that
+    // settles, or a dependency created on demand, is appended and handled in
+    // this same pass. Rank order is a heuristic that avoids needless pauses;
+    // correctness rests on parking, so an appended instance out of rank order
+    // merely parks and is woken in its turn. ``ranked`` is copied because the
+    // worklist may reallocate while its entry is being handled.
+    for (std::size_t position = 0; position < storage.evaluation_order.size(); ++position) {
+      const auto ranked = storage.evaluation_order[position];
       MeshEntry *entry = storage.entries.entry_at(ranked.second);
       if (!storage.instance_keys->slot_live(ranked.second)) {
         continue;
@@ -1036,6 +1172,9 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       if (entry->settled_time == evaluation_time) {
         continue;
       } // already done this cycle
+      if (entry->awaiting_slot != KeySlotStore::npos) {
+        continue;
+      } // parked: it runs when what it waits for settles, not before
 
       bind_instance_inputs(view, context, *entry, evaluation_time);
       bind_instance_output(view, context, *entry, evaluation_time);
@@ -1058,15 +1197,43 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       auto clear_current_key = make_scope_exit(
           [&storage]() noexcept { storage.current_eval_key = {}; });
       entry->paused = false;
+      storage.pause_dependency_slot = KeySlotStore::npos;
       if (child.evaluate(evaluation_time)) {
         entry->settled_time = evaluation_time;
+        // Settled instances are skipped for the rest of the cycle, so stop
+        // offering them: every later pass re-sorted and re-visited them.
+        storage.evaluation_candidates.reset(ranked.second);
+        wake_waiters(storage, *entry, ranked.second);
         runtime_detail::finalize_mapped_child_output(
             view, evaluation_time, spec.child.output_binding,
             context.access.output,
             entry->key.view());
       } else {
         entry->paused = true;
+        // Park on the dependency it asked for, if that dependency is going to
+        // settle this cycle; otherwise it stays a candidate and is retried.
+        const std::size_t awaited = storage.pause_dependency_slot;
+        MeshEntry *dependency = awaited == KeySlotStore::npos
+                                    ? nullptr
+                                    : storage.entries.entry_at(awaited);
+        if (dependency != nullptr && awaited != ranked.second &&
+            storage.instance_keys->slot_live(awaited) &&
+            dependency->graph.has_value() &&
+            dependency->settled_time != evaluation_time) {
+          entry->awaiting_slot = awaited;
+          dependency->waiters.push_back(ranked.second);
+          ++storage.parked_count;
+          storage.evaluation_candidates.reset(ranked.second);
+          // Make sure what it waits for is itself handled, in this pass,
+          // unless that is parked further down the chain and will be woken in
+          // its turn.
+          if (dependency->awaiting_slot == KeySlotStore::npos) {
+            storage.evaluation_candidates.set(awaited);
+            storage.evaluation_order.emplace_back(dependency->rank, awaited);
+          }
+        }
       } // a dependency was created / ranked; re-scan
+      storage.pause_dependency_slot = KeySlotStore::npos;
       evaluated = true;
 
       if (const DateTime next = child.next_scheduled_time();
@@ -1078,34 +1245,8 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     }
 
     if (++guard > storage.active_count() + 64) {
-      std::string detail;
-      for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
-           ++slot) {
-        if (!storage.instance_keys->slot_live(slot)) {
-          continue;
-        }
-        const MeshEntry *entry = storage.entries.entry_at(slot);
-        if (entry == nullptr || !entry->graph.has_value()) {
-          continue;
-        }
-        const auto child = entry->graph.view();
-        if (entry->settled_time == evaluation_time ||
-            (!entry->paused && child.next_scheduled_time() > evaluation_time)) {
-          continue;
-        }
-        if (!detail.empty()) {
-          detail.append(", ");
-        }
-        detail.append(entry->key.view().to_string());
-        detail.append(fmt::format("[rank={}, paused={}, settled={}, next={}]",
-                                  entry->rank, entry->paused,
-                                  entry->settled_time == evaluation_time,
-                                  child.next_scheduled_time()
-                                      .time_since_epoch()
-                                      .count()));
-      }
-      throw std::runtime_error(
-          fmt::format("mesh_ failed to settle within the cycle: {}", detail));
+      throw std::runtime_error(fmt::format(
+          "mesh_ failed to settle within the cycle: {}", unsettled_detail()));
     }
 
     // Output propagation or an input rebind may have scheduled another child
@@ -1116,6 +1257,13 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
     if (!evaluated && !added_during_pass) {
       break;
     }
+  }
+  // Nothing is left to evaluate. An instance still parked is waiting for a
+  // dependency that never settled -- the failure the pass guard used to reach
+  // by retrying it until the guard tripped.
+  if (storage.parked_count != 0) {
+    throw std::runtime_error(fmt::format(
+        "mesh_ failed to settle within the cycle: {}", unsettled_detail()));
   }
   storage.current_eval_key = {};
   process_graphs_to_remove(view, context, storage, evaluation_time);
@@ -1395,19 +1543,500 @@ void mesh_key_set_stop(const NodeView &view, DateTime evaluation_time) {
   storage.owns_output_binding = false;
 }
 
+// Checkpoint payloads contain only portable integers and child-owned keys.
+// Slots name mesh instances, never process addresses. The owner recreates all
+// instance storage before a child restores its cross-instance subscriptions.
+[[nodiscard]] Value mesh_checkpoint_numbers(const std::vector<Int> &numbers) {
+  ListBuilder builder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+  for (Int number : numbers) { builder.push_back(Value{number}); }
+  return builder.build();
+}
+
+class MeshCheckpointReader {
+public:
+  explicit MeshCheckpointReader(const Value &payload)
+      : values_(payload.view().as_list()) {}
+
+  [[nodiscard]] std::size_t next() {
+    if (position_ == values_.size()) {
+      throw std::invalid_argument("component checkpoint: truncated mesh state");
+    }
+    const Int value = values_.at(position_++).checked_as<Int>();
+    if (value < 0 || static_cast<std::uint64_t>(value) >
+                         std::numeric_limits<std::size_t>::max()) {
+      throw std::invalid_argument("component checkpoint: invalid mesh state index");
+    }
+    return static_cast<std::size_t>(value);
+  }
+
+  [[nodiscard]] std::size_t remaining() const { return values_.size() - position_; }
+  void finish() const {
+    if (remaining() != 0) {
+      throw std::invalid_argument("component checkpoint: unexpected mesh state fields");
+    }
+  }
+
+private:
+  ListView values_;
+  std::size_t position_{0};
+};
+
+void validate_mesh_checkpoint_mode(const MeshNodeContext &context) {
+  if (context.spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement) {
+    throw std::invalid_argument(
+        "component checkpoint: mesh requires a computed child terminal with owned output");
+  }
+}
+
+[[nodiscard]] std::string mesh_checkpoint_signature(const NodeBuilder &builder) {
+  const auto &context = *static_cast<const MeshNodeContext *>(
+      builder.type().ops_ref().extended_view_context);
+  validate_mesh_checkpoint_mode(context);
+  const auto &spec = context.spec;
+  manifest::CanonicalWriter writer;
+  writer.varint(1);
+  writer.varint(static_cast<std::uint8_t>(spec.output_binding_mode));
+  writer.varint(spec.keys_input_index);
+  writer.varint(spec.key_output_schema != nullptr);
+  writer.varint(spec.args.size());
+  for (const auto &arg : spec.args) {
+    writer.varint(static_cast<std::uint8_t>(arg.kind));
+    writer.varint(arg.outer_index);
+  }
+  writer.varint(spec.multiplexed_inputs.size());
+  for (auto index : spec.multiplexed_inputs) { writer.varint(index); }
+  node_checkpoint_detail::append_input_bindings(writer, spec.child.graph_builder, spec.child.input_bindings);
+  const auto &bytes = writer.bytes();
+  return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
+
+[[nodiscard]] NodeCheckpointState capture_mesh_checkpoint(
+    const NodeView &view, const CaptureGraphCheckpoint &capture_graph) {
+  auto mesh = view.as<MeshNodeView>();
+  const auto &context = *static_cast<const MeshNodeContext *>(mesh.internal_context());
+  const auto &storage = *MemoryUtils::cast<const MeshNodeStorage>(mesh.internal_storage());
+  validate_mesh_checkpoint_mode(context);
+  if (!storage.current_eval_key.is_unbound()) {
+    throw std::logic_error("component checkpoint: mesh evaluation is incomplete");
+  }
+  NodeCheckpointState result;
+  const auto capacity = storage.instance_keys ? storage.instance_keys->slot_capacity() : 0;
+  const auto free = storage.instance_keys ? storage.instance_keys->checkpoint_free_slots()
+                                          : std::vector<std::size_t>{};
+  std::vector<Int> state{1, storage.primed ? 1 : 0,
+                         static_cast<Int>(capacity), storage.max_rank,
+                         static_cast<Int>(free.size())};
+  for (auto slot : free) { state.push_back(static_cast<Int>(slot)); }
+  state.push_back(static_cast<Int>(storage.active_count()));
+  for (std::size_t slot = 0; slot < capacity; ++slot) {
+    if (!storage.instance_keys->slot_live(slot)) { continue; }
+    const auto *entry = storage.entries.entry_at(slot);
+    if (!entry || !entry->graph.has_value() || !entry->graph.view().started() ||
+        entry->paused || entry->graph.view().failed_node().valid()) {
+      throw std::logic_error("component checkpoint: mesh child evaluation is incomplete");
+    }
+    if (!capture_graph) {
+      throw std::logic_error("component checkpoint: mesh requires child capture");
+    }
+    state.push_back(entry->rank);
+    ChildGraphCheckpoint child;
+    child.slot = slot;
+    child.key = Value{entry->key.view()};
+    if (entry->key_source.bound()) {
+      child.key_last_modified_time = entry->key_source.view(view.graph().evaluation_time()).last_modified_time();
+    }
+    child.graph = capture_graph(entry->graph.view());
+    if (!child.graph) { throw std::logic_error("component checkpoint: missing mesh child image"); }
+    result.children.push_back(std::move(child));
+  }
+  std::vector<std::pair<std::size_t, std::size_t>> edges;
+  for (const auto &[dependency, requesters] : storage.dependents) {
+    for (const auto &requester : requesters) {
+      const auto dependency_slot = storage.find_slot(dependency.view());
+      const auto requester_slot = storage.find_slot(requester.view());
+      if (dependency_slot == KeySlotStore::npos || requester_slot == KeySlotStore::npos) {
+        throw std::logic_error("component checkpoint: mesh dependency has no live instance");
+      }
+      edges.emplace_back(dependency_slot, requester_slot);
+    }
+  }
+  std::sort(edges.begin(), edges.end());
+  state.push_back(static_cast<Int>(edges.size()));
+  for (auto [dependency, requester] : edges) {
+    state.push_back(static_cast<Int>(dependency));
+    state.push_back(static_cast<Int>(requester));
+  }
+  std::vector<std::size_t> pending;
+  for (const auto &key : storage.graphs_to_remove) {
+    const auto slot = storage.find_slot(key.view());
+    if (slot != KeySlotStore::npos) { pending.push_back(slot); }
+  }
+  state.push_back(static_cast<Int>(pending.size()));
+  for (auto slot : pending) { state.push_back(static_cast<Int>(slot)); }
+  result.payload = mesh_checkpoint_numbers(state);
+  return result;
+}
+
+void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                             DateTime time, const PrepareGraphCheckpoint &prepare_graph) {
+  auto mesh = view.as<MeshNodeView>();
+  const auto &context = *static_cast<const MeshNodeContext *>(mesh.internal_context());
+  auto &storage = *MemoryUtils::cast<MeshNodeStorage>(mesh.internal_storage());
+  validate_mesh_checkpoint_mode(context);
+  if (!image.endpoints.empty()) {
+    throw std::invalid_argument("component checkpoint: unexpected mesh-owned endpoints");
+  }
+  if (storage.instance_keys || storage.entries.has_entries() || storage.primed) {
+    throw std::logic_error("component checkpoint: mesh restore requires a fresh instance");
+  }
+  MeshCheckpointReader reader{image.payload};
+  if (reader.next() != 1) { throw std::invalid_argument("component checkpoint: unknown mesh state version"); }
+  const auto primed = reader.next();
+  const auto capacity = reader.next();
+  const auto max_rank = reader.next();
+  const auto free_count = reader.next();
+  if (primed > 1 || max_rank > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+      free_count > reader.remaining() || capacity < image.children.size() ||
+      free_count != capacity - image.children.size() || (!primed && !image.children.empty())) {
+    throw std::invalid_argument("component checkpoint: inconsistent mesh membership state");
+  }
+  std::vector<std::size_t> free;
+  free.reserve(free_count);
+  for (std::size_t i = 0; i < free_count; ++i) { free.push_back(reader.next()); }
+  if (reader.next() != image.children.size()) {
+    throw std::invalid_argument("component checkpoint: mesh child count differs");
+  }
+  auto output = view.output(time);
+  auto dict = output.as_dict();
+  const auto key_binding = dict.data_view().layout().key_binding;
+  KeySlotStore validated_keys{key_binding};
+  std::vector<int> ranks(capacity, -1);
+  std::vector<std::size_t> live_slots;
+  live_slots.reserve(image.children.size());
+  for (const auto &child : image.children) {
+    const auto rank = reader.next();
+    if (child.slot >= capacity || ranks[child.slot] != -1 || !child.key.has_value() ||
+        !child.graph || rank > max_rank || !dict.contains(child.key.view()) ||
+        (context.spec.key_output_schema && child.key_last_modified_time == MIN_DT)) {
+      throw std::invalid_argument("component checkpoint: mesh child slot, key or rank is inconsistent");
+    }
+    live_slots.push_back(child.slot);
+    ranks[child.slot] = static_cast<int>(rank);
+  }
+  validated_keys.prepare_checkpoint_restore(live_slots, free);
+  for (const auto &child : image.children) { validated_keys.restore_key_at_slot(child.slot, child.key.view()); }
+  validated_keys.restore_free_slots(free);
+  if (dict.size() != image.children.size()) {
+    throw std::invalid_argument("component checkpoint: mesh output membership differs");
+  }
+  const auto edge_count = reader.next();
+  if (edge_count > reader.remaining() / 2) {
+    throw std::invalid_argument("component checkpoint: truncated mesh dependencies");
+  }
+  std::vector<std::pair<std::size_t, std::size_t>> edges;
+  for (std::size_t i = 0; i < edge_count; ++i) {
+    const auto dependency = reader.next();
+    const auto requester = reader.next();
+    if (dependency >= capacity || requester >= capacity || ranks[dependency] < 0 ||
+        ranks[requester] <= ranks[dependency] ||
+        (!edges.empty() && edges.back() >= std::pair{dependency, requester})) {
+      throw std::invalid_argument("component checkpoint: invalid mesh dependency ranks");
+    }
+    edges.emplace_back(dependency, requester);
+  }
+  const auto pending_count = reader.next();
+  if (pending_count > reader.remaining()) {
+    throw std::invalid_argument("component checkpoint: truncated mesh removals");
+  }
+  std::vector<std::size_t> pending;
+  for (std::size_t i = 0; i < pending_count; ++i) {
+    const auto slot = reader.next();
+    if (slot >= capacity || ranks[slot] < 0) {
+      throw std::invalid_argument("component checkpoint: invalid pending mesh removal");
+    }
+    pending.push_back(slot);
+  }
+  reader.finish();
+  if (!image.children.empty() && !prepare_graph) {
+    throw std::logic_error("component checkpoint: mesh requires child restore");
+  }
+  initialise_mesh_storage(storage, context, key_binding);
+  storage.instance_keys->prepare_checkpoint_restore(live_slots, free);
+  for (const auto &child : image.children) {
+    storage.instance_keys->restore_key_at_slot(child.slot, child.key.view());
+    auto &entry = storage.entries.construct_at(child.slot, value_impl::graph_local_value(child.key.view()));
+    entry.rank = ranks[child.slot];
+    entry.graph = context.spec.child.graph_builder.make_nested_graph(
+        view.pointer(), storage.entries.graph_memory(child.slot), context.graph_layout);
+    if (context.spec.key_output_schema) {
+      entry.key_source.bind(*context.spec.key_output_schema, entry.key, child.key_last_modified_time);
+    }
+    const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
+    runtime_detail::bind_mapped_child_output(view, entry.graph.view(), time, context.spec.child.output_binding,
+        context.access, entry.key.view(), key_source, context.spec.output_binding_mode, true);
+    entry.schedule_context = MeshChildScheduleContext{&storage, child.slot, view.pointer()};
+    entry.graph.view().set_child_schedule_observer(
+        [](void *raw, DateTime when) {
+          auto &schedule = *static_cast<MeshChildScheduleContext *>(raw);
+          schedule.storage->push_observed_child_schedule(when, schedule);
+        }, &entry.schedule_context);
+  }
+  storage.instance_keys->restore_free_slots(free);
+  for (auto [dependency, requester] : edges) {
+    storage.add_edge(storage.entries.entry_at(dependency)->key,
+                     storage.entries.entry_at(requester)->key);
+  }
+  for (auto slot : pending) { storage.graphs_to_remove.push_back(storage.entries.entry_at(slot)->key); }
+  storage.max_rank = static_cast<int>(max_rank);
+  storage.primed = primed != 0;
+  // All aliases and instance slots now exist. Restore dependency providers
+  // before consumers, without evaluating any historical input.
+  std::vector<const ChildGraphCheckpoint *> order;
+  for (const auto &child : image.children) { order.push_back(&child); }
+  std::sort(order.begin(), order.end(), [&](const auto *lhs, const auto *rhs) {
+    return std::pair{ranks[lhs->slot], lhs->slot} < std::pair{ranks[rhs->slot], rhs->slot};
+  });
+  for (const auto *child : order) {
+    prepare_graph(storage.entries.entry_at(child->slot)->graph.view(), *child->graph, time);
+  }
+}
+
+std::vector<std::size_t> restored_mesh_order(const MeshNodeStorage &storage) {
+  std::vector<std::size_t> slots;
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+    if (storage.entries.entry_at(slot) != nullptr) { slots.push_back(slot); }
+  std::sort(slots.begin(), slots.end(), [&](const auto lhs, const auto rhs) {
+    return std::pair{storage.entries.entry_at(lhs)->rank, lhs} <
+           std::pair{storage.entries.entry_at(rhs)->rank, rhs};
+  });
+  return slots;
+}
+
+void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                             DateTime time, const RestoreGraphCheckpoint &restore_graph) {
+  const auto typed = view.as<MeshNodeView>();
+  const auto &context = *static_cast<const MeshNodeContext *>(typed.internal_context());
+  auto &storage = *MemoryUtils::cast<MeshNodeStorage>(typed.internal_storage());
+  auto root_input = view.input(time);
+  auto keys_input = root_input.indexed_child_at(context.spec.keys_input_index);
+  if (storage.primed && !keys_input.valid())
+    throw std::invalid_argument("component checkpoint: restored requested mesh keys are invalid");
+  if (storage.primed && keys_input.valid()) {
+    const auto requested_keys = keys_input.as_set().values();
+    for (const auto key : requested_keys)
+      if (!storage.instance_keys->contains(key))
+        throw std::invalid_argument("component checkpoint: requested mesh key has no child");
+  }
+  static_cast<void>(update_mesh_source_handles(root_input.borrowed_ref(), storage,
+                                               context.spec.keys_input_index));
+  if (keys_input.valid())
+    static_cast<void>(storage.observe_requested_keys_source(effective_output_handle(keys_input.bound_output())));
+  for (const auto &child : image.children) {
+    auto &entry = *storage.entries.entry_at(child.slot);
+    const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
+    runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), time, context.spec.child,
+        context.access, entry.key.view(), key_source, std::nullopt, true, false);
+  }
+  // Sort references to the saved children once. Looking up each sorted slot
+  // again in the saved vector made this cold path quadratic in mesh size.
+  std::vector<const ChildGraphCheckpoint *> order;
+  order.reserve(image.children.size());
+  for (const auto &child : image.children) { order.push_back(&child); }
+  std::sort(order.begin(), order.end(), [&](const auto *lhs, const auto *rhs) {
+    return std::pair{storage.entries.entry_at(lhs->slot)->rank, lhs->slot} <
+           std::pair{storage.entries.entry_at(rhs->slot)->rank, rhs->slot};
+  });
+  for (const auto *child : order) {
+    restore_graph(storage.entries.entry_at(child->slot)->graph.view(), *child->graph, time);
+  }
+}
+
+void start_restored_mesh(const NodeView &view, DateTime time) {
+  auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  for (const auto slot : restored_mesh_order(storage))
+    storage.entries.entry_at(slot)->graph.view().start(time);
+  storage.child_schedule_queue.clear();
+  storage.evaluation_candidates.reset();
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot) {
+    auto *entry = storage.entries.entry_at(slot);
+    if (entry == nullptr) { continue; }
+    const auto next = entry->graph.view().next_scheduled_time();
+    if (next <= time) { storage.evaluation_candidates.set(slot); }
+    else if (next != MAX_DT) { storage.push_pulled_child_schedule(next, entry->schedule_context); }
+  }
+}
+
+// What the restored start found still to do: a child with work due now, or the
+// earliest one queued. A transient sink is outside even a whole image, so it
+// starts fresh in a restored child and its start-time alarm is live work.
+[[nodiscard]] DateTime live_mesh_schedule(const NodeView &view) {
+  const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  if (storage.evaluation_candidates.any()) { return MIN_DT; }
+  return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
+}
+
+void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit) {
+  const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+    if (const auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->key_source.bound())
+      visit(slot, entry->key_source.view(MIN_DT).handle());
+}
+
+[[nodiscard]] const NodeCheckpointOps &mesh_checkpoint_ops() noexcept {
+  static const NodeCheckpointOps ops{
+      .supported = true,
+      .capture_impl = &capture_mesh_checkpoint,
+      .prepare_restore_impl = &prepare_mesh_checkpoint,
+      .restore_impl = &restore_mesh_checkpoint,
+      .start_restored_impl = &start_restored_mesh,
+      .live_schedule_impl = &live_mesh_schedule,
+      .visit_endpoints_impl = &visit_mesh_checkpoint_endpoints,
+      .signature_impl = &mesh_checkpoint_signature,
+  };
+  return ops;
+}
+
+[[nodiscard]] NodeCheckpointState capture_mesh_subscribe_checkpoint(
+    const NodeView &view, const CaptureGraphCheckpoint &) {
+  const auto &storage = mesh_subscribe_storage_of(view);
+  NodeCheckpointState image;
+  image.endpoints.push_back(view.output(view.graph().evaluation_time()).checkpoint_forwarding());
+  if (!storage.has_dependency) { image.payload = mesh_checkpoint_numbers({0}); return image; }
+  const auto mesh = resolve_mesh_node(view);
+  if (!mesh) { throw std::logic_error("component checkpoint: mesh subscription has no owner"); }
+  const auto &owner = *MemoryUtils::cast<const MeshNodeStorage>(mesh->internal_storage());
+  const auto requester = owner.find_slot(storage.requester.view());
+  const auto dependency = owner.find_slot(storage.dependency.view());
+  if (requester == KeySlotStore::npos || dependency == KeySlotStore::npos) {
+    throw std::logic_error("component checkpoint: mesh subscription has no live instance");
+  }
+  image.payload = mesh_checkpoint_numbers({1, static_cast<Int>(requester), static_cast<Int>(dependency)});
+  return image;
+}
+
+void restore_mesh_subscribe_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                       DateTime time, const RestoreGraphCheckpoint &) {
+  auto &storage = mesh_subscribe_storage_of(view);
+  if (image.endpoints.size() != 1 || !image.children.empty()) {
+    throw std::invalid_argument("component checkpoint: invalid mesh subscription endpoints");
+  }
+  auto output = view.output(time);
+  output.validate_checkpoint_forwarding(image.endpoints.front());
+  MeshCheckpointReader reader{image.payload};
+  const auto present = reader.next();
+  if (present == 0) {
+    reader.finish();
+    output.restore_checkpoint_forwarding(TSOutputView{}, image.endpoints.front());
+    return;
+  }
+  if (present != 1) { throw std::invalid_argument("component checkpoint: invalid mesh subscription"); }
+  const auto requester_slot = reader.next();
+  const auto dependency_slot = reader.next();
+  reader.finish();
+  const auto mesh = resolve_mesh_node(view);
+  if (!mesh) { throw std::logic_error("component checkpoint: mesh subscription has no owner"); }
+  auto &owner = *MemoryUtils::cast<MeshNodeStorage>(mesh->internal_storage());
+  const auto *requester = owner.entries.entry_at(requester_slot);
+  const auto *dependency = owner.entries.entry_at(dependency_slot);
+  if (!requester || !dependency) {
+    throw std::invalid_argument("component checkpoint: missing mesh subscription instance");
+  }
+  auto requester_graph = view.graph();
+  while (requester_graph.is_nested() &&
+         requester_graph.as_nested().parent_node().data() != mesh->node().data()) {
+    requester_graph = requester_graph.as_nested().parent_node().graph();
+  }
+  if (requester_graph.data() != requester->graph.view().data()) {
+    throw std::invalid_argument("component checkpoint: mesh subscription requester differs");
+  }
+  const auto edge = owner.dependents.find(dependency->key);
+  if (edge == owner.dependents.end() || !edge->second.contains(requester->key)) {
+    throw std::invalid_argument("component checkpoint: mesh subscription dependency differs");
+  }
+  storage.requester = requester->key;
+  storage.dependency = dependency->key;
+  storage.has_dependency = true;
+  auto self = mesh->node().output(time);
+  auto source = self.as_dict().at(dependency->key.view());
+  auto input = view.input(time);
+  auto bundle = input.as_bundle();
+  rebind_input_to_source_silent(bundle.at(subscribe_value_field), source);
+  output.restore_checkpoint_forwarding(source, image.endpoints.front());
+  storage.owns_output_binding = true;
+}
+
+[[nodiscard]] const NodeCheckpointOps &mesh_subscribe_checkpoint_ops() noexcept {
+  static const NodeCheckpointOps ops{
+      .supported = true,
+      .captures_output = false,
+      .capture_impl = &capture_mesh_subscribe_checkpoint,
+      .restore_impl = &restore_mesh_subscribe_checkpoint,
+  };
+  return ops;
+}
+
+[[nodiscard]] NodeCheckpointState capture_mesh_key_set_checkpoint(
+    const NodeView &view, const CaptureGraphCheckpoint &) {
+  NodeCheckpointState image;
+  image.payload = Value{mesh_key_set_storage_of(view).owns_output_binding};
+  image.endpoints.push_back(view.output(view.graph().evaluation_time()).checkpoint_forwarding());
+  return image;
+}
+
+void restore_mesh_key_set_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                     DateTime time, const RestoreGraphCheckpoint &) {
+  if (image.endpoints.size() != 1 || !image.children.empty()) {
+    throw std::invalid_argument("component checkpoint: invalid mesh key-set endpoints");
+  }
+  auto output = view.output(time);
+  output.validate_checkpoint_forwarding(image.endpoints.front());
+  if (!image.payload.view().checked_as<Bool>()) {
+    output.restore_checkpoint_forwarding(TSOutputView{}, image.endpoints.front());
+    return;
+  }
+  const auto mesh = resolve_mesh_node(view);
+  if (!mesh) { throw std::logic_error("component checkpoint: mesh key set has no owner"); }
+  auto self = mesh->node().output(time);
+  auto source = self.as_dict().key_set();
+  auto input = view.input(time);
+  auto bundle = input.as_bundle();
+  rebind_input_to_source_silent(bundle.at(key_set_value_field), source);
+  output.restore_checkpoint_forwarding(source, image.endpoints.front());
+  mesh_key_set_storage_of(view).owns_output_binding = true;
+}
+
+[[nodiscard]] const NodeCheckpointOps &mesh_key_set_checkpoint_ops() noexcept {
+  static const NodeCheckpointOps ops{
+      .supported = true,
+      .captures_output = false,
+      .capture_impl = &capture_mesh_key_set_checkpoint,
+      .restore_impl = &restore_mesh_key_set_checkpoint,
+  };
+  return ops;
+}
+
 void mesh_node_stop(const NodeView &view, DateTime evaluation_time) {
   auto mesh_view = view.as<MeshNodeView>();
   auto &storage = storage_of(view, *static_cast<const MeshNodeContext *>(
                                        mesh_view.internal_context()));
 
+  // Release the upstream subscription while its source is still alive. The
+  // owning map can retain this stopped graph until a later slot erase, after
+  // the source has already been detached or replaced.
+  storage.unsubscribe_requested_keys_noexcept();
+
   auto output = view.output(evaluation_time);
   auto output_dict = output.as_dict();
   auto output_mutation = output_dict.begin_mutation(evaluation_time);
 
-  stop_and_clear_all_instances(
-      view, *static_cast<const MeshNodeContext *>(mesh_view.internal_context()),
-      storage, evaluation_time);
-  output_mutation.clear();
+  FirstExceptionRecorder exceptions;
+  exceptions.capture([&] {
+    stop_and_clear_all_instances(
+        view, *static_cast<const MeshNodeContext *>(mesh_view.internal_context()),
+        storage, evaluation_time);
+  });
+  exceptions.capture([&] { output_mutation.clear(); });
+  exceptions.rethrow_if_any();
 }
 } // namespace
 
@@ -1476,8 +2105,8 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   const auto &context = *static_cast<const MeshNodeContext *>(context_);
   const DateTime t = view_.graph().evaluation_time();
 
-  storage.dependents[value_impl::graph_local_value(depends_on)].insert(
-      value_impl::graph_local_value(key));
+  storage.add_edge(value_impl::graph_local_value(depends_on),
+                   value_impl::graph_local_value(key));
 
   MeshEntry *key_entry = storage.find(key);
   if (key_entry == nullptr) {
@@ -1486,19 +2115,24 @@ bool MeshNodeView::add_dependency(const ValueView &key,
 
   MeshEntry *dep_entry = storage.find(depends_on);
   if (dep_entry == nullptr) {
-    // Create the dependency on demand, same cycle, ranked below the requester;
-    // the resolver evaluates it first (lower rank) and then resumes us.
-    create_instance(view_, context, storage, depends_on, 0, t);
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    // Create the dependency on demand, same cycle, ranked just below the
+    // requester, which therefore already outranks it and nothing is re-ranked.
+    // Only a requester that has reached rank zero falls back to pushing
+    // everything above it up.
+    create_instance(view_, context, storage, depends_on,
+                    key_entry->rank > 0 ? key_entry->rank - 1 : 0, t);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
+    // The new instance is evaluated next pass; wait for it.
+    storage.pause_dependency_slot = storage.find_slot(depends_on);
     return false;
   }
 
   if (key_entry->rank <= dep_entry->rank) {
     // The requester must outrank its dependency; re-rank and re-evaluate in
     // order.
-    std::vector<Value> stack;
-    re_rank(storage, key, depends_on, stack);
+    ValueSet on_stack;
+    re_rank(storage, key, depends_on, on_stack);
     return false;
   }
 
@@ -1512,23 +2146,25 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   if (dep_entry->settled_time == t) {
     return true;
   }
-  if (dep_entry->paused || !dep_entry->graph.has_value()) {
+  if (!dep_entry->graph.has_value()) {
     return false;
   }
-  return dep_entry->graph.view().next_scheduled_time() > t;
+  if (dep_entry->paused || dep_entry->graph.view().next_scheduled_time() <= t) {
+    // Due or paused: it will settle this cycle, so wait for that rather than
+    // be retried on every pass until it does.
+    storage.pause_dependency_slot = storage.find_slot(depends_on);
+    return false;
+  }
+  return true;
 }
 
 void MeshNodeView::remove_dependency(const ValueView &key,
                                      const ValueView &depends_on) const {
   auto &storage = *MemoryUtils::cast<MeshNodeStorage>(storage_);
-  auto it = storage.dependents.find(depends_on);
-  if (it == storage.dependents.end()) {
-    return;
-  }
-  it->second.erase(value_impl::graph_local_value(key));
-  if (it->second.empty()) {
-    queue_graph_removal(storage, depends_on);
-    storage.dependents.erase(it);
+  // Queue before the edge goes: ``depends_on`` may be the map's own key.
+  const Value dependency = value_impl::graph_local_value(depends_on);
+  if (storage.remove_edge(dependency.view(), key)) {
+    queue_graph_removal(storage, dependency.view());
   }
 }
 
@@ -1592,6 +2228,7 @@ NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
 
   descriptor.callbacks.stop = &mesh_node_stop;
   descriptor.ops.evaluate_impl = &mesh_evaluate_impl;
+  descriptor.ops.checkpoint_ops = &mesh_checkpoint_ops();
   descriptor.ops.storage_metrics_impl = &mesh_storage_metrics;
   descriptor.ops.extended_view_type_id = MeshNodeView::node_view_type_id();
   MeshNodeStorage debug_exemplar;
@@ -1647,6 +2284,7 @@ NodeBuilder mesh_subscribe_node(NodeTypeMetaData meta) {
 
   descriptor.callbacks.stop = &mesh_subscribe_stop;
   descriptor.ops.evaluate_impl = &mesh_subscribe_evaluate_impl;
+  descriptor.ops.checkpoint_ops = &mesh_subscribe_checkpoint_ops();
   descriptor.ops.extended_view_context = &context;
   return NodeBuilder::from_descriptor(std::move(descriptor));
 }
@@ -1671,6 +2309,7 @@ NodeBuilder mesh_key_set_node(NodeTypeMetaData meta) {
 
   descriptor.callbacks.stop = &mesh_key_set_stop;
   descriptor.ops.evaluate_impl = &mesh_key_set_evaluate_impl;
+  descriptor.ops.checkpoint_ops = &mesh_key_set_checkpoint_ops();
   descriptor.ops.extended_view_context = &context;
   return NodeBuilder::from_descriptor(std::move(descriptor));
 }

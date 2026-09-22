@@ -6,14 +6,43 @@
 #include <hgraph/runtime/nested_graph_node.h>
 
 #include <cstddef>
+#include <stdexcept>
 #include <vector>
 
 namespace hgraph
 {
+    /** Immutable assignment of logical list indices to one independent worker.
+     * The ordinary map owns every index. Partitioned maps keep the original
+     * logical index values while allocating only their child graphs. Outputs
+     * grow when owned children write, just as an ordinary list map does.
+     */
+    struct TslMapPartition
+    {
+        std::size_t group{0};
+        std::size_t count{1};
+
+        void validate() const
+        {
+            if (count == 0 || group >= count)
+                throw std::invalid_argument("map_: invalid list partition");
+        }
+
+        [[nodiscard]] std::size_t child_count(std::size_t extent) const noexcept
+        {
+            return extent > group ? 1 + (extent - 1 - group) / count : 0;
+        }
+
+        [[nodiscard]] std::size_t logical_index(std::size_t slot) const noexcept
+        {
+            return group + slot * count;
+        }
+    };
+
     struct HGRAPH_CLASS_EXPORT TslMapNodeSpec
     {
-        /** One child template instantiated once for every observed list index. */
+        /** One child template instantiated for each assigned list index. */
         SingleNestedGraphNodeSpec child{};
+        TslMapPartition partition{};
         /** Per child-boundary argument: index element, outer broadcast, or ``ndx``.
          */
         std::vector<MapArgSource> args{};

@@ -214,6 +214,12 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
 hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
+    test_checkpoint_codec.cpp
+    test_component_checkpoint.cpp
+    test_component_checkpoint_identity.cpp
+    test_reference_checkpoint.cpp
+    test_component_recovery_scenarios.cpp
+    test_constant_checkpoint.cpp
     test_context_wiring.cpp
     test_delayed_binding.cpp
     test_erased_wiring.cpp
@@ -230,6 +236,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
+    test_runtime_spec_conformance.cpp
     test_type_arguments.cpp
     test_type_resolution.cpp
     test_wiring_observers.cpp
@@ -239,15 +246,38 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     lift/test_lift.cpp
     test_audit_behavior.cpp
     test_collection_nodes.cpp
+    test_binary_atoms.cpp
+    test_binary_codec.cpp
+    test_binary_session.cpp
+    test_binary_profiles.cpp
+    distributed_worker_recipes.cpp
+    test_distributed_boundary.cpp
+    test_distributed_child.cpp
+    test_distributed_map.cpp
+    test_distributed_map_shapes.cpp
+    test_distributed_map_checkpoint.cpp
+    test_recovery_benchmark.cpp
+    test_distributed_protocol.cpp
+    test_distributed_transport.cpp
+    test_distributed_worker.cpp
+    test_partitioned_delta.cpp
+    test_externally_driven_executor.cpp
+    test_worker_graph_checkpoint.cpp
     test_const_eval.cpp
     test_data_frame_operators.cpp
     test_cs_field_projection.cpp
     test_dispatch.cpp
     test_engine_control.cpp
+    test_executor_activity.cpp
+    test_spawn.cpp
+    test_spawn_checkpoint.cpp
     test_lower.cpp
     test_map.cpp
+    test_dynamic_map_checkpoint.cpp
     test_mesh.cpp
+    test_mesh_checkpoint.cpp
     test_reduce.cpp
+    test_reduce_checkpoint.cpp
     test_std_nodes.cpp
     test_std_operators.cpp
     test_std_type_registration.cpp
@@ -268,6 +298,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_mutable_list.cpp
     test_mutable_map.cpp
     test_mutable_set.cpp
+    test_observer_sets.cpp
     test_plan_factories.cpp
     test_runtime_value_view.cpp
     test_schema_examples.cpp
@@ -282,6 +313,9 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_time_series_reference.cpp
     test_table_recorder.cpp
     test_ts_delta.cpp
+    test_ts_checkpoint.cpp
+    test_ts_output_checkpoint.cpp
+    test_ts_window_checkpoint.cpp
     test_ts_endpoint_visitor.cpp
     test_ts_input.cpp
     test_ts_output.cpp
@@ -312,6 +346,28 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_table.cpp
     test_table_round_trip.cpp
 )
+
+# A worker program for the distributed tests.
+#
+# RFC 0037's bootstrap rule is that a worker rebuilds its child from a
+# registration BOTH programs link, which is why the recipes translation unit is
+# compiled into this executable as well as into the test suite. In an ordinary
+# application the caller and the worker are one program launched twice; here
+# the caller's main belongs to Catch2, so the worker needs its own.
+add_executable(hgraph_distributed_worker_host
+    distributed_worker_host.cpp
+    distributed_worker_recipes.cpp
+    spawn_worker_recipes.cpp
+)
+target_link_libraries(hgraph_distributed_worker_host PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_distributed_worker_host)
+
+# The tests spawn that program by path, and must not be able to run against a
+# stale one.
+target_compile_definitions(hgraph_stdlib_test_objects PRIVATE
+    HGRAPH_TEST_WORKER_PROGRAM="$<TARGET_FILE:hgraph_distributed_worker_host>"
+)
+add_dependencies(hgraph_stdlib_test_objects hgraph_distributed_worker_host)
 
 set(HGRAPH_TEST_OBJECT_LIBS
     hgraph_runtime_test_objects
@@ -395,6 +451,17 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # inside the replaced delete and reports a spurious mismatched-new-delete.
     target_compile_options(hgraph_json_perf PRIVATE -Wno-mismatched-new-delete)
 endif()
+
+# Manual observer scaling benchmark, including allocation-failure guards.
+add_executable(hgraph_observer_perf observer_perf.cpp)
+target_link_libraries(hgraph_observer_perf PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_observer_perf)
+
+# What dmap_ costs (RFC 0037 criterion 9). Its own worker program, so it needs
+# no companion executable -- which is also the shape a host application has.
+add_executable(hgraph_distributed_perf distributed_perf.cpp)
+target_link_libraries(hgraph_distributed_perf PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_distributed_perf)
 
 add_executable(hgraph_type_erasure_perf
     type_erasure_perf.cpp

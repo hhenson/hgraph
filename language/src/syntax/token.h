@@ -47,6 +47,7 @@ namespace hgl::syntax
         KwLet,
         KwVar,
         KwState,
+        KwCache,
         KwInject,
         KwReturn,
         KwIf,

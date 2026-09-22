@@ -1,4 +1,5 @@
 #include "ir/type_check.h"
+#include <hgl/constant_arithmetic.h>
 
 #include "ir/canonical_types.h"
 #include "ir/constraint_solver.h"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -38,32 +40,9 @@ namespace hgl::ir
             std::unreachable();
         }
 
-        [[nodiscard]] std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
-            return lhs + rhs;
-        }
-
-        [[nodiscard]] std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
-            return lhs - rhs;
-        }
-
-        [[nodiscard]] std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs) noexcept {
-            constexpr auto min = std::numeric_limits<std::int64_t>::min();
-            constexpr auto max = std::numeric_limits<std::int64_t>::max();
-            if (lhs == 0 || rhs == 0) { return 0; }
-            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
-            if (lhs > 0) {
-                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
-            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
-                return std::nullopt;
-            }
-            return lhs * rhs;
-        }
+        using constant_arithmetic::checked_add;
+        using constant_arithmetic::checked_mul;
+        using constant_arithmetic::checked_sub;
 
         [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept { return system_operator_name(op); }
 
@@ -466,26 +445,57 @@ namespace hgl::ir
                 return (static_cast<std::uint64_t>(owner.value) << 32U) | application.value;
             }
 
+            /// Extends the source-type index by owner over types appended since the
+            /// last call. Interned types carry no owner, and an owner never changes.
+            void index_owned_types() {
+                for (; indexed_types_ < module_.types.size(); ++indexed_types_) {
+                    const DeclarationId type_owner = module_.types[indexed_types_].owner;
+                    if (!type_owner.valid()) { continue; }
+                    if (types_by_owner_.size() <= type_owner.value) { types_by_owner_.resize(type_owner.value + 1U); }
+                    types_by_owner_[type_owner.value].push_back(static_cast<std::uint32_t>(indexed_types_));
+                }
+            }
+
             void validate_owned_type_applications(DeclarationId owner) {
-                const std::size_t type_count = module_.types.size();
-                for (std::uint32_t index = 0; index < type_count; ++index) {
-                    const Type source = module_.types[index];
-                    if (source.owner != owner) { continue; }
+                index_owned_types();
+                if (!owner.valid() || owner.value >= types_by_owner_.size()) { return; }
+                const std::size_t type_count = types_by_owner_[owner.value].size();
+                for (std::size_t position = 0; position < type_count; ++position) {
+                    const std::uint32_t index          = types_by_owner_[owner.value][position];
+                    const Type          source         = module_.types[index];
                     const TypeId application_id = canonical(TypeId{index});
                     if (!application_id.valid()) { continue; }
                     const Type &application = type(application_id);
                     if (application.kind != TypeKind::Symbol || !application.symbol.valid()) { continue; }
                     const Symbol &symbol = module_.symbol(application.symbol);
-                    if (symbol.kind != SymbolKind::Struct || !symbol.owner.valid()) { continue; }
-                    const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node);
-                    if (structure == nullptr || structure->generics.size() != application.arguments.size()) { continue; }
+                    // A struct another module exports is checked exactly as a
+                    // local one (ADR 0013): the importer rebuilt the `where`
+                    // the exporter declared, so the SAME solver decides whether
+                    // this specialization is admissible. Reading only local
+                    // declarations would leave an imported family unchecked.
+                    const std::vector<GenericParameter> *generics     = nullptr;
+                    ConstraintId                         requirements = {};
+                    if (symbol.kind == SymbolKind::Struct && symbol.owner.valid()) {
+                        if (const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node)) {
+                            generics     = &structure->generics;
+                            requirements = structure->requirements;
+                        }
+                    } else if (symbol.kind == SymbolKind::ImportedStruct) {
+                        const auto imported = std::ranges::find(module_.imported_structs, symbol.canonical_name,
+                                                                &ImportedStructDecl::identity);
+                        if (imported != module_.imported_structs.end()) {
+                            generics     = &imported->generics;
+                            requirements = imported->requirements;
+                        }
+                    }
+                    if (generics == nullptr || generics->size() != application.arguments.size()) { continue; }
 
                     if (!checked_type_applications_.insert(application_key(owner, application_id)).second) { continue; }
-                    if (!structure->requirements.valid()) { continue; }
+                    if (!requirements.valid()) { continue; }
                     detail::GenericSubstitution substitution{module_, canonical_types_};
                     bool                        complete = true;
-                    for (std::size_t argument = 0; argument < structure->generics.size(); ++argument) {
-                        const GenericParameter &generic = structure->generics[argument];
+                    for (std::size_t argument = 0; argument < generics->size(); ++argument) {
+                        const GenericParameter &generic = (*generics)[argument];
                         const TypeArgument     &value   = application.arguments[argument];
                         if (generic.is_const && value.kind == TypeArgumentKind::Value) {
                             complete = substitution.bind_value(generic.symbol, value.value) && complete;
@@ -497,7 +507,7 @@ namespace hgl::ir
                     }
                     if (!complete) { continue; }
                     const auto premises = active_constraint_premises();
-                    (void)constraint_solver_.solve(structure->requirements, substitution, source.range,
+                    (void)constraint_solver_.solve(requirements, substitution, source.range,
                                                    "generic struct '" + symbol.name + "'", true, premises);
                 }
             }
@@ -568,6 +578,13 @@ namespace hgl::ir
                             collect_capabilities(node, id);
                             if (node.kind == FunctionKind::Runtime && node.block_body.valid()) {
                                 check_runtime_layout(node.block_body);
+                                if (!node.is_const &&
+                                    std::ranges::all_of(node.signature.parameters, [](const Parameter &parameter) {
+                                        return parameter.is_const;
+                                    }) && !injects_capability(id, "scheduler")) {
+                                    diagnostics_.report(syntax::Category::Injectable, declaration.range,
+                                                        "a runtime function without temporal parameters must 'inject scheduler' and schedule itself");
+                                }
                             }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
                             active_native_phase_ = NativePhase::Wiring;
@@ -736,6 +753,15 @@ namespace hgl::ir
             /// `when` is never nested, because a nested handler cannot
             /// contribute to the node's activation policy. Semantic checks, so
             /// each diagnostic names the misplaced construct.
+            template <typename T> [[nodiscard]] static std::string declaration_keyword(const T &node) {
+                if constexpr (std::is_same_v<T, StateDecl>) {
+                    return node.cache ? "cache" : "state";
+                } else {
+                    static_cast<void>(node);
+                    return "inject";
+                }
+            }
+
             void check_runtime_layout(BlockId body) {
                 bool        executable_seen = false;
                 std::size_t starts          = 0;
@@ -748,7 +774,7 @@ namespace hgl::ir
                             if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
                                 if (executable_seen) {
                                     diagnostics_.report(syntax::Category::FunctionKind, statement.range,
-                                                        std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                        std::string{"'"} + declaration_keyword(node) +
                                                             "' must be declared before runtime handlers");
                                 }
                                 if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
@@ -824,7 +850,7 @@ namespace hgl::ir
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
-                                                    std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                    std::string{"'"} + declaration_keyword(node) +
                                                         "' must be declared at function level, not inside a block");
                                 if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
                             } else {
@@ -1132,6 +1158,7 @@ namespace hgl::ir
                         expression.value_kind = value_kind_for_phase(expression.phase);
                         break;
                     case SymbolKind::State:
+                    case SymbolKind::Cache:
                         expression.type       = canonical(symbol.type);
                         expression.phase      = Phase::Runtime;
                         expression.value_kind = ValueKind::RuntimeValue;
@@ -1170,6 +1197,10 @@ namespace hgl::ir
                         expression.value_kind = ValueKind::Function;
                         break;
                     case SymbolKind::Struct:
+                    // A struct another module exports names a type exactly as a
+                    // local one does (ADR 0013); only its declaration lives
+                    // elsewhere.
+                    case SymbolKind::ImportedStruct:
                     case SymbolKind::TypeParameter:
                         expression.type       = make_type(TypeKind::Symbol, {}, reference.symbol);
                         expression.phase      = Phase::Constant;
@@ -1457,12 +1488,7 @@ namespace hgl::ir
                         if (*right == 0.0) {
                             type_error(expression.range, "remainder by zero in a constant expression");
                         } else {
-                            // Match the native scalar_mod kernel without a
-                            // runtime dependency in this frontend layer.
-                            const double remainder = std::fmod(*left, *right);
-                            expression.constant =
-                                Constant{remainder == 0.0 ? std::copysign(0.0, *right)
-                                                          : ((remainder < 0.0) != (*right < 0.0) ? remainder + *right : remainder)};
+                            expression.constant = Constant{constant_arithmetic::modulo(*left, *right)};
                         }
                         break;
                     case BinaryOp::Equal:
@@ -2303,7 +2329,10 @@ namespace hgl::ir
                         check_intrinsic_call(expression, call, reference->symbol, expected);
                         return;
                     }
-                    if (symbol.kind == SymbolKind::Struct) {
+                    // A struct another module exports is constructible exactly
+                    // as a local one is (ADR 0013); only its declaration lives
+                    // elsewhere, which is what the argument check accounts for.
+                    if (symbol.kind == SymbolKind::Struct || symbol.kind == SymbolKind::ImportedStruct) {
                         check_struct_call(expression, call, reference->symbol, expected);
                         return;
                     }
@@ -2631,12 +2660,33 @@ namespace hgl::ir
                 }
             }
 
-            [[nodiscard]] TypeId infer_struct_application(TypeId applied, const StructDecl &structure,
-                                                          const std::vector<Argument> &arguments, syntax::SourceRange range) {
+            /// The field of `structure` a named constructor argument names, by an
+            /// index built once per struct declaration.
+            [[nodiscard]] const StructField *named_field(DeclarationId owner, const StructDecl &structure,
+                                                         const std::string &name) {
+                auto [entry, inserted] = struct_field_indices_.try_emplace(owner.value);
+                if (inserted) {
+                    for (std::size_t index = 0; index < structure.fields.size(); ++index) {
+                        entry->second.try_emplace(structure.fields[index].name, index);
+                    }
+                }
+                const auto found = entry->second.find(name);
+                return found == entry->second.end() ? nullptr : &structure.fields[found->second];
+            }
+
+            /// Infer the generic arguments a constructor did not spell, from
+            /// the types of the arguments it did. Local and imported structs
+            /// differ only in where the generics and fields come from, and how
+            /// a named field is found -- the inference is the same, and stays
+            /// one implementation so the two cannot drift.
+            template <typename FindField>
+            [[nodiscard]] TypeId infer_application(TypeId applied, std::span<const GenericParameter> generics,
+                                                   std::span<const StructField> fields, FindField &&find,
+                                                   const std::vector<Argument> &arguments, syntax::SourceRange range) {
                 const TypeId unwrapped = unwrap_atomic(applied);
                 if (!unwrapped.valid()) { return applied; }
                 const Type nominal = type(unwrapped);
-                if (nominal.arguments.size() >= structure.generics.size()) { return applied; }
+                if (nominal.arguments.size() >= generics.size()) { return applied; }
 
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, bindings);
@@ -2644,11 +2694,9 @@ namespace hgl::ir
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
                     if (argument.name.empty()) {
-                        if (positional < structure.fields.size()) { field = &structure.fields[positional++]; }
+                        if (positional < fields.size()) { field = &fields[positional++]; }
                     } else {
-                        const auto found = std::find_if(structure.fields.begin(), structure.fields.end(),
-                                                        [&](const StructField &item) { return item.name == argument.name; });
-                        if (found != structure.fields.end()) { field = &*found; }
+                        field = find(argument.name);
                     }
                     if (!field) { continue; }
                     const Expr &source = module_.expr(argument.value);
@@ -2665,7 +2713,7 @@ namespace hgl::ir
                 Type inferred = nominal;
                 inferred.arguments.clear();
                 bool complete = true;
-                for (const GenericParameter &generic : structure.generics) {
+                for (const GenericParameter &generic : generics) {
                     TypeArgument argument;
                     argument.range = range;
                     if (generic.is_const) {
@@ -2694,6 +2742,93 @@ namespace hgl::ir
                 return complete ? intern(std::move(inferred)) : applied;
             }
 
+            [[nodiscard]] TypeId infer_struct_application(TypeId applied, DeclarationId owner, const StructDecl &structure,
+                                                          const std::vector<Argument> &arguments, syntax::SourceRange range) {
+                return infer_application(
+                    applied, structure.generics, structure.fields,
+                    [&](const std::string &name) { return named_field(owner, structure, name); }, arguments, range);
+            }
+
+            /// The re-description of a struct another module exports, when
+            /// `symbol` names one (ADR 0013): it has no declaration here.
+            [[nodiscard]] const ImportedStructDecl *imported_struct_decl(SymbolId symbol) const noexcept {
+                if (!symbol.valid() || module_.symbol(symbol).kind != SymbolKind::ImportedStruct) { return nullptr; }
+                for (const ImportedStructDecl &candidate : module_.imported_structs) {
+                    if (candidate.symbol == symbol) { return &candidate; }
+                }
+                return nullptr;
+            }
+
+            /// Constructing an imported struct checks against the re-described
+            /// layout rather than a `StructDecl`. Its fields are already the
+            /// whole layout, ancestors first, and a generic imported family
+            /// still refuses by name -- so there is no application to infer and
+            /// no generic scope to substitute through.
+            void check_imported_constructor_arguments(Expr &expression, TypeId unwrapped, const ImportedStructDecl &imported,
+                                                      const std::vector<Argument> &arguments, bool delta) {
+                if (imported.abstract) {
+                    type_error(expression.range, "abstract struct '" + imported.identity + "' is not constructible");
+                    return;
+                }
+                // The completeness this module's own constructors get, held
+                // here rather than in the resolver: a catalog record carries
+                // only the fields it DECLARES, and this is the flattened
+                // layout. Without it a missing required field surfaces only as
+                // a backend failure, and a field given twice is resolved
+                // silently to whichever the backend happens to keep.
+                std::vector<bool> supplied(imported.fields.size(), false);
+                std::size_t       positional = 0;
+                for (const Argument &argument : arguments) {
+                    const StructField *field = nullptr;
+                    std::size_t        position = imported.fields.size();
+                    if (argument.name.empty()) {
+                        if (positional < imported.fields.size()) {
+                            position = positional;
+                            field    = &imported.fields[positional++];
+                        }
+                    } else {
+                        for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                            if (imported.fields[index].name == argument.name) {
+                                position = index;
+                                field    = &imported.fields[index];
+                            }
+                        }
+                        if (field == nullptr) {
+                            type_error(argument.range,
+                                       "struct '" + imported.identity + "' has no field named '" + argument.name + "'");
+                            continue;
+                        }
+                    }
+                    if (!field) { continue; }
+                    if (position < supplied.size()) {
+                        if (supplied[position]) {
+                            type_error(argument.range, "field '" + field->name + "' is given twice");
+                        }
+                        supplied[position] = true;
+                    }
+                    const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
+                    if (!expected) {
+                        type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
+                        continue;
+                    }
+                    Expr &value = check_expr(argument.value, *expected);
+                    if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
+                        if (!delta && !field->optional) {
+                            type_error(value.range, "null is only valid for an optional field or sparse delta");
+                        }
+                    } else {
+                        require_assignable(*expected, value, "constructor field");
+                    }
+                    expression.effects |= value.effects;
+                }
+                if (delta) { return; }
+                for (std::size_t index = 0; index < imported.fields.size(); ++index) {
+                    if (supplied[index] || imported.fields[index].optional) { continue; }
+                    type_error(expression.range,
+                               "struct '" + imported.identity + "' needs field '" + imported.fields[index].name + "'");
+                }
+            }
+
             [[nodiscard]] TypeId check_constructor_arguments(Expr &expression, TypeId applied,
                                                              const std::vector<Argument> &arguments, bool delta) {
                 TypeId unwrapped = unwrap_atomic(applied);
@@ -2703,11 +2838,27 @@ namespace hgl::ir
                     type_error(expression.range, "constructor requires a struct type");
                     return applied;
                 }
-                const Symbol &symbol = module_.symbol(nominal.symbol);
-                const auto   *structure =
-                    symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                if (const ImportedStructDecl *imported = imported_struct_decl(nominal.symbol)) {
+                    // An imported generic infers its arguments, or says which
+                    // one it could not -- the same answer a local struct
+                    // gives. Returning it unapplied let the program pass type
+                    // checking and fail in the backend instead, against
+                    // generated code the author never wrote.
+                    applied = infer_application(
+                        applied, imported->generics, imported->fields,
+                        [&](const std::string &name) -> const StructField * {
+                            const auto found = std::ranges::find(imported->fields, name, &StructField::name);
+                            return found == imported->fields.end() ? nullptr : &*found;
+                        },
+                        arguments, expression.range);
+                    unwrapped = unwrap_atomic(applied);
+                    check_imported_constructor_arguments(expression, unwrapped, *imported, arguments, delta);
+                    return applied;
+                }
+                const DeclarationId owner     = module_.symbol(nominal.symbol).owner;
+                const auto         *structure = owner.valid() ? std::get_if<StructDecl>(&module_.declaration(owner).node) : nullptr;
                 if (!structure) { return applied; }
-                applied   = infer_struct_application(applied, *structure, arguments, expression.range);
+                applied   = infer_struct_application(applied, owner, *structure, arguments, expression.range);
                 unwrapped = unwrap_atomic(applied);
                 detail::GenericSubstitution struct_substitution{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, struct_substitution);
@@ -2722,9 +2873,7 @@ namespace hgl::ir
                     if (argument.name.empty()) {
                         if (positional < structure->fields.size()) { field = &structure->fields[positional++]; }
                     } else {
-                        const auto found = std::find_if(structure->fields.begin(), structure->fields.end(),
-                                                        [&](const StructField &item) { return item.name == argument.name; });
-                        if (found != structure->fields.end()) { field = &*found; }
+                        field = named_field(owner, *structure, argument.name);
                     }
                     if (!field) { continue; }
                     const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
@@ -3095,6 +3244,46 @@ namespace hgl::ir
                 } else if (name == "insert" || name == "update" || name == "upsert" || name == "remove" || name == "discard" ||
                            name == "invalidate" || name == "clear" || name == "push" || name == "pop") {
                     check_output_mutation_call(expression, call, name, args);
+                } else if (name == "scheduled") {
+                    // The scheduler handler selector (ADR 0010): a zero-argument
+                    // predicate in a function-level `when` of a function that
+                    // injects `scheduler`. It contributes no input activation.
+                    if (!args.empty()) { type_error(expression.range, "'scheduled' takes no arguments"); }
+                    if (!runtime_owner(expression.owner) || !active_when_condition_) {
+                        type_error(expression.range, "'scheduled' is only valid in a function-level 'when' condition");
+                    } else if (!injects_capability(expression.owner, "scheduler")) {
+                        diagnostics_.report(syntax::Category::Injectable, expression.range,
+                                            "'scheduled' requires 'inject scheduler'");
+                    }
+                    expression.type = scalar(ScalarType::Bool);
+                } else if (name == "passivate" || name == "activate") {
+                    // Input activity (ADR 0010): the argument is a direct
+                    // temporal parameter of this runtime function.
+                    for (const Argument &argument : call.arguments) {
+                        if (!argument.name.empty()) { type_error(argument.range, "'" + name + "' takes a positional argument"); }
+                    }
+                    if (args.size() != 1U) {
+                        type_error(expression.range, "'" + name + "' takes one temporal parameter");
+                    } else {
+                        Expr       &input     = check_expr(args.front());
+                        const auto *reference = std::get_if<SymbolRef>(&input.node);
+                        const bool  parameter = reference != nullptr && reference->symbol.valid() &&
+                                               module_.symbol(reference->symbol).kind == SymbolKind::SignalParameter;
+                        if (!parameter) {
+                            type_error(input.range, "'" + name + "' takes a temporal parameter of this function, not a projection");
+                        }
+                    }
+                    if (!runtime_owner(expression.owner)) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'" + name + "' is only available in a runtime function");
+                    } else if (active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'" + name + "' needs temporal inputs, which are unavailable during " +
+                                                (active_native_phase_ == NativePhase::Stop ? "stop" : "start"));
+                    } else if (active_when_condition_) {
+                        type_error(expression.range, "'" + name + "' is a statement, not a 'when' predicate");
+                    }
+                    expression.type = void_type_;
                 } else {
                     type_error(expression.range, "unsupported intrinsic '" + name + "'");
                 }
@@ -3126,9 +3315,79 @@ namespace hgl::ir
                 expression.value_kind = ValueKind::Void;
                 expression.effects    = member.effects | Effect::UseCapability;
                 for (ExprId argument : args) { expression.effects |= module_.expr(argument).effects; }
+                const std::string &identity = member.operation.identity;
+                if (identity.starts_with("clock.") || identity.starts_with("scheduler.")) {
+                    check_lifecycle_capability_call(expression, call, identity, args);
+                }
                 expression.operation = Operation{.kind     = OperationKind::Capability,
                                                  .target   = reference ? reference->symbol : SymbolId{},
-                                                 .identity = member.operation.identity};
+                                                 .identity = identity};
+                if (expression.type != void_type_) { expression.value_kind = ValueKind::RuntimeValue; }
+            }
+
+            /// The clock and scheduler surfaces admitted by ADR 0010. Each
+            /// method maps to one hgraph selector call; the result type is
+            /// fixed here so a runtime body can use it as an ordinary value.
+            void check_lifecycle_capability_call(Expr &expression, const Call &call, const std::string &identity,
+                                                 const std::vector<ExprId> &args) {
+                for (const Argument &argument : call.arguments) {
+                    if (!argument.name.empty()) {
+                        type_error(argument.range, "'" + identity + "' takes positional arguments");
+                        return;
+                    }
+                }
+                const auto arity = [&](std::size_t low, std::size_t high) {
+                    if (args.size() < low || args.size() > high) {
+                        type_error(expression.range, "'" + identity + "' takes " +
+                                                         (low == high ? std::to_string(low)
+                                                                      : std::to_string(low) + " or " + std::to_string(high)) +
+                                                         (high == 1U ? " argument" : " arguments"));
+                        return false;
+                    }
+                    return true;
+                };
+                const auto argument_is = [&](std::size_t index, ScalarType expected, std::string_view what) {
+                    if (index < args.size()) { require_assignable(scalar(expected), module_.expr(args[index]), what); }
+                };
+                if (identity == "clock.evaluation_time" || identity == "clock.now" ||
+                    identity == "clock.next_cycle_evaluation_time") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::DateTime); }
+                } else if (identity == "scheduler.schedule") {
+                    if (arity(1U, 2U)) {
+                        argument_is(0U, ScalarType::Duration, "scheduler.schedule delay");
+                        argument_is(1U, ScalarType::Bool, "scheduler.schedule on_wall_clock");
+                    }
+                } else if (identity == "scheduler.schedule_at") {
+                    if (arity(1U, 2U)) {
+                        argument_is(0U, ScalarType::DateTime, "scheduler.schedule_at time");
+                        argument_is(1U, ScalarType::Bool, "scheduler.schedule_at on_wall_clock");
+                    }
+                } else if (identity == "scheduler.is_scheduled") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::Bool); }
+                } else if (identity == "scheduler.next_scheduled_time") {
+                    if (arity(0U, 0U)) { expression.type = scalar(ScalarType::DateTime); }
+                } else {
+                    type_error(expression.range,
+                               "'" + identity + "' is not a capability method; clock has evaluation_time, now and "
+                                                "next_cycle_evaluation_time; scheduler has schedule, schedule_at, "
+                                                "is_scheduled and next_scheduled_time");
+                }
+            }
+
+            /// Whether the function owning `owner` injects `name`. Capabilities
+            /// are gathered onto the declaration only after its body is checked,
+            /// so this reads the inject statements directly.
+            [[nodiscard]] bool injects_capability(DeclarationId owner, std::string_view name) const noexcept {
+                for (const Stmt &statement : module_.stmts) {
+                    if (statement.owner != owner) { continue; }
+                    const auto *inject = std::get_if<InjectDecl>(&statement.node);
+                    if (inject == nullptr) { continue; }
+                    if (std::ranges::any_of(inject->symbols,
+                                            [&](SymbolId symbol) { return module_.symbol(symbol).name == name; })) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             void check_stmt(StmtId id, TypeId expected_return, TypeId expected_tail, bool is_tail) {
@@ -3162,9 +3421,10 @@ namespace hgl::ir
                             Expr &init                       = check_expr(node.init, node.type);
                             active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
-                            require_assignable(node.type, init, "state initializer");
+                            require_assignable(node.type, init, node.cache ? "cache initializer" : "state initializer");
                             if (borrowed_schema(init.type)) {
-                                type_error(init.range, "borrowed schema metadata cannot be stored in state");
+                                type_error(init.range, node.cache ? "borrowed schema metadata cannot be stored in a cache"
+                                                                  : "borrowed schema metadata cannot be stored in state");
                             }
                             module_.symbols[node.symbol.value].type = node.type;
                             symbol_phase_[node.symbol.value]        = Phase::Runtime;
@@ -3175,9 +3435,8 @@ namespace hgl::ir
                                 Symbol &symbol = module_.symbols[symbol_id.value];
                                 // `inject` names compiler-approved capabilities only
                                 // (syntax-and-semantics.md, "Runtime state,
-                                // injectables, and lifecycle"). `out` and `logger`
-                                // lower today; `clock` and `scheduler` are agreed
-                                // and fail closed until their selectors exist.
+                                // injectables, and lifecycle"): `out`, `logger`,
+                                // `clock` and `scheduler` (ADR 0010).
                                 if (symbol.name == "out") {
                                     const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
                                     if (!result.valid() || same(result, void_type_)) {
@@ -3186,12 +3445,7 @@ namespace hgl::ir
                                     }
                                     symbol.type = fn ? fn->signature.result : void_type_;
                                 } else {
-                                    if (symbol.name == "clock" || symbol.name == "scheduler") {
-                                        diagnostics_.report(syntax::Category::Injectable, symbol.range,
-                                                            "the '" + symbol.name +
-                                                                "' injectable is agreed but not implemented yet; "
-                                                                "'out' and 'logger' are available");
-                                    } else if (symbol.name != "logger") {
+                                    if (symbol.name != "logger" && symbol.name != "clock" && symbol.name != "scheduler") {
                                         diagnostics_.report(syntax::Category::Injectable, symbol.range,
                                                             "'" + symbol.name +
                                                                 "' is not an approved runtime capability; the "
@@ -3243,7 +3497,7 @@ namespace hgl::ir
                                 const Symbol &symbol = module_.symbol(root);
                                 if (symbol.kind == SymbolKind::LocalVar) {
                                     statement.effects |= Effect::WriteLocal;
-                                } else if (symbol.kind == SymbolKind::State) {
+                                } else if (symbol.kind == SymbolKind::State || symbol.kind == SymbolKind::Cache) {
                                     statement.effects |= Effect::WriteState;
                                 } else if (symbol.kind == SymbolKind::InjectedCapability && symbol.name == "out") {
                                     statement.effects |= Effect::WriteOutput;
@@ -3332,6 +3586,11 @@ namespace hgl::ir
             syntax::DiagnosticSink                  &diagnostics_;
             detail::CanonicalTypes                   canonical_types_;
             detail::ConstraintSolver                 constraint_solver_;
+            /// Field name to position in the StructDecl, by struct declaration.
+            std::unordered_map<std::uint32_t, std::unordered_map<std::string, std::size_t>> struct_field_indices_{};
+            /// Source types by owning declaration, and how far that index has read.
+            std::vector<std::vector<std::uint32_t>>  types_by_owner_{};
+            std::size_t                              indexed_types_{0};
             std::vector<std::uint8_t>                expr_state_{};
             std::unordered_map<std::uint32_t, Phase> symbol_phase_{};
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};

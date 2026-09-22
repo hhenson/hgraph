@@ -10,22 +10,28 @@
 #include <conditional-results.h>
 #include <conditional-sinks.h>
 #include <parity.h>
+#include <parameter-packs.h>
 
 #include "wiring/backend.h"
 
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/static_schema.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
+namespace parameter_packs     = checks::parameter_packs;
 namespace conditional_early   = examples::conditional_early_return;
 namespace conditional_forward = examples::conditional_forwarding;
 namespace conditional_mixed   = examples::conditional_mixed_results;
@@ -36,11 +42,40 @@ namespace conditional_sinks   = examples::conditional_sinks;
 
 namespace
 {
+    struct route_packs
+    {
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> price, Port<TS<Str>> symbol) {
+            wire<parameter_packs::operators::route>(w, price, symbol);
+            return price;
+        }
+    };
+
     void session() {
         hgl::wiring::ensure_session();
         parity::register_operators();
     }
+
+    /// Reading(value: value, note: note), with `unit` at its default.
+    Value reading(double value, std::optional<std::string> note = std::nullopt) {
+        Value result{ValuePlanFactory::instance().type_for(scalar_descriptor<typename parity::Reading::value_type>::value_meta())};
+        auto  fields = result.as_bundle().begin_mutation();
+        fields["value"].set(value);
+        fields["unit"].set(std::string{"C"});
+        if (note) { fields["note"].set(*note); }
+        return result;
+    }
 }  // namespace
+
+TEST_CASE("generated heterogeneous pack calls retain concrete endpoint schemas", "[codegen][generated][parameter-pack]") {
+    session();
+    parameter_packs::register_operators();
+    CHECK_OUTPUT(eval_node<route_packs>(values<Float>(1.5, none, 2.5), values<Str>(Str{"a"}, Str{"b"}, none)),
+                 values<Float>(1.5, none, 2.5));
+    CHECK_OUTPUT(eval_node<parameter_packs::operators::route_constants>(values<Float>(1.5, none, 2.5)),
+                 values<Float>(1.5, none, 2.5));
+    CHECK_OUTPUT(eval_node<parameter_packs::operators::route_all>(values<Bool>(true, true), values<Bool>(false, true)),
+                 values<Bool>(false, true));
+}
 
 TEST_CASE("generated plus records the ticks hgl test asserts", "[codegen][generated]") {
     session();
@@ -54,6 +89,18 @@ TEST_CASE("generated compositions wire helpers, constants and kernels", "[codege
     CHECK(eval_node<parity::maybe_double>(values<Float>(1.5), Bool{true}) == values<Float>(3.0));
     CHECK(eval_node<parity::maybe_double>(values<Float>(1.5), Bool{false}) == values<Float>(1.5));
     CHECK(eval_node<parity::offset_by>(values<Float>(1.0, 2.5), Int{3}) == values<Float>(7.0, 8.5));
+}
+
+TEST_CASE("generated atomic construction aggregates the fields that have a value", "[codegen][generated][struct]") {
+    session();
+    CHECK_OUTPUT(eval_node<parity::operators::reading>(values<Float>(1.0, 2.0)), values<Value>(reading(1.0), reading(2.0)));
+    CHECK_OUTPUT(eval_node<parity::operators::cleared_reading>(values<Float>(1.0)), values<Value>(reading(1.0)));
+    CHECK_OUTPUT((eval_node<parity::operators::annotated_reading>(values<Float>(1.0, 2.0), values<Str>(none, Str{"n"}))),
+                 values<Value>(none, reading(2.0, "n")));
+    CHECK_OUTPUT(eval_node<parity::operators::fixed_reading>(values<Float>(0.0, 1.0)), values<Value>(reading(1.5), none));
+
+    const Value empty_tag{ValuePlanFactory::instance().type_for(scalar_descriptor<typename parity::Tag::value_type>::value_meta())};
+    CHECK_OUTPUT(eval_node<parity::operators::empty_tag>(values<Float>(0.0, 1.0)), values<Value>(empty_tag, none));
 }
 
 TEST_CASE("generated temporal conditionals match scripted switch behavior", "[codegen][generated][conditional]") {
@@ -189,4 +236,22 @@ TEST_CASE("generated exports are registered by module-qualified name with their 
     // Through the registry the const default applies, as it would from Python.
     CHECK_OUTPUT(eval_node<parity::operators::scaled_sum>(values<Float>(1.0), values<Float>(2.0)), values<Float>(6.0));
     CHECK_OUTPUT(eval_node<parity::operators::maybe_double>(values<Float>(1.5)), values<Float>(3.0));
+}
+
+TEST_CASE("compiled wiring checks integer overflow before graph execution", "[codegen][parity][arithmetic]") {
+    hgl::wiring::ensure_session();
+    parity::register_operators();
+    const Int lo = std::numeric_limits<Int>::min();
+    const Int hi = std::numeric_limits<Int>::max();
+    CHECK_OUTPUT(eval_node<parity::operators::checked_add>(values<Int>(0), arg<"x">(hi - 1), arg<"y">(Int{1})), values<Int>(hi));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_sub>(values<Int>(0), arg<"x">(lo + 1), arg<"y">(Int{1})), values<Int>(lo));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_mul>(values<Int>(0), arg<"x">(lo / 2), arg<"y">(Int{2})), values<Int>(lo));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_floor>(values<Int>(0), arg<"x">(Int{-7}), arg<"y">(Int{3})), values<Int>(-3));
+    CHECK_OUTPUT(eval_node<parity::operators::checked_rem>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})), values<Int>(0));
+    CHECK_THROWS(eval_node<parity::operators::checked_add>(values<Int>(0), arg<"x">(hi), arg<"y">(Int{1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_sub>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_mul>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_neg>(values<Int>(0), arg<"x">(lo)));
+    CHECK_THROWS(eval_node<parity::operators::checked_floor>(values<Int>(0), arg<"x">(lo), arg<"y">(Int{-1})));
+    CHECK_THROWS(eval_node<parity::operators::checked_rem>(values<Int>(0), arg<"x">(Int{1}), arg<"y">(Int{0})));
 }

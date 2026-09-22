@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_STREAM_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_STREAM_IMPL_H
 
+#include <hgraph/types/value/value_hash.h>
 #include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/lib/std/operators/arithmetic.h>    // sub_ / div_ (rolling_average)
@@ -15,6 +16,8 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/runtime/service_node.h>
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -38,6 +41,31 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
+        /** Stream position counters are LOOPBACK state — they decide which
+            future ticks pass — so they are RecordableState: replay restarting
+            them at zero changed which ticks passed (audit 2026-08-15). */
+        [[nodiscard]] inline Int recorded_index(const RecordableState<TS<Int>> &seen)
+        {
+            return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
+        }
+
+        // Endpoint state and the scheduler image contain the complete progress
+        // of every schedule overload. Scalar configuration is part of identity.
+        inline const NodeCheckpointOps &schedule_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    manifest::encode_manifest_scalar(writer, builder.scalars().view());
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
+
         // ----- TSW: to_window + window aggregates --------------------------
 
         /** to_window(ts, period, min_window_period): push each tick into a
@@ -660,21 +688,18 @@ namespace hgraph::stdlib
             bindings are the throttle's start-resolved TSS delta bindings. */
         inline std::optional<Value> net_set_deltas(std::deque<Value> &pending, const ThrottleState &state)
         {
-            std::vector<Value> added;
-            std::vector<Value> removed;
-            const auto erase_matching = [](std::vector<Value> &values, const ValueView &value) {
-                for (auto it = values.begin(); it != values.end(); ++it)
-                {
-                    if (it->view().equals(value)) { values.erase(it); return true; }
-                }
-                return false;
+            // Hashed, because every element of every queued delta asks "is this
+            // already pending the other way?" -- answering from a list, and
+            // erasing from its middle, made a burst of n elements cost n * n.
+            // The results only fill set builders, so their order is immaterial.
+            using PendingValues = ankerl::unordered_dense::set<Value, ValueHash, ValueEqual>;
+            PendingValues added;
+            PendingValues removed;
+            const auto erase_matching = [](PendingValues &values, const ValueView &value) {
+                return values.erase(value) != 0;
             };
-            const auto push_unique = [&](std::vector<Value> &values, const ValueView &value) {
-                for (const Value &existing : values)
-                {
-                    if (existing.view().equals(value)) { return; }
-                }
-                values.emplace_back(value);
+            const auto push_unique = [](PendingValues &values, const ValueView &value) {
+                if (!values.contains(value)) { values.emplace(value); }
             };
 
             for (Value &delta : pending)
@@ -1307,12 +1332,18 @@ namespace hgraph::stdlib
 
     struct schedule_impl
     {
+        // O(1) work and storage per emission; the counter is semantic history.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void start(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool> initial_delay,
                           Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
-                          NodeScheduler scheduler)
+                          NodeScheduler scheduler, RecordableState<TS<Int>> ticks)
         {
             stream_impl_detail::require_positive(delay.value(), "delay");
-            if (max_ticks.value() <= 0) { return; }
+            if (stream_impl_detail::recorded_index(ticks) >= max_ticks.value()) { return; }
             scheduler.schedule(initial_delay.value() ? delay.value() : TimeDelta{}, std::nullopt,
                                use_wall_clock.value());
         }
@@ -1320,10 +1351,12 @@ namespace hgraph::stdlib
         static void eval(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool>,
                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
                          NodeScheduler scheduler,
-                         State<Int> ticks, Out<TS<Bool>> out)
+                         RecordableState<TS<Int>> ticks, Out<TS<Bool>> out)
         {
+            const Int previous = stream_impl_detail::recorded_index(ticks);
+            if (previous >= max_ticks.value()) { return; }
             out.set(true);
-            const Int emitted = ticks.get() + 1;
+            const Int emitted = previous + 1;
             ticks.set(emitted);
             if (emitted < max_ticks.value())
             {
@@ -1359,11 +1392,13 @@ namespace hgraph::stdlib
         template <typename StartIn>
         inline void schedule_ts_eval(In<"delay", TS<TimeDelta>> &delay, StartIn *start, bool initial_delay,
                                      Int max_ticks, bool use_wall_clock, const NodeScheduler &scheduler,
-                                     State<Int> &ticks, DateTime now, Out<TS<Bool>> &out)
+                                     RecordableState<TS<Int>> &ticks, DateTime now, Out<TS<Bool>> &out)
         {
             const bool start_modified = start != nullptr && start->modified();
-            if (ticks.get() >= max_ticks && !start_modified) { return; }  // budget spent: stop rescheduling
-            const bool scheduled = scheduler.is_scheduled_now();
+            if (max_ticks <= 0 || (recorded_index(ticks) >= max_ticks && !start_modified)) { return; }  // no remaining budget
+            // A fresh start replaces the old grid, including an alarm due now.
+            const bool scheduled = !start_modified && scheduler.is_scheduled_now();
+            if (start_modified) { scheduler.reset(); }
 
             if (start != nullptr && start->valid())
             {
@@ -1384,10 +1419,12 @@ namespace hgraph::stdlib
 
             if ((delay.modified() && !initial_delay) || (scheduled && !delay.modified()))
             {
-                if (ticks.get() < max_ticks)
+                if (recorded_index(ticks) < max_ticks)
                 {
-                    ticks.set(ticks.get() + 1);
+                    ticks.set(recorded_index(ticks) + 1);
                     out.set(true);
+                    // An exhausted budget has no future work to recover.
+                    if (recorded_index(ticks) >= max_ticks) { scheduler.reset(); }
                 }
             }
         }
@@ -1395,9 +1432,14 @@ namespace hgraph::stdlib
 
     struct schedule_ts_impl
     {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void eval(In<"delay", TS<TimeDelta>> delay, Scalar<"initial_delay", Bool> initial_delay,
                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
-                         NodeScheduler scheduler, State<Int> ticks, EvaluationClockView clock,
+                         NodeScheduler scheduler, RecordableState<TS<Int>> ticks, EvaluationClockView clock,
                          Out<TS<Bool>> out)
         {
             const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
@@ -1416,10 +1458,15 @@ namespace hgraph::stdlib
 
     struct schedule_ts_start_impl
     {
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            return stream_impl_detail::schedule_checkpoint_ops();
+        }
+
         static void eval(In<"delay", TS<TimeDelta>> delay, In<"start", TS<DateTime>, InputValidity::Unchecked> start,
                          Scalar<"initial_delay", Bool> initial_delay, Scalar<"max_ticks", Int> max_ticks,
                          Scalar<"use_wall_clock", Bool> use_wall_clock, NodeScheduler scheduler,
-                         State<Int> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
+                         RecordableState<TS<Int>> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
         {
             const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
             stream_impl_detail::schedule_ts_eval(delay, &start, initial_delay.value(), max_ticks.value(),
@@ -1803,14 +1850,6 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
-        /** Stream position counters are LOOPBACK state — they decide which
-            future ticks pass — so they are RecordableState: replay restarting
-            them at zero changed which ticks passed (audit 2026-08-15). */
-        [[nodiscard]] inline Int recorded_index(const RecordableState<TS<Int>> &seen)
-        {
-            return seen.valid() ? seen.value().checked_as<Int>() : Int{0};
-        }
-
         /** Shared take lifecycle: passivation is DERIVED from the recordable
             counter — activation is not recorded, so a restored (recovered)
             exhausted take must come up passive rather than forwarding. */
@@ -1840,7 +1879,66 @@ namespace hgraph::stdlib
             if (index >= limit) { ts.make_passive(); }
             forward();
         }
+        /** Shared take-by-time lifecycle: the window opens at the SOURCE'S
+            FIRST TICK rather than at graph start, and the source passivates
+            once it moves beyond the span (upstream's ``take_by_time``). The
+            first tick is always inside the window, whatever the span, because
+            the span is measured from it. */
+        template <typename TsSelector, typename Forward>
+        void take_time_eval(TsSelector &ts, TimeDelta span,
+                            RecordableState<TS<DateTime>> &opened, Forward &&forward)
+        {
+            const DateTime now = ts.base().last_modified_time();
+            if (!opened.valid()) { opened.set(now); }
+            if (now - opened.value().template checked_as<DateTime>() > span)
+            {
+                ts.make_passive();
+                return;
+            }
+            forward();
+        }
     }  // namespace stream_impl_detail
+
+    /** take(ts, timedelta) over a SCALAR TS: the duration form of the count
+        overload below, and the only spelling released hgraph offers besides
+        the count (parity #818 item 2.4). */
+    struct take_by_time_scalar_impl
+    {
+        static constexpr auto name = "take_by_time_scalar";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return time_series_arg_matches<AnyTS>(context, 0) &&
+                   context.scalar_as<TimeDelta>("count") != nullptr;
+        }
+
+        static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"count", TimeDelta> count,
+                         RecordableState<TS<DateTime>> opened, Out<TS<ScalarVar<"T">>> out)
+        {
+            stream_impl_detail::take_time_eval(ts, count.value(), opened,
+                                               [&] { out.apply(ts.base().value()); });
+        }
+    };
+
+    /** take(ts, timedelta) over any other shape: the delta is sufficient,
+        for the same reason the count form gives. */
+    struct take_by_time_impl
+    {
+        static constexpr auto name = "take_by_time_delta";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return context.scalar_as<TimeDelta>("count") != nullptr;
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", TimeDelta> count,
+                         RecordableState<TS<DateTime>> opened, Out<TsVar<"S">> out)
+        {
+            stream_impl_detail::take_time_eval(
+                ts, count.value(), opened,
+                [&] { apply_delta(out, capture_delta(ts.base()).view()); });
+        }
+    };
 
     /** take over a SCALAR TS: whole-value forwarding — a scalar's delta IS
         its value, so the general overload's owned-delta capture would be

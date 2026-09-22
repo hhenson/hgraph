@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -595,7 +596,11 @@ namespace hgraph
             CompositePlanBuilder &add_field(std::string_view name, const StoragePlan &plan) {
                 ensure_kind(CompositeKind::NamedTuple, "add_field");
                 if (name.empty()) { throw std::logic_error("MemoryUtils::CompositePlanBuilder field names must not be empty"); }
-                if (has_field(name)) { throw std::logic_error("MemoryUtils::CompositePlanBuilder field names must be unique"); }
+                // A hash set of the names so far, not a scan of the components,
+                // which would make building a composite quadratic in its fields.
+                if (!m_names.emplace(name).second) {
+                    throw std::logic_error("MemoryUtils::CompositePlanBuilder field names must be unique");
+                }
                 add_pending_component(std::string(name), plan);
                 return *this;
             }
@@ -627,8 +632,9 @@ namespace hgraph
             [[nodiscard]] const StoragePlan &build() const { return composite_registry().intern(m_kind, m_components); }
 
           private:
-            CompositeKind                 m_kind{CompositeKind::Tuple};
-            std::vector<PendingComponent> m_components{};
+            CompositeKind                   m_kind{CompositeKind::Tuple};
+            std::vector<PendingComponent>   m_components{};
+            std::unordered_set<std::string> m_names{};
 
             void ensure_kind(CompositeKind expected, std::string_view action) const {
                 if (m_kind != expected) {
@@ -636,11 +642,6 @@ namespace hgraph
                                            (expected == CompositeKind::Tuple ? " is only valid for tuple builders"
                                                                              : " is only valid for named tuple builders"));
                 }
-            }
-
-            [[nodiscard]] bool has_field(std::string_view name) const noexcept {
-                return std::ranges::any_of(m_components,
-                                           [name](const PendingComponent &component) { return component.name == name; });
             }
 
             void add_pending_component(std::string name, const StoragePlan &plan) {
@@ -1419,10 +1420,9 @@ namespace hgraph
                 return entry;
             }
 
+            /// Keeps a component name alive with its entry. The builder guarantees
+            /// a composite's names are unique, so there is nothing to share.
             [[nodiscard]] static const char *intern_name(Entry &entry, std::string_view name) {
-                for (const auto &stored : entry.name_storage) {
-                    if (*stored == name) { return stored->c_str(); }
-                }
                 auto        stored = std::make_unique<std::string>(name);
                 const char *result = stored->c_str();
                 entry.name_storage.push_back(std::move(stored));

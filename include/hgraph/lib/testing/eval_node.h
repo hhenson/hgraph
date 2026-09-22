@@ -24,6 +24,17 @@
 
 namespace hgraph::testing
 {
+    /** Execution bounds and mode for graph behavior tests. Input element zero is emitted at
+     * start_time; subsequent elements retain the ordinary MIN_TD spacing.
+     * The executor's end_time is exclusive.
+     */
+    struct EvalNodeRunOptions
+    {
+        DateTime start_time{MIN_ST};
+        DateTime end_time{MAX_ET};
+        GraphExecutorMode mode{GraphExecutorMode::Simulation};
+    };
+
     /**
      * Per-time-series-schema harness trait — the single extension point that lets
      * ``eval_node`` exchange the right per-cycle "harness element" with the test and
@@ -582,8 +593,13 @@ namespace hgraph::testing
 
         template <typename GraphT, typename... Args>
         [[nodiscard]] std::vector<std::optional<typename graph_output_element<GraphT>::type>>
-        eval_input_graph(Args &&...args)
+        eval_input_graph_with_options(EvalNodeRunOptions options, Args &&...args)
         {
+            if (options.start_time < MIN_ST || options.end_time <= options.start_time)
+            {
+                throw std::invalid_argument("eval_node: invalid simulation time bounds");
+            }
+            const bool sparse_output = options.start_time != MIN_ST;
             using sig    = StaticGraphSignature<GraphT>;
             using params = typename sig::param_types;
             constexpr std::size_t arg_count = sizeof...(Args);
@@ -622,8 +638,16 @@ namespace hgraph::testing
                 return GraphT::compose(w, wire_arg.template operator()<I>()...);
             }(std::make_index_sequence<sig::param_count()>{});
 
-            if constexpr (std::is_void_v<out_schema>) { wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"}); }
-            else { ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"}); }
+            if (sparse_output)
+            {
+                wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"},
+                                                arg<"sparse">(true));
+            }
+            else
+            {
+                if constexpr (std::is_void_v<out_schema>) { wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"}); }
+                else { ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"}); }
+            }
             GraphBuilder gb = std::move(w).finish();
             label_if_named<GraphT>(gb);
 
@@ -644,13 +668,35 @@ namespace hgraph::testing
             }(std::make_index_sequence<sig::param_count()>{});
 
             GraphExecutorBuilder eb;
-            eb.graph_builder(std::move(gb)).start_time(MIN_ST).end_time(MAX_ET);
+            eb.graph_builder(std::move(gb)).start_time(options.start_time).end_time(options.end_time).mode(options.mode);
             GraphExecutorValue executor = eb.make_executor();
             auto               view     = executor.view();
             view.run();
             copy_completed_global_state(view.graph());
 
             auto out = [&] {
+                if (sparse_output)
+                {
+                    using Element = typename graph_output_element<GraphT>::type;
+                    std::vector<std::optional<Element>> result;
+                    const auto buffer = view.graph().global_state().get("eval_node::out");
+                    if (!buffer.valid()) { return result; }
+                    const auto entries = buffer.as_list();
+                    for (std::size_t i = 0; i < entries.size(); ++i)
+                    {
+                        const auto entry = entries.at(i).as_indexed_view();
+                        const auto when = entry.at(0).template checked_as<DateTime>();
+                        const auto offset = static_cast<std::size_t>((when - options.start_time) / MIN_TD);
+                        if (offset >= max_dense_cycles)
+                        {
+                            throw std::logic_error("eval_node: output spans too many cycles to return densely");
+                        }
+                        if (result.size() <= offset) { result.resize(offset + 1); }
+                        if constexpr (std::is_same_v<Element, Value>) { result[offset] = Value{entry.at(1)}; }
+                        else { result[offset] = entry.at(1).template checked_as<Element>(); }
+                    }
+                    return result;
+                }
                 if constexpr (std::is_void_v<out_schema>)
                 {
                     return get_recorded_deltas(view.graph().global_state(), "eval_node::out");
@@ -660,8 +706,18 @@ namespace hgraph::testing
                     return ts_harness<out_schema>::read(view.graph().global_state(), "eval_node::out");
                 }
             }();
+            const auto input_window = static_cast<std::size_t>(
+                (options.end_time - options.start_time + MIN_TD - TimeDelta{1}) / MIN_TD);
+            max_len = std::min(max_len, input_window);
             if (out.size() < max_len) { out.resize(max_len); }
             return out;
+        }
+
+        template <typename GraphT, typename... Args>
+        [[nodiscard]] std::vector<std::optional<typename graph_output_element<GraphT>::type>>
+        eval_input_graph(Args &&...args)
+        {
+            return eval_input_graph_with_options<GraphT>(EvalNodeRunOptions{}, std::forward<Args>(args)...);
         }
     }  // namespace eval_node_detail
 
@@ -930,6 +986,22 @@ namespace hgraph::testing
     eval_node(First &&first, Rest &&...rest)
     {
         return eval_node_detail::eval_input_graph<GraphT>(std::forward<First>(first), std::forward<Rest>(rest)...);
+    }
+    /** Evaluate a concrete graph within explicit simulation bounds.
+     * Outputs are aligned relative to start_time, including when the chosen
+     * time is a calendar date far from MIN_ST. Use this for successive runs
+     * against a completed component checkpoint.
+     */
+    template <typename GraphT, typename... Rest>
+        requires(!std::derived_from<GraphT, operator_tag> && eval_node_detail::is_graph<GraphT>)
+    [[nodiscard]] std::vector<std::optional<typename eval_node_detail::graph_output_element<GraphT>::type>>
+    eval_node_with_options(
+        EvalNodeRunOptions options,
+        const std::vector<std::optional<typename eval_node_detail::graph_first_input_element<GraphT>::type>> &input0,
+        Rest &&...rest)
+    {
+        return eval_node_detail::eval_input_graph_with_options<GraphT>(
+            options, input0, std::forward<Rest>(rest)...);
     }
 }  // namespace hgraph::testing
 

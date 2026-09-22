@@ -1208,7 +1208,7 @@ TEST_CASE("TSOutput root parent is reattached after copy and move")
     REQUIRE(moved.view(t3).modified());
 }
 
-TEST_CASE("TSOutputView all_valid recurses through fixed bundle children")
+TEST_CASE("TSOutputView all_valid checks immediate fixed bundle children")
 {
     using namespace hgraph;
 
@@ -1521,6 +1521,63 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     observed.unsubscribe(&replacement);
 }
 
+TEST_CASE("TSData observers compact nested removals before ordinary removal", "[observers]")
+{
+    using namespace hgraph;
+
+    struct CallbackNotifiable : Notifiable
+    {
+        std::function<void(DateTime)> callback;
+        void notify(DateTime time) override { callback(time); }
+    };
+
+    TSDataObserverSet observers;
+    CallbackNotifiable remover;
+    RecordingNotifiable removed_before_turn;
+    RecordingNotifiable survivor;
+    RecordingNotifiable second_survivor;
+    RecordingNotifiable removed_tail;
+
+    observers.subscribe(&remover);
+    observers.subscribe(&removed_before_turn);
+    observers.subscribe(&survivor);
+    observers.subscribe(&second_survivor);
+    observers.subscribe(&removed_tail);
+
+    bool throw_after_nested = false;
+    SECTION("outer notification completes") {}
+    SECTION("outer notification throws") { throw_after_nested = true; }
+
+    remover.callback = [&](DateTime time) {
+        observers.unsubscribe(&remover);
+        observers.unsubscribe(&removed_before_turn);
+        observers.unsubscribe(&removed_tail);
+        REQUIRE(observers.size() == 2);
+        observers.notify(time);
+        REQUIRE(observers.size() == 2);
+        if (throw_after_nested) { throw std::runtime_error("observer failed"); }
+    };
+
+    if (throw_after_nested)
+    {
+        REQUIRE_THROWS_AS(observers.notify(MIN_ST), std::runtime_error);
+    }
+    else { observers.notify(MIN_ST); }
+
+    CHECK(removed_before_turn.notified.empty());
+    CHECK(removed_tail.notified.empty());
+    CHECK(survivor.notified.size() == (throw_after_nested ? 1 : 2));
+    CHECK(second_survivor.notified == survivor.notified);
+    REQUIRE(observers.size() == 2);
+
+    observers.unsubscribe(&second_survivor);
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&survivor));
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+    observers.unsubscribe(&survivor);
+    CHECK(observers.empty());
+}
+
 TEST_CASE("TSOutputView delegates validity through slot TSData ops")
 {
     using namespace hgraph;
@@ -1552,6 +1609,7 @@ TEST_CASE("TSOutputView delegates validity through slot TSData ops")
     TSOutput dict_output{*tsd};
     auto     dict_root = dict_output.data_view();
     auto     dict      = dict_root.as_dict();
+    REQUIRE_FALSE(dict_output.view(t1).all_valid());
     Value    key{7};
     Value    value{42};
 
@@ -1561,12 +1619,8 @@ TEST_CASE("TSOutputView delegates validity through slot TSData ops")
     }
 
     REQUIRE(dict_output.view(t1).valid());
-    // A TSD's ``all_valid`` is its ``valid``: it does not walk its values.
-    // This matches upstream, where TSD declares no ``all_valid`` override and
-    // inherits ``PythonTimeSeriesOutput.all_valid``. A key whose value has not
-    // been written yet is therefore not detected here - use the value's own
-    // ``valid`` if that matters to a node.
-    REQUIRE(dict_output.view(t1).all_valid());
+    // A live key does not imply a valid child value.
+    REQUIRE_FALSE(dict_output.view(t1).all_valid());
 
     {
         auto child = dict.at(key.view());
@@ -1575,6 +1629,25 @@ TEST_CASE("TSOutputView delegates validity through slot TSData ops")
     }
 
     REQUIRE(dict_output.view(t1).all_valid());
+    const auto t2 = t1 + TimeDelta{1};
+    {
+        auto child = dict.at(key.view());
+        auto mutation = child.begin_mutation(t2);
+        REQUIRE(mutation.invalidate());
+    }
+    REQUIRE(dict_output.view(t2).valid());
+    REQUIRE_FALSE(dict_output.view(t2).all_valid());
+    {
+        auto mutation = dict.begin_mutation(t2);
+        REQUIRE(mutation.erase(key.view()));
+    }
+    // Removed children remain allocated until slot cleanup, but no longer count.
+    REQUIRE(dict_output.view(t2).all_valid());
+    {
+        auto mutation = dict.begin_mutation(t2 + TimeDelta{1});
+        static_cast<void>(mutation.at(key.view()));
+    }
+    REQUIRE_FALSE(dict_output.view(t2 + TimeDelta{1}).all_valid());
 }
 
 TEST_CASE("TSOutput shape casts return endpoint views for slot collections")
@@ -1653,7 +1726,7 @@ TEST_CASE("TSOutputView delegates window all_valid through TSData ops")
     }
 
     // A window has a current value from its first element. The minimum period
-    // controls recursive/full validity, not whether the window exists.
+    // controls window readiness, not whether the window exists.
     REQUIRE(output.view(t1).valid());
     REQUIRE_FALSE(output.view(t1).all_valid());
 

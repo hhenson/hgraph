@@ -230,8 +230,9 @@ NB_MODULE(_hgraph_fabric, module)
     module.def(
         "_encode_revision_reference",
         [](std::uint8_t kind, RevisionId revision) {
-            // A utility, not a store operation: the json codec directly, so the
-            // Python surface needs no configuration to encode a reference.
+            // A utility, not a store operation: the notification codec
+            // directly, so the Python surface needs no configuration to encode
+            // a reference.
             persistence::store::ObjectBytes encoded;
             notification_codec().encode(
                 make_revision_reference(static_cast<MetadataObjectKind>(kind), revision)

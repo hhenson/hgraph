@@ -72,14 +72,61 @@ request is processed after the current graph evaluation cycle completes.
 Execution Modes
 ~~~~~~~~~~~~~~~
 
-The engine has two primary execution modes: ``RealTime`` and ``Simulation``
-(``GraphExecutorMode`` in ``runtime/executor.h``).
+The engine has two primary execution modes, ``RealTime`` and ``Simulation``,
+and one driven from outside, ``ExternallyDriven`` (``GraphExecutorMode`` in
+``runtime/executor.h``).
 
 In ``Simulation`` mode, time is compressed. The engine does not wait between scheduled events. It processes events as quickly as possible while preserving event-time ordering.
 
 In ``RealTime`` mode, the engine attempts to align event processing with wall-clock time. If an event is scheduled for the future, the engine waits until wall-clock time reaches that event time. If the engine is already behind, it evaluates immediately. Waiting would only increase the lag.
 
+In ``ExternallyDriven`` mode neither the schedule nor the wall clock decides when a cycle runs: the caller does. The executor is **stepped** rather than run — ``run()`` throws, and ``start_external`` / ``step`` / ``stop_external`` replace the loop — so the caller's thread does the driving and the evaluation time is an argument. This is the substrate for a distributed nested graph (RFC 0037), where a worker is handed an evaluation time and reports back what its children want next.
+
 The engine does not skip scheduled events. If event coalescing or collapsing is required, that behavior belongs to a source node. A collapsing source node may choose to combine external events before introducing them into the runtime, but that is source-node behavior, not scheduler behavior.
+
+A stepped graph can also be captured and restarted whole (RFC 0039). ``capture_external`` returns the image of every node at the last completed step — between two calls nothing is in flight, so that boundary is the consistency cut — and ``start_external_restored`` replaces ``start_external``, importing an image before the start phase runs. Both drive ``GraphCheckpointCoordinator`` with a whole-graph selection, so the graph must be wired inside a checkpoint scope: an image names its nodes by checkpoint identity. They are the mechanism without the completed-day policy; configured component recovery stays refused on this mode.
+
+That invariant is what makes ``step`` **refuse** an evaluation time later than ``next_scheduled_time()``. A node is evaluated only when its scheduled slot is exactly the evaluation time, and a slot already in the past is neither evaluated nor carried into the next scheduled time — so stepping over due work would discard it silently. The looping modes cannot reach that state because they always evaluate at ``next_scheduled_time()``; a caller must honour it just as ``single_nested_graph_propagate_schedule`` makes a local parent do.
+
+Distributed evaluation
+~~~~~~~~~~~~~~~~~~~~~~
+
+``ExternallyDriven`` is what makes a child graph in another **process** an
+ordinary child graph. The nested-graph contract is already ``evaluate(time)``
+in, ``next_scheduled_time()`` out; distribution puts a transport between those
+two calls, and adds copying, since a child in another process cannot bind to
+the caller's outputs. The design record is RFC 0037; the layers are:
+
+``runtime/distributed_child.h``
+    A child driven by an external caller. Each boundary argument is a local
+    **pull source** the driver stages a value into, and each result a local
+    sink it reads back. Staging writes a plain value into ``GlobalState`` and
+    schedules the source; the time-series write then happens inside the node's
+    ``eval``, so the modified-time stamping is the runtime's own and cannot
+    disagree with the cycle. Push sources are not merely banned here — a push
+    source is a root-graph facility, and a distributed child stands in for a
+    nested graph, which never has one.
+
+``runtime/distributed_protocol.h``, ``runtime/distributed_transport.h``
+    One request and one reply per cycle, carrying deltas encoded by the binary
+    value codec (RFC 0017; RFC 0040's ``Fast`` profile), length-prefixed over a
+    blocking byte stream. Converters are bound once, when a boundary slot is
+    declared: a cycle takes no type-system lock, and each payload is written in
+    place behind its length rather than encoded aside and copied.
+
+``runtime/distributed_worker.h``, ``runtime/distributed_process.h``
+    A worker cannot be **sent** its graph — a graph is code. It rebuilds the
+    child from a *recipe* registered under a derived name in a translation unit
+    both programs link, which is why the worker program is normally the calling
+    program launched again.
+
+``runtime/distributed_map.h``
+    ``dmap_``: a ``map_`` whose per-key children run in workers. The caller
+    partitions each cycle's TSD delta by key and each worker hosts an ordinary
+    ``map_`` over its group, so per-key construction, teardown and state are
+    the existing behaviour rather than a second implementation. The contract is
+    equality with ``map_`` — the worker count is a throughput decision and must
+    never be observable in the result.
 
 Scheduling Semantics
 ~~~~~~~~~~~~~~~~~~~~
@@ -525,6 +572,11 @@ directly. Embedding runtimes use the hook when a lexical context must cover a
 whole phase. The Python bridge, for example, constructs one nanobind GIL guard
 in its runner and calls the action within that guard; executor storage and the
 phase action remain Python-independent.
+
+The externally driven executor uses the same phase runner around start, step
+and stop. Python distributed workers install it on their child host; blocking
+transport runs outside the GIL. Configured component recovery is refused in
+this mode, since stepping does not define a completed-interval commit boundary.
 
 Run Logger Ownership
 ~~~~~~~~~~~~~~~~~~~~

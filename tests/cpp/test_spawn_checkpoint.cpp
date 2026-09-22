@@ -1,0 +1,457 @@
+// Recovery through ``spawn_`` (RFC 0039, "Recovery of worker-hosted graphs").
+//
+// What recovers is a COMPONENT INSIDE A STAGE. The recovery configuration names
+// it; the ``spawn_`` that hosts it stands in for it in the owner graph; and each
+// stage's image covers the component and the runtime's own boundary nodes.
+// Everything else in the stage is processed, not recovered -- the pipeline's
+// sink first of all, which acts in a worker process and whose effect no
+// checkpoint could replay. So the sinks here are the plain ones every other
+// spawn test uses: they declare nothing.
+//
+// The sink's trace IS the observable result, so a restarted run is compared
+// sample for sample with an uninterrupted one.
+
+#include "spawn_test_graphs.h"
+
+#include <hgraph/lib/std/component.h>
+#include <hgraph/lib/testing/check_output.h>
+#include <hgraph/runtime/component_checkpoint.h>
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
+
+#include <memory>
+
+namespace
+{
+    // eval_node needs an output, and these graphs have none worth having. It
+    // must not be the input: a source whose baseline the session restores may
+    // feed only its component input boundary, here as for any component.
+    Port<TS<Int>> no_output(Wiring &w) { return wire<stdlib::const_>(w, Int{0}).as<TS<Int>>(); }
+
+    /** The component in one stage, the sink in the next. ``spawn_`` is in no component. */
+    template <typename Stage> struct HostedPipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<Stage>(), test_stage<Sink<TS<Int>>>(trace.value())}), arguments,
+                       process_config());
+            return no_output(w);
+        }
+    };
+    /** The component and the sink side by side in ONE stage graph. */
+    struct HostedSingleStage
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, test_stage<ComponentAndSinkStage>(trace.value()), arguments, process_config());
+            return no_output(w);
+        }
+    };
+    /** A hosted component with a bound side input that ticks once, on the first day. */
+    struct HostedSideInput
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Port<TS<Int>> offset, Scalar<"trace", Trace *> trace)
+        {
+            auto first = bind_(test_stage<SideComponentStage>(), {{"offset", offset.erased()}});
+            std::array arguments{input_arg(value.erased(), "value")};
+            wire_spawn(w, pipeline_({std::move(first), test_stage<Sink<TS<Int>>>(trace.value())}), arguments,
+                       process_config());
+            return no_output(w);
+        }
+    };
+    /** The other nesting: ``spawn_`` is itself a member of a recoverable component, so every
+        stage is saved whole -- and its sink, having no recordable state, is transient there too. */
+    template <typename Stage> struct MemberPipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            // The body is a lambda because the trace is test plumbing, not a
+            // time series a component boundary could carry.
+            const std::array inputs{WiringNamedPortRef{"value", value.erased()}};
+            const auto       out = stdlib::component(w, "spawn-pipeline", inputs,
+                [&](std::span<const WiringPortRef> ports) -> WiringPortRef {
+                    std::array arguments{input_arg(ports[0])};
+                    wire_spawn(w, pipeline_({test_stage<Identity<TS<Int>>>(), test_stage<Stage>(),
+                                             test_stage<Sink<TS<Int>>>(trace.value())}),
+                               arguments, process_config());
+                    return ports[0];
+                });
+            return Port<void>{w, out}.template as<TS<Int>>();
+        }
+    };
+
+    EvalNodeRunOptions interval(std::size_t begin, std::size_t end)
+    {
+        return {.start_time = MIN_ST + MIN_TD * static_cast<Int>(begin),
+                .end_time   = MIN_ST + MIN_TD * static_cast<Int>(end)};
+    }
+
+    using Observed = std::vector<std::tuple<DateTime, std::string, std::string, bool>>;
+    void append(Observed &observed, const Trace &trace)
+    {
+        trace.load();
+        for (const auto &sample : trace.samples)
+        {
+            REQUIRE(sample.pid != process_id());
+            observed.emplace_back(sample.time, sample.value, sample.delta, sample.valid);
+        }
+    }
+
+    using Ticks = std::vector<std::optional<Int>>;
+
+    /** One day of ``Graph`` over ``inputs[begin, end)``, recovering ``component`` when one is named. */
+    template <typename Graph, typename... Input>
+    void day(std::size_t begin, std::size_t end, const char *component, std::optional<ComponentCheckpoint> &completed,
+             Observed &observed, const Input &...inputs)
+    {
+        GlobalContext context;
+        if (component != nullptr)
+        {
+            configure_component_recovery(context.state().view(), {
+                .component_id = component, .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+        }
+        Trace trace;
+        (void)eval_node_with_options<Graph>(interval(begin, end), Ticks{inputs.begin() + begin, inputs.begin() + end}...,
+                                            arg<"trace">(&trace));
+        append(observed, trace);
+        if (component != nullptr) { REQUIRE(completed); }
+    }
+
+    template <typename Graph, typename... Input> Observed uninterrupted(const Ticks &first, const Input &...rest)
+    {
+        std::optional<ComponentCheckpoint> unused;
+        Observed                           observed;
+        day<Graph>(0, first.size(), nullptr, unused, observed, first, rest...);
+        return observed;
+    }
+
+    /** ``split`` is the first day's length, or the input's size for a restart on every tick. */
+    template <typename Graph, typename... Input>
+    Observed restarted(std::size_t split, const char *component, const Ticks &first, const Input &...rest)
+    {
+        std::optional<ComponentCheckpoint> completed;
+        Observed                           observed;
+        for (std::size_t begin = 0; begin < first.size();)
+        {
+            const auto end = split == first.size() ? begin + 1 : (begin == 0 ? split : first.size());
+            day<Graph>(begin, end, component, completed, observed, first, rest...);
+            begin = end;
+        }
+        return observed;
+    }
+
+    template <typename Graph> void every_boundary(const char *component)
+    {
+        const Ticks ticks    = values<Int>(1, 2, none, 3, 4, none, 5);
+        const auto  expected = uninterrupted<Graph>(ticks);
+        // Pinned so the comparison cannot pass on silence: five ticks, running totals.
+        REQUIRE(expected.size() == 5);
+        REQUIRE(std::get<1>(expected.back()) == "15");
+        for (std::size_t split = 1; split <= ticks.size(); ++split)
+        {
+            CAPTURE(split);
+            CHECK(restarted<Graph>(split, component, ticks) == expected);
+            // The control: the same restarts without recovery lose the running
+            // total, and the sink sees it. Without this the comparison above
+            // would pass for a pipeline that carried nothing across a boundary.
+            if (split < ticks.size()) { CHECK(restarted<Graph>(split, nullptr, ticks) != expected); }
+        }
+    }
+}  // namespace
+
+TEST_CASE("spawn recovery: a component inside a stage restarts invisibly, and the sink after it declares nothing",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    every_boundary<HostedPipeline<ComponentStage>>(spawn_component_id);
+}
+
+TEST_CASE("spawn recovery: the component and a plain sink can share one stage", "[checkpoint][spawn]")
+{
+    prepare();
+    every_boundary<HostedSingleStage>(spawn_component_id);
+}
+
+TEST_CASE("spawn recovery: a restored pipeline does not re-send the baselines it already holds", "[checkpoint][spawn]")
+{
+    prepare();
+    // ``offset`` ticks once, on the first day. A fresh pipeline sends every
+    // input in full on its first capture; a restored one must not, or the
+    // component counts the offset again on every restart.
+    const Ticks value    = values<Int>(1, 2, 3, 4);
+    const Ticks offset   = values<Int>(7, none, none, none);
+    const auto  expected = uninterrupted<HostedSideInput>(value, offset);
+    REQUIRE(expected.size() == 4);
+    REQUIRE(std::get<1>(expected.back()) == "7004");
+    CHECK(restarted<HostedSideInput>(value.size(), spawn_component_id, value, offset) == expected);
+}
+
+TEST_CASE("spawn recovery: a key removed after a restart is removed in the worker too", "[checkpoint][spawn]")
+{
+    prepare();
+    // The owner graph is not recovered, so after a restart its side of a keyed
+    // input would be empty -- and the removal of a key it never saw again could
+    // not be expressed, leaving the worker holding that key for good. The
+    // pipeline's inputs therefore enter through component input boundaries,
+    // whose source baselines the session restores, as any component's do.
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<SpawnKeyed> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<KeyedComponentStage>(), test_stage<Sink<TS<Int>>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    using Events = std::vector<std::optional<Value>>;
+    const Events events = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 10}}),
+                                        dict_delta<Str, TS<Int>>({{"a", 2}}),
+                                        dict_delta<Str, TS<Int>>({{"a", 3}}, {"b"}),
+                                        dict_delta<Str, TS<Int>>({{"a", 4}, {"b", 20}}));
+    const auto run = [&](std::size_t begin, std::size_t end, bool recover, std::optional<ComponentCheckpoint> &completed,
+                         Observed &observed) {
+        GlobalContext context;
+        if (recover)
+        {
+            configure_component_recovery(context.state().view(), {
+                .component_id = spawn_component_id, .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+        }
+        Trace trace;
+        (void)eval_node_with_options<Pipeline>(interval(begin, end), Events{events.begin() + begin, events.begin() + end},
+                                               arg<"trace">(&trace));
+        append(observed, trace);
+    };
+    Observed expected;
+    {
+        std::optional<ComponentCheckpoint> unused;
+        run(0, events.size(), false, unused, expected);
+    }
+    // a: 1, 3, 6, 10; b: 10, then removed, then back as 20 alone.
+    REQUIRE(expected.size() == 4);
+    REQUIRE(std::get<1>(expected[2]) == "6");
+    REQUIRE(std::get<1>(expected[3]) == "30");
+
+    std::optional<ComponentCheckpoint> completed;
+    Observed                           observed;
+    for (std::size_t day = 0; day < events.size(); ++day) { run(day, day + 1, true, completed, observed); }
+    CHECK(observed == expected);
+}
+
+TEST_CASE("spawn recovery: a hosted pipeline takes its inputs as a component does, straight from a source",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // A computed input has no source baseline the session could restore, so it
+    // is refused at wiring rather than recovered wrongly. The remedy is the
+    // usual one: wrap spawn_, and what computes its input, in a component.
+    struct Doubled
+    {
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value() * 2); }
+    };
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(wire<Doubled>(w, value).erased())};
+            wire_spawn(w, pipeline_({test_stage<ComponentStage>(), test_stage<Sink<TS<Int>>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Pipeline>(interval(0, 1), values<Int>(1), arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("external inputs require direct owned pull-source outputs"));
+    }
+    // Recovery not configured: the same pipeline wires and runs.
+    const auto observed = uninterrupted<Pipeline>(values<Int>(1, 2));
+    REQUIRE(observed.size() == 2);
+    CHECK(std::get<1>(observed.back()) == "6");
+}
+
+TEST_CASE("spawn recovery: what is outside the component is processed, recoverable or not", "[checkpoint][spawn]")
+{
+    prepare();
+    // A stage after the component keeps ordinary ``State``, which no
+    // checkpoint can see. It is outside the component, so it is neither part
+    // of the contract nor restored: the pipeline wires, every day completes,
+    // and that stage simply starts again -- so the trace differs from an
+    // uninterrupted run exactly where its forgotten total shows.
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<ComponentStage>(), test_stage<ForgetfulStage>(),
+                                     test_stage<Sink<TS<Int>>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    const Ticks ticks    = values<Int>(1, 2, 3);
+    const auto  expected = uninterrupted<Pipeline>(ticks);
+    const auto  actual   = restarted<Pipeline>(2, spawn_component_id, ticks);
+    REQUIRE(expected.size() == 3);
+    REQUIRE(actual.size() == 3);
+    // Day one is identical. On day two the component resumes at 6; the stage
+    // after it has forgotten 1 + 3 and reports 6 where the unbroken run says 10.
+    CHECK(actual[0] == expected[0]);
+    CHECK(actual[1] == expected[1]);
+    CHECK(std::get<1>(expected[2]) == "10");
+    CHECK(std::get<1>(actual[2]) == "6");
+}
+
+TEST_CASE("spawn recovery: an unrecoverable node INSIDE the hosted component is refused at wiring",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    using Graph = HostedPipeline<ForgetfulComponentStage>;
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Graph>(interval(0, 1), values<Int>(1), arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("spawn_ worker 0") &&
+                                Catch::Matchers::ContainsSubstring("cannot be recovered"));
+    }
+    // Recovery not configured: the same pipeline wires and runs, as most do.
+    const auto observed = uninterrupted<Graph>(values<Int>(1, 2));
+    REQUIRE(observed.size() == 2);
+    CHECK(std::get<1>(observed.back()) == "3");
+}
+
+TEST_CASE("spawn recovery: a stage that refuses the capture fails the day and the pipeline still stops properly",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // The stage answered "no": it is intact. An earlier cut read that answer
+    // as a stage failure, cancelled the pipeline and killed the sink's process
+    // before its stop hook (found by adversarial review).
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {
+        .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+        .commit = [](const auto &) { FAIL("a refused capture committed an image"); }});
+    Trace trace;
+    REQUIRE_THROWS_WITH((eval_node_with_options<HostedPipeline<RefusingComponentStage>>(
+                            interval(0, 2), values<Int>(1, 2), arg<"trace">(&trace))),
+                        Catch::Matchers::ContainsSubstring("cannot be checkpointed") &&
+                            Catch::Matchers::ContainsSubstring("test capture refusal"));
+    trace.load();
+    CHECK(trace.starts == 1);
+    CHECK(trace.stops == 1);
+    // Both ticks reached the sink first: the refusal cost the image, not the day.
+    CHECK(trace.samples.size() == 2);
+}
+
+TEST_CASE("spawn recovery: a configured component that no stage hosts is still reported as not wired",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    GlobalContext context;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "somewhere-else", .load = [] { return std::optional<ComponentCheckpoint>{}; },
+        .commit = [](const auto &) {}});
+    Trace trace;
+    REQUIRE_THROWS_WITH((eval_node_with_options<HostedPipeline<ComponentStage>>(interval(0, 1), values<Int>(1),
+                                                                                arg<"trace">(&trace))),
+                        Catch::Matchers::ContainsSubstring("configured component was not wired"));
+}
+
+TEST_CASE("spawn recovery: another component body is another contract", "[checkpoint][spawn]")
+{
+    prepare();
+    std::optional<ComponentCheckpoint> completed;
+    Observed                           observed;
+    const Ticks                        ticks = values<Int>(1, 2);
+    day<HostedPipeline<ComponentStage>>(0, 1, spawn_component_id, completed, observed, ticks);
+    REQUIRE_THROWS_WITH(day<HostedPipeline<OtherComponentStage>>(1, 2, spawn_component_id, completed, observed, ticks),
+                        Catch::Matchers::ContainsSubstring("incompatible"));
+}
+
+TEST_CASE("spawn recovery: a spawn_ that is itself a component member saves its stages whole", "[checkpoint][spawn]")
+{
+    prepare();
+    every_boundary<MemberPipeline<AccumulateStage>>("spawn-pipeline");
+}
+
+TEST_CASE("spawn: wrapping a stage in a component changes nothing when nothing is recovered", "[checkpoint][spawn]")
+{
+    prepare();
+    // A worker graph names the nodes of every component in it, configured or
+    // not, and that is all: no node added, no binding changed.
+    const Ticks ticks = values<Int>(1, 2, none, 3);
+    CHECK(uninterrupted<HostedPipeline<ComponentStage>>(ticks) == uninterrupted<HostedPipeline<AccumulateStage>>(ticks));
+}
+
+TEST_CASE("spawn recovery: a component fed from outside itself, inside the stage, is refused when it is what recovers",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // A node in the stage computes the component's input. An image selected
+    // by component would restore the component beside an input that was not,
+    // so it is refused at wiring, naming the node and the remedy.
+    using Graph = HostedPipeline<PreprocessedComponentStage>;
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Graph>(interval(0, 1), values<Int>(1), arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("fed from outside its component") &&
+                                Catch::Matchers::ContainsSubstring("move what computes its input inside"));
+    }
+    // Recovery not configured: it wires and runs.
+    const auto observed = uninterrupted<Graph>(values<Int>(1, 2));
+    REQUIRE(observed.size() == 2);
+    CHECK(std::get<1>(observed.back()) == "6");
+}
+
+TEST_CASE("spawn recovery: a component below a map_ the user wrote is not hosted, and says so",
+          "[checkpoint][spawn]")
+{
+    prepare();
+    // An image selected by component takes the component and the runtime's own
+    // nodes. A map_ the user wrote in the stage is neither, so the coordinator
+    // never reaches its children. Reporting that component as hosted would
+    // make recovery quietly do nothing; it has to fail, loudly, at wiring.
+    struct Pipeline
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<SpawnKeyed> value, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(value.erased())};
+            wire_spawn(w, pipeline_({test_stage<UserMapStage>(), test_stage<Sink<SpawnKeyed>>(trace.value())}),
+                       arguments, process_config());
+            return no_output(w);
+        }
+    };
+    const auto day = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}));
+    {
+        GlobalContext context;
+        configure_component_recovery(context.state().view(), {
+            .component_id = spawn_component_id, .load = [] { return std::optional<ComponentCheckpoint>{}; },
+            .commit = [](const auto &) {}});
+        Trace trace;
+        REQUIRE_THROWS_WITH((eval_node_with_options<Pipeline>(interval(0, 1), day, arg<"trace">(&trace))),
+                            Catch::Matchers::ContainsSubstring("configured component was not wired"));
+    }
+    // Recovery not configured: it wires and runs.
+    GlobalContext context;
+    Trace         trace;
+    (void)eval_node_with_options<Pipeline>(interval(0, 1), day, arg<"trace">(&trace));
+    Observed observed;
+    append(observed, trace);
+    CHECK(observed.size() == 1);
+}

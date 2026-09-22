@@ -1066,9 +1066,23 @@ Recordable state
 time-series output. It is feedback-like state that wraps the node: the node may
 read and update it during evaluation, while system-level record/replay code can
 observe and restore it. It is not part of the normal output contract and it does
-not participate in scheduling or input readiness for the owning node. A node uses
-either ``State<T>`` or ``RecordableState<TSchema>``, not both; recordable state is
-the node's state when record/replay visibility is required.
+not participate in scheduling or input readiness for the owning node. A static
+node may declare one ``State<T>`` and one ``RecordableState<TSchema>`` together.
+Put multiple cache variables in fields of the single ``State<T>`` value.
+
+When combined in a recoverable node, recordable state is authoritative and
+``State<T>`` is a reconstructible cache. Both slots are constructed in planned
+node storage before ``start``. Recovery restores the hidden endpoint quietly
+before ``start``; the hook then rebuilds the fresh cache from restored state and
+inputs, initializing durable fields only when invalid. Cache contents are not
+saved. Rebuilding must preserve subsequent values, validity, ticks, deltas and
+effects. Scheduler and other runtime-service checkpoint restrictions still apply.
+
+``stop`` can access both slots before destruction. Constructed cache objects are
+destroyed even when ``start`` fails; a node whose start failed does not receive
+``stop``, so partially acquired resources need RAII or a local rollback guard.
+Python compute nodes can likewise combine ``STATE`` (including ``STATE[T]``)
+and ``RECORDABLE_STATE`` through this native storage and restoration path.
 
 The selector uses typed field access for structured state. For a bundle-shaped
 state, access fields with ``field<"...">()`` and update scalar fields with
@@ -1078,7 +1092,9 @@ C++ system wiring can deliberately extract the hidden output with
 ``recordable_state(port)``. The related ``error_output(port)`` helper exposes a
 node's hidden error output. Both helpers create special edge source roots; they
 do not treat hidden outputs as ordinary child paths. Automatic Python-style
-record/replay attachment using the node's recordable id is still planned.
+per-tick record/replay attachment using the node's recordable id is still planned.
+Opt-in :doc:`../component_recovery` automatically checkpoints this hidden endpoint
+alongside outputs at a completed run boundary and restores it before ``start``.
 
 .. code-block:: cpp
 
@@ -1098,11 +1114,18 @@ record/replay attachment using the node's recordable id is still planned.
 
 .. code-block:: python
 
-   @compute_node(recordable_id="previous_value")   # recordable_id is optional
+   class LastSeen(TimeSeriesSchema):
+       last: TS[int]
+
+   @compute_node
    def previous_value(in_: TS[int], _state: RECORDABLE_STATE[LastSeen] = None) -> TS[int]:
-       out = _state.last if _state.last is not None else -1
-       _state.last = in_.value
+       out = _state.last.value if _state.last.valid else -1
+       _state.last.value = in_.value
        return out
+
+When wiring this node inside a component configured for recovery, an explicit
+identity can be supplied at the call site with
+``previous_value(value, __recordable_id__="previous_value")``.
 
 
 Activity and validity policies
@@ -1130,8 +1153,8 @@ subscription.
    check ``valid()`` before reading its value.
 
 ``InputValidity::AllValid``
-   The readiness check requires the input to be recursively valid, for example
-   every child of a collection or bundle must be valid. Omitting a validity flag
+   The readiness check requires the input and each immediate live child of a
+   ``TSD``, ``TSB`` or ``TSL`` to be valid. It does not recurse into grandchildren. Omitting a validity flag
    is ``InputValidity::Valid``.
 
 The flags are order-independent, and at most one activity flag and one validity
@@ -1566,7 +1589,7 @@ Feature status
      - available
      - Python uses ``__state__`` / ``__error__``
    * - Automatic recordable-state recording
-     - planned
+     - available for completed component checkpoints; per-tick attachment planned
      - available
    * - Activity / validity policy flags
      - available

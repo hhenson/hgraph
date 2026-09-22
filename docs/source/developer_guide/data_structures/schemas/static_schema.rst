@@ -106,13 +106,29 @@ runtime — they exist purely to drive the descriptor traits.
     factories respectively, with the same nominal-vs-structural
     identity rules described in *Scalar Schemas > Bundle*.
 
+``NominalBundle<Namespace, LocalName, Abstract, BundleParents<...>, BundleArguments<...>, Fields...>``
+    The rich named Bundle generated language modules declare: a namespace,
+    an abstract flag, immediate parents and concrete generic arguments as
+    well as fields. It registers through ``bundle(namespace, name, ...)``, the
+    name carrying the arguments (``Tree[int]``). The ``parents`` and
+    ``arguments`` member types expose the two lists.
+
 ``Owned<T>``
     Value-layer owner indirection. Its runtime schema is
     ``TypeRegistry::owned(T)`` and its inline storage is exactly one pointer;
-    the pointee is allocated on first mutable access. Runtime
-    ``recursive_bundle`` is the preferred declaration path for a
-    self-recursive nominal Bundle because a directly recursive C++ marker
-    alias cannot be completed in one template declaration.
+    the pointee is allocated on first mutable access. ``T`` must be complete
+    and already realizable, so ``Owned`` cannot express a recursive field;
+    ``Edge`` does.
+
+``Edge<TTarget>``
+    A recursive edge of a ``NominalBundle``: one owner of ``TTarget::value_type``
+    (RFC 0041). ``TTarget`` is a class with a nested ``value_type``; it may be
+    incomplete where the edge is written, so a struct can name itself or a
+    struct declared after it. A ``NominalBundle`` with an ``Edge`` field
+    registers through ``TypeRegistry::recursive_bundle_closure``, which
+    registers every struct its edges reach, one batch per strongly connected
+    component. In a ``NominalTSB`` the edge is ``TS<Edge<TTarget>>``, one
+    endpoint whose value is that owner.
 
 ``Shared<T>``
     Immutable value-layer indirection for a direct Bundle target. Its runtime
@@ -370,9 +386,12 @@ deriving from their erased input/output views, plus ``RecordableState<TSchema>``
 ``Scalar<Name, T>``, plus transparent injectables such as ``GlobalStateView``,
 ``EvaluationClockView`` and ``NodeScheduler`` — together with ``StaticNodeSignature`` and
 ``NodeBuilder::implementation<T>()`` (see *Wiring*). ``State<T>`` and
-``RecordableState<TSchema>`` are mutually exclusive for a static node:
-recordable state replaces local state when the state must be exposed through a
-hidden time-series output. That hidden output is for system-level recording and
+``RecordableState<TSchema>`` have independent planned slots and may coexist
+(one of each). In a checkpointed node the former is a reconstructible cache;
+the latter holds all authoritative mutable state. Restore completes before
+``start`` rebuilds the fresh cache. Both remain accessible through ``stop`` and
+are destroyed through the normal constructed-component cleanup path.
+Recordable state uses a hidden time-series output. That hidden output is for system-level recording and
 replay only: it is not a normal output port and must not activate or schedule the
 owning node. C++ system wiring can deliberately extract it with
 ``recordable_state(port)``; this creates a special edge source root rather than a

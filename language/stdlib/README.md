@@ -1,21 +1,16 @@
 # HGL standard library and design corpus
 
-This folder develops the core hgraph node and graph library in HGL as the
-required language contracts are agreed. The compiled modules are under
-[`hgl/hgraph`](hgl/hgraph); `standard.hgl` now provides the first real HGL
-operator implementations, `len_` and `is_empty`, without replacing their
-production C++ identities yet. The worked examples below exercise broader
-contracts; those example functions are not new public library components. The
-complete component inventory remains to be added.
+This folder develops the core hgraph node and graph library in HGL alongside
+its existing native implementations. The [migration catalogue](catalogue/README.md)
+records the source inventory, completed domains, implementation evidence and
+priority order for remaining capabilities. Production cutover is deferred.
 
-[`hgl/hgraph/operators.hgl`](hgl/hgraph/operators.hgl) now adds executable
-contracts and native-delegating implementations for `add_`, `sub_`, `mul_`,
-`div_`, `floordiv_`, `mod_`, the six comparisons, `and_`, `or_`, `neg_`, and
-`not_`. It materializes numeric arithmetic (including mixed `i64`/`f64`),
-string concatenation, supported primitive comparisons, Boolean logic, and
-numeric negation. These `hgraph.operators.*` migration identities do not replace
-the native identities used by symbols. Broader temporal, structural, and
-downstream domains are not claimed as HGL implementation coverage.
+Compiled HGL bodies and bindings to HGL-exposed native value functions count
+as completed authoring. Wrapping an existing temporal operator does not.
+The compiled modules under [`hgl/hgraph`](hgl/hgraph) contain scalar arithmetic,
+comparisons, stream state, membership, conversion and temporal projections.
+The catalogue records the limits of each domain; a migrated slice does not
+claim every overload of its native family.
 
 The [operator design](../docs/design/operators.md) records the symbol mappings,
 domain-bound algebraic properties, lifting/result signatures, numerical
@@ -30,7 +25,8 @@ without filling gaps with speculative declarations or native-binding syntax.
 The native package's source parts keep their HGL helpers and tests inside
 unnamed `test { ... }` contexts. Helpers are shared across the module's parts
 but are absent from production C++ and cannot be imported by consumers.
-`hgraph_language_test_core_native_parts` runs all 15 cases through `hgl test`.
+`hgraph_language_test_core_native_parts` runs every native-part case through `hgl test`. Imported standard/operator
+tests use a separate test host linked to the native value provider.
 See [Test-only helpers](../docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
 
 ## Conditional results

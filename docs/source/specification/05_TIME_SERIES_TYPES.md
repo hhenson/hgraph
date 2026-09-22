@@ -36,7 +36,7 @@ All time-series types share these properties:
 | `delta_value` | varies | Change since last tick |
 | `modified` | `bool` | True if changed this tick |
 | `valid` | `bool` | True if has a value |
-| `all_valid` | `bool` | True if all nested values valid |
+| `all_valid` | `bool` | For TSD/TSB/TSL, endpoint and immediate live children valid (no recursion); TSW uses minimum-window readiness |
 | `last_modified_time` | `datetime` | Time of last modification |
 
 ### 2.2 Modification Semantics

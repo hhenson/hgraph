@@ -15,6 +15,8 @@
 #include <atomic>
 #include <barrier>
 #include <compare>
+#include <chrono>
+#include <iostream>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -1806,8 +1808,16 @@ TEST_CASE("TSDataPlanFactory: TSD uses slot storage with key-set and modified de
     source_builder.set_item<std::int32_t, std::int32_t>(7, 42);
     auto source_map = source_builder.build();
     {
+        // The ERASED contract performs a dictionary's whole-value write as
+        // well: the ops thunk cannot express it (the algorithm is set every
+        // entry, erase the rest, so child notifications run through
+        // TSParentLink) and the view layer dispatches to the dictionary
+        // mutation rather than making callers ask what they are holding
+        // (review, PR #950). It used to throw here.
         auto generic_mutation = view.begin_mutation(t1);
-        REQUIRE_THROWS_AS(generic_mutation.copy_value_from(source_map.view()), std::logic_error);
+        REQUIRE(generic_mutation.copy_value_from(source_map.view()));
+        REQUIRE(dict.size() == 1);
+        REQUIRE(dict.at(key.view()).value().checked_as<std::int32_t>() == 42);
     }
     {
         auto mutation = dict.begin_mutation(t1);
@@ -2261,4 +2271,43 @@ TEST_CASE("TSDataPlanFactory::find returns null and null schemas return null")
 TEST_CASE("TSDataPlanFactory::instance is a stable singleton")
 {
     REQUIRE(&hgraph::TSDataPlanFactory::instance() == &hgraph::TSDataPlanFactory::instance());
+}
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgraph_unit_tests '[tsl-scaling]'
+// Every element of a dynamic list is modified in one tick and the modified
+// set is then read the way every consumer reads it: by ordinal, through a
+// Range. The per-element figure must stay flat as n doubles.
+TEST_CASE("TSDataPlanFactory: reading a dynamic TSL's modified set scales linearly", "[.][tsl-scaling]")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    const auto *tsl      = registry.tsl(registry.ts(registry.register_scalar<std::int32_t>("int32")));
+    for (const std::size_t count : {2000, 4000, 8000, 16000, 32000})
+    {
+        TSData data{TSDataPlanFactory::instance().data_type_for(tsl)};
+        auto   view = data.view();
+        {
+            std::vector<std::int32_t> values(count, 7);
+            ListBuilder builder{registry.scalar_type<std::int32_t>()};
+            for (const auto value : values) { builder.push_back(value); }
+            const auto source = builder.build();
+            auto mutation = view.begin_mutation(MIN_ST);
+            REQUIRE(mutation.copy_value_from(source.view()));
+        }
+        const auto list = view.as_list();
+        const auto start = std::chrono::steady_clock::now();
+        std::size_t visited = 0, checksum = 0;
+        for (const auto index : list.modified_indices())
+        {
+            ++visited;
+            checksum += index;
+        }
+        const auto elapsed_us = std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - start).count();
+        REQUIRE(visited == count);
+        REQUIRE(checksum == count * (count - 1) / 2);
+        std::cout << "tsl_modified_indices count=" << count << " read_us=" << elapsed_us
+                  << " ns_per_element=" << elapsed_us * 1000.0 / static_cast<double>(count) << '\n';
+    }
 }

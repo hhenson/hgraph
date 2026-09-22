@@ -66,7 +66,7 @@ namespace hgraph::fabric
         }
         static_cast<void>(persistence::store::value_codec(
             config.metadata_codec.empty()
-                ? persistence::store::JSON_VALUE_CODEC
+                ? persistence::store::DEFAULT_VALUE_CODEC
                 : std::string_view{config.metadata_codec}));
         if (!config.notifications)
         {

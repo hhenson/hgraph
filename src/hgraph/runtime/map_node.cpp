@@ -1,7 +1,10 @@
+#include "checkpoint_signature.h"
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/value/impl/graph_local_value.h>
@@ -15,6 +18,7 @@
 #include <bit>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -77,6 +81,34 @@ namespace hgraph
             GraphValue                     graph{};
         };
 
+        /** The key-set slots named by one cycle's changed-key list. */
+        struct ChangedKeySlots
+        {
+            SlotBitmap slots{};
+            bool       any{false};
+
+            /** One hash lookup per changed key; a key no longer in the set names no slot. */
+            template <typename KeySet>
+            void assign(const std::vector<Value> &keys, const KeySet &key_set)
+            {
+                clear();
+                if (keys.empty()) { return; }
+                slots.resize(key_set.slot_capacity());
+                for (const Value &key : keys) { slots.set(key_set.find_slot(key.view())); }
+                any = true;
+            }
+
+            /** Costs nothing on the common cycle that changed no membership. */
+            void clear() noexcept
+            {
+                if (!any) { return; }
+                slots.reset();
+                any = false;
+            }
+
+            [[nodiscard]] bool test(std::size_t slot) const noexcept { return any && slots.test(slot); }
+        };
+
         struct MapNodeStorage final : SlotObserver
         {
             MapNodeStorage() = default;
@@ -117,6 +149,13 @@ namespace hgraph
             bool               selective_repoint_bindings{false};
             std::vector<Value> membership_changed_keys{};
             std::vector<Value> repoint_modified_keys{};
+            // The evaluation loop asks, for every candidate slot, whether that
+            // child's key is in one of the lists above. Each list is resolved
+            // to key-set slots once per cycle so the answer is a bit test:
+            // comparing keys made a tick that adds n keys cost n * n equality
+            // calls. A child's slot is its key's slot in the key set.
+            ChangedKeySlots membership_changed_slots{};
+            ChangedKeySlots repoint_modified_slots{};
 
             // Candidate slots are sparse for ordinary multiplexed value ticks.
             // Full scans remain the conservative path for broadcast/repoint and
@@ -444,8 +483,9 @@ namespace hgraph
             auto *entry = storage.entries.entry_at(slot);
             if (entry == nullptr) { return; }
 
+            FirstExceptionRecorder failures;
             if (entry->graph.has_value() && entry->graph.view().started()) {
-                entry->graph.view().stop(evaluation_time);
+                failures.capture([&] { entry->graph.view().stop(evaluation_time); });
             }
             entry->schedule_context.pulled_when = MAX_DT;
             if (output_mutation != nullptr)
@@ -455,17 +495,19 @@ namespace hgraph
                 // the required removal delta; clearing a reference-bearing
                 // forwarding tree first makes the element invalid and can
                 // consume that transition before the key itself is erased.
-                (void)output_mutation->erase(entry->key.view());
+                failures.capture([&] { (void)output_mutation->erase(entry->key.view()); });
             }
             else
             {
-                clear_entry_output_binding(view, context, *entry,
-                                           evaluation_time);
+                failures.capture([&] {
+                    clear_entry_output_binding(view, context, *entry, evaluation_time);
+                });
             }
             if (error_mutation != nullptr && error_mutation->contains(entry->key.view()))
             {
-                (void)error_mutation->erase(entry->key.view());
+                failures.capture([&] { (void)error_mutation->erase(entry->key.view()); });
             }
+            failures.rethrow_if_any();
         }
 
         void remove_all_entries(const NodeView &view, const MapNodeContext &context,
@@ -473,11 +515,15 @@ namespace hgraph
                                 TSDDataMutationView *error_mutation,
                                 DateTime evaluation_time)
         {
+            FirstExceptionRecorder failures;
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
-                remove_entry_at_slot(view, context, storage, output_mutation, error_mutation,
-                                     slot, evaluation_time);
+                failures.capture([&] {
+                    remove_entry_at_slot(view, context, storage, output_mutation, error_mutation,
+                                         slot, evaluation_time);
+                });
             }
+            failures.rethrow_if_any();
         }
 
         void create_entry_at_slot(const NodeView &view, const MapNodeContext &context, MapNodeStorage &storage,
@@ -486,7 +532,13 @@ namespace hgraph
         {
             const MapNodeSpec &spec     = context.spec;
             const ValueView    key_view = keys_set.at_slot(slot);
-            storage.entries.reserve_to(std::max(storage.entries.slot_capacity(), slot + 1));
+            // Normally already sized by the key set's capacity. When it is not, grow
+            // geometrically: the store grows to exactly what it is asked for,
+            // copying its slot table each time.
+            if (slot >= storage.entries.slot_capacity())
+            {
+                storage.entries.reserve_to(std::max(slot + 1, storage.entries.slot_capacity() * 2));
+            }
             MapKeyEntry *existing = storage.entries.entry_at(slot);
             auto &entry = existing != nullptr
                               ? *existing
@@ -584,15 +636,19 @@ namespace hgraph
             auto *mutation       = output_mutation ? &*output_mutation : nullptr;
             auto *errors         = error_mutation ? &*error_mutation : nullptr;
 
+            FirstExceptionRecorder failures;
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
                 if (storage.entries.entry_at(slot) == nullptr) { continue; }
                 if (slot >= keys_set.slot_capacity() || !keys_set.slot_live(slot))
                 {
-                    remove_entry_at_slot(view, context, storage, mutation, errors,
-                                         slot, evaluation_time);
+                    failures.capture([&] {
+                        remove_entry_at_slot(view, context, storage, mutation, errors,
+                                             slot, evaluation_time);
+                    });
                 }
             }
+            failures.rethrow_if_any();
             for (std::size_t slot = 0; slot < keys_set.slot_capacity(); ++slot)
             {
                 if (!keys_set.slot_live(slot)) { continue; }
@@ -753,12 +809,16 @@ namespace hgraph
                     auto *mutation       = output_mutation ? &*output_mutation : nullptr;
                     auto *errors         = error_mutation ? &*error_mutation : nullptr;
 
+                    FirstExceptionRecorder failures;
                     for (std::size_t slot = key_set.next_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
                          slot = key_set.next_removed_slot(slot))
                     {
-                        remove_entry_at_slot(view, context, storage, mutation, errors,
-                                             slot, evaluation_time);
+                        failures.capture([&] {
+                            remove_entry_at_slot(view, context, storage, mutation, errors,
+                                                 slot, evaluation_time);
+                        });
                     }
+                    failures.rethrow_if_any();
 
                     for (std::size_t slot = key_set.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
                          slot = key_set.next_added_slot(slot))
@@ -769,27 +829,6 @@ namespace hgraph
                 }
             }
             return bindings_need_refresh;
-        }
-
-        [[nodiscard]] bool map_entry_membership_changed(
-            const MapNodeStorage &storage,
-            const ValueView &key)
-        {
-            for (const Value &changed_key : storage.membership_changed_keys)
-            {
-                if (changed_key.equals(key)) { return true; }
-            }
-            return false;
-        }
-
-        [[nodiscard]] bool map_entry_repoint_modified(const MapNodeStorage &storage,
-                                                      const ValueView &key)
-        {
-            for (const Value &modified_key : storage.repoint_modified_keys)
-            {
-                if (modified_key.equals(key)) { return true; }
-            }
-            return false;
         }
 
         void add_map_evaluation_slot(MapNodeStorage &storage, std::size_t slot)
@@ -857,11 +896,15 @@ namespace hgraph
                 }
             }
 
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             if (keys_input.valid())
             {
                 const auto &keys_data = keys_input.data_view();
                 auto keys = keys_data.as_set();
                 const void *keys_storage = keys.base().storage_ref().data();
+                storage.membership_changed_slots.assign(storage.membership_changed_keys, keys);
+                storage.repoint_modified_slots.assign(storage.repoint_modified_keys, keys);
                 if (keys_input.modified())
                 {
                     for (std::size_t slot = keys.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
@@ -1000,13 +1043,12 @@ namespace hgraph
                 // schedule enqueued before the stop) lingers this cycle —
                 // stopped children never evaluate.
                 if (!child.started()) { continue; }
-                const bool membership_changed =
-                    map_entry_membership_changed(storage, entry->key.view());
+                const bool membership_changed = storage.membership_changed_slots.test(slot);
                 if (storage.refresh_all_bindings || membership_changed)
                 {
                     const bool silent_repoint = storage.selective_repoint_bindings &&
                                                 !membership_changed &&
-                                                !map_entry_repoint_modified(storage, entry->key.view());
+                                                !storage.repoint_modified_slots.test(slot);
                     const TSOutputView key_source = entry->key_source.bound()
                                                         ? entry->key_source.view(evaluation_time)
                                                         : TSOutputView{};
@@ -1064,6 +1106,8 @@ namespace hgraph
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
             storage.repoint_modified_keys.clear();
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             // Current-cycle observer callbacks can enqueue a due entry after
             // the queue was drained at the start of this evaluation (for
             // example while a newly created child samples a valid config
@@ -1108,17 +1152,319 @@ namespace hgraph
             // Graph shutdown is not a logical key removal and must not
             // publish erases. The terminal output may already have been
             // detached by its owning service or parent graph.
-            remove_all_entries(view, context, storage, nullptr, nullptr,
-                               evaluation_time);
+            FirstExceptionRecorder failures;
+            failures.capture([&] {
+                remove_all_entries(view, context, storage, nullptr, nullptr, evaluation_time);
+            });
             storage.unsubscribe_keys_noexcept();
             storage.primed = false;
             storage.refresh_all_bindings = false;
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
             storage.repoint_modified_keys.clear();
+            storage.membership_changed_slots.clear();
+            storage.repoint_modified_slots.clear();
             storage.evaluation_slots.clear();
             storage.resume_position_plus_one = 0;
             storage.child_schedule_queue.clear();
+            failures.rethrow_if_any();
+        }
+
+        void validate_map_checkpoint_mode(const MapNodeContext &context)
+        {
+            if (context.spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement)
+            {
+                throw std::invalid_argument(
+                    "component checkpoint: map forwarding outputs require reference recovery support");
+            }
+        }
+
+        [[nodiscard]] std::string map_checkpoint_signature(const NodeBuilder &builder)
+        {
+            const auto scalar_context = builder.scalars().view();
+            const auto &context = scalar_context.checked_as<MapNodeContextPtr>();
+            if (!context) { throw std::logic_error("component checkpoint: map has no child plan"); }
+            validate_map_checkpoint_mode(*context);
+            const auto &spec = context->spec;
+            manifest::CanonicalWriter signature;
+            signature.varint(1); // Version of the map-specific recovery contract.
+            signature.varint(static_cast<std::uint8_t>(spec.output_binding_mode));
+            signature.varint(spec.keys_input_index.has_value());
+            if (spec.keys_input_index) { signature.varint(*spec.keys_input_index); }
+            signature.varint(spec.key_output_schema != nullptr);
+            signature.varint(spec.args.size());
+            for (const auto &arg : spec.args)
+            {
+                signature.varint(static_cast<std::uint8_t>(arg.kind));
+                signature.varint(arg.outer_index);
+            }
+            signature.varint(spec.multiplexed_inputs.size());
+            for (auto index : spec.multiplexed_inputs) { signature.varint(index); }
+            node_checkpoint_detail::append_input_bindings(
+                signature, spec.child.graph_builder, spec.child.input_bindings);
+            const auto &bytes = signature.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+
+        struct MapCheckpointMembership
+        {
+            bool primed{false};
+            std::size_t source_capacity{0};
+            std::vector<std::size_t> free_slots{};
+        };
+
+        [[nodiscard]] MapCheckpointMembership decode_map_membership(const NodeCheckpointState &image)
+        {
+            if (!image.payload.has_value() || !image.endpoints.empty())
+                throw std::invalid_argument("component checkpoint: map image has invalid membership state");
+            const auto metadata = image.payload.as_list();
+            if (metadata.size() < 4 || metadata.at(0).checked_as<Int>() != 1)
+                throw std::invalid_argument("component checkpoint: map membership metadata differs");
+            const auto size_at = [&](std::size_t index) -> std::size_t {
+                const auto value = metadata.at(index).checked_as<Int>();
+                if (value < 0 || static_cast<std::uint64_t>(value) > std::numeric_limits<std::size_t>::max())
+                    throw std::invalid_argument("component checkpoint: map membership has an invalid size");
+                return static_cast<std::size_t>(value);
+            };
+            const auto primed = size_at(1);
+            const auto capacity = size_at(2);
+            const auto free_count = size_at(3);
+            if (primed > 1 || free_count != metadata.size() - 4 || capacity < image.children.size() ||
+                free_count != capacity - image.children.size() || (!primed && capacity != 0))
+                throw std::invalid_argument("component checkpoint: map membership partition differs");
+
+            // Capacity is bounded by the encoded partition before any slot bank
+            // allocation. A lone corrupt child ordinal cannot request an
+            // arbitrarily large graph-memory block.
+            MapCheckpointMembership result{primed != 0, capacity, {}};
+            result.free_slots.reserve(free_count);
+            std::vector<bool> occupied(capacity, false);
+            for (const auto &child : image.children)
+            {
+                if (child.slot >= capacity || occupied[child.slot])
+                    throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
+                occupied[child.slot] = true;
+            }
+            for (std::size_t i = 0; i < free_count; ++i)
+            {
+                const auto slot = size_at(4 + i);
+                if (slot >= capacity || occupied[slot])
+                    throw std::invalid_argument("component checkpoint: map free-slot partition differs");
+                occupied[slot] = true;
+                result.free_slots.push_back(slot);
+            }
+            return result;
+        }
+
+        [[nodiscard]] NodeCheckpointState capture_map_checkpoint(
+            const NodeView &view, const CaptureGraphCheckpoint &capture_graph)
+        {
+            const auto &context = map_node_context(view);
+            validate_map_checkpoint_mode(context);
+            const auto typed = view.as<MapNodeView>();
+            const auto &storage = *MemoryUtils::cast<const MapNodeStorage>(typed.internal_storage());
+            if (storage.resume_position_plus_one != 0)
+            {
+                throw std::logic_error("component checkpoint: map has an incomplete child evaluation");
+            }
+
+            NodeCheckpointState result;
+            for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+            {
+                const MapKeyEntry *entry = storage.entries.entry_at(slot);
+                // Removal already stopped the child. Pending erase carries
+                // no future semantic state and is normalized away at the cut.
+                if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started())
+                {
+                    continue;
+                }
+                if (entry->graph.view().failed_node().valid())
+                {
+                    throw std::logic_error("component checkpoint: map child has a failed evaluation");
+                }
+                if (!capture_graph)
+                {
+                    throw std::logic_error("component checkpoint: map requires a child graph capture callback");
+                }
+                ChildGraphCheckpoint child;
+                child.slot = slot;
+                child.key = Value{entry->key.view()};
+                if (entry->key_source.bound())
+                {
+                    child.key_last_modified_time =
+                        entry->key_source.view(view.graph().evaluation_time()).last_modified_time();
+                }
+                child.graph = capture_graph(entry->graph.view());
+                if (!child.graph)
+                {
+                    throw std::logic_error("component checkpoint: map child capture returned an empty image");
+                }
+                result.children.push_back(std::move(child));
+            }
+            MapCheckpointMembership membership;
+            membership.primed = storage.primed;
+            if (storage.primed)
+            {
+                const auto input = view.input(view.graph().evaluation_time());
+                const auto keys_input = input.indexed_child_at(*context.spec.keys_input_index);
+                const auto keys = keys_input.as_set();
+                membership.source_capacity = keys.slot_capacity();
+                // This inventory bounds and validates the map's slot bank.
+                // The owning source checkpoint restores its allocator's exact
+                // free-stack order; the map only records the inactive slots.
+                for (std::size_t slot = 0; slot < membership.source_capacity; ++slot)
+                    if (!keys.slot_live(slot)) { membership.free_slots.push_back(slot); }
+            }
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            const auto append_size = [&](std::size_t size) {
+                if (size > static_cast<std::size_t>(std::numeric_limits<Int>::max()))
+                    throw std::overflow_error("component checkpoint: map membership exceeds the portable size range");
+                metadata.push_back(static_cast<Int>(size));
+            };
+            metadata.push_back(Int{1});
+            metadata.push_back(static_cast<Int>(membership.primed));
+            append_size(membership.source_capacity);
+            append_size(membership.free_slots.size());
+            for (const auto slot : membership.free_slots) { append_size(slot); }
+            result.payload = metadata.build();
+            static_cast<void>(decode_map_membership(result));
+            return result;
+        }
+
+        void prepare_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                    DateTime time, const PrepareGraphCheckpoint &prepare_graph)
+        {
+            const auto &context = map_node_context(view);
+            validate_map_checkpoint_mode(context);
+            auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            if (storage.entries.has_entries() || storage.previous_entries.has_entries() || storage.primed)
+                throw std::logic_error("component checkpoint: map restore requires a fresh instance");
+            const auto membership = decode_map_membership(image);
+            if (!image.children.empty() && !prepare_graph)
+                throw std::logic_error("component checkpoint: map requires child preparation");
+            for (const auto &child : image.children)
+            {
+                if (!child.key.has_value() || !child.graph ||
+                    (context.spec.key_output_schema != nullptr && child.key_last_modified_time == MIN_DT))
+                    throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
+            }
+            storage.entries.bind_graph_layout(context.graph_layout);
+            storage.previous_entries.bind_graph_layout(context.graph_layout);
+            storage.entries.reserve_to(membership.source_capacity);
+            // Materialize every sibling before recursively importing any child.
+            // Input aliases may still depend on references awaiting global fixup.
+            for (const auto &child : image.children)
+            {
+                if (storage.entries.entry_at(child.slot) != nullptr)
+                    throw std::invalid_argument("component checkpoint: duplicated map child slot");
+                auto &entry = storage.entries.construct_at(child.slot, value_impl::graph_local_value(child.key.view()));
+                entry.graph = context.spec.child.graph_builder.make_nested_graph(
+                    view.pointer(), storage.entries.graph_memory(child.slot), context.graph_layout);
+                if (context.spec.key_output_schema != nullptr)
+                    entry.key_source.bind(*context.spec.key_output_schema, entry.key, child.key_last_modified_time);
+                const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
+                runtime_detail::bind_mapped_child_output(
+                    view, entry.graph.view(), time, context.spec.child.output_binding,
+                    context.access, entry.key.view(), key_source, context.spec.output_binding_mode, true);
+                entry.schedule_context = MapChildScheduleContext{&storage, child.slot};
+                entry.graph.view().set_child_schedule_observer(
+                    [](void *raw, DateTime when) {
+                        auto &schedule = *static_cast<MapChildScheduleContext *>(raw);
+                        schedule.storage->push_observed_child_schedule(when, schedule);
+                    }, &entry.schedule_context);
+            }
+            for (const auto &child : image.children)
+                prepare_graph(storage.entries.entry_at(child.slot)->graph.view(), *child.graph, time);
+            storage.primed = membership.primed;
+        }
+
+        void restore_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                    DateTime time, const RestoreGraphCheckpoint &restore_graph)
+        {
+            const auto &context = map_node_context(view);
+            auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            if (!storage.primed) { return; }
+            auto root_input = view.input(time);
+            auto keys_input = root_input.indexed_child_at(*context.spec.keys_input_index);
+            if (!keys_input.valid())
+                throw std::invalid_argument("component checkpoint: restored map key set is invalid");
+            auto keys = keys_input.as_set();
+            const auto membership = decode_map_membership(image);
+            if (keys.size() != image.children.size() || keys.slot_capacity() != membership.source_capacity)
+                throw std::invalid_argument("component checkpoint: map membership does not match child images");
+            for (const auto &child : image.children)
+            {
+                if (child.slot >= keys.slot_capacity() || !keys.slot_live(child.slot) ||
+                    !child.key.equals(keys.at_slot(child.slot)))
+                    throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
+                if (view.has_output())
+                {
+                    auto output = view.output(time);
+                    if (!output.as_dict().contains(child.key.view()))
+                        throw std::invalid_argument("component checkpoint: map output is missing a restored key");
+                }
+            }
+            static_cast<void>(update_source_handles(root_input.borrowed_ref(), storage,
+                context.spec.multiplexed_inputs, *context.spec.keys_input_index));
+            static_cast<void>(storage.observe_keys_source(keys_input.bound_output().handle()));
+            storage.entries.reserve_to(keys.slot_capacity());
+            for (const auto &child : image.children)
+            {
+                auto &entry = *storage.entries.entry_at(child.slot);
+                const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
+                runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), time,
+                    context.spec.child, context.access, entry.key.view(), key_source, std::nullopt, true, false);
+                restore_graph(entry.graph.view(), *child.graph, time);
+            }
+        }
+
+        void start_restored_map(const NodeView &view, DateTime time)
+        {
+            auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+                if (auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->graph.has_value())
+                    entry->graph.view().start(time);
+            storage.child_schedule_queue.clear();
+            for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+            {
+                auto *entry = storage.entries.entry_at(slot);
+                if (entry == nullptr || !entry->graph.has_value()) { continue; }
+                // ``>=``: a child restored only in part (RFC 0039) starts its
+                // other nodes fresh, and one of those may be due at the start.
+                const auto next = entry->graph.view().next_scheduled_time();
+                if (next != MAX_DT && next >= time)
+                    storage.push_pulled_child_schedule(next, entry->schedule_context);
+            }
+        }
+
+        [[nodiscard]] DateTime live_map_schedule(const NodeView &view)
+        {
+            const auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            return storage.child_schedule_queue.empty() ? MAX_DT : storage.child_schedule_queue.front().when;
+        }
+
+        void visit_map_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
+        {
+            const auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
+            for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+                if (const auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->key_source.bound())
+                    visit(slot, entry->key_source.view(MIN_DT).handle());
+        }
+
+        [[nodiscard]] const NodeCheckpointOps &map_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .captures_output = true,
+                .capture_impl = &capture_map_checkpoint,
+                .prepare_restore_impl = &prepare_map_checkpoint,
+                .restore_impl = &restore_map_checkpoint,
+                .start_restored_impl = &start_restored_map,
+                .live_schedule_impl = &live_map_schedule,
+                .visit_endpoints_impl = &visit_map_checkpoint_endpoints,
+                .signature_impl = &map_checkpoint_signature,
+            };
+            return ops;
         }
 
         void validate_map_node_spec(const NodeTypeMetaData &meta, const MapNodeSpec &spec)
@@ -1413,6 +1759,7 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &map_evaluate_impl;
         descriptor.ops.storage_metrics_impl  = &map_storage_metrics;
         descriptor.ops.extended_view_type_id = MapNodeView::node_view_type_id();
+        descriptor.ops.checkpoint_ops = &map_checkpoint_ops();
         const MemoryUtils::StorageLayout graph_layout = spec.child.graph_builder.nested_storage_layout();
         MapNodeStorage debug_exemplar;
         debug_exemplar.entries.bind_graph_layout(graph_layout);

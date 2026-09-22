@@ -28,6 +28,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <functional>
 #include <string_view>
 #include <typeindex>
 #include <unordered_map>
@@ -75,6 +76,22 @@ namespace hgraph
         std::vector<const ValueTypeMetaData *> generic_arguments{};
         std::string discriminator_value{};
     };
+
+    /**
+     * One specialization in a closure of recursive Bundles, described on demand
+     * (RFC 0041). ``definition`` is an ordinary recursive definition whose
+     * recursive edge fields carry neither ``type`` nor ``owned_target``;
+     * ``edges`` gives each such field's position and the qualified name of the
+     * specialization it owns.
+     */
+    struct RecursiveBundleRequest
+    {
+        RecursiveBundleDefinition definition{};
+        std::vector<std::pair<std::size_t, std::string>> edges{};
+    };
+
+    /** Describes the specialization with the given qualified name. */
+    using RecursiveBundleDescriber = std::function<RecursiveBundleRequest(std::string_view qualified_name)>;
 
     /**
      * Process-wide registry that interns value and time-series schemas.
@@ -166,6 +183,17 @@ namespace hgraph
         std::vector<const ValueTypeMetaData *> recursive_bundles(
             const std::vector<RecursiveBundleDefinition> &definitions);
         /**
+         * Register ``root`` and every unregistered specialization its recursive
+         * edges reach, and return ``root``'s schema (RFC 0041). ``describe`` is
+         * called at most once per such name, without the registry lock held.
+         * Each strongly connected component registers when it closes, after
+         * every component it reaches: a single specialization with no edge to
+         * itself through ``bundle()``, any other component as one
+         * ``recursive_bundles`` batch. A name already registered is reused.
+         */
+        const ValueTypeMetaData *recursive_bundle_closure(std::string_view root,
+                                                          const RecursiveBundleDescriber &describe);
+        /**
          * Intern a *named* bundle value-schema. Internally synthesises the
          * un-named bundle for ``fields``, then interns a named wrapper keyed
          * by ``(name, un_named_pointer)``. Two named bundles with the same
@@ -240,6 +268,10 @@ namespace hgraph
                                            const std::vector<std::pair<std::string, long long>> &members);
         /** Lookup-only: the enum registered under ``name`` (nullptr otherwise). */
         [[nodiscard]] const ValueTypeMetaData *named_enum(std::string_view name) const;
+        /** Lookup-only: the opaque Python type registered under exactly ``name``
+            (nullptr otherwise). The bridge names one after the annotation's
+            identity in THIS process, so another process never has it. */
+        [[nodiscard]] const ValueTypeMetaData *named_opaque_python(std::string_view name) const;
         /** Intern a nominal Python annotation over the Any storage representation. */
         const ValueTypeMetaData *opaque_python(
             std::string_view name,
@@ -767,6 +799,8 @@ namespace hgraph
         // Singletons that don't fit any of the keyed caches.
         std::unique_ptr<TSValueTypeMetaData> signal_meta_;
         const ValueTypeMetaData *time_series_reference_meta_{nullptr};
+        /** Stored names by spelling, so interning a name does not scan them all. */
+        std::unordered_map<std::string_view, const char *> name_index_;
     };
 
     template <typename T>

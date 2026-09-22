@@ -36,6 +36,7 @@ namespace hgl::ir
             switch (kind) {
                 case SymbolKind::Module: return "module";
                 case SymbolKind::Struct: return "struct";
+                case SymbolKind::ImportedStruct: return "imported-struct";
                 case SymbolKind::Operator: return "operator";
                 case SymbolKind::Function: return "function";
                 case SymbolKind::Test: return "test";
@@ -46,6 +47,7 @@ namespace hgl::ir
                 case SymbolKind::LocalLet: return "let";
                 case SymbolKind::LocalVar: return "var";
                 case SymbolKind::State: return "state";
+                case SymbolKind::Cache: return "cache";
                 case SymbolKind::InjectedCapability: return "inject";
                 case SymbolKind::LoopValue: return "loop-value";
                 case SymbolKind::LambdaParameter: return "lambda-parameter";
@@ -322,7 +324,9 @@ namespace hgl::ir
                         if (index != 0U) { out_ << ", "; }
                         out_ << phase_names[static_cast<std::size_t>(function.phases[index])];
                     }
-                    out_ << "]\n";
+                    out_ << "]";
+                    if (function.throws) { out_ << " throws"; }
+                    out_ << "\n";
                 }
             }
 
@@ -433,7 +437,7 @@ namespace hgl::ir
                                 out_ << "local " << ref('s', node.symbol) << " type=" << ref('t', node.type)
                                      << " init=" << ref('e', node.init);
                             } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
-                                out_ << "state " << ref('s', node.symbol) << " type=" << ref('t', node.type)
+                                out_ << (node.cache ? "cache " : "state ") << ref('s', node.symbol) << " type=" << ref('t', node.type)
                                      << " init=" << ref('e', node.init);
                             } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
                                 out_ << "inject ";
@@ -608,6 +612,7 @@ namespace hgl::ir
                                         out_ << '=' << ref('e', node.fields[field].default_value);
                                     }
                                     out_ << '@' << ref('d', node.fields[field].origin);
+                                    if (node.fields[field].recursive) { out_ << " recursive"; }
                                 }
                                 out_ << ']';
                             } else if constexpr (std::is_same_v<T, hir::OperatorDecl>) {

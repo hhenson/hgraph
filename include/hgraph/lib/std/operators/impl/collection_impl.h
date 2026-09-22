@@ -52,6 +52,43 @@ namespace hgraph::stdlib
             ResolvedBindings inner{};
             ResolvedBindings outer{};
         };
+
+        /** combine_cs's start-resolved bindings, and for each field of its
+            input TSB the target field it sets. The fields are matched by name
+            once, in start; searching the target per input field on every tick
+            cost the square of the field count per tick. */
+        struct CombineCsBindings
+        {
+            /// An input field without a name, which is not part of the value.
+            static constexpr std::size_t unnamed = std::numeric_limits<std::size_t>::max();
+
+            ResolvedBindings resolved{};
+            /// Per input field: its target field, `unnamed`, or the target's
+            /// field count when the target has no field of that name.
+            std::vector<std::size_t> targets{};
+        };
+
+        /**
+         * Inner map builders grouped by label, in order of first appearance.
+         * The label index is what keeps grouping n items linear: finding the
+         * group by searching the list made it n times the number of groups.
+         */
+        struct GroupedMapBuilders
+        {
+            std::vector<std::pair<Value, MapBuilder>> groups{};
+            ankerl::unordered_dense::map<Value, std::size_t, ValueHash, ValueEqual> positions{};
+
+            template <typename Make> [[nodiscard]] MapBuilder &at(const ValueView &label, Make &&make)
+            {
+                if (const auto found = positions.find(label); found != positions.end())
+                {
+                    return groups[found->second].second;
+                }
+                positions.emplace(Value{label}, groups.size());
+                groups.emplace_back(Value{label}, make());
+                return groups.back().second;
+            }
+        };
     }  // namespace collection_impl_detail
 }  // namespace hgraph::stdlib
 
@@ -61,6 +98,12 @@ namespace hgraph::static_schema_detail
     struct scalar_name<stdlib::collection_impl_detail::MapKernelBindings>
     {
         static constexpr std::string_view value{"stdlib.map_kernel_bindings"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::collection_impl_detail::CombineCsBindings>
+    {
+        static constexpr std::string_view value{"stdlib.combine_cs_bindings"};
     };
 }  // namespace hgraph::static_schema_detail
 
@@ -1174,18 +1217,98 @@ namespace hgraph::stdlib
 
                 // Removed SUBTREES erase every output tuple-key with the
                 // matching prefix (own-output reconciliation - the removed
-                // child's keys are no longer readable).
-                const auto erase_prefix = [&](const std::vector<Value> &prefix) {
+                // child's keys are no longer readable). The prefixes are
+                // collected first and the output is swept ONCE, before anything
+                // is published: sweeping it per removed key made a removal tick
+                // cost removed keys times output keys. Order is preserved,
+                // because a level's removals always precede the descent that
+                // could republish under the same prefix.
+                using Prefix = std::vector<Value>;
+                struct PrefixProbe
+                {
+                    const IndexedValueView *components;
+                    std::size_t             length;
+                };
+                struct PrefixHash
+                {
+                    using is_transparent = void;
+                    [[nodiscard]] static std::size_t mix(std::size_t seed, std::size_t value) noexcept
+                    {
+                        return seed * 0x9e3779b97f4a7c15ULL + value;
+                    }
+                    [[nodiscard]] std::size_t operator()(const Prefix &prefix) const
+                    {
+                        std::size_t result = prefix.size();
+                        for (const Value &component : prefix) { result = mix(result, ValueHash{}(component)); }
+                        return result;
+                    }
+                    [[nodiscard]] std::size_t operator()(const PrefixProbe &probe) const
+                    {
+                        std::size_t result = probe.length;
+                        for (std::size_t index = 0; index < probe.length; ++index)
+                            result = mix(result, ValueHash{}(probe.components->at(index)));
+                        return result;
+                    }
+                };
+                struct PrefixEqual
+                {
+                    using is_transparent = void;
+                    [[nodiscard]] bool operator()(const Prefix &lhs, const Prefix &rhs) const
+                    {
+                        if (lhs.size() != rhs.size()) { return false; }
+                        for (std::size_t index = 0; index < lhs.size(); ++index)
+                            if (!lhs[index].equals(rhs[index])) { return false; }
+                        return true;
+                    }
+                    [[nodiscard]] bool operator()(const PrefixProbe &probe, const Prefix &prefix) const
+                    {
+                        if (probe.length != prefix.size()) { return false; }
+                        for (std::size_t index = 0; index < probe.length; ++index)
+                            if (!probe.components->at(index).equals(prefix[index].view())) { return false; }
+                        return true;
+                    }
+                    [[nodiscard]] bool operator()(const Prefix &prefix, const PrefixProbe &probe) const
+                    {
+                        return (*this)(probe, prefix);
+                    }
+                };
+                ankerl::unordered_dense::set<Prefix, PrefixHash, PrefixEqual> removed_prefixes;
+                std::vector<std::uint8_t> removed_lengths(depth + 1, 0);   // not vector<bool>: GCC 14 array-bounds
+
+                const std::function<void(const TSDInputView &, Prefix &)> collect_removed =
+                    [&](const TSDInputView &level, Prefix &path) {
+                        for (const ValueView &removed : level.removed_keys())
+                        {
+                            path.emplace_back(removed);
+                            removed_lengths[path.size()] = 1;
+                            removed_prefixes.insert(path);
+                            path.pop_back();
+                        }
+                        if (path.size() + 1 >= depth) { return; }
+                        for (const auto [key, child] : level.modified_items())
+                        {
+                            if (!child.valid()) { continue; }
+                            path.emplace_back(key);
+                            collect_removed(TSDInputView{child.borrowed_ref()}, path);
+                            path.pop_back();
+                        }
+                    };
+
+                const auto erase_removed_prefixes = [&] {
+                    if (removed_prefixes.empty()) { return; }
                     std::vector<Value> stale;
                     for (const auto [key, child] : dict_out.items())
                     {
-                        auto components = key.as_indexed_view();
-                        bool match = true;
-                        for (std::size_t index = 0; index < prefix.size(); ++index)
+                        const auto components = key.as_indexed_view();
+                        for (std::size_t length = 1; length <= depth; ++length)
                         {
-                            if (!components.at(index).equals(prefix[index].view())) { match = false; break; }
+                            if (removed_lengths[length] != 0 &&
+                                removed_prefixes.contains(PrefixProbe{&components, length}))
+                            {
+                                stale.emplace_back(key);
+                                break;
+                            }
                         }
-                        if (match) { stale.emplace_back(key); }
                     }
                     for (const Value &key : stale) { (void)mutation.erase(key.view()); }
                 };
@@ -1199,17 +1322,11 @@ namespace hgraph::stdlib
                     return builder.build();
                 };
 
-                // Recursive delta walk: at each level removed keys erase the
-                // prefix, modified children descend; at the leaf level the
-                // element's REFERENCE publishes under the full tuple key.
+                // Recursive delta walk: modified children descend; at the leaf
+                // level the element's REFERENCE publishes under the full tuple
+                // key. Removed prefixes were swept above.
                 const std::function<void(const TSDInputView &, std::vector<Value> &)> walk =
                     [&](const TSDInputView &level, std::vector<Value> &path) {
-                        for (const ValueView &removed : level.removed_keys())
-                        {
-                            path.emplace_back(removed);
-                            erase_prefix(path);
-                            path.pop_back();
-                        }
                         for (const auto [key, child] : level.modified_items())
                         {
                             path.emplace_back(key);
@@ -1241,6 +1358,8 @@ namespace hgraph::stdlib
 
                 const TSDInputView &root = ts;
                 std::vector<Value>  path;
+                collect_removed(root, path);
+                erase_removed_prefixes();
                 walk(root, path);
             }
         };
@@ -1468,14 +1587,14 @@ namespace hgraph::stdlib
                     {
                         auto current      = root_dict.at(group_key.view());
                         auto current_dict = current.as_dict();
+                        // One set per group: searching ``members`` for each current
+                        // member cost the square of every group's size per evaluation.
+                        BorrowedValueSet wanted_members;
+                        wanted_members.reserve(members.size());
+                        for (const auto &entry : members) { wanted_members.insert(&entry.first); }
                         for (const auto [member_key, member] : current_dict.items())
                         {
-                            bool keep = false;
-                            for (const auto &entry : members)
-                            {
-                                if (entry.first.view().equals(member_key)) { keep = true; break; }
-                            }
-                            if (!keep) { gone.emplace_back(member_key); }
+                            if (!wanted_members.contains(member_key)) { gone.emplace_back(member_key); }
                         }
                         for (const auto &[member_key, reference] : members)
                         {
@@ -1688,12 +1807,13 @@ namespace hgraph::stdlib
                         if (current.valid())
                         {
                             auto current_set = current.data_view().as_set();
+                            // One set per group, as in flip_keys_tsd above.
+                            BorrowedValueSet wanted_members;
+                            wanted_members.reserve(members.size());
+                            for (const Value &candidate : members) { wanted_members.insert(&candidate); }
                             for (const ValueView &member : current_set.values())
                             {
-                                const bool keep = std::ranges::any_of(members, [&](const Value &candidate) {
-                                    return candidate.view().equals(member);
-                                });
-                                if (!keep) { gone.emplace_back(member); }
+                                if (!wanted_members.contains(member)) { gone.emplace_back(member); }
                             }
                             for (const Value &member : members)
                             {
@@ -1992,6 +2112,23 @@ namespace hgraph::stdlib
             }
         };
 
+        /** The TSD spellings of the named set operators. Released hgraph
+            registers the whole family over dictionaries as well as sets, and
+            only the BITWISE spellings reached the TSD binaries here, so
+            ``union``/``intersection``/``symmetric_difference``/``difference``
+            over two dictionaries were rejected at wiring (parity #818 item
+            2.3). The fold is pairwise, which is what upstream's answers show
+            for three inputs. */
+        [[nodiscard]] inline bool all_args_are_tsd(OperatorCallContext context)
+        {
+            if (context.args.empty()) { return false; }
+            for (std::size_t index = 0; index < context.args.size(); ++index)
+            {
+                if (!time_series_arg_matches<AnyTSD>(context, index)) { return false; }
+            }
+            return true;
+        }
+
         [[nodiscard]] inline bool all_args_are_tss(OperatorCallContext context)
         {
             if (context.args.empty()) { return false; }
@@ -2059,6 +2196,68 @@ namespace hgraph::stdlib
                     acc = wire<collection_impl_detail::intersection_tss_binary>(w, acc, Port<void>{w, ts[i]});
                 }
                 return acc.erased();
+            }
+        };
+
+        /** ``union(*ts)`` / ``intersection(*ts)`` /
+            ``symmetric_difference(*ts)`` over DICTIONARIES, folded pairwise
+            like their TSS siblings. */
+        template <typename Binary, fixed_string OperatorName, fixed_string NodeName>
+        struct tsd_set_fold
+        {
+            static constexpr auto name = NodeName.value;
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return all_args_are_tsd(context);
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            {
+                resolve_output_to_first_arg(resolution, context);
+            }
+
+            static WiringPortRef compose(Wiring &w, VarIn<"ts", TsVar<"S">> ts)
+            {
+                if (ts.empty())
+                {
+                    throw std::invalid_argument(
+                        std::string{OperatorName.value} + ": requires at least one input");
+                }
+                Port<void> acc{w, ts[0]};
+                for (std::size_t i = 1; i < ts.size(); ++i)
+                {
+                    acc = wire<Binary>(w, acc, Port<void>{w, ts[i]});
+                }
+                return acc.erased();
+            }
+        };
+
+        /** ``difference(lhs, rhs)`` over dictionaries: BINARY only, which is
+            the arity released hgraph supports ("Difference between multiple
+            items is not supported"). */
+        struct difference_tsd_fold
+        {
+            static constexpr auto name = "difference_tsd_fold";
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return all_args_are_tsd(context);
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            {
+                resolve_output_to_first_arg(resolution, context);
+            }
+
+            static WiringPortRef compose(Wiring &w, VarIn<"ts", TsVar<"S">> ts)
+            {
+                if (ts.empty()) { throw std::invalid_argument("difference: requires at least one input"); }
+                if (ts.size() == 1) { return ts[0]; }
+                if (ts.size() > 2) { throw std::invalid_argument("difference: more than two inputs is not supported"); }
+                Port<void> out = wire<collection_impl_detail::difference_tsd_binary>(
+                    w, Port<void>{w, ts[0]}, Port<void>{w, ts[1]});
+                return out.erased();
             }
         };
 
@@ -2336,25 +2535,14 @@ namespace hgraph::stdlib
                 const auto resolved = bindings.get();
 
                 // label -> inner builder (ordered by first appearance)
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 for (const auto [key, item] : data)
                 {
                     if (!labels.contains(key)) { continue; }
-                    auto label = labels.at(key);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(label)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{label}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(key, item);
+                    grouped.at(labels.at(key), [&] { return map_builder_for(resolved.inner); }).set_item(key, item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, inner] : groups)
+                for (auto &[label, inner] : grouped.groups)
                 {
                     Value built = finish_map(inner, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2408,28 +2596,19 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto outer_values = ts.base().value().as_map();
                 for (const auto [outer_key, inner_value] : outer_values)
                 {
                     const auto inner_values = inner_value.as_map();
                     for (const auto [inner_key, item] : inner_values)
                     {
-                        MapBuilder *group = nullptr;
-                        for (auto &[seen, builder] : groups)
-                        {
-                            if (seen.view().equals(inner_key)) { group = &builder; break; }
-                        }
-                        if (group == nullptr)
-                        {
-                            groups.emplace_back(Value{inner_key}, map_builder_for(resolved.inner));
-                            group = &groups.back().second;
-                        }
-                        group->set_item(outer_key, item);
+                        grouped.at(inner_key, [&] { return map_builder_for(resolved.inner); })
+                            .set_item(outer_key, item);
                     }
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2536,26 +2715,16 @@ namespace hgraph::stdlib
             {
                 const auto resolved = bindings.get();
 
-                std::vector<std::pair<Value, MapBuilder>> groups;
+                collection_impl_detail::GroupedMapBuilders grouped;
                 const auto values = ts.base().value().as_map();
                 for (const auto [key, item] : values)
                 {
                     auto pair = key.as_indexed_view();
-                    auto outer = pair.at(0);
-                    MapBuilder *group = nullptr;
-                    for (auto &[seen, builder] : groups)
-                    {
-                        if (seen.view().equals(outer)) { group = &builder; break; }
-                    }
-                    if (group == nullptr)
-                    {
-                        groups.emplace_back(Value{outer}, map_builder_for(resolved.inner));
-                        group = &groups.back().second;
-                    }
-                    group->set_item(pair.at(1), item);
+                    grouped.at(pair.at(0), [&] { return map_builder_for(resolved.inner); })
+                        .set_item(pair.at(1), item);
                 }
                 auto builder = map_builder_for(resolved.outer);
-                for (auto &[label, group] : groups)
+                for (auto &[label, group] : grouped.groups)
                 {
                     Value built = finish_map(group, resolved.inner);
                     builder.set_item(label.view(), built.view());
@@ -2712,15 +2881,17 @@ namespace hgraph::stdlib
             auto dict_out = out.data_view().as_dict();
             auto mutation = dict_out.begin_mutation(out.evaluation_time());
 
+            // Asked once per key already in the output, so the wanted keys are
+            // a set: searching ``pairs`` for each made every evaluation cost
+            // output keys times wanted keys.
+            BorrowedValueSet wanted;
+            wanted.reserve(pairs.size());
+            for (const auto &pair : pairs) { wanted.insert(&pair.first); }
+
             std::vector<Value> stale;
             for (auto &&[key, child] : dict_out.items())
             {
-                bool keep = false;
-                for (const auto &pair : pairs)
-                {
-                    if (pair.first.view().equals(key)) { keep = true; break; }
-                }
-                if (!keep) { stale.emplace_back(key); }
+                if (!wanted.contains(key)) { stale.emplace_back(key); }
             }
             for (const Value &key : stale) { (void)mutation.erase(key.view()); }
 
@@ -2971,15 +3142,12 @@ namespace hgraph::stdlib
                 auto        dict_out = erased.data_view().as_dict();
                 auto        mutation = dict_out.begin_mutation(erased.evaluation_time());
 
+                // Asked once per key already in the output, so the keys are a set.
+                const IndexedValueKeySet wanted{key_list};
                 std::vector<Value> stale;
                 for (auto &&[key, child] : dict_out.items())
                 {
-                    bool keep = false;
-                    for (std::size_t index = 0; index < key_list.size(); ++index)
-                    {
-                        if (key_list.at(index).equals(key)) { keep = true; break; }
-                    }
-                    if (!keep) { stale.emplace_back(key); }
+                    if (!wanted.contains(key)) { stale.emplace_back(key); }
                 }
                 for (const Value &key : stale) { (void)mutation.erase(key.view()); }
 
@@ -3438,22 +3606,47 @@ namespace hgraph::stdlib
             return ResolvedBindings{.primary = target_binding, .result = assembly_binding};
         }
 
-        template <bool Strict>
-        void combine_cs_from_fields_eval(const TSInputView &fields, const ResolvedBindings &resolved,
-                                         const TSOutputView &erased)
+        inline CombineCsBindings resolve_cs_fields(const TSInputView &fields, const TSOutputView &erased)
         {
+            CombineCsBindings result{.resolved = resolve_cs_bindings(erased)};
             const auto *target = erased.schema()->value_schema;
-            const auto target_binding = resolved.primary;
-            const bool policy_materialization =
-                target_binding.ops_ref().has_source_materialization_policy();
-            const auto assembly_binding = resolved.result;
-            BundleBuilder builder{assembly_binding};
-
+            ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+            by_name.reserve(target->field_count);
+            for (std::size_t index = 0; index < target->field_count; ++index)
+            {
+                if (target->fields[index].name != nullptr) { by_name.try_emplace(target->fields[index].name, index); }
+            }
             const auto *input_schema = fields.schema();
+            result.targets.reserve(input_schema->field_count());
             for (std::size_t index = 0; index < input_schema->field_count(); ++index)
             {
                 const char *field_name = input_schema->fields()[index].name;
-                if (field_name == nullptr) { continue; }
+                if (field_name == nullptr)
+                {
+                    result.targets.push_back(CombineCsBindings::unnamed);
+                    continue;
+                }
+                const auto found = by_name.find(field_name);
+                result.targets.push_back(found != by_name.end() ? found->second : target->field_count);
+            }
+            return result;
+        }
+
+        template <bool Strict>
+        void combine_cs_from_fields_eval(const TSInputView &fields, const CombineCsBindings &bindings,
+                                         const TSOutputView &erased)
+        {
+            const auto *target = erased.schema()->value_schema;
+            const auto target_binding = bindings.resolved.primary;
+            const bool policy_materialization =
+                target_binding.ops_ref().has_source_materialization_policy();
+            const auto assembly_binding = bindings.resolved.result;
+            BundleBuilder builder{assembly_binding};
+
+            for (std::size_t index = 0; index < bindings.targets.size(); ++index)
+            {
+                const std::size_t target_index = bindings.targets[index];
+                if (target_index == CombineCsBindings::unnamed) { continue; }
                 auto child = fields.indexed_child_at(index);
                 if constexpr (Strict)
                 {
@@ -3461,15 +3654,7 @@ namespace hgraph::stdlib
                     if (!child.valid()) { return; }
                 }
                 else if (!child.valid()) { continue; }
-                for (std::size_t target_index = 0; target_index < target->field_count; ++target_index)
-                {
-                    if (target->fields[target_index].name != nullptr &&
-                        std::string_view{target->fields[target_index].name} == field_name)
-                    {
-                        builder.set(target_index, child.value());
-                        break;
-                    }
-                }
+                if (target_index < target->field_count) { builder.set(target_index, child.value()); }
             }
             Value source = builder.build();
             if (policy_materialization &&
@@ -3503,15 +3688,16 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields";
 
-            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
-                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<true>(ts, bindings.get(),
+                combine_cs_from_fields_eval<true>(ts, bindings.ref(),
                                                   static_cast<const TSOutputView &>(out));
             }
         };
@@ -3521,16 +3707,17 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "combine_cs_from_fields_lenient";
 
-            static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                bindings.set(resolve_cs_bindings(static_cast<const TSOutputView &>(out)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                              Scalar<"__strict__", Bool>,
-                             State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                combine_cs_from_fields_eval<false>(ts, bindings.get(),
+                combine_cs_from_fields_eval<false>(ts, bindings.ref(),
                                                    static_cast<const TSOutputView &>(out));
             }
         };

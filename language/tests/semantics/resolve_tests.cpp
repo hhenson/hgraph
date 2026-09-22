@@ -96,6 +96,56 @@ namespace
         return resolved;
     }
 
+    /// A module that exports a struct, so a qualified source type has
+    /// something to resolve to (ADR 0013).
+    ModuleCatalog struct_catalog(std::string support_error = {}) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "checks.shapes";
+        hgl::semantics::ImportedStruct quote;
+        quote.module_identity = module.identity;
+        quote.name            = "Quote";
+        quote.identity        = "checks.shapes.Quote";
+        quote.fields          = {{"bid", hgl::semantics::ImportedScalarType::F64, false, false}};
+        quote.support_error   = std::move(support_error);
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct mid;
+        mid.module_identity = module.identity;
+        mid.name            = "Mid";
+        mid.identity        = "checks.shapes.Mid";
+        mid.abstract        = true;
+        mid.fields          = {{"seq", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+        mid.parents               = {root_ref};
+        hgl::semantics::ImportedStruct expr;
+        expr.module_identity = module.identity;
+        expr.name            = "Expr";
+        expr.identity        = "checks.shapes.Expr";
+        expr.abstract        = true;
+        hgl::semantics::ImportedStruct pair;
+        pair.module_identity = module.identity;
+        pair.name            = "Pair";
+        pair.identity        = "checks.shapes.Pair";
+        pair.generics        = {{.name = "T", .binding_identity = "checks.shapes.Pair::T"}};
+        module.structs       = {std::move(quote), std::move(base), std::move(root),
+                                std::move(mid),   std::move(expr), std::move(pair)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog scalar_catalog(std::string support_error = {}) {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -562,7 +612,8 @@ fn make() -> atomic<Future> => Future(symbol: "F", expiry: @2026-12-18)
     const ast::DeclId future     = resolved.struct_id("Future");
     REQUIRE(resolved.result.structure(instrument).valid);
     REQUIRE(resolved.result.structure(future).valid);
-    REQUIRE(resolved.result.structure(future).parents == std::vector<ast::DeclId>{instrument});
+    REQUIRE(resolved.result.structure(future).parents ==
+            std::vector<StructSource>{StructSource{.decl = instrument}});
     const auto &fields = resolved.result.structure(future).fields;
     REQUIRE(fields.size() == 4);
     CHECK(fields[0].name == "symbol");
@@ -589,8 +640,10 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
         CHECK(resolved.has(Category::Type, "only an optional inherited field may have a null default"));
     }
     SECTION("self recursion and inheritance cycles are rejected") {
+        // A self edge is admitted only as an optional atomic boundary (ADR 0012).
         const Resolved recursive{"module t\nstruct Node { next: Node }\n"};
-        CHECK(recursive.has(Category::Type, "self-recursive struct fields are not supported"));
+        CHECK(recursive.has(Category::Type, "must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'"));
+        CHECK(recursive.has(Category::Type, "must be optional (ADR 0012, rule 2): declare it '= null'"));
         const Resolved cycle{"module t\nabstract struct A: B {}\nabstract struct B: A {}\n"};
         CHECK(cycle.has(Category::Type, "struct inheritance cycle reaches"));
     }
@@ -598,6 +651,406 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
         const Resolved resolved{"module t\nabstract struct A {}\nabstract struct B "
                                 "{}\nstruct C: A, B {}\n"};
         CHECK(resolved.has(Category::Type, "awaits the stable field-order rule"));
+    }
+}
+
+namespace
+{
+    /// The effective field `field` of struct `name`.
+    const StructField &field_of(const Resolved &resolved, std::string_view name, std::string_view field) {
+        const auto &fields = resolved.result.structure(resolved.struct_id(name)).fields;
+        const auto  found  = std::ranges::find(fields, field, &StructField::name);
+        REQUIRE(found != fields.end());
+        return *found;
+    }
+}  // namespace
+
+// ADR 0012: a field through which a value of a struct can contain another value
+// of the same struct is a recursive edge, admitted as an optional atomic
+// boundary. The resolver finds every edge, by any path, and marks the ones it
+// admits; the rest are rejected with the rule they break.
+TEST_CASE("recursive struct edges are admitted under ADR 0012", "[semantics][recursive]") {
+    SECTION("a direct edge") {
+        const Resolved resolved = resolve_clean("module t\nstruct Node {\n value: i64\n next: atomic<Node> = null\n}\n");
+        CHECK(field_of(resolved, "Node", "next").recursive);
+        CHECK_FALSE(field_of(resolved, "Node", "value").recursive);
+    }
+    SECTION("a same-module mutual pair") {
+        const Resolved resolved = resolve_clean("module t\nstruct A { b: atomic<B> = null }\nstruct B { a: atomic<A> = null }\n");
+        CHECK(field_of(resolved, "A", "b").recursive);
+        CHECK(field_of(resolved, "B", "a").recursive);
+    }
+    SECTION("an edge through an abstract parent") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { value: i64 }\n"
+                                                "struct Add: Expr {\n lhs: atomic<Expr> = null\n rhs: atomic<Expr> = null\n}\n");
+        CHECK(field_of(resolved, "Add", "lhs").recursive);
+        CHECK(field_of(resolved, "Add", "rhs").recursive);
+        CHECK_FALSE(field_of(resolved, "Lit", "value").recursive);
+    }
+    SECTION("an edge declared on an abstract struct, inherited by its family") {
+        const Resolved resolved =
+            resolve_clean("module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { value: i64 }\n");
+        CHECK(field_of(resolved, "Expr", "next").recursive);
+        CHECK(field_of(resolved, "Lit", "next").recursive);
+    }
+    SECTION("a cycle through another struct and an abstract family") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { h: atomic<Holder> = null }\n"
+                                                "struct Holder { e: atomic<Expr> = null }\n");
+        CHECK(field_of(resolved, "Lit", "h").recursive);
+        CHECK(field_of(resolved, "Holder", "e").recursive);
+    }
+    SECTION("a generic self edge") {
+        const Resolved resolved = resolve_clean("module t\nstruct Tree<T> {\n value: T\n next: atomic<Tree<T>> = null\n}\n");
+        CHECK(field_of(resolved, "Tree", "next").recursive);
+    }
+    SECTION("generic cycles that reach finitely many specializations") {
+        // Rule 4 as clarified 2026-09-19: whatever hgraph can register is admitted.
+        const Resolved mutual = resolve_clean("module t\nstruct Tree<T> { forest: atomic<Forest<T>> = null }\n"
+                                              "struct Forest<T> { tree: atomic<Tree<T>> = null }\n");
+        CHECK(field_of(mutual, "Tree", "forest").recursive);
+        CHECK(field_of(mutual, "Forest", "tree").recursive);
+        const Resolved family =
+            resolve_clean("module t\nabstract struct Expr<T> {}\nstruct Add<T>: Expr<T> { lhs: atomic<Expr<T>> = null }\n");
+        CHECK(field_of(family, "Add", "lhs").recursive);
+        const Resolved concrete = resolve_clean("module t\nstruct Node { tree: atomic<Tree<i64>> = null }\n"
+                                                "struct Tree<T> { node: atomic<Node> = null }\n");
+        CHECK(field_of(concrete, "Node", "tree").recursive);
+        CHECK(field_of(concrete, "Tree", "node").recursive);
+        const Resolved swapped =
+            resolve_clean("module t\nstruct Pair<A, B> {\n first: A\n swapped: atomic<Pair<B, A>> = null\n}\n");
+        CHECK(field_of(swapped, "Pair", "swapped").recursive);
+    }
+    SECTION("an edge through an intermediate generic parent at the same specialization") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                                "abstract struct Middle<T>: Event<T> {}\n"
+                                                "struct IntEvent: Middle<i64> { inner: atomic<Event<i64>> = null }\n");
+        CHECK(field_of(resolved, "IntEvent", "inner").recursive);
+    }
+    SECTION("a field naming a recursive struct from outside its cycle is not an edge") {
+        const Resolved resolved =
+            resolve_clean("module t\nstruct Node { next: atomic<Node> = null }\nstruct Holder { first: Node }\n");
+        CHECK_FALSE(field_of(resolved, "Holder", "first").recursive);
+    }
+}
+
+TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[semantics][recursive]") {
+    const auto rejected = [](std::string text, std::string_view message) {
+        const Resolved resolved{std::move(text)};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Type, message));
+    };
+    SECTION("a required edge (rule 2)") {
+        rejected("module t\nstruct Node { next: atomic<Node> }\n",
+                 "recursive edge 'next' of 'Node' must be optional (ADR 0012, rule 2): declare it '= null'");
+    }
+    SECTION("an edge whose inherited null default is replaced (rule 2)") {
+        rejected("module t\nabstract struct Expr { next: atomic<Expr> = null }\nstruct Lit: Expr { next = Lit() }\n",
+                 "recursive edge 'next' of 'Expr' keeps a null default (ADR 0012, rule 2)");
+    }
+    SECTION("a non-atomic edge, directly or through a ref (rule 3)") {
+        rejected("module t\nstruct Node { next: Node = null }\n",
+                 "recursive edge 'next' of 'Node' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'");
+        rejected("module t\nabstract struct Expr {}\nstruct Neg: Expr { operand: Expr = null }\n",
+                 "recursive edge 'operand' of 'Neg' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Expr>'");
+        rejected("module t\nstruct Node { next: ref<Node> }\n",
+                 "recursive edge 'next' of 'Node' must be an atomic boundary (ADR 0012, rule 3): declare it 'atomic<Node>'");
+        rejected("module t\nabstract struct Event<T> { payload: T }\nabstract struct Middle<T>: Event<T> {}\n"
+                 "struct IntEvent: Middle<i64> { inner: Event<i64> = null }\n",
+                 "recursive edge 'inner' of 'IntEvent' must be an atomic boundary (ADR 0012, rule 3): declare it "
+                 "'atomic<Event<i64>>'");
+    }
+    SECTION("a generic argument that wraps a parameter (rule 4)") {
+        rejected("module t\nstruct Tree<T> { next: atomic<Tree<list<T>>> = null }\n",
+                 "recursive edge 'next' of 'Tree' passes 'list<T>' to 'Tree'; in a cycle a generic argument is a parameter "
+                 "of 'Tree' or mentions none, since a wrapped parameter denotes an unbounded family of specializations "
+                 "(ADR 0012, rule 4)");
+        rejected("module t\nstruct Tree<T> { forest: atomic<Forest<list<T>>> = null }\n"
+                 "struct Forest<T> { tree: atomic<Tree<T>> = null }\n",
+                 "recursive edge 'forest' of 'Tree' passes 'list<T>' to 'Forest'");
+        // A constant expression that *does* mention the parameter is still an
+        // unbounded family: `Tree<N + 1>` reaches a new specialization each step.
+        rejected("module t\nstruct Tree<const N: i64> { next: atomic<Tree<N + 1>> = null }\n",
+                 "recursive edge 'next' of 'Tree' passes 'N + 1' to 'Tree'");
+    }
+    SECTION("a container edge, or an edge through a generic argument (rule 8)") {
+        rejected("module t\nstruct Node { children: atomic<list<Node>> = null }\n",
+                 "recursive edge 'children' of 'Node' reaches 'Node' again through a collection element; recursion through "
+                 "a container or a generic argument is not supported (ADR 0012, rule 8)");
+        rejected("module t\nstruct Box<T> { value: T }\nstruct Node { boxed: atomic<Box<Node>> = null }\n",
+                 "recursive edge 'boxed' of 'Node' reaches 'Node' again through a generic argument");
+    }
+    SECTION("a cross-module edge (rule 5)") {
+        // A source type may now name another module's struct (ADR 0013), so
+        // rule 5 rests on the other half of its reason: module imports are
+        // acyclic, so an edge that leaves the module can never lead back and
+        // no cycle crosses a boundary. A module absent from the supplied
+        // package target is reported as such.
+        const Resolved resolved{"module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n"};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Module, "module 'other' is not available in the supplied package target"));
+        CHECK(resolved.has(Category::Name, "unknown module alias 'other'"));
+    }
+    SECTION("a cycle that runs through inheritance") {
+        // hgraph declares a parent before its children; a parent's field that
+        // names its own descendant cannot be registered.
+        rejected("module t\nabstract struct Base { child: atomic<Leaf> = null }\nstruct Leaf: Base {}\n",
+                 "recursive edge 'child' of 'Base' closes a cycle through inheritance: 'Leaf' inherits from 'Base'");
+    }
+    SECTION("through an intermediate generic parent that permutes its parameters") {
+        // `Swapped<X, Y>` passes its parameters to `Two` reversed, so `Leaf` is
+        // a `Two<f64, i64>` and the field leads back to it. The rule 3 section
+        // covers the parameter-preserving parent, `Middle<T>: Event<T>`.
+        rejected("module t\nabstract struct Two<A, B> { at: i64 }\nabstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                 "struct Leaf: Swapped<i64, f64> { inner: Two<f64, i64> = null }\n",
+                 "recursive edge 'inner' of 'Leaf' must be an atomic boundary (ADR 0012, rule 3): declare it "
+                 "'atomic<Two<f64, i64>>'");
+    }
+}
+
+// An importer rebuilds an exported struct from its layout, so everything that
+// layout reaches has to be exported too (ADR 0013, "Exports are closed under
+// reachability"). The check is on the exporting module, so the error lands on
+// whoever broke the contract rather than on a consumer.
+TEST_CASE("an exported struct may only reach exported types", "[semantics][export-closure]") {
+    const auto rejected = [](std::string text, std::string_view message) {
+        const Resolved resolved{std::move(text)};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Type, message));
+    };
+    SECTION("a field naming a module-internal struct") {
+        rejected("module t\nstruct Venue { name: str }\nexport struct Quote { venue: Venue }\n",
+                 "exported struct 'Quote' reaches module-internal struct 'Venue' through field 'venue'");
+    }
+    SECTION("through a collection element") {
+        rejected("module t\nstruct Leg { size: i64 }\nexport struct Order { legs: list<Leg> }\n",
+                 "exported struct 'Order' reaches module-internal struct 'Leg' through field 'legs'");
+    }
+    SECTION("through a generic argument") {
+        rejected("module t\nstruct Key { id: i64 }\nstruct Box<T> { value: T }\n"
+                 "export struct Holder { boxed: Box<Key> }\n",
+                 "exported struct 'Holder' reaches module-internal struct 'Box' through field 'boxed'");
+    }
+    SECTION("through a recursive edge (ADR 0012)") {
+        rejected("module t\nstruct Node { next: atomic<Node> = null }\n"
+                 "export struct Chain { head: atomic<Node> = null }\n",
+                 "exported struct 'Chain' reaches module-internal struct 'Node' through field 'head'");
+    }
+    SECTION("an inherited abstract parent") {
+        rejected("module t\nabstract struct Base { at: i64 }\nexport struct Leaf: Base {}\n",
+                 "exported struct 'Leaf' inherits module-internal struct 'Base'");
+    }
+    SECTION("an exported struct reaching exported types is fine") {
+        const Resolved resolved =
+            resolve_clean("module t\nexport struct Venue { name: str }\n"
+                          "export abstract struct Base { at: i64 }\n"
+                          "export struct Quote: Base { venue: Venue\n legs: list<Venue> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Quote")).valid);
+    }
+    SECTION("an internal struct may reach internal structs freely") {
+        // The closure rule applies only from an exported root: a module-internal
+        // leaf or chain stays unconstrained.
+        const Resolved resolved = resolve_clean("module t\nstruct Venue { name: str }\n"
+                                                "struct Quote { venue: Venue }\n"
+                                                "struct Book { quote: Quote\n more: list<Quote> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Book")).valid);
+    }
+}
+
+// A qualified source type names a struct another module exports (ADR 0013).
+// The identity stays the owner's: the importing module binds the name and
+// copies nothing into its own namespace.
+TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct-imports]") {
+    SECTION("a field may name one") {
+        const ModuleCatalog catalog  = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("the unqualified use form binds the name") {
+        // ADR 0013: a struct imports exactly as a function does, so
+        // `use m::{Quote}` must work and not only the alias spelling.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Quote}\nstruct Book { top: Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("an unqualified imported generic checks its arity too") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Pair}\nstruct Book { top: Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
+    SECTION("repeated mentions share one binding") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Book { top: shapes::Quote\n next: shapes::Quote }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        CHECK(resolved.result.imported_structs.size() == 1U);
+    }
+    SECTION("an unknown alias is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Name, "unknown module alias 'shapes'"));
+    }
+    SECTION("a name the module does not export is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Missing }\n", catalog};
+        CHECK(resolved.has(Category::Module, "checks.shapes does not export struct 'Missing'"));
+    }
+    SECTION("a bare-name argument is resolved, not skipped") {
+        // A single identifier lands in GenericArgument::name with neither
+        // `type` nor `value` set, so a loop over those two skips it entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<Typo> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "unknown generic argument 'Typo'"));
+    }
+    SECTION("a value passed to a type generic is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<3> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "type generic 'T' takes a type argument"));
+    }
+    SECTION("a generic arity mismatch is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
+    SECTION("an unavailable struct is reported with its support error") {
+        const ModuleCatalog catalog = struct_catalog("field type is not supported by the catalog");
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Module, "struct 'checks.shapes.Quote' is unavailable"));
+    }
+}
+
+// Extending a family a library publishes is why a library is worth having
+// (ADR 0013). The imported parent is referenced, never absorbed: this module
+// gains no declaration for it, and each inherited field keeps the exporting
+// struct as its source rather than becoming an anonymous local copy.
+TEST_CASE("a local struct may inherit an imported abstract parent", "[semantics][struct-imports]") {
+    SECTION("the parent is referenced and its fields keep their source") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Tick: shapes::Base { bid: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const ast::DeclId  tick = resolved.struct_id("Tick");
+        const StructInfo  &info = resolved.result.structure(tick);
+        REQUIRE(info.valid);
+
+        // One parent, and it is the imported struct -- not a local declaration.
+        REQUIRE(info.parents.size() == 1U);
+        CHECK(info.parents.front().is_imported());
+        CHECK(info.parents.front().decl == ast::no_node);
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Base");
+
+        // The inherited field is visible for construction and keeps the
+        // exporting struct as its source; its type lives in that module's
+        // descriptor, not in this module's AST.
+        REQUIRE(info.fields.size() == 2U);
+        CHECK(info.fields[0].name == "at");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[0].type == ast::no_node);
+        CHECK(info.fields[1].name == "bid");
+        CHECK_FALSE(info.fields[1].origin.is_imported());
+        CHECK(info.fields[1].origin.decl == tick);
+    }
+    SECTION("the imported parent's own inherited fields are included") {
+        // The catalog records only what a struct DECLARES, keeping what it
+        // inherits in its parents, so reading `parent.fields` alone loses a
+        // grandparent's fields entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Leaf: shapes::Mid { own: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const StructInfo &info = resolved.result.structure(resolved.struct_id("Leaf"));
+        REQUIRE(info.fields.size() == 3U);
+        // Ancestors first, so a field keeps the position it has in the family.
+        CHECK(info.fields[0].name == "id");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[1].name == "seq");
+        CHECK(info.fields[2].name == "own");
+    }
+    SECTION("a field naming the imported family reaches this module's members") {
+        // Inheriting an imported family makes this struct a member of it, so a
+        // field typed by the family can hold this struct: the cycle is local
+        // and needs the ADR 0012 atomic boundary.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: shapes::Expr }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "recursive edge 'next' of 'Node' must be an atomic boundary"));
+    }
+    SECTION("an atomic edge onto the imported family is a recursive edge") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: atomic<shapes::Expr> = null }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        CHECK(field_of(resolved, "Node", "next").recursive);
+    }
+    SECTION("a concrete imported struct is not inheritable") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book: shapes::Quote {}\n", catalog};
+        CHECK(resolved.has(Category::Type,
+                           "only an abstract struct may be inherited; 'checks.shapes.Quote' is concrete"));
+    }
+}
+
+TEST_CASE("struct fields may name other structs that do not lead back", "[semantics]") {
+    SECTION("a const generic argument that mentions no parameter (rule 4)") {
+        // Rule 4 admits an argument that is a parameter of the declaring struct
+        // *or mentions none*. A constant expression names one specialization
+        // however it is spelled, so `Tree<1 + 1>` is the `Tree<2>` cycle.
+        const Resolved literal = resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<2>> = null }\n");
+        CHECK(literal.result.structure(literal.struct_id("Tree")).valid);
+        const Resolved computed =
+            resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<1 + 1>> = null }\n");
+        CHECK(computed.result.structure(computed.struct_id("Tree")).valid);
+        const Resolved negated =
+            resolve_clean("module t\nstruct Tree<const N: i64> { next: atomic<Tree<-(-2)>> = null }\n");
+        CHECK(negated.result.structure(negated.struct_id("Tree")).valid);
+    }
+    SECTION("a struct declared later in the module") {
+        const Resolved resolved = resolve_clean("module t\nstruct A { b: B = null }\nstruct B { x: i64 }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("A")).valid);
+    }
+    SECTION("an abstract family whose members hold no path back") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Expr {}\nstruct Lit: Expr { value: i64 }\n"
+                                                "struct Holder { first: Expr\n rest: list<Expr> = null }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Holder")).valid);
+    }
+    SECTION("another specialization of a generic family") {
+        const Resolved resolved = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                                "struct IntEvent: Event<i64> { inner: Event<f64> = null }\n"
+                                                "struct FloatEvent: Event<f64> {}\n");
+        CHECK(resolved.result.structure(resolved.struct_id("IntEvent")).valid);
+        CHECK_FALSE(field_of(resolved, "IntEvent", "inner").recursive);
+    }
+    SECTION("another specialization through an intermediate generic parent") {
+        // `Middle<T>` passes its parameter through, so `IntEvent` is an
+        // `Event<i64>` only and `Event<f64>` does not lead back to it. The
+        // module resolves, and the field is not marked a recursive edge.
+        const Resolved nested = resolve_clean("module t\nabstract struct Event<T> { payload: T }\n"
+                                              "abstract struct Middle<T>: Event<T> {}\n"
+                                              "struct IntEvent: Middle<i64> { inner: Event<f64> = null }\n"
+                                              "struct FloatEvent: Middle<f64> {}\n");
+        CHECK(nested.result.structure(nested.struct_id("IntEvent")).valid);
+        CHECK_FALSE(field_of(nested, "IntEvent", "inner").recursive);
+        const Resolved permuted = resolve_clean("module t\nabstract struct Two<A, B> { at: i64 }\n"
+                                                "abstract struct Swapped<X, Y>: Two<Y, X> {}\n"
+                                                "struct Leaf: Swapped<i64, f64> { inner: Two<i64, f64> = null }\n");
+        CHECK(permuted.result.structure(permuted.struct_id("Leaf")).valid);
+        CHECK_FALSE(field_of(permuted, "Leaf", "inner").recursive);
     }
 }
 

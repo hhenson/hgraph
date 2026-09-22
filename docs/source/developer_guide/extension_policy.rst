@@ -109,6 +109,14 @@ Existing extension facilities
      - Available
      - :doc:`../rfc/rfc_0003_extension_scalar_registration` proves a separately
        built scalar extension and bidirectional Python reflection.
+   * - Binary wire form for an extension scalar
+     - Available
+     - :doc:`../rfc/rfc_0040_binary_codec_profiles`. A scalar the codec does not
+       build in registers how it travels with ``register_binary_atom`` beside
+       its scalar registration, or ``declare_portable_binary_atom`` when its
+       storage image is its wire form. Without one it cannot cross a ``dmap_``
+       or ``spawn_`` boundary or be checkpointed, and is refused while the
+       graph is wired, by a message naming the scalar and what needed it.
    * - Typed Frame metadata
      - Available
      - :doc:`../rfc/rfc_0001_typed_frame_metadata` supplies one Arrow-backed

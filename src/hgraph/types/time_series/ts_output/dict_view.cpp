@@ -31,10 +31,9 @@ namespace hgraph
             return view->slot_occupied(slot) && view->slot_added(slot);
         }
 
-        [[nodiscard]] bool tsd_output_removed_slot(const void *context, const void *, std::size_t slot)
+        [[nodiscard]] ValueView tsd_output_project_key(const void *context, const void *, std::size_t slot)
         {
-            const auto *view = static_cast<const TSDOutputView *>(context);
-            return view->slot_occupied(slot) && view->slot_removed(slot);
+            return static_cast<const TSDOutputView *>(context)->key_at_slot(slot);
         }
 
         [[nodiscard]] TSOutputView tsd_output_project_value(const void *context, const void *, std::size_t slot)
@@ -76,11 +75,11 @@ namespace hgraph
     bool TSDOutputView::slot_live(std::size_t slot) const { return data_view().slot_live(slot); }
     bool TSDOutputView::slot_added(std::size_t slot) const
     {
-        return tsd_output_structure_modified(view_) && data_view().slot_added(slot);
+        return tsd_output_structure_modified(view_) && data_view().membership_slot_added(slot);
     }
     bool TSDOutputView::slot_removed(std::size_t slot) const
     {
-        return tsd_output_structure_modified(view_) && data_view().slot_removed(slot);
+        return tsd_output_structure_modified(view_) && data_view().membership_slot_removed(slot);
     }
     bool TSDOutputView::slot_modified(std::size_t slot) const { return data_view().slot_modified(slot); }
     ValueView TSDOutputView::key_at_slot(std::size_t slot) const { return data_view().key_at_slot(slot); }
@@ -154,7 +153,8 @@ namespace hgraph
     Range<ValueView> TSDOutputView::added_keys() const
     {
         if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<ValueView>(); }
-        return data_view().added_keys();
+        return Range<ValueView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
+            .predicate = &tsd_output_added_slot, .projector = &tsd_output_project_key};
     }
 
     Range<TSOutputView> TSDOutputView::added_values() const
@@ -181,15 +181,31 @@ namespace hgraph
     Range<ValueView> TSDOutputView::removed_keys() const
     {
         if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<ValueView>(); }
-        return data_view().removed_keys();
+        const auto source = data_view().removed_items();
+        return Range<ValueView>{.context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            }, .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
+                return range.projector(range.context, range.memory, slot).first;
+            }};
     }
 
     Range<TSOutputView> TSDOutputView::removed_values() const
     {
         if (!tsd_output_structure_modified(view_)) { return detail::empty_output_range<TSOutputView>(); }
-        return Range<TSOutputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
-                                   .predicate = &tsd_output_removed_slot,
-                                   .projector = &tsd_output_project_value};
+        const auto source = data_view().removed_values();
+        return Range<TSOutputView>{.context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_values();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            }, .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDOutputView *>(context);
+                const auto range = self.data_view().removed_values();
+                return TSOutputView{self.view_.output(), range.projector(range.context, range.memory, slot),
+                                    self.view_.evaluation_time()};
+            }};
     }
 
     KeyValueRange<ValueView, TSOutputView> TSDOutputView::removed_items() const
@@ -198,11 +214,18 @@ namespace hgraph
         {
             return detail::empty_output_kv_range<ValueView, TSOutputView>();
         }
-        return KeyValueRange<ValueView, TSOutputView>{.context = this,
-                                                      .memory = nullptr,
-                                                      .limit = slot_capacity(),
-                                                      .predicate = &tsd_output_removed_slot,
-                                                      .projector = &tsd_output_project_item};
+        const auto source = data_view().removed_items();
+        return KeyValueRange<ValueView, TSOutputView>{.context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDOutputView *>(context)->data_view().removed_items();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            }, .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDOutputView *>(context);
+                const auto range = self.data_view().removed_items();
+                auto item = range.projector(range.context, range.memory, slot);
+                return std::pair<ValueView, TSOutputView>{std::move(item.first),
+                    TSOutputView{self.view_.output(), std::move(item.second), self.view_.evaluation_time()}};
+            }};
     }
 
     TSOutputView TSDOutputView::key_set() const

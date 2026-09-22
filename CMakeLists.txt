@@ -18,6 +18,7 @@ include(CheckCXXSourceCompiles)
 include(CheckCXXSourceRuns)
 include(CTest)
 include(FetchContent)
+include("${PROJECT_SOURCE_DIR}/cmake/HgraphFetchDependencies.cmake")
 include(GNUInstallDirs)
 
 set(HGRAPH_GENERATED_INCLUDE_DIR "${PROJECT_BINARY_DIR}/generated/include")
@@ -74,7 +75,7 @@ configure_file("${HGRAPH_VERSION_HEADER_IN}" "${HGRAPH_VERSION_HEADER}" @ONLY)
 option(HGRAPH_BUILD_SHARED "Build hgraph_core as a shared library" OFF)
 option(HGRAPH_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(HGRAPH_FETCH_SIMDJSON "Fetch the supported simdjson release instead of using a system package" OFF)
-option(HGRAPH_FETCH_DATE "Fetch the supported date/tz release when no package is available" OFF)
+option(HGRAPH_FETCH_DATE "Fetch the supported date/tz release when no package is available" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
@@ -356,19 +357,13 @@ endif()
 message(STATUS
     "hgraph named-zone backend: ${_hgraph_selected_time_zone_backend}")
 
-if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_FETCH_SIMDJSON)
+if(NOT HGRAPH_BUILD_PYTHON_BINDINGS AND NOT HGRAPH_FETCH_SIMDJSON)
+    find_package(simdjson CONFIG QUIET)
+endif()
+if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_FETCH_SIMDJSON OR NOT simdjson_FOUND)
     # Wheels must not retain a dependency on a package-manager shared library;
     # hosted native builds can opt into the same pinned dependency explicitly.
-    FetchContent_Declare(
-        simdjson
-        GIT_REPOSITORY https://github.com/simdjson/simdjson.git
-        GIT_TAG        v4.6.4
-        GIT_SHALLOW    TRUE
-        SYSTEM
-    )
-    set(SIMDJSON_INSTALL OFF CACHE BOOL "Generate simdjson install targets" FORCE)
-    set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "Build simdjson developer targets" FORCE)
-    FetchContent_MakeAvailable(simdjson)
+    hgraph_fetch_simdjson()
     # simdjson's PCH includes <bit> when the header exists. Build the fetched
     # library in a mode where that header's contents are available on MSVC.
     target_compile_features(simdjson PRIVATE cxx_std_20)
@@ -404,20 +399,7 @@ if(NOT HGRAPH_BUILD_PYTHON_BINDINGS)
 endif()
 set(_hgraph_fmt_fetched OFF)
 if(NOT fmt_FOUND)
-    FetchContent_Declare(
-        fmt
-        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-        GIT_TAG        12.2.0
-        GIT_SHALLOW    TRUE
-        SYSTEM
-    )
-    set(FMT_DOC OFF CACHE BOOL "Build fmt documentation" FORCE)
-    set(FMT_INSTALL OFF CACHE BOOL "Generate fmt install target" FORCE)
-    set(FMT_TEST OFF CACHE BOOL "Build fmt tests" FORCE)
-    FetchContent_MakeAvailable(fmt)
-    if(TARGET fmt-c)
-        set_target_properties(fmt-c PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    endif()
+    hgraph_fetch_fmt()
     set(_hgraph_fmt_fetched ON)
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
@@ -447,131 +429,7 @@ endif()
 # ruling 2026-07-04): the Frame value kind and the table serialization family
 # are Arrow-native. A system/package-manager install is expected for normal
 # C++ builds (`brew install apache-arrow` / `apt install libarrow-dev`);
-# Arrow is too heavy to FetchContent by default. Explicit pyarrow-backed builds
-# may use its bundled libraries; the resulting native targets do not link the
-# Python runtime unless Python support is independently enabled.
-set(HGRAPH_PYARROW_LIBRARY_DIR "" CACHE PATH "Directory containing pyarrow's bundled Arrow libraries")
-set(HGRAPH_PYARROW_ABI_MAJOR "25" CACHE STRING "Required pyarrow/Arrow ABI major for pyarrow-backed builds")
-if(HGRAPH_USE_PYARROW_ARROW)
-    if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
-        set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
-    endif()
-    find_package(Python 3.12 COMPONENTS Interpreter REQUIRED)
-    set(_hgraph_pyarrow_probe [=[
-import pathlib, pyarrow, sys
-expected_major = int(sys.argv[1])
-actual_major = int(pyarrow.__version__.split(".", 1)[0])
-if actual_major != expected_major:
-    raise SystemExit(
-        f"pyarrow {pyarrow.__version__} provides Arrow ABI major {actual_major}; "
-        f"this build requires major {expected_major}"
-    )
-root = pathlib.Path(pyarrow.__file__).resolve().parent
-def pick(pattern):
-    matches = sorted(root.glob(pattern))
-    if not matches:
-        raise SystemExit(f"missing pyarrow library matching {pattern!r} under {root}")
-    return matches[0]
-if sys.platform == "win32":
-    arrow_link = pick("arrow.lib")
-    compute_link = pick("arrow_compute.lib")
-    acero_link = pick("arrow_acero.lib")
-    arrow_runtime = pick("arrow.dll")
-    compute_runtime = pick("arrow_compute.dll")
-    acero_runtime = pick("arrow_acero.dll")
-else:
-    arrow_link = arrow_runtime = pick("libarrow.*")
-    compute_link = compute_runtime = pick("libarrow_compute.*")
-    acero_link = acero_runtime = pick("libarrow_acero.*")
-for path in (root, root / "include", arrow_link, compute_link, acero_link,
-             arrow_runtime, compute_runtime, acero_runtime):
-    print(path.as_posix())
-]=])
-    execute_process(
-        COMMAND "${Python_EXECUTABLE}" -c "${_hgraph_pyarrow_probe}" "${HGRAPH_PYARROW_ABI_MAJOR}"
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        OUTPUT_VARIABLE _hgraph_pyarrow_info
-        ERROR_VARIABLE _hgraph_pyarrow_error
-        RESULT_VARIABLE _hgraph_pyarrow_result
-    )
-    if(NOT _hgraph_pyarrow_result EQUAL 0)
-        message(FATAL_ERROR
-            "HGRAPH_USE_PYARROW_ARROW=ON requires a compatible pyarrow installation: "
-            "${_hgraph_pyarrow_error}")
-    endif()
-    string(REPLACE "\n" ";" _hgraph_pyarrow_info "${_hgraph_pyarrow_info}")
-    list(GET _hgraph_pyarrow_info 0 _hgraph_pyarrow_dir)
-    list(GET _hgraph_pyarrow_info 1 _hgraph_pyarrow_include)
-    list(GET _hgraph_pyarrow_info 2 _hgraph_pyarrow_arrow_lib)
-    list(GET _hgraph_pyarrow_info 3 _hgraph_pyarrow_compute_lib)
-    list(GET _hgraph_pyarrow_info 4 _hgraph_pyarrow_acero_lib)
-    list(GET _hgraph_pyarrow_info 5 HGRAPH_PYARROW_ARROW_RUNTIME)
-    list(GET _hgraph_pyarrow_info 6 HGRAPH_PYARROW_COMPUTE_RUNTIME)
-    list(GET _hgraph_pyarrow_info 7 HGRAPH_PYARROW_ACERO_RUNTIME)
-    if(NOT EXISTS "${_hgraph_pyarrow_include}/arrow/api.h")
-        message(FATAL_ERROR "pyarrow headers not found under ${_hgraph_pyarrow_include}")
-    endif()
-    add_library(Arrow::arrow_shared SHARED IMPORTED GLOBAL)
-    add_library(ArrowCompute::arrow_compute_shared SHARED IMPORTED GLOBAL)
-    add_library(ArrowAcero::arrow_acero_shared SHARED IMPORTED GLOBAL)
-    if(WIN32)
-        set_target_properties(Arrow::arrow_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_arrow_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_ARROW_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowCompute::arrow_compute_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_compute_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowAcero::arrow_acero_shared PROPERTIES
-            IMPORTED_IMPLIB "${_hgraph_pyarrow_acero_lib}"
-            IMPORTED_LOCATION "${HGRAPH_PYARROW_ACERO_RUNTIME}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-    else()
-        set_target_properties(Arrow::arrow_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_arrow_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowCompute::arrow_compute_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_compute_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-        set_target_properties(ArrowAcero::arrow_acero_shared PROPERTIES
-            IMPORTED_LOCATION "${_hgraph_pyarrow_acero_lib}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
-        )
-    endif()
-    set(HGRAPH_PYARROW_LIBRARY_DIR "${_hgraph_pyarrow_dir}" CACHE PATH
-        "Directory containing pyarrow's bundled Arrow libraries" FORCE)
-    set(HGRAPH_PYARROW_RUNTIME_DIRS "${_hgraph_pyarrow_dir}")
-    if(WIN32)
-        get_filename_component(_hgraph_pyarrow_site_packages
-            "${_hgraph_pyarrow_dir}" DIRECTORY)
-        list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
-            "${_hgraph_pyarrow_site_packages}")
-        if(EXISTS "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
-            list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
-                "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
-        endif()
-    endif()
-else()
-    find_package(Arrow CONFIG REQUIRED)
-    # Recent Arrow releases split compute/acero into their own CMake packages; some
-    # packagers (Conan's Arrow recipe) define all three target namespaces
-    # from the single Arrow config, in which case the separate packages do
-    # not exist and must not be required.
-    if(NOT TARGET ArrowCompute::arrow_compute_shared AND
-       NOT TARGET ArrowCompute::arrow_compute_static)
-        find_package(ArrowCompute CONFIG REQUIRED)
-    endif()
-    if(NOT TARGET ArrowAcero::arrow_acero_shared AND
-       NOT TARGET ArrowAcero::arrow_acero_static)
-        find_package(ArrowAcero CONFIG REQUIRED)
-    endif()
-endif()
+include("${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake")
 
 function(hgraph_configure_test_runtime_paths test_name)
     if(NOT WIN32 OR NOT HGRAPH_PYARROW_RUNTIME_DIRS)
@@ -611,17 +469,7 @@ if(fmt_FOUND)
     find_package(spdlog 1.15 CONFIG QUIET)
 endif()
 if(NOT spdlog_FOUND)
-    FetchContent_Declare(
-        spdlog
-        GIT_REPOSITORY https://github.com/gabime/spdlog.git
-        GIT_TAG        v1.15.3
-        GIT_SHALLOW    TRUE
-        SYSTEM
-    )
-    set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "spdlog uses the project fmt" FORCE)
-    set(SPDLOG_INSTALL OFF CACHE BOOL "Generate spdlog install target" FORCE)
-    set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "Build spdlog examples" FORCE)
-    FetchContent_MakeAvailable(spdlog)
+    hgraph_fetch_spdlog()
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     target_link_libraries(hgraph_private_dependencies INTERFACE spdlog::spdlog)
@@ -908,22 +756,15 @@ write_basic_package_version_file(
 set(_hgraph_config_dependencies "find_dependency(Threads)\n")
 if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
     list(APPEND _hgraph_config_dependencies
-        "find_dependency(fmt 11 CONFIG)\n"
-        "find_dependency(Arrow CONFIG QUIET)\n"
-        # Some packagers (Conan's Arrow) define the compute/acero targets
-        # from the single Arrow config; only find the split packages when
-        # the targets are still missing, mirroring the build-side guard.
-        "if(NOT TARGET ArrowCompute::arrow_compute_shared AND NOT TARGET ArrowCompute::arrow_compute_static)\n"
-        "  find_dependency(ArrowCompute CONFIG QUIET)\n"
-        "endif()\n"
-        "if(NOT TARGET ArrowAcero::arrow_acero_shared AND NOT TARGET ArrowAcero::arrow_acero_static)\n"
-        "  find_dependency(ArrowAcero CONFIG QUIET)\n"
-        "endif()\n"
-        "find_dependency(spdlog 1.15 CONFIG)\n"
+        # A consumer must fetch the producer's dependency versions: selecting a
+        # different fmt major would leave the SDK referring to another ABI.
+        "set(HGRAPH_FMT_FETCH_VERSION \"${fmt_VERSION}\")\n"
+        "set(HGRAPH_SPDLOG_FETCH_VERSION \"${spdlog_VERSION}\")\n"
+        "set(HGRAPH_SIMDJSON_FETCH_VERSION \"${simdjson_VERSION}\")\n"
+        "include(\"\${CMAKE_CURRENT_LIST_DIR}/HgraphNativeDependencies.cmake\")\n"
         # Static consumers link these implementation dependencies. The
         # simdjson floor is explicit because its package version file uses
         # same-minor compatibility.
-        "find_dependency(simdjson CONFIG)\n"
         "if(simdjson_VERSION VERSION_LESS 4.5)\n"
         "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5; found \${simdjson_VERSION}\")\n"
         "endif()\n"
@@ -1181,5 +1022,8 @@ install(EXPORT hgraphTargets
 install(FILES
     "${PROJECT_BINARY_DIR}/hgraphConfig.cmake"
     "${PROJECT_BINARY_DIR}/hgraphConfigVersion.cmake"
+    "${PROJECT_SOURCE_DIR}/cmake/HgraphArrow.cmake"
+    "${PROJECT_SOURCE_DIR}/cmake/HgraphFetchDependencies.cmake"
+    "${PROJECT_SOURCE_DIR}/cmake/HgraphNativeDependencies.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgraph
 )

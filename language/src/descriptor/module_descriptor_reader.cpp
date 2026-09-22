@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -17,6 +18,8 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace hgl::descriptor
@@ -450,7 +453,8 @@ namespace hgl::descriptor
                         !required_reference(fields, "type", item_path, field.type) ||
                         !required_bool(fields, "optional", item_path, field.optional) ||
                         !required_reference(fields, "default", item_path, field.default_value) ||
-                        !required_string(fields, "origin", item_path, field.origin_identity)) {
+                        !required_string(fields, "origin", item_path, field.origin_identity) ||
+                        !required_bool(fields, "recursive", item_path, field.recursive)) {
                         return false;
                     }
                     out.push_back(std::move(field));
@@ -1068,6 +1072,17 @@ namespace hgl::descriptor
                 if (descriptor_.module_identity.empty()) {
                     return ReadError{"$.module.identity", "module identity must not be empty"};
                 }
+                // An identity is not just a label: generated C++ derives a
+                // namespace from it and spells it into the source. A
+                // descriptor is an input, so anything not shaped like a
+                // dot-separated HGL identifier is refused here rather than
+                // interpolated -- otherwise a descriptor could carry
+                // characters that close the generated templates and reopen
+                // them around code of its own.
+                if (!is_qualified_identifier(descriptor_.module_identity)) {
+                    return ReadError{"$.module.identity",
+                                     "module identity must be dot-separated identifiers: '" + descriptor_.module_identity + "'"};
+                }
                 if (!descriptor_.descriptor_fingerprint.empty() && descriptor_.descriptor_fingerprint != fingerprint(descriptor_)) {
                     return ReadError{"$.module.descriptor_fingerprint", "descriptor fingerprint does not match canonical contents"};
                 }
@@ -1086,6 +1101,15 @@ namespace hgl::descriptor
                 for (std::size_t index = 0; index < descriptor_.constraints.size(); ++index) {
                     if (!constraint_record(descriptor_.constraints[index], index_path("$.schema.constraints", index))) {
                         return error_;
+                    }
+                }
+                // Struct identities are indexed before the interface is walked:
+                // a recursive edge may name a struct declared after it, and a
+                // scan per edge would be quadratic in a struct-heavy module.
+                structure_identities_.reserve(descriptor_.interface.size());
+                for (const InterfaceDeclaration &declaration : descriptor_.interface) {
+                    if (declaration.category == DeclarationCategory::Structure) {
+                        structure_identities_.emplace(declaration.identity);
                     }
                 }
                 for (std::size_t index = 0; index < descriptor_.interface.size(); ++index) {
@@ -1153,7 +1177,8 @@ namespace hgl::descriptor
                         const StructField &member     = declaration.fields[field];
                         const std::string  field_path = index_path(member_path(path, "fields"), field);
                         if (!non_signal_type_ref(member.type, member_path(field_path, "type")) ||
-                            !constant_ref(member.default_value, member_path(field_path, "default"), true)) {
+                            !constant_ref(member.default_value, member_path(field_path, "default"), true) ||
+                            (member.recursive && !recursive_edge(member, member_path(field_path, "recursive")))) {
                             return error_;
                         }
                     }
@@ -1258,12 +1283,11 @@ namespace hgl::descriptor
                 return false;
             }
 
-            bool unique_identity(const std::string &identity, std::string_view path, std::vector<std::string> &seen) {
+            bool unique_identity(const std::string &identity, std::string_view path, std::unordered_set<std::string> &seen) {
                 if (identity.empty()) { return fail(member_path(path, "identity"), "identity must not be empty"); }
-                if (std::ranges::find(seen, identity) != seen.end()) {
+                if (!seen.insert(identity).second) {
                     return fail(member_path(path, "identity"), "duplicate declaration identity '" + identity + "'");
                 }
-                seen.push_back(identity);
                 return true;
             }
 
@@ -1298,6 +1322,30 @@ namespace hgl::descriptor
 
             bool constant_ref(SchemaId id, std::string_view path, bool optional = false) {
                 return arena_ref(id, descriptor_.constant_expressions.size(), "constant-expression", path, optional);
+            }
+
+            /// A recursive edge is an optional `atomic<T>` whose `T` names a struct
+            /// of this module (HGL ADR 0012, rules 2, 3 and 5); its type is already
+            /// a checked reference.
+            bool recursive_edge(const StructField &field, std::string_view path) {
+                if (!field.optional) { return fail(std::string{path}, "a recursive edge must be optional"); }
+                const TypeRecord &atomic = descriptor_.types[field.type];
+                if (atomic.category != TypeCategory::Atomic || atomic.children.size() != 1U) {
+                    return fail(std::string{path}, "a recursive edge must be an atomic type");
+                }
+                const TypeRecord &target = descriptor_.types[atomic.children.front()];
+                if (target.category != TypeCategory::Symbol ||
+                    !target.nominal_identity.starts_with(descriptor_.module_identity + ".")) {
+                    return fail(std::string{path}, "a recursive edge must name a struct of " + descriptor_.module_identity);
+                }
+                // The identity must resolve to a struct this descriptor declares,
+                // not merely be spelled like one: an importer rebuilds the edge
+                // from that struct's layout, and there is none to rebuild from.
+                if (!structure_identities_.contains(target.nominal_identity)) {
+                    return fail(std::string{path}, "a recursive edge names '" + target.nominal_identity +
+                                                       "', which is not a struct declared by " + descriptor_.module_identity);
+                }
+                return true;
             }
 
             bool constraint_ref(SchemaId id, std::string_view path, bool optional = false) {
@@ -1627,13 +1675,17 @@ namespace hgl::descriptor
 
             bool unique_native_overload(const NativeDeclaration &declaration, std::string_view path) {
                 if (declaration.identity.empty()) { return fail(member_path(path, "identity"), "identity must not be empty"); }
-                if (std::ranges::any_of(native_declaration_signatures_, [&](const auto &item) {
-                        return item.first == declaration.identity && same_native_signature(item.second, declaration.signature);
+                // Overloads share an identity, so a duplicate is decided by the
+                // signature -- but only against the overloads of that same
+                // identity, never against every native declaration read so far.
+                std::vector<Signature> &overloads = native_declaration_signatures_[declaration.identity];
+                if (std::ranges::any_of(overloads, [&](const Signature &recorded) {
+                        return same_native_signature(recorded, declaration.signature);
                     })) {
                     return fail(member_path(path, "identity"),
                                 "duplicate native overload for declaration identity '" + declaration.identity + "'");
                 }
-                native_declaration_signatures_.emplace_back(declaration.identity, declaration.signature);
+                overloads.push_back(declaration.signature);
                 return true;
             }
 
@@ -1688,10 +1740,10 @@ namespace hgl::descriptor
                 if (mutable_parameters != (mutates ? 1U : 0U)) {
                     return fail(member_path(path, "effects"), "mutation requires exactly one explicitly mutable borrowed argument");
                 }
+                // A translated exception policy is admitted in evaluation (ADR
+                // 0009): the raise ends the evaluation under hgraph's node error
+                // model. Blocking stays outside the per-tick envelope.
                 const bool evaluation = std::ranges::find(declaration.phases, NativePhase::Evaluation) != declaration.phases.end();
-                if (evaluation && declaration.exception_policy != NativeExceptionPolicy::NoThrow) {
-                    return fail(member_path(path, "exception"), "evaluation native functions must be noexcept");
-                }
                 if (evaluation && std::ranges::find(declaration.effects, NativeEffect::Blocking) != declaration.effects.end()) {
                     return fail(member_path(path, "effects"), "evaluation native functions must be non-blocking");
                 }
@@ -1886,10 +1938,16 @@ namespace hgl::descriptor
 
             const ModuleDescriptor                        &descriptor_;
             std::optional<ReadError>                       error_{};
-            std::vector<std::string>                       interface_identities_{};
-            std::vector<std::string>                       implementation_identities_{};
-            std::vector<std::string>                       native_type_identities_{};
-            std::vector<std::pair<std::string, Signature>> native_declaration_signatures_{};
+            /// Identities of the structs this descriptor declares, indexed once so a
+            /// recursive edge resolves its target without a scan per edge.
+            std::unordered_set<std::string>                structure_identities_{};
+            /// Identity sets and overload families are hashed, not scanned: a
+            /// membership test per declaration would be quadratic in a module's
+            /// declaration count.
+            std::unordered_set<std::string>                       interface_identities_{};
+            std::unordered_set<std::string>                       implementation_identities_{};
+            std::unordered_set<std::string>                       native_type_identities_{};
+            std::unordered_map<std::string, std::vector<Signature>> native_declaration_signatures_{};
         };
     }  // namespace
 
@@ -1904,6 +1962,27 @@ namespace hgl::descriptor
             return ReadResult{.error = std::move(duplicate)};
         }
         return Decoder{}.run(root);
+    }
+
+    bool is_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        const auto head = static_cast<unsigned char>(text.front());
+        if (!(std::isalpha(head) != 0 || head == '_')) { return false; }
+        return std::ranges::all_of(text, [](char c) {
+            const auto value = static_cast<unsigned char>(c);
+            return std::isalnum(value) != 0 || value == '_';
+        });
+    }
+
+    bool is_qualified_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        std::size_t begin = 0;
+        while (true) {
+            const std::size_t dot = text.find('.', begin);
+            if (!is_identifier(text.substr(begin, dot == std::string_view::npos ? dot : dot - begin))) { return false; }
+            if (dot == std::string_view::npos) { return true; }
+            begin = dot + 1;
+        }
     }
 
     std::optional<ReadError> validate(const ModuleDescriptor &descriptor) { return Validator{descriptor}.run(); }

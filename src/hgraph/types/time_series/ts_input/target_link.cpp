@@ -270,6 +270,24 @@ namespace hgraph::detail
             }));
         }
 
+        DateTime structural_checkpoint_key_set_time(const TSInputTargetLinkStorage &owner)
+        {
+            const auto &transition = structural_storage(owner).structural_transition;
+            if (transition) { return transition->key_set_tracking.last_modified_time; }
+            return owner.bound() ? target_slot_set(owner).last_modified_time() : MIN_DT;
+        }
+
+        void structural_restore_key_set_time(TSInputTargetLinkStorage &owner, DateTime time)
+        {
+            auto &transition = ensure_structural_transition(owner);
+            transition.key_set_tracking.last_modified_time = time;
+            if (owner.bound() && !transition.key_set_subscribed)
+            {
+                target_slot_set(owner).base().subscribe(&transition.key_set_notifier);
+                transition.key_set_subscribed = true;
+            }
+        }
+
         void structural_subscribe_slot_observers(TSInputTargetLinkStorage &owner)
         {
             auto &storage = structural_storage(owner);
@@ -491,6 +509,10 @@ namespace hgraph::detail
         TSDataView no_structural_previous_target(const TSInputTargetLinkStorage &) noexcept { return {}; }
         bool no_structural_flag(const TSInputTargetLinkStorage &) noexcept { return false; }
         DateTime no_structural_time(const TSInputTargetLinkStorage &) noexcept { return MIN_DT; }
+        void no_structural_restore_key_set_time(TSInputTargetLinkStorage &, DateTime time)
+        {
+            if (time != MIN_DT) { throw std::invalid_argument("non-structural alias has a key-set checkpoint clock"); }
+        }
         DynamicStorageMetrics no_structural_metrics(const TSInputTargetLinkStorage &) noexcept { return {}; }
 
         [[nodiscard]] const TSInputTargetLinkStructuralOps &target_link_structural_ops() noexcept
@@ -517,6 +539,8 @@ namespace hgraph::detail
                 .dynamic_storage_metrics = &structural_dynamic_storage_metrics,
                 .before_move_assignment_source = &structural_before_move_assignment_source,
                 .resubscribe_after_move_assignment = &structural_resubscribe_after_move_assignment,
+                .checkpoint_key_set_time = &structural_checkpoint_key_set_time,
+                .restore_key_set_time = &structural_restore_key_set_time,
             };
             return ops;
         }
@@ -633,6 +657,8 @@ namespace hgraph::detail
             .dynamic_storage_metrics = &no_structural_metrics,
             .before_move_assignment_source = &no_structural_action,
             .resubscribe_after_move_assignment = &no_structural_action,
+            .checkpoint_key_set_time = &no_structural_time,
+            .restore_key_set_time = &no_structural_restore_key_set_time,
         };
         return ops;
     }
@@ -970,6 +996,45 @@ namespace hgraph::detail
         bind_impl(schema, output, modified_time, true, false);
     }
 
+    DateTime TSInputTargetLinkStorage::checkpoint_key_set_time() const
+    {
+        return structural_ops_->checkpoint_key_set_time(*this);
+    }
+
+    void TSInputTargetLinkStorage::restore_binding(const TSValueTypeMetaData &schema,
+                                                   const TSOutputView &output,
+                                                   DateTime modified_time, DateTime key_set_time)
+    {
+        if (bound() || tracking.last_modified_time != MIN_DT)
+        {
+            throw std::invalid_argument("checkpoint alias restore requires a fresh unbound link");
+        }
+        if (key_set_time > modified_time ||
+            (!structural_ops_->supports_structural && key_set_time != MIN_DT))
+        {
+            throw std::invalid_argument("checkpoint alias clocks are inconsistent");
+        }
+        TSOutputHandle target{};
+        if (output.bound())
+        {
+            target = bind_target_handle(schema, output);
+            if (schema.kind != TSTypeKind::SIGNAL &&
+                !time_series_schema_equivalent(target.schema(), &schema))
+            {
+                throw std::invalid_argument("checkpoint alias source schema mismatch");
+            }
+        }
+        auto rollback = make_scope_exit<true>([this] { unbind(); tracking.last_modified_time = MIN_DT; });
+        state_.target = target;
+        state_.target_is_reference = target.bound() && target_can_move(target);
+        if (target.bound()) { target.data_view().subscribe(&state_); }
+        structural_ops_->restore_key_set_time(*this, key_set_time);
+        structural_ops_->subscribe_slot_observers(*this);
+        resubscribe_active_target(schema);
+        tracking.last_modified_time = modified_time;
+        rollback.release();
+    }
+
     void TSInputTargetLinkStorage::bind_impl(const TSValueTypeMetaData &schema,
                                              const TSOutputView &output,
                                              DateTime modified_time,
@@ -1033,9 +1098,13 @@ namespace hgraph::detail
         rollback.release();
     }
 
-    void TSInputTargetLinkStorage::unbind()
+    void TSInputTargetLinkStorage::unbind(DateTime evaluation_time)
     {
-        detach_target(false, MIN_DT);
+        if (structural_ops_->supports_structural && evaluation_time != MIN_DT)
+        {
+            unbind_structural(evaluation_time);
+        }
+        else { detach_target(false, MIN_DT); }
     }
 
     void TSInputTargetLinkStorage::unbind_structural(DateTime modified_time)
@@ -1319,11 +1388,11 @@ namespace hgraph::detail
         link->bind_sampled(*schema, output, modified_time);
     }
 
-    void unbind_target_link(const TSDataView &view)
+    void unbind_target_link(const TSDataView &view, DateTime evaluation_time)
     {
         auto *link = mutable_target_link_storage(view);
         if (link == nullptr) { throw std::logic_error("TSInput target unbinding requires TargetLink storage"); }
-        link->unbind();
+        link->unbind(evaluation_time);
     }
 
     void make_target_link_active(const TSDataView &view,

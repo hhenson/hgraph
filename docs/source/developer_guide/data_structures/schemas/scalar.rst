@@ -161,7 +161,27 @@ the thread-local realization scope has ended.
 C++ code can request an owner with ``TypeRegistry::owned(target)``. A
 self-recursive nominal schema is declared atomically with
 ``TypeRegistry::recursive_bundle(...)``; a null field-schema entry denotes
-``Owned<Self>``. Python recognises direct self references, including
+``Owned<Self>``.
+
+When the members of a batch are not known in advance,
+``TypeRegistry::recursive_bundle_closure(root, describe)`` finds them
+(:doc:`RFC 0041 </rfc/rfc_0041_recursive_bundle_closures>`). The describer
+returns one specialization's definition, naming each recursive edge's target
+by qualified name. The registry walks the targets, registers each strongly
+connected component as one ``recursive_bundles`` batch when it closes, keeps a
+component of one specialization without an edge to itself an ordinary named
+Bundle, and reuses a name already registered. The static schema's ``Edge``
+marker and the HGL compiler's direct-wiring backend both register recursive
+structs this way.
+
+Hashing, equality and ordering of a recursive value run through its owned
+edges, so a batch member's capabilities depend on its own. The registry takes
+the greatest fixed point: a member is hashable, equatable or comparable when
+every field that is not an owned edge into the batch is, and every member it
+owns is. An owned edge never removes a capability by itself, so a
+``Node{value: int, next: Owned<Node>}`` compares, hashes and orders through
+its whole depth, while a member holding a ``set`` loses ordering and so does
+every member that owns it. Python recognises direct self references, including
 ``Optional[Self]``, on a dataclass ``CompoundScalar`` and uses the same native
 owned path. Python-owned dataclasses may also describe direct or mutual
 recursion because their annotations do not imply recursive inline native

@@ -3,6 +3,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -20,6 +21,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <span>
 
 #include <hgraph/types/utils/counted_mutex.h>
 #include <new>
@@ -155,6 +157,20 @@ namespace hgraph::ts_data_plan_factory_detail
                 clear();
                 evicted_.reset();
                 evicted_time_ = modified_time;
+            }
+
+            /** Cold load a validated chronological image in one allocation.
+             * This bypasses push: expiry and transient removals belong to the
+             * next evaluation, never to checkpoint import. Work is O(live).
+             */
+            void restore_checkpoint(const IndexedValueView &values, std::span<const DateTime> times)
+            {
+                clear_values(MIN_DT);
+                reserve_exact(values.size());
+                for (std::size_t index = 0; index < values.size(); ++index)
+                {
+                    append(values.at(index), times[index]);
+                }
             }
 
             [[nodiscard]] const void *element_at(std::size_t index) const
@@ -803,6 +819,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .allows_mutation           = true,
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSW),
+                    .checkpoint_ops             = &window_checkpoint_ops(),
                     .layout_impl               = &window_layout,
                     .tracking_impl             = &window_tracking,
                     .mutable_tracking_impl     = &window_mutable_tracking,
@@ -831,6 +848,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.full_impl        = nullptr;
                 ops.push_impl        = &window_push;
                 ops.clear_impl       = &window_clear;
+                ops.replace_samples_impl = &window_replace_samples;
                 ops.cleared_time_impl = &window_cleared_time;
                 ops.evicted_time_impl    = &window_evicted_time;
                 ops.evicted_element_impl = &window_evicted_element;
@@ -875,6 +893,87 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const TSWContextBase *ctx(const void *context) noexcept
             {
                 return static_cast<const TSWContextBase *>(context);
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &window_checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps checkpoint{
+                    [](const TSDataView &, const TSCheckpointContext *) { return true; },
+                    &window_checkpoint_capture,
+                    &window_checkpoint_validate,
+                    &window_checkpoint_restore,
+                };
+                return checkpoint;
+            }
+
+            [[nodiscard]] static TSCheckpointImage window_checkpoint_capture(const TSDataView &view, const TSCheckpointContext *)
+            {
+                const auto *self = ctx(view.ops().context);
+                const auto &window = storage<Storage>(window_value_memory(self, view.data()));
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.window_times.reserve(window.size());
+                // The public count-window value schema has a fixed extent and
+                // pads incomplete values. Checkpoint only live samples instead.
+                ListBuilder values{self->layout->element_binding};
+                for (std::size_t index = 0; index < window.size(); ++index)
+                {
+                    values.push_back_copy(window.element_at(index));
+                    image.window_times.push_back(window.time_at(index));
+                }
+                image.payload = values.build();
+                return image;
+            }
+
+            static void window_checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                ts_checkpoint_detail::validate_header(view, image);
+                if (!image.children.empty() || !image.keys.empty() || !image.slots.empty() ||
+                    !image.free_slots.empty() || !image.published.empty() || image.slot_capacity != 0 ||
+                    image.key_set_last_modified_time != MIN_DT)
+                    throw std::invalid_argument("window checkpoint contains structural metadata");
+                const auto *self = ctx(view.ops().context);
+                if (window_size(self, view.data()) != 0)
+                    throw std::invalid_argument("window checkpoint restore requires empty endpoint storage");
+                const auto *schema = image.payload.schema();
+                if (!image.payload.has_value() || schema == nullptr ||
+                    schema->value_kind() != ValueTypeKind::List || schema->is_fixed_size() ||
+                    schema->element_type != self->layout->element_binding.schema())
+                    throw std::invalid_argument("window checkpoint requires a live dynamic list of its element type");
+                const auto values = image.payload.view().as_indexed_view();
+                if (values.size() != image.window_times.size())
+                    throw std::invalid_argument("window checkpoint sample values and timestamps disagree");
+                if constexpr (std::is_same_v<Storage, SizeTSWindowStorage>)
+                    if (values.size() > view.schema()->period())
+                        throw std::invalid_argument("window checkpoint exceeds its count period");
+                DateTime previous = MIN_DT;
+                for (std::size_t index = 0; index < values.size(); ++index)
+                {
+                    const auto value = values.at(index);
+                    if (!value.has_value() || value.schema() != self->layout->element_binding.schema() ||
+                        value.binding().plan() != self->layout->element_binding.plan())
+                        throw std::invalid_argument("window checkpoint sample is invalid or incompatible");
+                    const auto time = image.window_times[index];
+                    if (time == MIN_DT || time < previous ||
+                        (image.last_modified_time != MIN_DT && time > image.last_modified_time))
+                        throw std::invalid_argument("window checkpoint sample timestamps are not chronological");
+                    previous = time;
+                }
+                if constexpr (std::is_same_v<Storage, TimeTSWindowStorage>)
+                    if (values.size() > 1 &&
+                        static_cast<std::uint64_t>(image.window_times.back().time_since_epoch().count()) -
+                            static_cast<std::uint64_t>(image.window_times.front().time_since_epoch().count()) >
+                        static_cast<std::uint64_t>(view.schema()->time_range().count()))
+                        throw std::invalid_argument("window checkpoint samples exceed its duration range");
+            }
+
+            static void window_checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
+            {
+                const auto *self = ctx(view.ops().context);
+                auto &window = storage<Storage>(window_mutable_value_memory(self, view.mutable_data()));
+                window.restore_checkpoint(image.payload.view().as_indexed_view(), image.window_times);
+                window_mutable_tracking(self, view.mutable_data())->last_modified_time = image.last_modified_time;
             }
 
             [[nodiscard]] static const TSDataLayout *window_layout(const void *context) noexcept
@@ -982,6 +1081,39 @@ namespace hgraph::ts_data_plan_factory_detail
             static void window_clear(const void *context, void *memory, DateTime modified_time)
             {
                 storage<Storage>(window_mutable_value_memory(context, memory)).clear_values(modified_time);
+            }
+
+            static void window_replace_samples(const void *context, void *memory,
+                                                const ValueView &source,
+                                                std::span<const DateTime> times,
+                                                DateTime modified_time)
+            {
+                const auto *self = ctx(context);
+                if (!source.has_value() || source.schema()->value_kind() != ValueTypeKind::List ||
+                    source.schema()->element_type != self->schema->value_type)
+                    throw std::invalid_argument("TSW sample replacement requires a list of its element type");
+                const auto values = source.as_indexed_view();
+                if (values.size() != times.size())
+                    throw std::invalid_argument("TSW sample values and times disagree");
+                if constexpr (std::is_same_v<Storage, SizeTSWindowStorage>)
+                    if (values.size() > self->schema->period())
+                        throw std::invalid_argument("TSW sample replacement exceeds its period");
+                DateTime previous = MIN_DT;
+                for (std::size_t index = 0; index < times.size(); ++index)
+                {
+                    if (!values.at(index).has_value() || times[index] == MIN_DT || times[index] < previous ||
+                        times[index] > modified_time)
+                        throw std::invalid_argument("TSW sample replacement has invalid chronological samples");
+                    previous = times[index];
+                }
+                if constexpr (std::is_same_v<Storage, TimeTSWindowStorage>)
+                    if (times.size() > 1 &&
+                        static_cast<std::uint64_t>(times.back().time_since_epoch().count()) -
+                            static_cast<std::uint64_t>(times.front().time_since_epoch().count()) >
+                        static_cast<std::uint64_t>(self->schema->time_range().count()))
+                        throw std::invalid_argument("TSW sample replacement exceeds its time range");
+                storage<Storage>(window_mutable_value_memory(context, memory))
+                    .restore_checkpoint(values, times);
             }
 
             [[nodiscard]] static bool window_copy_value_from(const void *context, void *memory,
@@ -1254,9 +1386,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.capacity_impl      = &size_capacity;
                 ops.full_impl          = &size_full;
                 ops.all_valid_impl     = &size_all_valid;
-                // A tick window is VALID only once it holds min_period
-                // elements (hgraph: consumers below the minimum see an
-                // invalid input, not a short window).
+                // A window is valid from its first value. all_valid is the
+                // separate minimum-period readiness predicate.
                 ops.has_current_value_impl = &size_has_current_value;
             }
 

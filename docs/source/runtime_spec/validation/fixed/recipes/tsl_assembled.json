@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_assembled",
+  "description": "TS-1, TS-4, TS-7: partial publication, invalidation and revalidation preserve fixed positions. Non-peered validity is derived from children; the current prose assigns notification time to its parent.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_assembled"
+  },
+  "features": []
+}

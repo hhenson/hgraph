@@ -1,0 +1,10 @@
+[
+  {
+    "date": "2026-09-21",
+    "case": "expired_ref",
+    "path": "/ticks/3/value",
+    "expected": null,
+    "status": "user-ruling",
+    "rationale": "A key removed at t2 and its removed value are absent in every form at t3. A later insertion at t4 creates a new value. Writing an independently saved reference to a REF output does not reinsert the key."
+  }
+]

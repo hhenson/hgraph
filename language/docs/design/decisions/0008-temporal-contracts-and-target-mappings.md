@@ -124,7 +124,7 @@ A value call with temporal arguments in graph composition becomes one runtime
 node equivalent to `when { return value_function(...) }`. Temporal arguments
 are inputs; scalar arguments and omitted defaults are configuration. The
 default is any input modified and all inputs valid, using ordinary endpoint
-validity, not recursive `all_valid`. Outputless functions become sinks. An
+validity, without the immediate-child checks of `all_valid`. Outputless functions become sinks. An
 all-scalar call executes directly, with no invented source timing. Custom
 activation/validity belongs in an explicit temporal wrapper.
 
@@ -197,8 +197,8 @@ The language distinguishes semantic history from reconstructible local data:
 | `state` | Persistent data needed to determine subsequent computation | `RecordableState<TSchema>` | Recorded and restored |
 | `cache<T>` | Node-local data reconstructible independently of missing history | `State<T>` | Excluded; rebuilt after restart |
 
-`cache<T>` names the agreed concept. This record does not choose the complete
-declaration or initializer grammar. It does not rename C++ `State` or introduce
+`cache<T>` names the agreed concept. The scalar declaration and initializer grammar is settled in
+[ADR 0011](0011-cache-declarations.md). It does not rename C++ `State` or introduce
 a native `Cache` selector.
 
 Given the same restored inputs and recordable state, restarting with an empty
@@ -217,6 +217,10 @@ Examples:
 - A cached REF is suitable when current input connections and a current or
   restored selection identify its source. A historical selection known only
   to the cache is semantic state and must instead be recordable.
+- Pending native alarms keep their authoritative deadlines and tags in a
+  dedicated scheduler checkpoint; finite operator progress belongs in recordable
+  state. Scheduling indices are rebuilt after restore
+  ([recovery contract](0011-cache-declarations.md#scheduler-recovery-contract)).
 - A running total, last-seen value, or queue of unconsumed events is not a
   cache merely because it is stored privately. When missing history is needed
   to reconstruct it, use recordable state or an explicit temporal structure.
@@ -237,7 +241,9 @@ state; cache reconstruction must use the restored authoritative data.
 Normal teardown runs semantic `stop` before destroying the constructed
 objects and releasing their storage. Partial initialization must clean up
 whatever was successfully constructed without assuming `start` completed.
-Detailed failure and rollback rules for native hooks remain to be specified.
+Native static nodes destroy constructed slots after a failed `start`, without
+calling that node's `stop`; partial resource acquisition must use RAII or a
+rollback guard. Generic HGL native construction hooks remain future work.
 
 Cache follows state's applicable typing and lifetime rules but does not
 require recordability. It may therefore contain admitted native/non-recordable
@@ -246,12 +252,15 @@ there only if its recordability contract is supplied. Opaque native storage
 does not remove this distinction. Cache is also not a blanket permission to
 own external resources or introduce I/O outside a native lifecycle contract.
 
-A node may need both recordable history and a derived cache. Supporting both
-is the agreed direction. The current
-[C++ static-node API](../../../../include/hgraph/types/static_node.h) explicitly rejects
-combining `State` and `RecordableState`; that restriction, storage planning,
-and their lifecycle integration require implementation work. HGL cache
-declarations and generic native cache construction are not implemented.
+A node may need both recordable history and a derived cache. The
+[C++ static-node API](../../../../include/hgraph/types/static_node.h) supports one
+`State` and one `RecordableState` together, with independent planned storage.
+Checkpoint restoration precedes `start`, which rebuilds the fresh cache. HGL
+scalar cache declarations, aggregation and mixed state/cache lowering are
+implemented; generic native cache construction remains separate implementation
+work. Shared graph-IR admission no longer rejects the mixed HGL case: a function
+may declare both, and the generated node carries one `RecordableState` and one
+`State` with independent planned storage.
 
 For **HGL-MIG-005**, this settles the reconstructible-cache distinction, not
 generic recordable-state construction. Non-default-constructible generic

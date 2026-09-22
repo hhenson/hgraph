@@ -77,11 +77,15 @@ namespace hgl::ir::hir
         LocalLet,
         LocalVar,
         State,
+        Cache,
         InjectedCapability,
         LoopValue,
         LambdaParameter,
         ImportedFunction,
         ImportedOperator,
+        /// A struct another module exports (ADR 0013). Its identity is the
+        /// owner's qualified name; this module declares nothing for it.
+        ImportedStruct,
         Intrinsic,
         ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
@@ -384,11 +388,14 @@ namespace hgl::ir::hir
         TypeId   type{};
         ExprId   init{};
     };
+    /// `state`, or with `cache` a reconstructible node-local cache that is
+    /// outside record/replay and re-initialized on every start (ADR 0011).
     struct StateDecl
     {
         SymbolId symbol{};
         TypeId   type{};
         ExprId   init{};
+        bool     cache{false};
     };
     struct InjectDecl
     { std::vector<SymbolId> symbols{}; };
@@ -566,6 +573,9 @@ namespace hgl::ir::hir
         std::vector<NativeParameter>  parameters{};
         TypeId                        result{};
         std::vector<NativePhase>      phases{};
+        /// The call may raise; a raised exception ends the evaluation under
+        /// hgraph's node error model. Descriptor policy "translated".
+        bool                          throws{false};
         std::vector<std::string>      public_headers{};
         std::vector<std::string>      cmake_packages{};
         std::vector<std::string>      imported_targets{};
@@ -581,9 +591,19 @@ namespace hgl::ir::hir
         std::string         name{};
         TypeId              type{};
         ExprId              default_value{};
+        /// The declaration that declares this field, when it is one of this
+        /// module's. A field inherited from a struct another module exports
+        /// has none (ADR 0013), and names its source in `origin_identity`.
         DeclarationId       origin{};
+        /// The identity of the struct that declares this field when it is not
+        /// a declaration here. Empty for a local origin, which `origin` names.
+        std::string         origin_identity{};
         bool                optional{false};
         syntax::SourceRange range{};
+        /// An admitted recursive edge (ADR 0012): an optional `atomic<T>` through
+        /// which a value can hold another value of its own struct. The target
+        /// is the struct inside the field's type, named by identity there.
+        bool recursive{false};
     };
 
     enum class Visibility : std::uint8_t {
@@ -614,6 +634,22 @@ namespace hgl::ir::hir
         std::vector<TypeId>           parents{};
         ConstraintId                  requirements{};
         std::vector<StructField>      fields{};
+    };
+
+    /// A struct another module exports, re-described for this module's IR
+    /// (ADR 0013). Its identity is the owner's; nothing here declares it, so
+    /// it is a record beside the imports rather than a Declaration.
+    struct ImportedStructDecl
+    {
+        std::string                   identity{};
+        SymbolId                      symbol{};
+        bool                          abstract{false};
+        std::vector<GenericParameter> generics{};
+        std::vector<TypeId>           parents{};
+        ConstraintId                  requirements{};
+        std::vector<StructField>      fields{};
+        std::vector<std::string>      public_headers{};
+        syntax::SourceRange           range{};
     };
     struct OperatorProperty
     {
@@ -704,6 +740,10 @@ namespace hgl::ir::hir
         std::vector<std::string>      cpp_includes{};
         std::vector<NativeFunction>   native_functions{};
         std::vector<ImportedOperator> imported_operators{};
+        /// Structs other modules export, re-described here so both backends
+        /// register the owner's schema and the solver can check an applied
+        /// family's requirements (ADR 0013). This module declares none of them.
+        std::vector<ImportedStructDecl> imported_structs{};
         std::vector<Declaration>      declarations{};
         std::vector<DeclarationId>    source_order{};
 

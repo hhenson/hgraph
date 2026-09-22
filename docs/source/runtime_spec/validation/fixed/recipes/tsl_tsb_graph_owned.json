@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_tsb_graph_owned",
+  "description": "GRF-16, GRF-18, TS-14: nested switch/map samples aggregate references, detaches the old source, replaces child timers and starts fresh state after membership removal.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_tsb_graph_owned"
+  },
+  "features": []
+}

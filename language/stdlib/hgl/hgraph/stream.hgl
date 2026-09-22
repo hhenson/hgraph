@@ -1,0 +1,468 @@
+# Parallel scalar stream domains. Structural delta forwarding is tracked
+# separately in the migration catalogue.
+module hgraph.std part stream
+
+operator sample<T>(signal: signal, ts: T) -> T
+operator drop<T>(ts: T, const count: i64 = 1) -> T
+operator dedup<T>(ts: T) -> T
+operator filter_<T>(condition: bool, ts: T) -> T
+operator take<T>(ts: T, const count: i64 = 1) -> T
+operator freeze<T>(predicate: bool, ts: T) -> T
+operator until_true(ts: bool) -> bool
+
+# Input activity and the node scheduler (ADR 0010). These bodies mirror the
+# native nodes tick for tick; a restored exhausted `take` passivates on its
+# first evaluation rather than in `start`, because a start block cannot
+# reach the temporal inputs.
+impl fn take<T>(ts: T, const count: i64 = 1) -> T {
+    state seen: i64 = 0
+    when {
+        let index = seen + 1
+        if count <= 0 || index > count {
+            passivate(ts)
+        } else {
+            seen = index
+            if index >= count {
+                passivate(ts)
+            }
+            return ts
+        }
+    }
+}
+
+impl fn freeze<T>(predicate: bool, ts: T) -> T {
+    when valid(predicate) {
+        if predicate {
+            passivate(predicate)
+            passivate(ts)
+            if valid(ts) {
+                return ts
+            }
+        } else if modified(ts) && valid(ts) {
+            return ts
+        }
+    }
+}
+
+impl fn until_true(ts: bool) -> bool {
+    when {
+        if ts {
+            passivate(ts)
+        }
+        return ts
+    }
+}
+
+# Pending alarms and the historical emission count are recovered separately.
+# Start validates the delay and never replenishes an exhausted tick budget.
+operator schedule(const delay: duration, const initial_delay: bool = true,
+                  const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool
+impl fn schedule(const delay: duration, const initial_delay: bool = true,
+                 const max_ticks: i64 = 9223372036854775807, const use_wall_clock: bool = false) -> bool {
+    state ticks: i64 = 0
+    inject scheduler
+    start {
+        native::require_positive_delay(delay)
+        if ticks < max_ticks {
+            if initial_delay {
+                scheduler.schedule(delay, use_wall_clock)
+            } else {
+                scheduler.schedule(0s, use_wall_clock)
+            }
+        }
+    }
+    when scheduled() {
+        if ticks < max_ticks {
+            ticks += 1
+            if ticks < max_ticks {
+                scheduler.schedule(delay, use_wall_clock)
+            }
+            return true
+        }
+    }
+}
+
+impl fn sample<T>(signal: signal, ts: T) -> T {
+    when modified(signal) && valid(signal, ts) {
+        return ts
+    }
+}
+
+impl fn drop<T>(ts: T, const count: i64 = 1) -> T {
+    state seen: i64 = 0
+    when {
+        let emit_value = seen >= count
+        seen += 1
+        if emit_value {
+            return ts
+        }
+    }
+}
+
+impl fn filter_<T>(condition: bool, ts: T) -> T {
+    state was_open: bool = false
+    inject out
+    when modified(condition, ts) && valid(condition) {
+        let open = valid(condition) && condition
+        if open && valid(ts) {
+            if !was_open {
+                if !valid(out) || last_modified(out) < last_modified(ts) {
+                    out = ts
+                }
+            } else if modified(ts) {
+                out = ts
+            }
+        }
+        was_open = open
+    }
+}
+
+instantiate sample<bool>, sample<i64>, sample<f64>, sample<str>,
+    sample<date>, sample<time>, sample<datetime>, sample<duration>,
+    drop<bool>, drop<i64>, drop<f64>, drop<str>,
+    drop<date>, drop<time>, drop<datetime>, drop<duration>,
+    filter_<bool>, filter_<i64>, filter_<f64>, filter_<str>,
+    filter_<date>, filter_<time>, filter_<datetime>, filter_<duration>,
+    take<bool>, take<i64>, take<f64>, take<str>,
+    take<date>, take<time>, take<datetime>, take<duration>,
+    freeze<bool>, freeze<i64>, freeze<f64>, freeze<str>,
+    freeze<date>, freeze<time>, freeze<datetime>, freeze<duration>
+
+impl fn dedup(ts: bool) -> bool {
+    state have_last: bool = false
+    state last: bool = false
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: i64) -> i64 {
+    state have_last: bool = false
+    state last: i64 = 0
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: str) -> str {
+    state have_last: bool = false
+    state last: str = ""
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: date) -> date {
+    state have_last: bool = false
+    state last: date = @1970-01-01
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: time) -> time {
+    state have_last: bool = false
+    state last: time = @00:00
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: datetime) -> datetime {
+    state have_last: bool = false
+    state last: datetime = @1970-01-01T00:00Z
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+impl fn dedup(ts: duration) -> duration {
+    state have_last: bool = false
+    state last: duration = 0us
+    when {
+        let changed = !have_last || last != ts
+        last = ts
+        have_last = true
+        if changed {
+            return ts
+        }
+    }
+}
+
+test {
+    fn first_two(ts: i64) -> i64 => take(ts, 2)
+    fn frozen(predicate: bool, ts: i64) -> i64 => freeze(predicate, ts)
+    fn latched(ts: bool) -> bool => until_true(ts)
+    test take_passivates_after_count {
+        assert eval(first_two, ts: [1, 2, 3, 4]) == [1, 2, _, _]
+    }
+    test freeze_holds_the_last_value_once_true {
+        assert eval(frozen, predicate: [false, false, true, false], ts: [1, 2, 3, 4]) == [1, 2, 3, _]
+    }
+    test until_true_stops_listening_once_true {
+        assert eval(latched, ts: [false, false, true, false]) == [false, false, true, _]
+    }
+    fn sample_integer(signal: bool, ts: i64) -> i64 => sample(signal, ts)
+    fn drop_integer(ts: i64, const count: i64 = 1) -> i64 => drop(ts, count)
+    fn dedup_integer(ts: i64) -> i64 => dedup(ts)
+    fn filter_integer(condition: bool, ts: i64) -> i64 => filter_(condition, ts)
+
+    test sample_uses_only_trigger_ticks {
+        assert eval(sample_integer, signal: [_, true, _, true, true], ts: [1, 2, 3, 4, _]) == [_, 2, _, 4, 4]
+    }
+
+    test drop_counts_ticks_not_cycles {
+        assert eval(drop_integer, ts: [1, _, 1, 2, 2], count: 2) == [_, _, _, 2, 2]
+        assert eval(drop_integer, ts: [1, _, 2], count: -1) == [1, _, 2]
+    }
+
+    test dedup_remembers_zero_and_empty_cycles {
+        assert eval(dedup_integer, ts: [_, 0, 0, _, 1, 1, 0]) == [_, 0, _, _, 1, _, 0]
+    }
+
+    test filter_resynchronizes_on_reopen {
+        assert eval(filter_integer, condition: [true, false, false, true, true, _], ts: [1, 2, 3, _, _, 4]) == [1, _, _, 3, _, 4]
+        assert eval(filter_integer, condition: [true, false, true], ts: [1, _, _]) == [1, _, _]
+    }
+}
+
+# Distinct parallel names retain overload-specific signatures while production
+# operator-family consolidation remains a separate publication step.
+operator dedup_float(ts: f64, abs_tol: f64) -> f64
+impl fn dedup_float(ts: f64, abs_tol: f64) -> f64 {
+    state have_last: bool = false
+    state last: f64 = 0.0
+    when {
+        let difference = ts - last
+        if !have_last || !(-abs_tol < difference && difference < abs_tol) {
+            last = ts
+            have_last = true
+            return ts
+        }
+    }
+}
+operator sum<T>(ts: T) -> T
+operator sum_reset<T>(ts: T, reset: bool) -> T
+operator mean<T>(ts: T) -> f64
+operator min_<T>(ts: T) -> T
+operator max_<T>(ts: T) -> T
+
+impl fn sum(ts: i64) -> i64 {
+    inject out
+    when {
+        if valid(out) { return out + ts }
+        return 0 + ts
+    }
+}
+impl fn sum_reset(ts: i64, reset: bool) -> i64 {
+    inject out
+    when valid(reset) && modified(reset) {
+        if valid(ts) && modified(ts) { return ts }
+        return 0
+    }
+    when valid(ts) && modified(ts) {
+        if valid(out) { return out + ts }
+        return ts
+    }
+}
+
+impl fn mean(ts: i64) -> f64 {
+    state count: i64 = 0
+    inject out
+    when {
+        count += 1
+        if valid(out) { return out + ((ts + 0.0) - out) / (count + 0.0) }
+        return (ts + 0.0) / (count + 0.0)
+    }
+}
+
+impl fn sum(ts: f64) -> f64 {
+    inject out
+    when {
+        if valid(out) { return out + ts }
+        return 0.0 + ts
+    }
+}
+impl fn sum_reset(ts: f64, reset: bool) -> f64 {
+    inject out
+    when valid(reset) && modified(reset) {
+        if valid(ts) && modified(ts) { return ts }
+        return 0.0
+    }
+    when valid(ts) && modified(ts) {
+        if valid(out) { return out + ts }
+        return ts
+    }
+}
+
+impl fn mean(ts: f64) -> f64 {
+    state count: i64 = 0
+    inject out
+    when {
+        count += 1
+        if valid(out) { return out + ((ts + 0.0) - out) / (count + 0.0) }
+        return (ts + 0.0) / (count + 0.0)
+    }
+}
+
+impl fn min_(ts: i64) -> i64 {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: i64) -> i64 {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn min_(ts: f64) -> f64 {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: f64) -> f64 {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn min_(ts: str) -> str {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: str) -> str {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn min_(ts: date) -> date {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: date) -> date {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn min_(ts: datetime) -> datetime {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: datetime) -> datetime {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn min_(ts: duration) -> duration {
+    inject out
+    when {
+        if !valid(out) || ts < out { return ts }
+    }
+}
+
+impl fn max_(ts: duration) -> duration {
+    inject out
+    when {
+        if !valid(out) || ts > out { return ts }
+    }
+}
+
+impl fn dedup(ts: f64) -> f64 {
+    state have_last: bool = false
+    state last: f64 = 0.0
+    when {
+        let difference = ts - last
+        if !have_last || !(-1e-15 < difference && difference < 1e-15) {
+            last = ts
+            have_last = true
+            return ts
+        }
+    }
+}
+
+test {
+    fn sum_integer(ts: i64) -> i64 => sum(ts)
+    fn reset_integer(ts: i64, reset: bool) -> i64 => sum_reset(ts, reset)
+    fn mean_integer(ts: i64) -> f64 => mean(ts)
+    fn dedup_tolerance(ts: f64, abs_tol: f64) -> f64 => dedup_float(ts, abs_tol)
+    test folds_and_reset_before_first_value {
+        assert eval(sum_integer, ts: [_, 0, 3, 3, _, -2]) == [_, 0, 3, 6, _, 4]
+        assert eval(reset_integer, ts: [_, 2, 3, _, 1], reset: [true, _, false, false, _]) == [0, 2, 3, 0, 1]
+        assert eval(mean_integer, ts: [_, 2, 4, _, 6]) == [_, 2.0, 3.0, _, 4.0]
+    }
+    test dedup_tracks_last_emitted_value {
+        assert eval(dedup_tolerance, ts: [0.0, 0.5, 1.0, 1.5, 2.0], abs_tol: [1.0, _, _, _, _]) == [0.0, _, 1.0, _, 2.0]
+    }
+}
+
+
+impl fn min_(ts: bool) -> bool {
+    inject out
+    when { if !valid(out) || (!ts && out) { return ts } }
+}
+impl fn max_(ts: bool) -> bool {
+    inject out
+    when { if !valid(out) || (ts && !out) { return ts } }
+}
+
+# Parallel name for the internal core __tick_count node.
+operator tick_count(ts: signal) -> i64
+impl fn tick_count(ts: signal) -> i64 {
+    inject out
+    when {
+        if valid(out) { return out + 1 }
+        return 1
+    }
+}

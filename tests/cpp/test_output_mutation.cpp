@@ -34,7 +34,12 @@ namespace
 
     struct ThrowingIntSource
     {
-        operator Int() const { throw std::runtime_error("conversion failed"); }
+        bool fail;
+
+        operator Int() const {
+            if (fail) { throw std::runtime_error("conversion failed"); }
+            return Int{0};
+        }
     };
 
     struct FunctionalSetMutation
@@ -125,8 +130,8 @@ namespace
     {
         static constexpr auto name = "functional_dict_failed_initialization";
 
-        static void eval(In<"step", TS<Int>>, Out<TSD<Str, TS<Int>>> out) {
-            REQUIRE_THROWS_AS(insert(out, Str{"a"}, ThrowingIntSource{}), std::runtime_error);
+        static void eval(In<"step", TS<Int>> step, Out<TSD<Str, TS<Int>>> out) {
+            REQUIRE_THROWS_AS(insert(out, Str{"a"}, ThrowingIntSource{step.value() != 0}), std::runtime_error);
             REQUIRE_FALSE(out.contains(Str{"a"}));
         }
     };
@@ -158,8 +163,8 @@ namespace
     {
         static constexpr auto name = "functional_dynamic_list_failed_initialization";
 
-        static void eval(In<"step", TS<Int>>, Out<TSL<TS<Int>>> out) {
-            REQUIRE_THROWS_AS(push(out, ThrowingIntSource{}), std::runtime_error);
+        static void eval(In<"step", TS<Int>> step, Out<TSL<TS<Int>>> out) {
+            REQUIRE_THROWS_AS(push(out, ThrowingIntSource{step.value() != 0}), std::runtime_error);
             REQUIRE(out.empty());
         }
     };

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "runtime-dictionary_ref",
+  "description": "Runtime specification dictionary_ref",
+  "template": "runtime_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "mode": "dictionary_ref"
+  },
+  "features": []
+}

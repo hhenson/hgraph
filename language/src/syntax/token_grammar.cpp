@@ -36,6 +36,7 @@ namespace hgl::syntax
             Properties,
             AppliedConstructor,
             Each,
+            Throws,
         };
 
         template <TokenKind Kind> inline constexpr auto token = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
@@ -52,12 +53,13 @@ namespace hgl::syntax
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
             contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
             contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
-            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each>;
+            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each> /
+            contextual<ContextToken::Throws>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
                          TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs,
-                         TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwInject, TokenKind::KwReturn,
+                         TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwCache, TokenKind::KwInject, TokenKind::KwReturn,
                          TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop,
                          TokenKind::KwFor, TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue,
                          TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64,
@@ -420,6 +422,15 @@ namespace hgl::syntax
                                              token<TokenKind::Assign> + dsl::p<newlines> + dsl::recurse<expression>;
         };
 
+        /// `cache name[: T] = init`: node-local data outside record/replay,
+        /// rebuilt from its initializer on every start (ADR 0011).
+        struct cache_decl
+        {
+            static constexpr auto rule = token<TokenKind::KwCache> >>
+                                         dsl::p<name> + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
+                                             token<TokenKind::Assign> + dsl::p<newlines> + dsl::recurse<expression>;
+        };
+
         struct inject_decl
         {
             static constexpr auto next_name = dsl::peek(dsl::p<newlines> + token<TokenKind::Comma> + dsl::p<newlines> + raw_name) >>
@@ -467,12 +478,13 @@ namespace hgl::syntax
 
         struct statement
         {
-            static constexpr auto rule = dsl::p<local_decl> | dsl::p<state_decl> | dsl::p<inject_decl> | dsl::p<lifecycle_stmt> |
+            static constexpr auto rule = dsl::p<local_decl> | dsl::p<state_decl> | dsl::p<cache_decl> | dsl::p<inject_decl> | dsl::p<lifecycle_stmt> |
                                          dsl::p<when_stmt> | dsl::p<for_stmt> | dsl::p<return_stmt> | dsl::p<assert_stmt> |
                                          dsl::p<assign_or_expression_stmt>;
         };
 
         inline constexpr auto statement_start = token<TokenKind::KwLet> / token<TokenKind::KwVar> / token<TokenKind::KwState> /
+                                                token<TokenKind::KwCache> /
                                                 token<TokenKind::KwInject> / token<TokenKind::KwStart> / token<TokenKind::KwStop> /
                                                 token<TokenKind::KwWhen> / token<TokenKind::KwFor> / token<TokenKind::KwReturn> /
                                                 token<TokenKind::KwAssert> / expression_start;
@@ -648,6 +660,11 @@ namespace hgl::syntax
             static constexpr auto rule = token<TokenKind::KwCpp> >> contextual<ContextToken::Include> + token<TokenKind::CppHeader>;
         };
 
+        /// `throws` after a native signature: the C++ body may raise, and the
+        /// descriptor records the translated exception policy (ADR 0009).
+        struct throws_clause
+        { static constexpr auto rule = contextual<ContextToken::Throws>; };
+
         struct native_function_decl
         {
             static constexpr auto start = dsl::peek(contextual<ContextToken::Native> + token<TokenKind::KwFn>);
@@ -655,8 +672,8 @@ namespace hgl::syntax
                                                                           dsl::p<newlines> + token<TokenKind::RBrace>;
             static constexpr auto
                 rule = start >> contextual<ContextToken::Native> + token<TokenKind::KwFn> + dsl::p<name> +
-                                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> +
-                                    (newline >> dsl::p<newlines> + body | body);
+                                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::if_(dsl::p<throws_clause>) +
+                                    dsl::p<optional_requires_clause> + (newline >> dsl::p<newlines> + body | body);
         };
 
         struct operator_property
@@ -908,6 +925,7 @@ namespace hgl::syntax
                 if (token.text == "schema") { return static_cast<std::uint8_t>(grammar::ContextToken::Schema); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
                 if (token.text == "each") { return static_cast<std::uint8_t>(grammar::ContextToken::Each); }
+                if (token.text == "throws") { return static_cast<std::uint8_t>(grammar::ContextToken::Throws); }
             }
             return static_cast<std::uint8_t>(token.kind);
         }
@@ -915,7 +933,7 @@ namespace hgl::syntax
         [[nodiscard]] std::optional<TokenKind> decode_expected(std::uint8_t encoded) noexcept {
             if (encoded <= static_cast<std::uint8_t>(TokenKind::Error)) { return static_cast<TokenKind>(encoded); }
             if (encoded >= static_cast<std::uint8_t>(grammar::ContextToken::In) &&
-                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Each)) {
+                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Throws)) {
                 return TokenKind::Identifier;
             }
             return std::nullopt;

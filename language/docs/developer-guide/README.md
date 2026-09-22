@@ -4,54 +4,20 @@ This guide explains how to implement the source contract in the
 [User Guide](../user-guide/README.md). The compiler is an authoring frontend
 for hgraph, not a second runtime.
 
-> **Implementation status:** `src/syntax/` implements the lexer, the
-> temporal literal parser, the arena AST, and the parser of
-> [Syntax and semantics](syntax-and-semantics.md), including `requires`,
-> nominal and generic `struct`, abstract-only inheritance, `null`, and
-> structured `delta` forms. `src/semantics/` binds constraint names, resolves
-> struct families and effective fields, validates hierarchy and generic
-> argument roles, and classifies functions.
-> `src/ir/` now lowers every resolved guide example into a source-ranged HIR
-> arena with stable declaration and symbol identities, then completes canonical
-> types, substitutions, constraints, calls, phases, effects, and capabilities.
-> It validates constrained generic structs in every type position and leaves a
-> failed module explicitly `Resolved` rather than claiming `Typed` completion.
-> Explicit `ref<T>` is preserved through canonical HIR and hgraph IR, native
-> schema materialization, module descriptors, operator resolution, and C++
-> signatures. Runtime checking keeps the referenced payload opaque and proves
-> guarded fixed-list reference selectors before code generation.
-> `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
-> compile-time expressions, nominal contracts, callable interfaces, bindings,
-> values, semantic operations, structured control flow, and test plans. An
-> explicit completion pass validates concrete operations against a closed
-> keyed-provider universe and advances eligible modules from `Bodies` to
-> `Executable`; the driver remains on `Bodies` until deferred operator
-> planning is available.
-> `src/wiring/` executes the composition subset for `test`, `run`, and the
-> REPL, including scalar and atomic struct values, type-only generic
-> specializations, field-wise temporal struct composition, and direct temporal
-> conditionals with ordered top-level and nested early-return continuations.
-> `src/codegen/` emits every checked-in example as public hgraph C++, including
-> nominal and generic structs, generic operators and windows, sparse deltas,
-> runtime collection traversal, activation, aggregate scalar recordable state,
-> output, logger injection, and lifecycle hooks over state and `const`
-> configuration. Top-level `native fn` declarations retain their HGL overload
-> contracts and exact C++ projections through both IRs, emit as formatted plain
-> `noexcept` functions, and are importable from the generated descriptor. The
-> driver compiles and caches/loads that subset for file-based
-> `test`, `run`, and REPL sessions on Unix. REPL replacement stages the new
-> image, swaps removable provider handles at a quiescent boundary, and restores
-> the old revision if activation fails. Imported operator-contract conformance,
-> arbitrary residual `const` predicates, `const` generic native metadata,
-> multiple-parent linearization, explicit optional-field clearing, wiring-time
-> dereference through `ref<T>`, imported native types, multi-registry module
-> transactions, and the remaining runtime and generated-C++ type support remain
-> to be implemented.
+> **Implementation status (audited against main, 2026-09-19):** the frontend
+> parses and resolves source, completes typed HIR, and lowers it to hgraph IR.
+> Both execution backends consume that IR. Shared admission and activation
+> planning lives in `src/hgraph_ir/plan.cpp`; runtime semantics belong to hgraph.
+> Composition, scalar value functions, supported runtime functions, scalar
+> state or cache, lifecycle capabilities, native helpers, and supported
+> imported operator implementations are executable. Scripted native loading
+> remains Unix-only; ahead-of-time packages also support Windows.
 >
-> This is sufficient to begin the standard-library inventory and select the
-> first pure-composition migrations. It is not a claim that all core graphs and
-> nodes can be migrated: each selected item must stay blocked rather than cause
-> the compiler to invent an unresolved source or native contract.
+> The [status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
+> records the boundaries. In particular, enum/switch syntax, imported contract
+> constraints/properties, generic constructor inference,
+> optional-field clearing, and wiring-time reference dereference are not
+> implemented. Later target mappings in this guide do not override those limits.
 
 ## Guide map
 
@@ -62,7 +28,7 @@ for hgraph, not a second runtime.
    abstract data families, final concrete values, inherited defaults,
    generic construction and constraints, sparse deltas,
    recursive temporalization, metadata, and collection iteration, plus
-   provisional state, injectable, lifecycle, activation, and output semantics,
+   implemented state, cache, injectable, lifecycle, activation, and output semantics,
    and the `test`, `eval`, and run model.
 2. [Compiler and C++ lowering](compiler-and-lowering.md) defines the frontend
    pipeline, function classification, public SDK lowering, the direct-wiring
@@ -85,6 +51,10 @@ for hgraph, not a second runtime.
 6. [Operator source and C++ mappings](operator-cpp-mappings.md) pairs executable
    graph and node arithmetic with native wiring and scalar kernels, and explains
    how domain properties survive lowering without becoming optimizer proofs.
+
+7. [Native modules and packages](native-modules-and-packages.md) covers C++
+   helpers, descriptors, generated packages, module ownership, and the scripted
+   loader. These are extension/toolchain details, separate from HGL source usage.
 
 The design records provide project boundaries and rationale:
 
@@ -121,8 +91,9 @@ surface.
   generic implementations contribute only their explicit `instantiate`
   materializations, whose `_` arguments may retain resolver slots, and an
   ordinary exact function is module-internal unless declared `export fn`.
-- Imports expose names but do not activate providers; the locked package target
-  defines the complete candidate universe without declaration re-exports.
+- Imports expose names but do not activate providers; explicit package dependencies
+  select providers without declaration re-exports. Automatic transitive lock-file
+  discovery remains planned.
 - Ordinary parameters and results use canonical recursively temporal types.
 - The temporal scalars are `date`, `time`, `datetime`, `duration`,
   `civil_datetime`, `timezone`, `zoned_datetime`, and `zoned_time`, mapping
@@ -136,10 +107,10 @@ surface.
   concrete structs are final, while descendants may replace defaults but not
   field types or optionality.
 - Generic structs form invariant nominal families over canonical value types
-  and wiring-time constants. Types are fully applied; constructors may infer a
-  complete substitution, and `requires` validates each specialization.
+  and wiring-time constants. Types and constructors require explicit
+  generic arguments today; `requires` validates each specialization.
 - `delta<S>(...)` is a contextual sparse update: omitted fields mean no change,
-  defaults do not apply, and `null` explicitly clears only optional fields.
+  defaults do not apply. Explicit clearing with `null` is reserved but rejected.
 - `rolling<T, max_size[, min_size]>` maps to a TSW shape whose sizes are
   wiring-time tick counts or durations, one kind per window, and part of its
   type identity.
@@ -166,7 +137,7 @@ surface.
 - Name resolution selects one nominal operator identity before hgraph performs
   candidate normalization, ranking, and diagnostics.
 - A body without runtime-only constructs is classified as composition;
-  `state`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
+  `state`, `cache`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
   a runtime node. Collection iteration follows the containing phase and does
   not classify the function by itself.
 - Runtime `when` predicates are decomposed into activation, validity admission,
@@ -174,7 +145,8 @@ surface.
 - A handler with no modification selector defaults to any temporal input; one
   with no validity selector defaults to all temporal inputs being top-level
   valid. Bare `when { ... }` supplies both defaults.
-- State declarations aggregate into one recordable state value; grouped
+- State declarations aggregate into one recordable state value; cache declarations
+  instead aggregate into rebuildable state. Combining them is rejected. Grouped
   inject declarations map approved capabilities to native selectors.
 - `return value` is terminating output, while `inject out` enables persistent
   output inspection and incremental mutation.
@@ -182,8 +154,9 @@ surface.
   parser must not directly emit graph- or node-specific declarations.
 - Scripted, REPL, and ahead-of-time workflows consume the same classifier,
   checked IR, and C++ backend.
-- Compiled modules use generated, handle-owned initialization, replayable
+- Scripted modules use generated, handle-owned initialization, replayable
   installation, registration removal, and reverse-order deinitialization.
 - Live graphs and plans retain provider leases; registration removal precedes
-  safe native-library unloading.
+  safe native-library unloading. Ahead-of-time packages still use explicit
+  generated registration/removal functions; their lifecycle ABI is follow-up work.
 - Hgraph core has no dependency on the language project.

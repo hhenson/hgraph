@@ -1,7 +1,8 @@
-#include <hgraph/util/scope.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
+#include <hgraph/types/time_series/ts_data/storage.h>
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -10,6 +11,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <hgraph/types/python_ops.h>
+#include <hgraph/util/scope.h>
 
 #include "detail/ts_data_seams.h"
 
@@ -167,8 +169,19 @@ namespace hgraph::ts_data_plan_factory_detail
                 header.next_modified = position;
             }
 
+            // Consumers address the modified set by ordinal -- that is the Range
+            // protocol -- and a ring can only be walked, so answering each
+            // ordinal from the head made every reader of m modified elements
+            // cost m * m. Both answers come from one snapshot of the visible
+            // ring, rebuilt only when what it depends on has changed.
             [[nodiscard]] std::size_t modified_index_count() const noexcept
             {
+                constexpr auto unavailable = static_cast<std::size_t>(-1);
+                const auto snapshot_size =
+                    fallback_on_exception(unavailable, [&] { return modified_snapshot().size(); });
+                if (snapshot_size != unavailable) { return snapshot_size; }
+
+                // Out of memory for the snapshot: count the ring directly.
                 std::size_t count = 0;
                 for_each_modified_index([&](std::size_t) {
                     ++count;
@@ -179,18 +192,12 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] std::size_t modified_index_at(std::size_t ordinal) const
             {
-                std::size_t result = TS_DATA_NO_CHILD_ID;
-                std::size_t seen   = 0;
-                for_each_modified_index([&](std::size_t index) {
-                    if (seen++ != ordinal) { return true; }
-                    result = index;
-                    return false;
-                });
-                if (result == TS_DATA_NO_CHILD_ID)
+                const auto &visible = modified_snapshot();
+                if (ordinal >= visible.size())
                 {
                     throw std::out_of_range("dynamic TSL modified index ordinal is out of range");
                 }
-                return result;
+                return visible[ordinal];
             }
 
             /**
@@ -244,6 +251,15 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
             /** Set the live list length, growing or truncating. */
+            void restore_size(std::size_t size, TSRoleTypeRef element_type)
+            {
+                if (live_size_ != 0 || !elements_.empty())
+                    throw std::invalid_argument("dynamic list checkpoint requires fresh storage");
+                grow_to(size, element_type);
+                previous_size_ = size;
+            }
+
+            /** Set the live list length, growing or truncating. */
             void resize(std::size_t size, TSRoleTypeRef element_type, DateTime modified_time)
             {
                 if (modified_time == MIN_DT)
@@ -280,8 +296,52 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            /** Everything the visible modified sequence is a function of. The
+                window and the tail identify the ring's contents, because a
+                window only appends and never appends an element twice; the
+                live size decides which members are reported as removed instead;
+                the tracked time decides whether the window is current at all. */
+            struct ModifiedSnapshotKey
+            {
+                std::int64_t window{0};
+                std::size_t  tail{0};
+                std::size_t  live_size{0};
+                DateTime     tracked{MIN_DT};
+                bool         operator==(const ModifiedSnapshotKey &) const = default;
+            };
+
+            struct ModifiedSnapshot
+            {
+                ModifiedSnapshotKey      key{};
+                std::vector<std::size_t> visible{};
+                bool                     valid{false};
+            };
+
+            [[nodiscard]] const std::vector<std::size_t> &modified_snapshot() const
+            {
+                const auto &header = ordinal_keys_.front();
+                const ModifiedSnapshotKey key{header.ordinal_key, header.next_modified, live_size_,
+                                              tracking_.last_modified_time};
+                // Allocated by the first ordinal read, so a list that is never
+                // read that way carries one null pointer and nothing else.
+                if (!modified_snapshot_) { modified_snapshot_ = std::make_unique<ModifiedSnapshot>(); }
+                auto &snapshot = *modified_snapshot_;
+                if (!snapshot.valid || !(snapshot.key == key))
+                {
+                    snapshot.valid = false;
+                    snapshot.visible.clear();
+                    for_each_modified_index([&](std::size_t index) {
+                        snapshot.visible.push_back(index);
+                        return true;
+                    });
+                    snapshot.key   = key;
+                    snapshot.valid = true;
+                }
+                return snapshot.visible;
+            }
+
             /** Visit live ring members in notification order; ``fn`` returns
-                false to stop (so ordinal lookup stays O(ordinal)). */
+                false to stop. */
             template <typename Fn> void for_each_modified_index(Fn &&fn) const
             {
                 const auto &header = ordinal_keys_.front();
@@ -357,6 +417,8 @@ namespace hgraph::ts_data_plan_factory_detail
             std::vector<DynamicTSLIndexEntry> ordinal_keys_{};
             std::size_t                     live_size_{0};
             std::size_t                     previous_size_{0};
+            // Derived from the ring on demand; never part of the list's state.
+            mutable std::unique_ptr<ModifiedSnapshot> modified_snapshot_{};
         };
 
         void dynamic_list_storage_construct(void *dst, const void *)
@@ -533,6 +595,65 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                const auto *state = ctx(view.ops().context);
+                TSData prototype{state->element_type};
+                return ts_checkpoint_eligible(prototype.view(), context);
+            }
+
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *context)
+            {
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.children.reserve(view.indexed_child_count());
+                for (std::size_t i = 0; i < view.indexed_child_count(); ++i)
+                    image.children.push_back(capture_ts_checkpoint(view.indexed_child_at(i), context));
+                return image;
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                ts_checkpoint_detail::validate_header(view, image);
+                const auto *state = ctx(view.ops().context);
+                const auto &store = storage(view.data());
+                if (store.size() != 0 || store.retained_size() != 0 || image.payload.has_value() ||
+                    !image.keys.empty() || !image.slots.empty() || !image.free_slots.empty() ||
+                    !image.published.empty() || image.slot_capacity != 0 ||
+                    image.key_set_last_modified_time != MIN_DT)
+                    throw std::invalid_argument("dynamic list checkpoint shape or fresh target mismatch");
+                for (const auto &child : image.children)
+                {
+                    if (child.last_modified_time > image.last_modified_time)
+                        throw std::invalid_argument("dynamic list checkpoint child timestamp exceeds its parent");
+                    TSData prototype{state->element_type};
+                    validate_ts_checkpoint(prototype.view(), child, context);
+                }
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
+            {
+                const auto *state = ctx(view.ops().context);
+                auto &store = storage(view.mutable_data());
+                store.restore_size(image.children.size(), state->element_type);
+                for (std::size_t i = 0; i < image.children.size(); ++i)
+                {
+                    TSDataView child{state->element_type, store.child_memory(i)};
+                    detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, i);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i], context);
+                }
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    checkpoint_eligible, checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             void configure_ts_ops()
             {
                 ops = IndexedTSDataOps{};
@@ -544,6 +665,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .ownership_ops             = &ownership_ops(),
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSL),
+                    .checkpoint_ops = &checkpoint_ops(),
                     .layout_impl               = &dynamic_layout,
                     .tracking_impl             = &dynamic_tracking,
                     .mutable_tracking_impl     = &dynamic_mutable_tracking,

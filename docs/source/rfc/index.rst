@@ -64,3 +64,8 @@ RFC catalogue
    rfc_0034_nats_extension_api
    rfc_0035_python_free_type_layer
    rfc_0036_reference_transparency_owners
+   rfc_0037_distributed_map
+   rfc_0038_spawn_pipelines
+   rfc_0039_compact_checkpoint_images
+   rfc_0040_binary_codec_profiles
+   rfc_0041_recursive_bundle_closures

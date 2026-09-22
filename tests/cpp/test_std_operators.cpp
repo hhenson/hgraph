@@ -73,6 +73,37 @@ namespace hgraph
     };
 }
 
+namespace unset_polymorphic_emit_repro
+{
+    // A second hierarchy whose Event carries a POLYMORPHIC field. The
+    // emit_repro Event above has only scalar fields, so its realization
+    // survives a mislabelled round trip; a polymorphic field does not.
+    struct Event
+    {};
+}
+
+namespace hgraph
+{
+    template <>
+    struct scalar_descriptor<unset_polymorphic_emit_repro::Event>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            // Detail is an EMPTY abstract base; FilledDetail is what makes it
+            // polymorphic at all.
+            const auto *detail = registry.bundle("tests.emit_unset", "Detail", {}, {}, true);
+            registry.bundle(
+                "tests.emit_unset", "FilledDetail",
+                {{"amount", registry.value_type("int")}}, {detail});
+            return registry.bundle(
+                "tests.emit_unset", "Event",
+                {{"value", registry.value_type("int")}, {"detail", detail}}, {}, true);
+        }
+    };
+}
+
 namespace hgraph::testing
 {
     template <>
@@ -90,6 +121,24 @@ namespace hgraph::testing
     template <>
     struct ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
         : bundle_ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<unset_polymorphic_emit_repro::Event>>
+        : bundle_ts_harness<TS<unset_polymorphic_emit_repro::Event>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Map<Str, unset_polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Map<Str, unset_polymorphic_emit_repro::Event>>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Set<unset_polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Set<unset_polymorphic_emit_repro::Event>>>
     {
     };
 }
@@ -293,6 +342,24 @@ namespace
         {
             return wire<stdlib::emit>(w, events)
                 .as<PolymorphicEventKeyValue>();
+        }
+    };
+
+    using UnsetPolymorphicEvent = unset_polymorphic_emit_repro::Event;
+    using UnsetPolymorphicEventDict = TSD<Str, TS<UnsetPolymorphicEvent>>;
+    using UnsetPolymorphicEventKeyValue =
+        UnNamedTSB<Field<"key", TS<Str>>,
+                   Field<"value", TS<UnsetPolymorphicEvent>>>;
+
+    struct UnsetPolymorphicEventDictEmitGraph
+    {
+        static constexpr auto name = "unset_polymorphic_event_dict_emit_graph";
+
+        static Port<UnsetPolymorphicEventKeyValue> compose(
+            Wiring &w, Port<UnsetPolymorphicEventDict> events)
+        {
+            return wire<stdlib::emit>(w, events)
+                .as<UnsetPolymorphicEventKeyValue>();
         }
     };
 
@@ -760,6 +827,94 @@ namespace
         static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
         {
             return wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
+        }
+    };
+
+    /** convert[TSD[K, TSD[...]]](key, inner): the entry is a whole nested
+        dictionary, not a leaf (parity #818 item 2.7). */
+    struct ConvertKeyValueToNestedDictGraph
+    {
+        static constexpr auto name = "convert_key_value_to_nested_dict_graph";
+
+        static Port<TSD<Str, TSD<Str, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TSD<Str, TS<Int>>> inner)
+        {
+            return wire<stdlib::convert, TSD<Str, TSD<Str, TS<Int>>>>(w, key, inner);
+        }
+    };
+
+    /** convert[TS[Int|Float|Bool]](TS[Str]): the parsing overloads
+        ``cast_`` lowers to (parity #818 item 2.5). */
+    struct ParseStringToIntGraph
+    {
+        static constexpr auto name = "parse_string_to_int_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Int>>(w, ts).as<TS<Int>>();
+        }
+    };
+
+    struct ParseStringToFloatGraph
+    {
+        static constexpr auto name = "parse_string_to_float_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Float>>(w, ts).as<TS<Float>>();
+        }
+    };
+
+    struct StringToBoolGraph
+    {
+        static constexpr auto name = "string_to_bool_graph";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Bool>>(w, ts).as<TS<Bool>>();
+        }
+    };
+
+    /** take(ts, timedelta): the duration form (parity #818 item 2.4). */
+    struct TakeByTimeGraph
+    {
+        static constexpr auto name = "take_by_time_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD * 2).as<TS<Int>>();
+        }
+    };
+
+    struct TakeByTimeDictGraph
+    {
+        static constexpr auto name = "take_by_time_dict_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    /** The NAMED set spellings over dictionaries (parity #818 item 2.3). */
+    template <typename Operator>
+    struct NamedSetOverDictsGraph
+    {
+        static constexpr auto name = "named_set_over_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b)
+        {
+            return wire<Operator>(w, a, b).template as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct UnionOverThreeDictsGraph
+    {
+        static constexpr auto name = "union_over_three_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b,
+            Port<TSD<Str, TS<Int>>> c)
+        {
+            return wire<stdlib::union_>(w, a, b, c).as<TSD<Str, TS<Int>>>();
         }
     };
 
@@ -1720,6 +1875,129 @@ TEST_CASE("std operators: a converted entry ticks again when its value re-sends"
                  values<Value>(dict_delta<Str, TS<Int>>({{"b", 19}}), none));
 }
 
+TEST_CASE("std operators: a converted dictionary entry may be a whole nested dictionary")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph declares the value as REF[TIME_SERIES_TYPE], so any
+    // time series may be the entry. Requiring a leaf rejected the nested
+    // spelling at wiring, and the fuzzer that found it had to route around
+    // through map_ (parity #818 item 2.7). A TSD entry also refuses a generic
+    // whole-value write -- its child notifications run through TSParentLink --
+    // so the copy goes through the dictionary mutation view.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToNestedDictGraph>(
+                     values<Str>(Str{"k"}),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
+                 values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
+                     {{"k", dict_delta<Str, TS<Int>>({{"a", 1}})}})));
+}
+
+TEST_CASE("std operators: the named set spellings work over dictionaries")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph registers the whole named family over dictionaries as
+    // well as sets. Only the BITWISE spellings reached the TSD binaries here,
+    // so union(a, b) was rejected at wiring while bit_or(a, b) evaluated
+    // (parity #818 item 2.3).
+    const auto lhs = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"c", 3}}));
+    const auto rhs = values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}, {"c", 4}}));
+
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::union_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::intersection_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::symmetric_difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}})));
+
+    // The fold is pairwise and n-ary, which is what upstream's three-input
+    // answer shows.
+    CHECK_OUTPUT(eval_node<UnionOverThreeDictsGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
+}
+
+TEST_CASE("std operators: take accepts a duration as well as a count")
+{
+    stdlib::register_standard_operators();
+
+    // The window opens at the SOURCE'S FIRST TICK rather than at graph start,
+    // and the source passivates once it moves beyond the span -- upstream's
+    // take_by_time, whose count spelling the count overload already had
+    // (parity #818 item 2.4).
+    CHECK_OUTPUT(eval_node<TakeByTimeGraph>(values<Int>(1, 2, 3, 4, 5)),
+                 values<Int>(1, 2, 3, none, none));
+
+    // Any other shape forwards the delta, for the same reason the count form
+    // gives: a whole-value apply would re-publish unchanged entries.
+    CHECK_OUTPUT(eval_node<TakeByTimeDictGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                                   dict_delta<Str, TS<Int>>({{"b", 2}}),
+                                   dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                               dict_delta<Str, TS<Int>>({{"b", 2}}), none));
+}
+
+TEST_CASE("std operators: convert parses a string into a number")
+{
+    stdlib::register_standard_operators();
+
+    // cast_(int, ts) lowers to convert, and released hgraph spells the body
+    // tp(ts.value), so the accepted text is Python's: surrounding whitespace
+    // and a sign are allowed, underscores only between digits, and a float
+    // additionally takes inf/nan. Only the PARSING overload was missing --
+    // an unparseable string already raised on both sides (parity #818 item
+    // 2.5).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"12"}, Str{" 12 "}, Str{"-3"}, Str{"+3"}, Str{"1_000"})),
+                 values<Int>(12, 12, -3, 3, 1000));
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1.5"}, Str{"1e3"}, Str{"-2.5"}, Str{".5"})),
+                 values<Float>(1.5, 1000.0, -2.5, 0.5));
+
+    // bool of a string is emptiness, as Python has it.
+    CHECK_OUTPUT(eval_node<StringToBoolGraph>(values<Str>(Str{"x"}, Str{""})),
+                 values<bool>(true, false));
+
+    // Everything Python rejects is still rejected.
+    for (const Str &text : {Str{"1.5"}, Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(text)));
+    }
+    // A float rejects the same spellings bar its own literal. "0x10" is the
+    // one the parser has to turn away itself: strtod reads a hex float and
+    // Python's float() does not.
+    for (const Str &text : {Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}, Str{"1.5.5"},
+                            Str{"1e"}, Str{"."}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToFloatGraph>(values<Str>(text)));
+    }
+
+    // The word's ends parse: the most negative Int has no positive
+    // counterpart, so the SIGNED text is parsed rather than the magnitude
+    // and then negated (review).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"-9223372036854775808"}, Str{"9223372036854775807"})),
+                 values<Int>(std::numeric_limits<Int>::min(), std::numeric_limits<Int>::max()));
+
+    // Past them is the RULED deviation, not a gap: released hgraph reads the
+    // literal into a Python unbounded integer, and this runtime raises rather
+    // than carry Python integer semantics into the value layer (issue #810
+    // item 4.7).
+    CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(Str{"9223372036854775808"})));
+
+    // A float SATURATES instead, which is what Python's parser does:
+    // float("1e400") is inf and float("1e-400") is 0.0, both representable.
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1e400"}, Str{"-1e400"}, Str{"1e-400"})),
+                 values<Float>(std::numeric_limits<Float>::infinity(),
+                               -std::numeric_limits<Float>::infinity(), 0.0));
+}
+
 TEST_CASE("std operators: convert round trips numeric values through native Any")
 {
     stdlib::register_standard_operators();
@@ -1897,6 +2175,71 @@ TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")
     CHECK(event_fields.at("event_id").checked_as<Str>() == Str{"event"});
     CHECK(event_fields.at("order_id").checked_as<Str>() == Str{"order"});
     CHECK(event_fields.at("payload").checked_as<Str>() == Str{"created"});
+}
+
+TEST_CASE("std operators: keyed emit preserves an unset polymorphic field")
+{
+    // emit(TSD) assembles its {key, value} bundle with a BundleBuilder over
+    // the output's published binding, and that binding is GRAPH-LOCAL while
+    // the Value the builder allocates is the external owner it publishes.
+    // Writing the fields through one realization and reading them back
+    // through the other leaves a polymorphic field tagged with a record the
+    // reader's closed-Bundle entry has never seen. An UNSET field typed as
+    // the declared base is what exposes it: it stays on the base rather than
+    // being replaced by a concrete leaf, so its realization is what has to
+    // survive the round trip.
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *text     = registry.value_type("str");
+    const auto *event    = scalar_descriptor<UnsetPolymorphicEvent>::value_meta();
+    const auto *detail   = registry.named_bundle("tests.emit_unset", "Detail");
+    REQUIRE(detail != nullptr);
+    const auto *child_event = registry.bundle(
+        "tests.emit_unset", "ChildEvent",
+        {{"value", integer}, {"detail", detail}}, {event});
+
+    // `detail` is deliberately never set.
+    BundleBuilder child{ValuePlanFactory::instance().type_for(child_event)};
+    child.set("value", Value{Int{7}});
+    const Value created = child.build();
+
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+    const auto key_binding   = realization->type_for(text);
+    const auto event_binding = realization->type_for(event);
+    Value      event_value{event_binding};
+    event_binding.ops_ref().copy_assign_from(
+        event_binding, event_value.begin_mutation().mutable_data(),
+        created.binding(), created.view().data());
+
+    SetBuilder removed{key_binding};
+    MapBuilder modified{key_binding, event_binding};
+    const Str  key{"order"};
+    modified.set_item_copy(&key, event_value.view().data());
+    const auto *delta_schema =
+        ts_type<UnsetPolymorphicEventDict>()->delta_value_schema;
+    BundleBuilder delta{realization->type_for(delta_schema)};
+    delta.set("removed", removed.build());
+    delta.set("modified", modified.build());
+
+    const auto actual = eval_node<UnsetPolymorphicEventDictEmitGraph>(
+        values<Value>(delta.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto fields = actual.front()->view().as_indexed_view();
+    REQUIRE(fields.size() == 2);
+    CHECK(fields.at(0).checked_as<Str>() == Str{"order"});
+    // The concrete leaf survives ...
+    const auto concrete = fields.at(1).concrete();
+    REQUIRE(concrete.schema() == child_event);
+    const auto event_fields = concrete.as_bundle();
+    CHECK(event_fields.at("value").checked_as<Int>() == Int{7});
+    // ... and the unset polymorphic field is still unset, not dropped and
+    // not filled with a default leaf.
+    CHECK_FALSE(event_fields.at("detail").has_value());
 }
 
 TEST_CASE("std operators preserve concrete Bundle leaves across owned container transfers")
@@ -2518,7 +2861,18 @@ TEST_CASE("std operators: comparison operators support ordering and cmp_")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::ne_>(values<Int>(1, 2), values<Int>(1, 3)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Int>(2, 4)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Float>(1.0, 5.0), values<Float>(2.0, 4.0)),
+                 values<Bool>(true, false));
+
+    // The mixed int/float form is a deliberate SUPERSET: released hgraph
+    // declares both operands as one TIME_SERIES_TYPE and refuses this at
+    // wiring. Overload dispatch picks a kernel declared over the two operand
+    // types -- nothing coerces an operand on the way in (parity_matrix.rst,
+    // "Accepted deviations").
     CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::gt_>(values<Float>(1.0, 5.0), values<Int>(2, 4)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::eq_>(values<Float>(2.0), values<Int>(2)), values<Bool>(true));
     CHECK_OUTPUT(eval_node<stdlib::ge_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"a"})),
                  values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<stdlib::cmp_>(values<Int>(1, 2, 3), values<Int>(2, 2, 1)),
@@ -4500,4 +4854,22 @@ TEST_CASE("std operators: request_id uses the native service identifier allocato
     REQUIRE(first[0].has_value());
     REQUIRE(second[0].has_value());
     CHECK(first[0]->view().checked_as<Int>() != second[0]->view().checked_as<Int>());
+}
+
+TEST_CASE("std operators: decimal rounding preserves magnitude and rounds negative digits to even") {
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<stdlib::round_>(
+                     values<Float>(1e100, 149.0, 125.0, 135.0, 145.00000000000003, 144.99999999999997, 2.675, -2.5, 995.0),
+                     values<Int>(0, -1, -1, -1, -1, -1, 2, 0, -1)),
+                 values<Float>(1e100, 150.0, 120.0, 140.0, 150.0, 140.0, 2.67, -2.0, 1000.0));
+    const auto special = eval_node<stdlib::round_>(
+        values<Float>(-0.0, -1.0, 1.25, std::numeric_limits<Float>::infinity(), std::numeric_limits<Float>::quiet_NaN()),
+        values<Int>(0, std::numeric_limits<Int>::min(), std::numeric_limits<Int>::max(), 0, 0));
+    REQUIRE(special.size() == 5);
+    CHECK(std::signbit(special[0]->view().checked_as<Float>()));
+    CHECK(std::signbit(special[1]->view().checked_as<Float>()));
+    CHECK(special[2]->view().checked_as<Float>() == 1.25);
+    CHECK(std::isinf(special[3]->view().checked_as<Float>()));
+    CHECK(std::isnan(special[4]->view().checked_as<Float>()));
+    CHECK_THROWS(eval_node<stdlib::round_>(values<Float>(1.7e308), values<Int>(-308)));
 }

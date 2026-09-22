@@ -27,6 +27,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <optional>
+#include <iostream>
+#include <chrono>
+#include <atomic>
 #include <array>
 #include <limits>
 #include <string>
@@ -36,6 +40,46 @@ namespace
 {
     using namespace hgraph;
     using namespace hgraph::testing;
+
+    struct OrderedDelayedSource
+    {
+        static void start(NodeScheduler scheduler) { scheduler.schedule(MIN_TD * 5); }
+        static void eval(NodeScheduler scheduler, State<Int> count, Out<TS<Int>> out)
+        {
+            out.set(Int{42} + count.get());
+            count.set(count.get() + 1);
+            if (count.get() < 2) { scheduler.schedule(MIN_TD * 3); }
+        }
+    };
+
+    struct OrderedDelayedCombiner
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>, Port<TS<Int>>)
+        {
+            return wire<OrderedDelayedSource>(w);
+        }
+    };
+
+    struct OrderedTimerSum
+    {
+        static inline std::vector<std::size_t> retained_bytes;
+        static void start(NodeScheduler scheduler) { scheduler.schedule(MIN_TD * 5'000); }
+        static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<Int>> rhs,
+                         NodeView node, NodeScheduler, Out<TS<Int>> out)
+        {
+            retained_bytes.push_back(NestedGraphView{node.graph()}.parent_node().storage_metrics().dynamic_live_bytes);
+            out.set(lhs.value() + rhs.value());
+        }
+    };
+
+    template <typename Combiner>
+    struct OrderedScheduleGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> input, Port<TS<Int>> zero)
+        {
+            return wire<stdlib::reduce_>(w, fn<Combiner>(), input, zero, Bool{false}).template as<TS<Int>>();
+        }
+    };
 
     struct ReduceLiftedAddNoIdentity
     {
@@ -352,6 +396,49 @@ namespace
         static void eval(In<"lhs", TS<Str>> lhs, In<"rhs", TS<Int>> rhs, Out<TS<Str>> out)
         {
             out.set(lhs.value() + ", " + std::to_string(rhs.value()));
+        }
+    };
+
+    // Counts every start and stop of an ordered-reduce link, so a test can
+    // tell a link that was kept from one that was rebuilt.
+    struct LinkLifecycle
+    {
+        static inline std::atomic<int> starts{0};
+        static inline std::atomic<int> stops{0};
+        static void reset() noexcept { starts = 0; stops = 0; }
+    };
+
+    struct CountingAppendCombiner
+    {
+        static constexpr auto name = "counting_append_combiner";
+
+        static void start() { ++LinkLifecycle::starts; }
+        static void stop() { ++LinkLifecycle::stops; }
+        static void eval(In<"lhs", TS<Str>> lhs, In<"rhs", TS<Int>> rhs, Out<TS<Str>> out)
+        {
+            out.set(lhs.value() + ", " + std::to_string(rhs.value()));
+        }
+    };
+
+    struct CountingOrderedTsdGraph
+    {
+        static constexpr auto name = "counting_ordered_tsd_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> values, Port<TS<Str>> zero)
+        {
+            return wire<stdlib::reduce_>(w, fn<CountingAppendCombiner>(), values, zero, Bool{false}).as<TS<Str>>();
+        }
+    };
+
+    // An integer fold for timing: its payload does not grow with the list, so
+    // what is measured is the node and not the combiner.
+    struct OrderedSumTsdGraph
+    {
+        static constexpr auto name = "ordered_sum_tsd_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> values, Port<TS<Int>> zero)
+        {
+            return wire<stdlib::reduce_>(w, fn<stdlib::add_>(), values, zero, Bool{false}).as<TS<Int>>();
         }
     };
 
@@ -1231,4 +1318,112 @@ TEST_CASE("reduce over dynamic TSL: ordered reduction retains left-to-right sema
                                    dynamic_list_delta<TS<Int>>({{2, 3}})),
                      values<Int>(100)),
                  values<Int>(99, 97, 94));
+}
+
+TEST_CASE("reduce: an ordered chain grows and shrinks at its tail without rebuilding the rest")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    LinkLifecycle::reset();
+
+    // Two elements, then a third, then a fourth, then the last two removed.
+    // A chain that is only ever extended or truncated at its tail starts each
+    // link exactly once: four starts. Rebuilding the chain on every change of
+    // length would start 2 + 3 + 4 + 2 = 11.
+    CHECK_OUTPUT(
+        eval_node<CountingOrderedTsdGraph>(
+            values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, 2}}),
+                          dict_delta<Int, TS<Int>>({{2, 3}}),
+                          dict_delta<Int, TS<Int>>({{3, 4}}),
+                          dict_delta<Int, TS<Int>>({{0, 9}}),
+                          dict_delta<Int, TS<Int>>({}, {2, 3})),
+            values<Str>(Str{"a"})),
+        values<Str>(Str{"a, 1, 2"}, Str{"a, 1, 2, 3"}, Str{"a, 1, 2, 3, 4"},
+                    Str{"a, 9, 2, 3, 4"}, Str{"a, 9, 2"}));
+    CHECK(LinkLifecycle::starts.load() == 4);
+    // Every link is stopped exactly once: two when truncated, two at shutdown.
+    CHECK(LinkLifecycle::stops.load() == 4);
+}
+
+TEST_CASE("reduce: an ordered element removed and put back in one cycle rebinds from that link down")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    LinkLifecycle::reset();
+
+    // Key 1 is removed and re-added in the same cycle: the length is unchanged
+    // but the element is a new one, so link 1 must follow it and links 2.. must
+    // recompute. No link is rebuilt.
+    CHECK_OUTPUT(
+        eval_node<CountingOrderedTsdGraph>(
+            values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, 2}, {2, 3}}),
+                          dict_delta<Int, TS<Int>>({{1, 7}}, {1})),
+            values<Str>(Str{"a"})),
+        values<Str>(Str{"a, 1, 2, 3"}, Str{"a, 1, 7, 3"}));
+    CHECK(LinkLifecycle::starts.load() == 3);
+}
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgraph_unit_tests '[ordered-reduce-scaling]'
+// The list grows by one element per tick. The per-tick figure must stay flat
+// as the list gets longer; rebuilding the chain on every growth made it rise
+// with the length, and the whole run quadratic.
+TEST_CASE("reduce: growing an ordered chain costs the same per element at any length",
+          "[.][ordered-reduce-scaling]")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    for (const std::size_t count : {500, 1000, 2000, 4000})
+    {
+        std::vector<std::optional<Value>> ticks;
+        ticks.reserve(count);
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            ticks.emplace_back(dict_delta<Int, TS<Int>>({{static_cast<Int>(index), Int{1}}}));
+        }
+        const auto started = std::chrono::steady_clock::now();
+        const auto result = eval_node<OrderedSumTsdGraph>(ticks, values<Int>(Int{0}));
+        const auto elapsed_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        REQUIRE(result.size() == count);
+        REQUIRE(result.back() == static_cast<Int>(count));
+        std::cout << "ordered_reduce_growth count=" << count << " run_ms=" << elapsed_ms
+                  << " us_per_tick=" << elapsed_ms * 1000.0 / static_cast<double>(count) << '\n';
+    }
+}
+
+TEST_CASE("reduce: an ordered child retains its initial and subsequent delayed ticks")
+{
+    stdlib::register_standard_operators();
+    std::vector<std::optional<Value>> input(10);
+    input[0] = dict_delta<Int, TS<Int>>({{0, 1}});
+    std::vector<std::optional<Int>> zero(10);
+    zero[0] = 0;
+    const auto result = eval_node<OrderedScheduleGraph<OrderedDelayedCombiner>>(input, zero);
+    std::vector<std::optional<Int>> expected(10);
+    expected[5] = 42;
+    expected[8] = 43;
+    CHECK(result == expected);
+}
+
+TEST_CASE("reduce: a distant ordered child timer uses bounded storage across input ticks")
+{
+    stdlib::register_standard_operators();
+    OrderedTimerSum::retained_bytes.clear();
+    std::vector<std::optional<Value>> input(1'000);
+    for (Int index = 0; index < 1'000; ++index)
+    {
+        input[index] = dict_delta<Int, TS<Int>>({{0, index}});
+    }
+    std::vector<std::optional<Int>> zero(input.size());
+    zero[0] = 0;
+    const auto result = eval_node<OrderedScheduleGraph<OrderedTimerSum>>(input, zero);
+    REQUIRE(result.size() == 5'001);
+    CHECK(result.back() == 999);
+    REQUIRE(OrderedTimerSum::retained_bytes.size() == 1'001);
+    const auto steady = OrderedTimerSum::retained_bytes[1];
+    for (std::size_t index = 2; index < 1'000; ++index)
+    {
+        CHECK(OrderedTimerSum::retained_bytes[index] == steady);
+    }
 }

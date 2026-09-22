@@ -1,6 +1,7 @@
 #include "driver/line_reader.h"
 
-#include <cstdlib>
+#include <hgraph/util/environment.h>
+
 #include <iostream>
 #include <string>
 
@@ -27,16 +28,16 @@ namespace hgl::driver
         /// `$HGL_HISTORY`, else `~/.hgl_history`; empty disables the file.
         std::string history_path()
         {
-            if (const char *explicit_path = std::getenv("HGL_HISTORY"); explicit_path != nullptr)
+            if (const auto explicit_path = hgraph::environment_variable("HGL_HISTORY"))
             {
-                return explicit_path;
+                return *explicit_path;
             }
-            const char *home = std::getenv("HOME");
+            auto home = hgraph::environment_variable("HOME");
 #if defined(_WIN32)
-            if (home == nullptr) { home = std::getenv("USERPROFILE"); }
+            if (!home) { home = hgraph::environment_variable("USERPROFILE"); }
 #endif
-            if (home == nullptr) { return {}; }
-            return std::string{home} + "/.hgl_history";
+            if (!home) { return {}; }
+            return *home + "/.hgl_history";
         }
 
         bool is_word_char(const char *s, long len)
@@ -85,7 +86,7 @@ namespace hgl::driver
     {
 #if defined(HGL_HAVE_ISOCLINE)
         interactive_ = HGL_ISATTY(HGL_FILENO(stdin)) != 0 && HGL_ISATTY(HGL_FILENO(stdout)) != 0 &&
-                       std::getenv("HGL_NO_LINE_EDITING") == nullptr;
+                       !hgraph::environment_variable("HGL_NO_LINE_EDITING");
         if (interactive_)
         {
             active_reader = this;

@@ -55,7 +55,7 @@ namespace hgraph
         if (observer == nullptr) { return false; }
         if (const auto *entry = single(); entry != nullptr) { return entry == observer; }
         const auto *entries = many();
-        return entries != nullptr && std::find(entries->entries.begin(), entries->entries.end(), observer) != entries->entries.end();
+        return entries != nullptr && entries->find(observer) != ObserverList::not_found;
     }
 
     std::size_t TSDataObserverSet::size() const noexcept
@@ -64,19 +64,14 @@ namespace hgraph
         if (single() != nullptr) { return 1; }
         const auto *entries = many();
         if (entries == nullptr) { return 0; }
-        return static_cast<std::size_t>(std::ranges::count_if(entries->entries, [](const auto *entry) {
-            return entry != nullptr;
-        }));
+        return entries->size();
     }
 
     DynamicStorageMetrics TSDataObserverSet::dynamic_storage_metrics() const noexcept
     {
         const auto *entries = many();
         if (entries == nullptr) { return {}; }
-        return {
-            .live_bytes = sizeof(ObserverList) + entries->entries.size() * sizeof(Notifiable *),
-            .reserved_bytes = sizeof(ObserverList) + entries->entries.capacity() * sizeof(Notifiable *),
-        };
+        return DynamicStorageMetrics{sizeof(ObserverList), sizeof(ObserverList)} + entries->buffer_metrics();
     }
 
     void TSDataObserverSet::subscribe(Notifiable *observer)
@@ -94,11 +89,11 @@ namespace hgraph
             assert(entry != observer && "TSData observer registered twice");
             if (entry == observer) { return; }
 
-            auto *entries = new ObserverList{};
+            auto entries = std::make_unique<ObserverList>();
             entries->entries.reserve(2);
-            entries->entries.push_back(entry);
-            entries->entries.push_back(observer);
-            set_many(entries);
+            static_cast<void>(entries->add(entry));
+            static_cast<void>(entries->add(observer));
+            set_many(entries.release());
             return;
         }
 
@@ -106,9 +101,9 @@ namespace hgraph
         assert(entries != nullptr && "TSData observer storage is corrupt");
         if (entries == nullptr) { throw std::logic_error("TSData observer storage is corrupt"); }
 
-        const auto it = std::find(entries->entries.begin(), entries->entries.end(), observer);
-        assert(it == entries->entries.end() && "TSData observer registered twice");
-        if (it == entries->entries.end()) { entries->entries.push_back(observer); }
+        const bool inserted = entries->add(observer);
+        assert(inserted && "TSData observer registered twice");
+        static_cast<void>(inserted);
     }
 
     void TSDataObserverSet::unsubscribe(Notifiable *observer)
@@ -129,19 +124,9 @@ namespace hgraph
             return;
         }
 
-        const auto it = std::find(entries->entries.begin(), entries->entries.end(), observer);
-        assert(it != entries->entries.end() && "removing unregistered TSData observer");
-        if (it == entries->entries.end()) { return; }
-
-        if (entries->notify_depth > 0)
-        {
-            *it = nullptr;
-            entries->compact_pending = true;
-            return;
-        }
-
-        *it = entries->entries.back();
-        entries->entries.pop_back();
+        const bool removed = entries->remove(observer);
+        assert(removed && "removing unregistered TSData observer");
+        if (!removed || entries->notify_depth != 0) { return; }
         compact_many(*entries);
     }
 
@@ -163,13 +148,13 @@ namespace hgraph
             return;
         }
 
-        const auto it = std::find(entries->entries.begin(), entries->entries.end(), observer);
-        assert(it != entries->entries.end() && "replacing unregistered TSData observer");
-        if (it == entries->entries.end()) { return; }
+        const auto position = entries->find(observer);
+        assert(position != ObserverList::not_found && "replacing unregistered TSData observer");
+        if (position == ObserverList::not_found) { return; }
 
-        const auto duplicate = std::find(entries->entries.begin(), entries->entries.end(), replacement);
-        assert(duplicate == entries->entries.end() && "replacement TSData observer already registered");
-        if (duplicate == entries->entries.end()) { *it = replacement; }
+        const bool replaced = entries->replace(position, replacement);
+        assert(replaced && "replacement TSData observer already registered");
+        static_cast<void>(replaced);
     }
 
     void TSDataObserverSet::notify_many(DateTime modified_time) const
@@ -218,8 +203,7 @@ namespace hgraph
         }
         --entries->notify_depth;
 
-        std::ranges::fill(entries->entries, nullptr);
-        entries->compact_pending = true;
+        entries->clear_entries();
         if (entries->notify_depth == 0) { delete entries; }
     }
 
@@ -230,8 +214,7 @@ namespace hgraph
             if (entries->notify_depth == 0) { delete entries; }
             else
             {
-                std::ranges::fill(entries->entries, nullptr);
-                entries->compact_pending = true;
+                entries->clear_entries();
             }
         }
         observers_.clear();
@@ -265,17 +248,7 @@ namespace hgraph
             return;
         }
 
-        for (std::size_t index = 0; index < observers.entries.size();)
-        {
-            if (observers.entries[index] != nullptr)
-            {
-                ++index;
-                continue;
-            }
-            observers.entries[index] = observers.entries.back();
-            observers.entries.pop_back();
-        }
-        observers.compact_pending = false;
+        observers.compact();
 
         if (observers.entries.empty())
         {

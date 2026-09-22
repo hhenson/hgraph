@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsl_tsb_ref",
+  "description": "TS-7, TS-14: a whole nested REF samples every valid descendant and preserves invalid descendants. Root all_valid remains an immediate-child check.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "mode": "tsl_tsb_ref"
+  },
+  "features": []
+}

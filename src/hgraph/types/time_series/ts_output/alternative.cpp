@@ -1,4 +1,6 @@
+#include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/alternative.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -377,15 +379,6 @@ namespace hgraph::detail
 
         void bind_target_link_at(const TSDataView &target, const TSOutputView &output, DateTime modified_time)
         {
-            // SAME-TARGET dedup: re-applying a reference whose item is
-            // unchanged (a re-published assembly re-binds every field) must
-            // not record modified - consumers would sample the unchanged
-            // target as a fresh tick.
-            if (auto *existing = mutable_target_link_storage(target);
-                existing != nullptr && existing->bound() && existing->target_output().same_as(output.handle()))
-            {
-                return;
-            }
             auto *link = mutable_target_link_storage(target);
             if (link == nullptr)
             {
@@ -396,6 +389,11 @@ namespace hgraph::detail
             {
                 throw std::logic_error("TSOutput from-REF target binding requires a target schema");
             }
+            // Compare the adapted bind target, just as bind_impl does. A
+            // stable endpoint can expose a REF or interior-REF alternative;
+            // comparing its raw handle would resample an unchanged binding
+            // and hide the current target's removals.
+            if (link->bound_to(*schema, output)) { return; }
             if (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD)
             {
                 link->bind_sampled(*schema, output, modified_time);
@@ -814,6 +812,11 @@ namespace hgraph::detail
             {
                 const auto &output = TSOutputAlternativeStore::peered_reference_target(reference);
                 auto output_view = output.view(modified_time);
+                if (!ts_data_alive_at(output_view.data_view().borrowed_ref(), modified_time))
+                {
+                    plan.ops->unbind(plan, target, modified_time, false);
+                    return;
+                }
                 plan.ops->apply_peered_reference(plan, target, output_view, modified_time);
                 return;
             }
@@ -1509,15 +1512,209 @@ namespace hgraph::detail
         }
     }  // namespace
 
+    namespace
+    {
+        [[nodiscard]] TSDataView checkpoint_child(const TSDataView &parent, std::size_t index)
+        {
+            return has_input_children(parent) ? endpoint_child_view(parent, index)
+                                               : parent.indexed_child_at(index);
+        }
+
+        [[nodiscard]] TSCheckpointImage capture_adapter_clocks(const TSDataView &data)
+        {
+            TSCheckpointImage image;
+            image.schema = data.schema();
+            image.last_modified_time = data.tracking().last_modified_time;
+            if (const auto *link = target_link_storage(data))
+            {
+                image.payload = Value{link->bound()};
+                image.key_set_last_modified_time = link->checkpoint_key_set_time();
+                return image;
+            }
+            if (data.schema()->kind == TSTypeKind::REF) { return image; }
+            if (data.schema()->kind != TSTypeKind::TSB &&
+                (data.schema()->kind != TSTypeKind::TSL || data.schema()->is_unbounded_tsl()))
+            {
+                throw std::invalid_argument("component checkpoint: keyed interior REF adapter is unsupported");
+            }
+            for (std::size_t i = 0; i < data.indexed_child_count(); ++i)
+            {
+                image.children.push_back(capture_adapter_clocks(checkpoint_child(data, i)));
+            }
+            return image;
+        }
+
+        void validate_adapter_clocks(const TSDataView &data, const TSCheckpointImage &image)
+        {
+            if (image.version != TSCheckpointImage::current_version ||
+                !time_series_schema_equivalent(data.schema(), image.schema) ||
+                !image.keys.empty() || !image.slots.empty() || !image.free_slots.empty() ||
+                !image.published.empty() || !image.window_times.empty() || image.slot_capacity != 0 ||
+                image.reference.has_value())
+            {
+                throw std::invalid_argument("checkpoint adapter clock image is inconsistent");
+            }
+            if (target_link_storage(data) != nullptr)
+            {
+                if (!image.payload.has_value() || !image.children.empty() ||
+                    image.key_set_last_modified_time > image.last_modified_time ||
+                    ((data.schema()->kind != TSTypeKind::TSD && data.schema()->kind != TSTypeKind::TSS) &&
+                     image.key_set_last_modified_time != MIN_DT))
+                {
+                    throw std::invalid_argument("checkpoint adapter link clocks are inconsistent");
+                }
+                static_cast<void>(image.payload.view().checked_as<Bool>());
+                return;
+            }
+            if (image.payload.has_value() || image.key_set_last_modified_time != MIN_DT)
+            {
+                throw std::invalid_argument("checkpoint adapter owned clock image is inconsistent");
+            }
+            const auto count = data.schema()->kind == TSTypeKind::REF ? std::size_t{0}
+                : data.indexed_child_count();
+            if (image.children.size() != count ||
+                (data.schema()->kind != TSTypeKind::REF && data.schema()->kind != TSTypeKind::TSB &&
+                 (data.schema()->kind != TSTypeKind::TSL || data.schema()->is_unbounded_tsl())))
+            {
+                throw std::invalid_argument("checkpoint adapter clock shape is unsupported or inconsistent");
+            }
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                validate_adapter_clocks(checkpoint_child(data, i), image.children[i]);
+            }
+        }
+
+        void restore_adapter_clock(const TSDataView &data, DateTime time)
+        {
+            const auto &ops = data.storage_type().ops_ref();
+            ops.mutable_tracking_impl(ops.context, data.mutable_data())->last_modified_time = time;
+        }
+
+        void restore_adapter_link(const TSDataView &data, const TSOutputView &source,
+                                  const TSCheckpointImage &image)
+        {
+            if (image.payload.view().checked_as<Bool>() != source.bound())
+            {
+                throw std::invalid_argument("checkpoint adapter source differs from captured binding");
+            }
+            auto *link = mutable_target_link_storage(data);
+            if (link == nullptr) { throw std::logic_error("checkpoint adapter leaf is not a target link"); }
+            link->unbind();
+            link->tracking.last_modified_time = MIN_DT;
+            link->restore_binding(*data.schema(), source, image.last_modified_time,
+                                  image.key_set_last_modified_time);
+        }
+
+        void restore_from_ref_output(const FromRefEndpointPlan &plan, const TSDataView &target,
+                                     const TSOutputView &source, const TSCheckpointImage &image)
+        {
+            if (plan.schema.role() == TSEndpointRole::Peered)
+            {
+                restore_adapter_link(target, source, image);
+                return;
+            }
+            for (std::size_t i = 0; i < plan.children.size(); ++i)
+            {
+                auto child_source = source.bound()
+                    ? output_child_view(source, *plan.schema.schema(), i) : TSOutputView{};
+                restore_from_ref_output(plan.children[i], endpoint_child_view(target, i), child_source,
+                                        image.children[i]);
+            }
+            restore_adapter_clock(target, image.last_modified_time);
+        }
+
+        void restore_from_ref_reference(const FromRefEndpointPlan &plan, const TSDataView &target,
+                                        const TimeSeriesReference &reference,
+                                        const TSCheckpointImage &image, DateTime time)
+        {
+            if (reference.is_empty()) { restore_from_ref_output(plan, target, {}, image); return; }
+            if (reference.is_peered())
+            {
+                auto source = TSOutputAlternativeStore::peered_reference_target(reference).view(time);
+                if (plan.schema.role() != TSEndpointRole::Peered && source.forwarding() &&
+                    !source.forwarding_bound()) { source = {}; }
+                restore_from_ref_output(plan, target, source, image);
+                return;
+            }
+            if (plan.schema.role() == TSEndpointRole::Peered || reference.items().size() != plan.children.size())
+            {
+                throw std::invalid_argument("checkpoint non-peered adapter reference shape mismatch");
+            }
+            for (std::size_t i = 0; i < plan.children.size(); ++i)
+            {
+                restore_from_ref_reference(plan.children[i], endpoint_child_view(target, i),
+                                           reference[i], image.children[i], time);
+            }
+            restore_adapter_clock(target, image.last_modified_time);
+        }
+
+        void restore_interior_adapter(const FromRefInteriorPlan &plan, const TSDataView &target,
+                                      const TSOutputView &source, const TSCheckpointImage &image, DateTime time)
+        {
+            if (plan.ops->proxy_backed)
+            {
+                throw std::invalid_argument("component checkpoint: keyed interior REF adapter is unsupported");
+            }
+            if (plan.endpoint)
+            {
+                if (plan.source_schema->kind == TSTypeKind::REF)
+                {
+                    if (!source.valid()) { restore_from_ref_output(*plan.endpoint, target, {}, image); return; }
+                    const auto value = source.value();
+                    restore_from_ref_reference(*plan.endpoint, target,
+                        value.checked_as<TimeSeriesReference>(), image, time);
+                }
+                else { restore_from_ref_output(*plan.endpoint, target, source, image); }
+                return;
+            }
+            for (std::size_t i = 0; i < plan.children.size(); ++i)
+            {
+                restore_interior_adapter(plan.children[i], endpoint_child_view(target, i),
+                    output_child_view(source, *plan.source_schema, i), image.children[i], time);
+            }
+            restore_adapter_clock(target, image.last_modified_time);
+        }
+
+        void restore_to_ref_adapter(const ToRefPlan &plan, const TSDataView &target,
+                                   const TSOutputView &source, const TSCheckpointImage &image, DateTime time)
+        {
+            if (plan.target_schema->kind == TSTypeKind::REF)
+            {
+                const auto reference = TSOutputAlternativeStore::peered_reference_as(
+                    plan.target_schema->referenced_ts(), source.handle());
+                const Value value{reference};
+                const auto &ops = target.storage_type().ops_ref();
+                const auto *layout = ops.layout_impl(ops.context);
+                layout->value_binding.ops_ref().copy_assign_from(layout->value_binding,
+                    ops.mutable_value_memory_impl(ops.context, target.mutable_data()), value.view().binding(), value.view().data());
+                restore_adapter_clock(target, image.last_modified_time);
+                return;
+            }
+            if (plan.target_schema->kind == TSTypeKind::TSD)
+            {
+                throw std::invalid_argument("component checkpoint: keyed interior REF adapter is unsupported");
+            }
+            for (std::size_t i = 0; i < plan.children.size(); ++i)
+            {
+                auto source_data = source.data_view().indexed_child_at(i);
+                restore_to_ref_adapter(plan.children[i], checkpoint_child(target, i),
+                    TSOutputView{source.output(), source_data, time}, image.children[i], time);
+            }
+            restore_adapter_clock(target, image.last_modified_time);
+        }
+    }
+
     struct TSOutputAlternativeStore::ToRefAlternativeState final
     {
-        ToRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source)
+        ToRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
+                              bool initialise = true)
             : requested_schema{&requested_schema},
               build_context{source.output()},
               plan{make_to_ref_plan(requested_schema, build_context)},
               data{make_to_ref_data(requested_schema)}
         {
-            rebind(source);
+            if (initialise) { rebind(source); }
+            else { this->source = source.handle(); }
         }
 
         ToRefAlternativeState(const ToRefAlternativeState &) = delete;
@@ -1558,6 +1755,13 @@ namespace hgraph::detail
             refresh(new_source.evaluation_time());
         }
 
+        void restore_checkpoint(const TSCheckpointImage &image, DateTime time)
+        {
+            auto target = data.view();
+            validate_adapter_clocks(target, image);
+            restore_to_ref_adapter(plan, target, source.view(time), image, time);
+        }
+
       private:
         void refresh(DateTime modified_time)
         {
@@ -1585,13 +1789,15 @@ namespace hgraph::detail
             RefLinkAlternativeState *owner{nullptr};
         };
 
-        RefLinkAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source)
+        RefLinkAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
+                                bool initialise = true)
             : requested_schema{&requested_schema},
               plan{make_from_ref_endpoint_plan(&requested_schema)},
               data{checked_from_ref_storage_type(plan.schema)},
               notifier{*this}
         {
-            rebind(source);
+            if (initialise) { rebind(source); }
+            else { this->source = source.handle(); subscribe_source(); }
         }
 
         RefLinkAlternativeState(const RefLinkAlternativeState &) = delete;
@@ -1643,6 +1849,23 @@ namespace hgraph::detail
                 unbind_from_ref_data(plan, target, release_time, true);
                 return true;
             }));
+        }
+
+        void restore_checkpoint(const TSCheckpointImage &image, DateTime time)
+        {
+            auto target = data.view();
+            validate_adapter_clocks(target, image);
+            auto source_view = source.view(time);
+            std::vector<TSOutputHandle> next_reference_sources;
+            if (source_view.valid())
+            {
+                const auto value = source_view.value();
+                const auto &reference = value.checked_as<TimeSeriesReference>();
+                restore_from_ref_reference(plan, target, reference, image, time);
+                collect_forwarding_reference_sources(reference, time, next_reference_sources);
+            }
+            else { restore_from_ref_output(plan, target, {}, image); }
+            replace_reference_sources(std::move(next_reference_sources));
         }
 
       private:
@@ -1730,7 +1953,8 @@ namespace hgraph::detail
             InteriorFromRefAlternativeState *owner{nullptr};
         };
 
-        InteriorFromRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source)
+        InteriorFromRefAlternativeState(const TSValueTypeMetaData &requested_schema, const TSOutputView &source,
+                                       bool initialise = true)
             : requested_schema{&requested_schema},
               build_context{source.output()},
               plan{make_from_ref_interior_plan(requested_schema, *source.schema(), build_context)},
@@ -1739,7 +1963,8 @@ namespace hgraph::detail
                   "ts.alternative.interior-ref.output")},
               notifier{*this}
         {
-            rebind(source);
+            if (initialise) { rebind(source); }
+            else { this->source = source.handle(); if (!proxy_backed()) { subscribe_source(); } }
         }
 
         InteriorFromRefAlternativeState(const InteriorFromRefAlternativeState &) = delete;
@@ -1808,6 +2033,13 @@ namespace hgraph::detail
                 release_links(release_time);
                 return true;
             }));
+        }
+
+        void restore_checkpoint(const TSCheckpointImage &image, DateTime time)
+        {
+            auto target = data.view();
+            validate_adapter_clocks(target, image);
+            restore_interior_adapter(plan, target, source.view(time), image, time);
         }
 
       private:
@@ -1983,6 +2215,159 @@ namespace hgraph::detail
         }
 
         throw std::logic_error("TSOutput structural reference alternatives are not implemented yet");
+    }
+
+    TSOutputHandle TSOutputAlternativeStore::checkpoint_binding_for(
+        const TSOutputView &source, const TSValueTypeMetaData &requested_schema)
+    {
+        const auto key = key_for(source, requested_schema);
+        if (alternative_route_matches_to_ref(source.schema(), requested_schema))
+        {
+            auto *state = to_ref_alternatives_.find(key);
+            if (state == nullptr)
+            {
+                std::unique_ptr<ToRefAlternativeState, ToRefAlternativeDelete> inserted{
+                    new ToRefAlternativeState(requested_schema, source, false)};
+                state = to_ref_alternatives_.insert(key, std::move(inserted)).first;
+            }
+            return state->handle(source.output());
+        }
+        if (alternative_route_matches_from_ref(source.schema(), requested_schema))
+        {
+            auto *state = ref_link_alternatives_.find(key);
+            if (state == nullptr)
+            {
+                std::unique_ptr<RefLinkAlternativeState, RefLinkAlternativeDelete> inserted{
+                    new RefLinkAlternativeState(requested_schema, source, false)};
+                state = ref_link_alternatives_.insert(key, std::move(inserted)).first;
+            }
+            return state->handle(source.output());
+        }
+        if (alternative_route_matches_from_ref_interior(source.schema(), requested_schema))
+        {
+            auto *state = interior_from_ref_alternatives_.find(key);
+            if (state == nullptr)
+            {
+                std::unique_ptr<InteriorFromRefAlternativeState, InteriorFromRefAlternativeDelete> inserted{
+                    new InteriorFromRefAlternativeState(requested_schema, source, false)};
+                state = interior_from_ref_alternatives_.insert(key, std::move(inserted)).first;
+            }
+            return state->handle(source.output());
+        }
+        throw std::invalid_argument("checkpoint adapter schema adaptation is unsupported");
+    }
+
+    namespace
+    {
+        bool find_adapter_path(const TSDataView &data, const TSOutputHandle &handle,
+                               std::vector<std::size_t> &path)
+        {
+            // Read only the live cache cursor. The queried cursor may be stale;
+            // its type/data fields are identity tokens, never dereferenced here.
+            if (data.storage_type() == handle.storage_type() && data.data() == handle.data_view().data()) { return true; }
+            if (target_link_storage(data) != nullptr || data.schema()->kind == TSTypeKind::REF) { return false; }
+            if (data.schema()->kind == TSTypeKind::TSD)
+            {
+                const auto &proxy = *static_cast<const TSDProxy *>(data.data());
+                for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
+                {
+                    if (!proxy.has_child(slot)) { continue; }
+                    TSDataView child{proxy.element_type(), const_cast<void *>(proxy.child_at_slot(slot))};
+                    path.push_back(slot);
+                    if (find_adapter_path(child, handle, path)) { return true; }
+                    path.pop_back();
+                }
+                return false;
+            }
+            if (data.schema()->kind != TSTypeKind::TSB && data.schema()->kind != TSTypeKind::TSL) { return false; }
+            for (std::size_t index = 0; index < data.indexed_child_count(); ++index)
+            {
+                path.push_back(index);
+                if (find_adapter_path(checkpoint_child(data, index), handle, path)) { return true; }
+                path.pop_back();
+            }
+            return false;
+        }
+    }
+
+    std::optional<TSOutputAlternativeDescriptor> TSOutputAlternativeStore::checkpoint_alternative(
+        const TSOutputHandle &handle)
+    {
+        std::optional<TSOutputAlternativeDescriptor> result;
+        const auto inspect = [&](const AlternativeKey &key, auto &state) {
+            if (result || key.source_output != handle.output()) { return; }
+            std::vector<std::size_t> path;
+            if (find_adapter_path(state.handle(key.source_output).data_view(), handle, path))
+            {
+                result = TSOutputAlternativeDescriptor{state.source, state.requested_schema, std::move(path)};
+            }
+        };
+        to_ref_alternatives_.for_each(inspect);
+        ref_link_alternatives_.for_each(inspect);
+        interior_from_ref_alternatives_.for_each(inspect);
+        return result;
+    }
+
+    void TSOutputAlternativeStore::visit_checkpoint_alternative_endpoints(
+        const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor)
+    {
+        const auto inspect = [&](const AlternativeKey &key, auto &state) {
+            TSOutputAlternativeDescriptor descriptor{state.source, state.requested_schema, {}};
+            const auto walk = [&](const auto &self, const TSDataView &data) -> void {
+                visitor(TSOutputHandle{key.source_output, data}, descriptor);
+                if (target_link_storage(data) != nullptr || data.schema()->kind == TSTypeKind::REF) { return; }
+                if (data.schema()->kind == TSTypeKind::TSD)
+                {
+                    const auto &proxy = *static_cast<const TSDProxy *>(data.data());
+                    for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
+                    {
+                        if (!proxy.has_child(slot)) { continue; }
+                        descriptor.path.push_back(slot);
+                        self(self, TSDataView{proxy.element_type(), const_cast<void *>(proxy.child_at_slot(slot))});
+                        descriptor.path.pop_back();
+                    }
+                }
+                else if (data.schema()->kind == TSTypeKind::TSB || data.schema()->kind == TSTypeKind::TSL)
+                {
+                    for (std::size_t index = 0; index < data.indexed_child_count(); ++index)
+                    {
+                        descriptor.path.push_back(index);
+                        self(self, checkpoint_child(data, index));
+                        descriptor.path.pop_back();
+                    }
+                }
+            };
+            walk(walk, state.handle(key.source_output).data_view());
+        };
+        to_ref_alternatives_.for_each(inspect);
+        ref_link_alternatives_.for_each(inspect);
+        interior_from_ref_alternatives_.for_each(inspect);
+    }
+
+    std::vector<TSOutputAlternativeCheckpoint> TSOutputAlternativeStore::capture_checkpoint_alternatives(
+        const std::function<bool(const TSOutputHandle &)> &include_source)
+    {
+        std::vector<TSOutputAlternativeCheckpoint> result;
+        const auto capture = [&](const AlternativeKey &key, auto &state) {
+            if (include_source && !include_source(state.source)) { return; }
+            result.push_back({{state.source, state.requested_schema, {}},
+                              capture_adapter_clocks(state.handle(key.source_output).data_view())});
+        };
+        to_ref_alternatives_.for_each(capture);
+        ref_link_alternatives_.for_each(capture);
+        interior_from_ref_alternatives_.for_each(capture);
+        return result;
+    }
+
+    void TSOutputAlternativeStore::restore_checkpoint_alternative(const TSOutputView &source,
+        const TSValueTypeMetaData &requested_schema, const TSCheckpointImage &clocks, DateTime time)
+    {
+        static_cast<void>(checkpoint_binding_for(source, requested_schema));
+        const auto key = key_for(source, requested_schema);
+        if (auto *state = to_ref_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }
+        if (auto *state = ref_link_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }
+        if (auto *state = interior_from_ref_alternatives_.find(key)) { state->restore_checkpoint(clocks, time); return; }
+        throw std::logic_error("checkpoint adapter cache entry is missing");
     }
 
     TimeSeriesReference TSOutputAlternativeStore::peered_reference_as(const TSValueTypeMetaData *target_schema,

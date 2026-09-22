@@ -1351,6 +1351,44 @@ def test_mutually_recursive_compound_scalars_resolve_as_one_closed_group():
     assert eval_node(nested_value, [source]) == [3]
 
 
+def test_recursive_compound_scalars_compare_through_their_whole_depth():
+    # The native schema of a recursive CompoundScalar is equatable, so a
+    # time-series comparison sees every level, not just the root.
+    @dataclass
+    class Chain(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        next: Optional["Chain"] = None
+
+    @dataclass
+    class Left(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        right: Optional["Right"] = None
+
+    @dataclass
+    class Right(CompoundScalar, namespace="tests.recursive_equality"):
+        value: int
+        left: Optional[Left] = None
+
+    @graph
+    def same_chain(lhs: TS[Chain], rhs: TS[Chain]) -> TS[bool]:
+        return lhs == rhs
+
+    @graph
+    def same_pair(lhs: TS[Left], rhs: TS[Left]) -> TS[bool]:
+        return lhs == rhs
+
+    assert eval_node(
+        same_chain,
+        [Chain(1, Chain(2, Chain(3))), Chain(1, Chain(2, Chain(3)))],
+        [Chain(1, Chain(2, Chain(3))), Chain(1, Chain(2, Chain(4)))],
+    ) == [True, False]
+    assert eval_node(
+        same_pair,
+        [Left(1, Right(2, Left(3))), Left(1, Right(2))],
+        [Left(1, Right(2, Left(3))), Left(1, Right(2, Left(3)))],
+    ) == [True, False]
+
+
 def test_compound_scalar_readback_reconstructs_frozen_slotted_value_without_init():
     initialized = []
 
@@ -1673,3 +1711,54 @@ def test_materialized_subclass_keeps_inherited_frozen_hashability():
     assert [name for name, _ in _value_type(DerivedFrozen).fields] == ["first", "second"]
     assert DerivedFrozen.__dataclass_params__.frozen is True
     assert len({DerivedFrozen(1, 2), DerivedFrozen(1, 2)}) == 1
+
+
+def test_emit_over_map_preserves_unset_polymorphic_field():
+    # A KeyValue bundle assembled by emit(TSD) is built against the output's
+    # published value binding, but the builder's storage IS that binding's
+    # OWNING representation - a different realization whose polymorphic
+    # fields are distinct closed-Bundle entries. Writing the fields through
+    # one and reading them back through the other left every polymorphic
+    # field carrying a record the reader had never seen ("closed Bundle
+    # source alternative '<invalid>' is outside this graph snapshot").
+    # The unset `detail` is what makes it visible: it stays on the declared
+    # base, so it is the field whose realization has to survive the round
+    # trip rather than being replaced by a concrete leaf.
+    @dataclass
+    class Detail(CompoundScalar, namespace="tests.emit_unset"):
+        pass
+
+    @dataclass
+    class FilledDetail(Detail, namespace="tests.emit_unset"):
+        value: int = 0
+
+    @dataclass
+    class Event(CompoundScalar, namespace="tests.emit_unset"):
+        value: int
+        detail: Detail = None
+
+    @dataclass
+    class ChildEvent(Event, namespace="tests.emit_unset"):
+        pass
+
+    @compute_node
+    def make_event(value: TS[int]) -> TS[tuple[Event, ...]]:
+        return (ChildEvent(value.value),)
+
+    @graph
+    def event_for(value: TS[int]) -> TS[Event]:
+        return hg.emit(make_event(value))
+
+    @graph
+    def emitted_events(values: TSD[str, TS[int]]) -> TS[Event]:
+        return hg.emit(hg.map_(event_for, values)).value
+
+    # The concrete leaf survives the nested emit and the unset base-typed
+    # field stays unset - not flattened to the base, not dropped.
+    assert eval_node(emitted_events, [{"a": 1}, {"a": 2}]) == [
+        ChildEvent(value=1, detail=None),
+        ChildEvent(value=2, detail=None),
+    ]
+    # FilledDetail is what makes Detail polymorphic in the first place; a
+    # base with no concrete subclass never reached the failing path.
+    assert FilledDetail(value=1).value == 1

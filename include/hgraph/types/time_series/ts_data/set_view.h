@@ -59,6 +59,8 @@ namespace hgraph
         /** Key lookup helpers using the set key binding. */
         [[nodiscard]] bool contains(const ValueView &key) const;
         [[nodiscard]] std::size_t find_slot(const ValueView &key) const;
+        /** As ``find_slot``, but also finds a key removed this cycle and awaiting erase. */
+        [[nodiscard]] std::size_t find_stored_slot(const ValueView &key) const;
 
         /** Live, added, and removed key ranges. */
         [[nodiscard]] Range<ValueView> values() const;

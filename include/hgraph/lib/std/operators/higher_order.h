@@ -404,11 +404,14 @@ namespace hgraph::stdlib
         Str                       key_arg{};
         Str                       mesh_name{};
         std::vector<std::uint8_t> arg_tags{};
+        std::size_t partition_group{0};
+        std::size_t partition_count{1};
 
         [[nodiscard]] bool operator==(const MapCallConfig &other) const
         {
             return func == other.func && key_arg == other.key_arg &&
-                   mesh_name == other.mesh_name && arg_tags == other.arg_tags;
+                   mesh_name == other.mesh_name && arg_tags == other.arg_tags &&
+                   partition_group == other.partition_group && partition_count == other.partition_count;
         }
     };
 
@@ -506,6 +509,8 @@ struct std::hash<hgraph::stdlib::MapCallConfig>
         combine(std::hash<std::string>{}(config.key_arg));
         combine(std::hash<std::string>{}(config.mesh_name));
         for (const std::uint8_t tag : config.arg_tags) { combine(tag); }
+        combine(config.partition_group);
+        combine(config.partition_count);
         return h;
     }
 };

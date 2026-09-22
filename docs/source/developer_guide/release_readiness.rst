@@ -40,8 +40,8 @@ Supported platforms
        :ref:`self-hosted Linux runner <self-hosted-linux-runner>`, still with
        GCC 14; the wheel itself is always built on a hosted runner)
    * - macOS arm64
-     - macOS 26 runner, current AppleClang, deployment target 15.0
-     - ``cp312-abi3`` wheel, macOS 15+
+     - macOS 26 runner, current AppleClang, deployment target 26.0
+     - ``cp312-abi3`` wheel, macOS 26+
      - Primary local and CI correctness gate; Intel macOS is not built
    * - Windows x86_64
      - Latest MSVC toolset over Ninja (vcvars via ``msvc-dev-cmd``; the

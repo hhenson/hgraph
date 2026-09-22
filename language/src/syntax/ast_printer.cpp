@@ -168,7 +168,7 @@ namespace hgl::syntax
             }
 
             void decl_node(int depth, SourceRange range, const ast::NativeFunctionDecl &d) {
-                line(depth, "NativeFunctionDecl", range, "native fn " + std::string{d.name.text});
+                line(depth, "NativeFunctionDecl", range, "native fn " + std::string{d.name.text} + (d.throws ? " throws" : ""));
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
@@ -501,7 +501,7 @@ namespace hgl::syntax
                 if (s.init != ast::no_node) { expr(depth + 1, s.init, "init"); }
             }
             void stmt_node(int depth, SourceRange range, const ast::StateDecl &s, ast::ExprId) {
-                line(depth, "StateDecl", range, std::string{s.name.text});
+                line(depth, s.cache ? "CacheDecl" : "StateDecl", range, std::string{s.name.text});
                 if (s.type != ast::no_node) { type(depth + 1, s.type, "type"); }
                 expr(depth + 1, s.init, "init");
             }

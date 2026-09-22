@@ -14,6 +14,7 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -179,6 +180,21 @@ namespace hgraph
                 if (validity_.empty()) { validity_.assign(size_, true); }
                 validity_.push_back(false);
                 ++size_;
+            }
+
+            /** Append ``count`` default-constructed elements that ARE set, in one
+                allocation, for a caller that then fills them in place through
+                ``at``. A bulk reader knows its row count before its rows, and
+                building each row aside to copy it in costs every row twice. */
+            void append_default(std::size_t count)
+            {
+                if (count > capacity_ - size_) { grow(size_ + count); }
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    plan_->default_construct(slot_address(size_));
+                    if (!validity_.empty()) { validity_.push_back(true); }
+                    ++size_;
+                }
             }
 
             [[nodiscard]] const std::vector<bool> &validity() const noexcept { return validity_; }
@@ -369,6 +385,21 @@ namespace hgraph
             push_back_copy(static_cast<const void *>(std::addressof(value)));
         }
 
+        /** Append ``count`` default-constructed, set elements to be filled in
+            place through ``element_memory``. Addresses hold until the next
+            append. */
+        void append_default(std::size_t count)
+        {
+            ensure_not_built();
+            accumulator_.append_default(count);
+        }
+        [[nodiscard]] void *element_memory(std::size_t index)
+        {
+            ensure_not_built();
+            if (index >= accumulator_.size()) { throw std::out_of_range("ListBuilder::element_memory index out of range"); }
+            return accumulator_.at(index);
+        }
+
         [[nodiscard]] std::size_t size() const noexcept { return accumulator_.size(); }
         [[nodiscard]] bool        empty() const noexcept { return accumulator_.empty(); }
 
@@ -389,7 +420,7 @@ namespace hgraph
             const auto binding = result_schema_ != nullptr
                                      ? compact_list_type(element_binding_, *result_schema_)
                                      : compact_list_type(element_binding_);
-            return Value{binding, &storage};
+            return Value{binding, &storage, Value::AdoptStorage{}};
         }
 
         /** Build an owning list and materialise it in ``target_binding``.
@@ -524,7 +555,7 @@ namespace hgraph
         [[nodiscard]] Value build()
         {
             CyclicBufferStorage storage = build_storage();
-            return Value{compact_cyclic_buffer_type(element_binding_, capacity_), &storage};
+            return Value{compact_cyclic_buffer_type(element_binding_, capacity_), &storage, Value::AdoptStorage{}};
         }
 
       private:
@@ -603,7 +634,7 @@ namespace hgraph
         [[nodiscard]] Value build()
         {
             QueueStorage storage = build_storage();
-            return Value{compact_queue_type(element_binding_, max_capacity_), &storage};
+            return Value{compact_queue_type(element_binding_, max_capacity_), &storage, Value::AdoptStorage{}};
         }
 
       private:
@@ -723,7 +754,7 @@ namespace hgraph
         [[nodiscard]] Value build()
         {
             SetStorage storage = build_storage();
-            return Value{compact_set_type(element_binding_), &storage};
+            return Value{compact_set_type(element_binding_), &storage, Value::AdoptStorage{}};
         }
 
       private:
@@ -924,7 +955,7 @@ namespace hgraph
         [[nodiscard]] Value build()
         {
             MapStorage storage = build_storage();
-            return Value{compact_map_type(key_binding_, value_binding_), &storage};
+            return Value{compact_map_type(key_binding_, value_binding_), &storage, Value::AdoptStorage{}};
         }
 
       private:
@@ -960,6 +991,71 @@ namespace hgraph
         builder_detail::ElementAccumulator   value_acc_;
         compact_detail::SlotIndex            index_{};
         bool                                  built_{false};
+    };
+
+    /**
+     * Where one composite binding keeps its fields and their validity bits,
+     * resolved once.
+     *
+     * A composite's plan lists a component per field, and a Bundle adds one
+     * more holding the field-validity words (core_concepts.rst); a Tuple is
+     * dense and has none. ``BundleBuilder`` uses this to mark a field live,
+     * and a bulk reader or writer that touches many rows of one composite
+     * uses it to reach a field without a call per access. Only composite
+     * (assembly) storage has one: a wrapper such as ``Shared<Bundle>`` keeps
+     * its fields behind its own ops.
+     */
+    class CompositeFieldLayout
+    {
+      public:
+        [[nodiscard]] static std::optional<CompositeFieldLayout> of(const ValueTypeRef &binding)
+        {
+            const auto *plan = binding ? binding.plan() : nullptr;
+            const auto *meta = binding ? binding.schema() : nullptr;
+            if (plan == nullptr || meta == nullptr || !plan->is_composite()) { return std::nullopt; }
+            const auto kind = meta->try_value_kind();
+            if (kind != ValueTypeKind::Bundle && kind != ValueTypeKind::Tuple) { return std::nullopt; }
+            const auto components = plan->components();
+            if (components.size() < meta->field_count) { return std::nullopt; }
+            CompositeFieldLayout result;
+            result.components_ = components;
+            result.field_count_ = meta->field_count;
+            if (components.size() > meta->field_count) { result.validity_offset_ = components[meta->field_count].offset; }
+            return result;
+        }
+
+        [[nodiscard]] std::size_t field_count() const noexcept { return field_count_; }
+        [[nodiscard]] const void *field(const void *row, std::size_t index) const noexcept
+        {
+            return static_cast<const std::byte *>(row) + components_[index].offset;
+        }
+        [[nodiscard]] void *field(void *row, std::size_t index) const noexcept
+        {
+            return static_cast<std::byte *>(row) + components_[index].offset;
+        }
+        /** Dense composites (no validity words) have every field set. */
+        [[nodiscard]] bool field_set(const void *row, std::size_t index) const noexcept
+        {
+            if (validity_offset_ == npos) { return true; }
+            const auto *words = static_cast<const std::uint64_t *>(
+                static_cast<const void *>(static_cast<const std::byte *>(row) + validity_offset_));
+            return (words[index / bits_per_word] >> (index % bits_per_word)) & std::uint64_t{1};
+        }
+        void mark_field(void *row, std::size_t index) const noexcept
+        {
+            if (validity_offset_ == npos) { return; }
+            auto *words = static_cast<std::uint64_t *>(
+                static_cast<void *>(static_cast<std::byte *>(row) + validity_offset_));
+            words[index / bits_per_word] |= std::uint64_t{1} << (index % bits_per_word);
+        }
+
+      private:
+        static constexpr std::size_t npos = static_cast<std::size_t>(-1);
+        static constexpr std::size_t bits_per_word = sizeof(std::uint64_t) * 8U;
+
+        std::span<const MemoryUtils::CompositeComponent> components_{};
+        std::size_t field_count_{0};
+        std::size_t validity_offset_{npos};
     };
 
     // -----------------------------------------------------------------
@@ -1050,30 +1146,29 @@ namespace hgraph
             live; Tuple composites are dense (no validity component). */
         void mark_field(std::size_t index)
         {
-            const auto *meta = binding_.schema();
-            if (meta == nullptr || meta->field_count == 0 ||
-                (meta->value_kind() != ValueTypeKind::Bundle && meta->value_kind() != ValueTypeKind::Tuple))
-            {
-                return;
-            }
-            if (index >= meta->field_count) { throw std::out_of_range("BundleBuilder: field index out of range"); }
-            const auto &plan = binding_.checked_plan();
-            if (plan.component_count() <= meta->field_count) { return; }
-            const auto components = plan.components();
-            auto *words = static_cast<std::uint64_t *>(field_memory(components[meta->field_count].offset));
-            constexpr std::size_t bits_per_word = sizeof(std::uint64_t) * 8U;
-            words[index / bits_per_word] |= std::uint64_t{1} << (index % bits_per_word);
+            const auto layout = CompositeFieldLayout::of(binding_);
+            if (!layout.has_value() || layout->field_count() == 0) { return; }
+            if (index >= layout->field_count()) { throw std::out_of_range("BundleBuilder: field index out of range"); }
+            layout->mark_field(const_cast<void *>(value_.view().data()), index);
         }
 
         [[nodiscard]] Value build()
         {
             ensure_not_built();
             built_ = true;
-            if (target_binding_ == binding_) { return std::move(value_); }
+            // ``binding_`` is already the owning representation
+            // (``owning_assembly``), so the target needs no conversion when
+            // it owns as the assembly does — the caller receives the portable
+            // value either way.
+            if (value_owning_type(target_binding_) == binding_) { return std::move(value_); }
 
             Value result{target_binding_};
-            target_binding_.ops_ref().move_assign_from(
-                target_binding_,
+            // Dispatch on what ``result`` IS, not on what it was asked for:
+            // ``Value`` materialises the owning representation, so
+            // ``target_binding_``'s ops would run over its owner's memory.
+            const auto result_binding = result.view().binding();
+            result_binding.ops_ref().move_assign_from(
+                result_binding,
                 const_cast<void *>(result.view().data()),
                 binding_,
                 const_cast<void *>(value_.view().data()));
@@ -1087,7 +1182,7 @@ namespace hgraph
             {
                 throw std::invalid_argument("BundleBuilder requires a bound target");
             }
-            if (target.checked_plan().is_composite()) { return target; }
+            if (target.checked_plan().is_composite()) { return owning_assembly(target); }
             const auto *schema = target.schema();
             if (schema == nullptr || schema->try_value_kind() != ValueTypeKind::Bundle ||
                 schema->wrapped_un_named == nullptr)
@@ -1118,7 +1213,33 @@ namespace hgraph
                 throw std::logic_error(
                     "BundleBuilder structural assembly binding is unavailable");
             }
-            return structural;
+            return owning_assembly(structural);
+        }
+
+        /** The representation the builder's own storage will be.
+
+            ``Value`` always materialises the OWNING representation of the
+            binding it is handed (``value_owning_type``): a graph-local
+            realization publishes an external owner, and the two are
+            plan-compatible but NOT interchangeable — their polymorphic
+            fields are distinct closed-Bundle entries with their own
+            ``TypeRecord``s. Deriving the field bindings from the binding the
+            caller passed while writing into storage of its owner leaves each
+            field carrying a record the reader's entry has never seen, and the
+            first consumer to ask for the field's concrete type fails with
+            "closed Bundle source alternative ... is outside this graph
+            snapshot". So the assembly binding IS the owning representation,
+            and ``build`` converts to the caller's target from there. */
+        [[nodiscard]] static ValueTypeRef owning_assembly(ValueTypeRef assembly)
+        {
+            const auto owning = value_owning_type(assembly);
+            if (!owning || owning == assembly) { return assembly; }
+            if (!owning.checked_plan().is_composite())
+            {
+                throw std::logic_error(
+                    "BundleBuilder target's owning representation is not composite storage");
+            }
+            return owning;
         }
 
         [[nodiscard]] const MemoryUtils::CompositeState &state() const

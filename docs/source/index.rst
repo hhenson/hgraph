@@ -57,6 +57,7 @@ RFCs
    getting_started
    user_guide/index
    reference/index
+   runtime_spec/index
    specification/index
    developer_guide/index
    rfc/index

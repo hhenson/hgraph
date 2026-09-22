@@ -1,7 +1,10 @@
 #ifndef HGRAPH_TYPES_VALUE_VALUE_HASH_H
 #define HGRAPH_TYPES_VALUE_VALUE_HASH_H
 
+#include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value.h>
+
+#include <ankerl/unordered_dense.h>
 
 #include <cstddef>
 
@@ -61,6 +64,80 @@ namespace hgraph
         {
             return lhs.equals(rhs);
         }
+    };
+    /**
+     * A set of keys the caller already holds, by address, transparent to
+     * ``Value`` and ``ValueView`` lookups.
+     *
+     * For "is this key one of those?" asked once per element of another
+     * collection: build the set once and ask it, instead of searching the list
+     * per element, which is quadratic. Nothing is copied, so the keys must
+     * stay where they are -- do not grow the container they live in -- for as
+     * long as the set is used.
+     */
+    struct BorrowedValueHash
+    {
+        using is_transparent = void;
+        [[nodiscard]] std::size_t operator()(const Value *value) const { return ValueHash{}(*value); }
+        [[nodiscard]] std::size_t operator()(const Value &value) const { return ValueHash{}(value); }
+        [[nodiscard]] std::size_t operator()(const ValueView &value) const { return ValueHash{}(value); }
+    };
+
+    struct BorrowedValueEqual
+    {
+        using is_transparent = void;
+        [[nodiscard]] bool operator()(const Value *lhs, const Value *rhs) const { return lhs->equals(*rhs); }
+        [[nodiscard]] bool operator()(const Value *lhs, const Value &rhs) const { return lhs->equals(rhs); }
+        [[nodiscard]] bool operator()(const Value &lhs, const Value *rhs) const { return lhs.equals(*rhs); }
+        [[nodiscard]] bool operator()(const Value *lhs, const ValueView &rhs) const { return lhs->equals(rhs); }
+        [[nodiscard]] bool operator()(const ValueView &lhs, const Value *rhs) const { return rhs->equals(lhs); }
+    };
+
+    using BorrowedValueSet = ankerl::unordered_dense::set<const Value *, BorrowedValueHash, BorrowedValueEqual>;
+
+    /**
+     * The leading elements of an indexed value as a key set, without copying
+     * them: the set holds positions and hashes through them. The same purpose
+     * as ``BorrowedValueSet``, for keys that exist only as views. The indexed
+     * view must outlive the set.
+     */
+    class IndexedValueKeySet
+    {
+      public:
+        IndexedValueKeySet(const IndexedValueView &items, std::size_t count)
+            : positions_(0, Hash{&items}, Equal{&items})
+        {
+            positions_.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) { positions_.insert(index); }
+        }
+
+        explicit IndexedValueKeySet(const IndexedValueView &items) : IndexedValueKeySet(items, items.size()) {}
+
+        [[nodiscard]] bool contains(const ValueView &candidate) const
+        {
+            return positions_.find(candidate) != positions_.end();
+        }
+
+      private:
+        struct Hash
+        {
+            using is_transparent = void;
+            const IndexedValueView *items;
+            [[nodiscard]] std::size_t operator()(std::size_t index) const { return ValueHash{}(items->at(index)); }
+            [[nodiscard]] std::size_t operator()(const ValueView &value) const { return ValueHash{}(value); }
+        };
+        struct Equal
+        {
+            using is_transparent = void;
+            const IndexedValueView *items;
+            [[nodiscard]] bool operator()(std::size_t lhs, std::size_t rhs) const
+            {
+                return lhs == rhs || items->at(lhs).equals(items->at(rhs));
+            }
+            [[nodiscard]] bool operator()(const ValueView &lhs, std::size_t rhs) const { return items->at(rhs).equals(lhs); }
+            [[nodiscard]] bool operator()(std::size_t lhs, const ValueView &rhs) const { return items->at(lhs).equals(rhs); }
+        };
+        ankerl::unordered_dense::set<std::size_t, Hash, Equal> positions_;
     };
 }  // namespace hgraph
 

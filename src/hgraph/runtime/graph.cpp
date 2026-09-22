@@ -462,6 +462,46 @@ void release_alternative_subscriptions(const GraphRuntimeContext &context,
   }
 }
 
+void discard_checkpoint_input(TSInputView input) noexcept {
+  static_cast<void>(fallback_on_exception(false, [&] {
+    input.make_passive();
+    if (input.is_bindable()) {
+      if (input.bound()) { input.unbind_output(); }
+      return true;
+    }
+    const auto *schema = input.schema();
+    const auto count = schema != nullptr && schema->kind == TSTypeKind::TSB
+        ? schema->field_count()
+        : schema != nullptr && schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()
+            ? schema->fixed_size() : 0;
+    for (std::size_t i = 0; i < count; ++i)
+      discard_checkpoint_input(input.indexed_child_at(i));
+    return true;
+  }));
+}
+
+void discard_checkpoint_output(TSOutputView output, DateTime time) noexcept {
+  static_cast<void>(fallback_on_exception(false, [&] {
+    if (!output.bound()) { return true; }
+    if (output.output() != nullptr) { output.output()->release_alternative_subscriptions(time); }
+    if (output.forwarding()) {
+      output.clear_forwarding_target();
+      return true;
+    }
+    const auto *schema = output.schema();
+    if (schema != nullptr && schema->kind == TSTypeKind::TSD) {
+      auto dict = output.as_dict();
+      for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+        if (dict.slot_occupied(slot)) { discard_checkpoint_output(dict.at_slot(slot), time); }
+    } else {
+      const auto count = output.data_view().indexed_child_count();
+      for (std::size_t i = 0; i < count; ++i)
+        discard_checkpoint_output(output.indexed_child_at(i), time);
+    }
+    return true;
+  }));
+}
+
 template <typename Header>
 void destroy_constructed_graph_parts(
     const GraphRuntimeContext &context, void *memory, bool graph_complete,
@@ -840,9 +880,11 @@ void start_impl(const void *context, const GraphView &graph,
     } else {
       node_view.start(state.evaluation_time);
     }
+    // A throwing post-start hook still owns a started node. Include it in
+    // rollback before invoking observers (checkpoint child restore can fail).
+    ++started_nodes;
     state.lifecycle_observers->notify_after_start_node(node_view);
     node_start_failed.release();
-    ++started_nodes;
   }
 
   state.next_scheduled_time = MAX_DT;
@@ -942,6 +984,26 @@ LifecycleObserverList *lifecycle_observers_impl(const void *context,
                                                 const void *memory) noexcept {
   const auto &runtime = graph_context(context);
   return graph_header<Storage>(runtime, memory).lifecycle_observers;
+}
+
+template <typename Storage>
+void clear_restored_schedule_impl(const void *context, const GraphView &graph, std::size_t index) {
+  const auto &runtime = graph_context(context);
+  if (index >= runtime.layout.node_count) { throw std::out_of_range("Restored node index out of range"); }
+  auto &state = graph_header<Storage>(runtime, graph.data());
+  if (graph.evaluating()) { throw std::logic_error("Cannot restore a schedule during evaluation"); }
+  graph_schedule(runtime, graph.data(), index) = MIN_DT;
+  // Recovery clears one node at a time from its post-start hook. start_impl
+  // takes the minimum over every schedule once the last node has started, so
+  // recomputing it here as well made restoring V nodes cost V * V.
+  if (!state.started) { return; }
+  state.next_scheduled_time = MAX_DT;
+  for (std::size_t i = 0; i < runtime.layout.node_count; ++i) {
+    const auto scheduled = graph_schedule(runtime, graph.data(), i);
+    if (scheduled >= state.evaluation_time && scheduled < state.next_scheduled_time) {
+      state.next_scheduled_time = scheduled;
+    }
+  }
 }
 
 template <typename Storage>
@@ -1254,6 +1316,7 @@ struct GraphRuntimeRegistry {
         .failed_node_impl = &failed_node_impl<RootGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<RootGraphRuntimeStorage>,
+        .clear_restored_schedule_impl = &clear_restored_schedule_impl<RootGraphRuntimeStorage>,
         .global_state_impl = &root_global_state_impl,
         .trait_impl = &graph_trait_impl<RootGraphRuntimeStorage>,
         .root_impl = &root_graph_root_impl,
@@ -1290,6 +1353,7 @@ struct GraphRuntimeRegistry {
         .failed_node_impl = &failed_node_impl<NestedGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<NestedGraphRuntimeStorage>,
+        .clear_restored_schedule_impl = &clear_restored_schedule_impl<NestedGraphRuntimeStorage>,
         .global_state_impl = &nested_global_state_impl,
         .trait_impl = &graph_trait_impl<NestedGraphRuntimeStorage>,
         .root_impl = &nested_graph_root_impl,
@@ -1505,6 +1569,10 @@ DateTime GraphView::node_scheduled_time(std::size_t node_index) const noexcept {
   return ops().node_scheduled_time_impl(ops().context, data(), node_index);
 }
 
+void GraphView::clear_restored_schedule(std::size_t node_index) const {
+  ops().clear_restored_schedule_impl(ops().context, *this, node_index);
+}
+
 std::string GraphView::dump() const {
   if (!valid()) {
     return "<invalid graph>";
@@ -1647,6 +1715,24 @@ void GraphView::stop() const {
 void GraphView::stop(DateTime stop_time) const {
   TypeRealizationScope scope{type_realization()};
   ops().stop_impl(ops().context, *this, stop_time);
+}
+void GraphView::discard_checkpoint_preparation(DateTime time) const noexcept {
+  for (std::size_t i = 0; i < node_count(); ++i) {
+    const auto node = node_at(i);
+    if (node.has_input()) { discard_checkpoint_input(node.input(MIN_DT)); }
+  }
+  for (std::size_t i = 0; i < node_count(); ++i) {
+    const auto node = node_at(i);
+    if (node.has_output()) { discard_checkpoint_output(node.output(MIN_DT), time); }
+    if (node.has_error_output()) { discard_checkpoint_output(node.error_output(MIN_DT), time); }
+    if (node.has_recordable_state()) { discard_checkpoint_output(node.recordable_state(MIN_DT), time); }
+    static_cast<void>(fallback_on_exception(false, [&] {
+      node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t, const TSOutputHandle &endpoint) {
+        discard_checkpoint_output(endpoint.view(MIN_DT), time);
+      });
+      return true;
+    }));
+  }
 }
 bool GraphView::evaluate(DateTime evaluation_time) const {
   TypeRealizationScope scope{type_realization()};

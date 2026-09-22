@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- Component checkpoint image format 4 saves pending native node scheduler
+  deadlines and tags independently of recordable state. Restore re-arms graph
+  notifications at the original deadlines. Single-shot schedules remain best
+  effort and are excluded. Older images remain readable without scheduler
+  recovery; rebuild extensions against the updated runtime operations ABI.
+
+- **Breaking:** `ValueStore` defaults to the `binary` codec instead of `json`
+  (RFC 0040, amending RFC 0030). `binary` is the binary value codec's Compact
+  profile in a compression block; `binary-fast` is the Fast profile, never
+  compressed, for a store used as a channel between processes. `json` stays
+  registered for a store that is meant to hold JSON, and is never a default. An
+  object says nothing about the codec that wrote it, so a store written with
+  the old default must name `codec = "json"` to be read.
+- Component checkpoint images are format version 3 (RFC 0040): compressed
+  (zstd where the Arrow build provides it, LZ4 otherwise) and recording the
+  binary profile and revision of their values. A 100,000-key
+  `TSD[int, TS[float]]` image goes from 1.9 MB to 81 KB on regular test data;
+  real floating-point state will compress less. Versions 1 and 2 remain readable.
+- Component checkpoints are written in image format version 2 (RFC 0039):
+  core's canonical checkpoint image inside the existing one-cell envelope.
+  `Frame` and `Series` values -- untyped and typed -- are now ordinary component
+  state, and floating-point values recover bit for bit, including NaN and
+  infinities, which version 1 refused. A 100,000-key `TSD[int, TS[float]]`
+  image shrinks from 26.3 MB to 1.9 MB, encodes in 2.6 ms instead of 306 ms and
+  decodes in 7.4 ms instead of 144 ms. Version 1 images published by hgraph
+  0.8.25-0.8.27 remain readable. Every image carries a checksum verified on
+  read. `ComponentCheckpointStore::write` no longer decodes and deep-compares
+  every image before publishing it -- encoding fails closed instead -- and takes
+  `verify = true` to request a decode-and-re-encode comparison. **ABI:** `write`
+  gained a parameter; rebuild consumers of the native store.
+
 - Persistence wheels now publish a shared native SDK carrying the pinned curl
   implementation. Downstream extension wheels can consume S3 persistence
   without relinking against an older or ABI-incompatible system CURL/TLS SDK.

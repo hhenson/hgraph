@@ -6,6 +6,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
 
 #include <algorithm>
@@ -135,6 +137,10 @@ namespace
         if (target.has_current_value() != source.has_current_value()) { return false; }
         return !source.has_current_value() || target.value() == source.value();
     }
+
+    void leave_child_invalid(hgraph::TSDProxy &, std::size_t, const hgraph::TSDataView &,
+                             const hgraph::TSDataView &, hgraph::DateTime, const void *) {}
+    const hgraph::TSDProxyValueOps invalid_child_ops{&leave_child_invalid, nullptr};
 
     const hgraph::TSDProxyValueOps key_value_ops{&key_value_builder, nullptr};
     const hgraph::TSDProxyValueOps window_key_ops{&window_key_builder, nullptr};
@@ -1366,6 +1372,8 @@ TEST_CASE("TSDProxy non-atomic owning copy preserves nested typed holes")
     }
 
     auto proxy_view = proxy.view();
+    REQUIRE(proxy_view.all_valid());
+    REQUIRE_FALSE(proxy_view.as_dict().at(key.view()).all_valid());
     auto live = proxy_view.as_dict().value();
     auto sparse = live.as_map().at(key.view()).as_bundle();
     REQUIRE(sparse.size() == 2);
@@ -1381,4 +1389,117 @@ TEST_CASE("TSDProxy non-atomic owning copy preserves nested typed holes")
     REQUIRE_FALSE(owned_sparse.at(1).has_value());
     REQUIRE(live.equals(owned.view()));
     REQUIRE(live.hash() == owned.view().hash());
+}
+
+
+TEST_CASE("TSDProxy all_valid checks live projected children and excludes removed slots")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *schema = registry.tsd(integer, ts);
+    const auto source_type = TSDataPlanFactory::instance().data_type_for(schema);
+    const auto child_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSData source{source_type};
+    TSData proxy{proxy_data_type_for(*schema, TSRoleTypeRef{child_type.as_role()})};
+    REQUIRE_FALSE(proxy.view().all_valid());
+    Value key{1};
+    Value value{7};
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(MIN_ST);
+        auto child = mutation.at(key.view());
+        REQUIRE(child.begin_mutation(MIN_ST).copy_value_from(value.view()));
+    }
+    {
+        auto root = proxy.view();
+        auto original = source.view();
+        bind_tsd_proxy(root, original.as_dict(), &invalid_child_ops, nullptr, MIN_ST);
+    }
+    REQUIRE(source.view().all_valid());
+    REQUIRE(proxy.view().has_current_value());
+    REQUIRE_FALSE(proxy.view().all_valid());
+    {
+        auto root = proxy.view();
+        auto child = root.as_dict().at(key.view());
+        REQUIRE(child.begin_mutation(MIN_ST).copy_value_from(value.view()));
+    }
+    REQUIRE(proxy.view().all_valid());
+    const auto t2 = MIN_ST + TimeDelta{1};
+    {
+        auto root = proxy.view();
+        auto child = root.as_dict().at(key.view());
+        REQUIRE(child.begin_mutation(t2).invalidate());
+    }
+    REQUIRE_FALSE(proxy.view().all_valid());
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(t2);
+        REQUIRE(mutation.erase(key.view()));
+    }
+    REQUIRE(proxy.view().all_valid());
+    {
+        auto root = source.view();
+        auto mutation = root.as_dict().begin_mutation(t2 + TimeDelta{1});
+        static_cast<void>(mutation.at(key.view()));
+    }
+    REQUIRE_FALSE(proxy.view().all_valid());
+}
+
+TEST_CASE("TSDProxy saved child references expire without forcing slot reclamation", "[runtime-contract][proxy]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *tsd = registry.tsd(integer, ts);
+    const auto element_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSOutput source{tsd};
+    TSOutput proxy{tsd_proxy_output_type_for(*tsd, element_type.as_role(),
+        ValuePlanFactory::instance().type_for(integer))};
+    Value key{std::int32_t{1}}, value{std::int32_t{7}};
+    const auto t0 = MIN_ST;
+    const auto removed_at = t0 + TimeDelta{1};
+    const auto expired_at = removed_at + TimeDelta{1};
+    auto source_view = source.view(t0);
+    source_view.as_dict().begin_mutation(t0).set(key.view(), value.view());
+    auto proxy_data = proxy.data_view();
+    bind_tsd_proxy(proxy_data, source_view.data_view().as_dict(), &key_value_ops, nullptr, t0);
+    auto proxy_view = proxy.view(t0);
+    auto dict = proxy_view.as_dict();
+    const auto slot = dict.find_slot(key.view());
+    const auto address = dict.at_slot(slot).data_view().data();
+    TimeSeriesReference saved{dict.at_slot(slot)};
+    REQUIRE(saved.is_valid(t0));
+
+    auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_data.data()));
+    RecordingSlotObserver lifecycle;
+    dict.key_set().data_view().as_set().subscribe_slot_observer(&lifecycle);
+    auto removed_view = source.view(removed_at);
+    REQUIRE(removed_view.as_dict().begin_mutation(removed_at).erase(key.view()));
+    REQUIRE(saved.is_valid(removed_at));
+    REQUIRE(storage.has_child(slot));
+    REQUIRE(storage.owned_child_memory(slot) == address);
+    REQUIRE(lifecycle.events == std::vector<std::string>{"remove:" + std::to_string(slot)});
+
+    SECTION("same-cycle restoration preserves the saved child identity")
+    {
+        auto restored_view = source.view(removed_at);
+        static_cast<void>(restored_view.as_dict().begin_mutation(removed_at).at(key.view()));
+        REQUIRE(saved.is_valid(expired_at));
+        REQUIRE(storage.owned_child_memory(slot) == address);
+    }
+    SECTION("later insertion never retargets the saved reference")
+    {
+        CHECK_FALSE(saved.is_valid(expired_at));
+        REQUIRE(storage.has_child(slot));
+        REQUIRE(storage.owned_child_memory(slot) == address);
+        auto later = source.view(expired_at + TimeDelta{1});
+        later.as_dict().begin_mutation(later.evaluation_time()).set(key.view(), value.view());
+        REQUIRE_FALSE(saved.is_valid(later.evaluation_time()));
+        auto current = proxy.view(later.evaluation_time());
+        REQUIRE(current.as_dict().at(key.view()).valid());
+    }
+    dict.key_set().data_view().as_set().unsubscribe_slot_observer(&lifecycle);
 }

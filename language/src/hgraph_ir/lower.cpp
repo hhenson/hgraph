@@ -1,4 +1,5 @@
 #include "hgraph_ir/lower.h"
+#include "hgraph_ir/plan.h"
 
 #include "hgraph_ir/control_flow.h"
 
@@ -273,6 +274,7 @@ namespace hgl::hgraph_ir
                     case hir::SymbolKind::LocalLet: return BindingKind::LocalLet;
                     case hir::SymbolKind::LocalVar: return BindingKind::LocalVar;
                     case hir::SymbolKind::State: return BindingKind::State;
+                    case hir::SymbolKind::Cache: return BindingKind::Cache;
                     case hir::SymbolKind::InjectedCapability: return BindingKind::Capability;
                     case hir::SymbolKind::LoopValue: return BindingKind::LoopValue;
                     case hir::SymbolKind::LambdaParameter: return BindingKind::LambdaParameter;
@@ -610,6 +612,13 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            /// The identity of the struct inside a recursive edge's `atomic<...>`.
+            [[nodiscard]] std::string recursive_target(hir::TypeId field_type) const {
+                const hir::Type &boundary = source_.type(canonical(field_type));
+                if (boundary.kind != hir::TypeKind::Atomic || boundary.children.size() != 1U) { return {}; }
+                return symbol_identity(source_.type(canonical(boundary.children.front())).symbol);
+            }
+
             void lower_structures() {
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::StructDecl>(&declaration.node);
@@ -629,6 +638,23 @@ namespace hgl::hgraph_ir
                     for (hir::TypeId parent : source->parents) { target.parents.push_back(lower_type(parent, declaration.range)); }
                     std::unordered_map<std::uint32_t, AppliedBindings> origin_bindings;
                     for (const hir::StructField &field : source->fields) {
+                        // A field inherited from a struct another module exports
+                        // has no declaration here to walk to, and no local
+                        // generic scope to map through: its type was lowered
+                        // from the owner's layout already (ADR 0013).
+                        if (!field.origin_identity.empty() && !field.origin.valid()) {
+                            target.fields.push_back(StructField{
+                                .name             = field.name,
+                                .type             = lower_type(field.type, AppliedBindings{}, field.range),
+                                .default_value    = lower_const_expr(field.default_value, AppliedBindings{}, field.range,
+                                                                     "a struct field default"),
+                                .origin_identity  = field.origin_identity,
+                                .optional         = field.optional,
+                                .recursive        = field.recursive,
+                                .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                                .range            = field.range});
+                            continue;
+                        }
                         if (!origin_bindings.contains(field.origin.value)) {
                             std::optional<AppliedBindings> applied =
                                 bindings_for_origin(declaration.id, field.origin, AppliedBindings{});
@@ -644,10 +670,58 @@ namespace hgl::hgraph_ir
                             .name          = field.name,
                             .type          = lower_type(field.type, applied, field.range),
                             .default_value = lower_const_expr(field.default_value, applied, field.range, "a struct field default"),
-                            .origin_identity = declaration_identity(field.origin),
-                            .optional        = field.optional,
-                            .range           = field.range,
+                            // A field inherited from another module's struct has no
+                            // declaration here, so it carries its source as an
+                            // identity (ADR 0013); losing it would leave the
+                            // outermost IR unable to say which module declares
+                            // the field.
+                            .origin_identity  = field.origin_identity.empty() ? declaration_identity(field.origin)
+                                                                              : field.origin_identity,
+                            .optional         = field.optional,
+                            .recursive        = field.recursive,
+                            .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                            .range            = field.range,
                         });
+                    }
+                    result_.structures.push_back(std::move(target));
+                }
+                lower_imported_structures();
+            }
+
+            /// Emits a contract for each struct another module exports that
+            /// this module names (ADR 0013). The importer re-described the
+            /// owner's layout, so both backends register the same schema under
+            /// the owner's identity -- generated C++ additionally needs the
+            /// exporter's headers, which travel on the record.
+            void lower_imported_structures() {
+                for (const hir::ImportedStructDecl &source : source_.imported_structs) {
+                    StructContract target;
+                    target.identity = source.identity;
+                    // Exported from its own module by definition; this module
+                    // declares nothing for it and re-exports nothing.
+                    target.exported       = false;
+                    target.imported       = true;
+                    target.public_headers = source.public_headers;
+                    target.abstract       = source.abstract;
+                    target.requirements = lower_constraint(source.requirements);
+                    target.range        = source.range;
+                    for (const hir::GenericParameter &generic : source.generics) {
+                        target.generics.push_back(lower_generic(generic));
+                    }
+                    for (const hir::TypeId parent : source.parents) {
+                        target.parents.push_back(lower_type(parent, source.range));
+                    }
+                    for (const hir::StructField &field : source.fields) {
+                        target.fields.push_back(StructField{
+                            .name             = field.name,
+                            .type             = lower_type(field.type, AppliedBindings{}, field.range),
+                            .default_value    = lower_const_expr(field.default_value, AppliedBindings{}, field.range,
+                                                                 "a struct field default"),
+                            .origin_identity  = field.origin_identity,
+                            .optional         = field.optional,
+                            .recursive        = field.recursive,
+                            .recursive_target = field.recursive ? recursive_target(field.type) : std::string{},
+                            .range            = field.range});
                     }
                     result_.structures.push_back(std::move(target));
                 }
@@ -751,6 +825,7 @@ namespace hgl::hgraph_ir
                     }
                     target.result                 = lower_type(source.result);
                     target.phases                 = source.phases;
+                    target.throws                 = source.throws;
                     target.public_headers         = source.public_headers;
                     target.cmake_packages         = source.cmake_packages;
                     target.imported_targets       = source.imported_targets;
@@ -806,7 +881,11 @@ namespace hgl::hgraph_ir
                         break;
                     case hir::SymbolKind::Operator:
                     case hir::SymbolKind::ImportedOperator: target.kind = ReferenceKind::Operator; break;
-                    case hir::SymbolKind::Struct: target.kind = ReferenceKind::Struct; break;
+                    // A struct another module exports is referred to as a
+                    // struct, not as a binding (ADR 0013): it is a type to
+                    // construct, and its identity is already the owner's.
+                    case hir::SymbolKind::Struct:
+                    case hir::SymbolKind::ImportedStruct: target.kind = ReferenceKind::Struct; break;
                     case hir::SymbolKind::Intrinsic: target.kind = ReferenceKind::Intrinsic; break;
                     default: target.kind = ReferenceKind::Binding; break;
                 }
@@ -1001,7 +1080,7 @@ namespace hgl::hgraph_ir
                         if constexpr (std::is_same_v<T, hir::LocalDecl>) {
                             return LocalBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
                         } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
-                            return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
+                            return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
                             Inject lowered;
                             for (hir::SymbolId symbol : node.symbols) { lowered.bindings.push_back(binding(symbol)); }
@@ -1179,5 +1258,9 @@ namespace hgl::hgraph_ir
         };
     }  // namespace
 
-    Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) { return Lowerer{source, diagnostics}.run(); }
+    Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics) {
+        auto result = Lowerer{source, diagnostics}.run();
+        plan(result, diagnostics);
+        return result;
+    }
 }  // namespace hgl::hgraph_ir

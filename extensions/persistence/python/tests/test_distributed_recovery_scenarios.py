@@ -1,0 +1,472 @@
+"""Durable recovery through ``dmap_`` and ``spawn_`` from public Python wiring.
+
+A ``dmap_`` owner's children live in worker processes, so its checkpoint is one
+graph image per worker (RFC 0039). The contract is the one every recoverable
+owner has: a run restarted at any completed day is indistinguishable from one
+that was never interrupted.
+
+What recovers is a component, and the expected place for it is INSIDE the
+``dmap_`` child or the ``spawn_`` stage -- the ``dmap_`` itself in no component at
+all. A ``dmap_`` wired inside a component works too, and its workers are then
+saved whole.
+
+For ``spawn_`` what recovers is a component INSIDE a stage. Everything else in
+the stage is processed, the pipeline's sink first of all: it acts in a worker
+process, no checkpoint could replay that, and it declares nothing.
+"""
+
+import os
+import pickle
+from pathlib import Path
+from types import SimpleNamespace
+
+import hgraph as hg
+import hgraph_persistence as persistence
+import pytest
+
+from .test_component_recovery_scenarios import CUTS, _run, _source, compare_restarts, running_total
+from .test_reduce_recovery_scenarios import historical_combine
+
+
+# Key 1 accumulates across every boundary, key 2 leaves and returns (its state
+# must NOT survive its removal), and the quiet cycles leave boundaries with
+# nothing in flight. Three workers, so the keys are spread.
+EVENTS = [None, {1: 2, 2: 10, 3: 100}, {1: 3}, None, {1: 4, 2: hg.REMOVE},
+          {2: 1, 4: 5}, {1: 7, 3: 1}, None]
+SCHEMA = hg.TSD[int, hg.TS[int]]
+
+# Raising a process per worker per day is slow, so the process-hosted form takes
+# the two cut sets that matter most: one boundary mid-run, and every boundary.
+PROCESS_CUTS = [(3,), tuple(range(1, 8))]
+
+
+@hg.compute_node
+def settle(ts: hg.TS[int]) -> hg.TS[int]:
+    return ts.value
+
+
+@hg.graph
+def nested_owner(ts: hg.TSD[str, hg.TS[int]]) -> hg.TS[int]:
+    # The worker's child is itself a dynamic owner: a reduction whose combiners
+    # each keep recordable state, so both its topology and its history have to
+    # come back from the worker's image. It ends in a node that writes its own
+    # output, which is the map_ form that can be checkpointed today.
+    return settle(hg.reduce(historical_combine, ts, 0))
+
+
+@hg.graph
+def forwarding_terminal(ts: hg.TSD[str, hg.TS[int]]) -> hg.TS[int]:
+    return hg.reduce(historical_combine, ts, 0)
+
+
+@pytest.mark.parametrize("cuts", CUTS)
+def test_dmap_state_and_membership_survive_every_restart_boundary_in_process(tmp_path, cuts):
+    @hg.component
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_total, values, __workers__=3, in_process=True)
+
+    actual = compare_restarts(tmp_path, scenario, (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    # Pinned so the comparison cannot pass on silence or on reset totals.
+    assert actual[6] == {1: 16, 3: 101}
+
+
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+def test_dmap_state_and_membership_survive_restarts_across_processes(tmp_path, cuts):
+    @hg.component
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_total, values, __workers__=3)
+
+    actual = compare_restarts(tmp_path, scenario, (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    assert actual[6] == {1: 16, 3: 101}
+
+
+@hg.component
+def running(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@hg.compute_node
+def scaled(ts: hg.TS[int]) -> hg.TS[int]:
+    return ts.value * 10
+
+
+@hg.graph
+def running_then_scaled(ts: hg.TS[int]) -> hg.TS[int]:
+    # The component is what recovers. What follows it in the child is processed.
+    return scaled(running(ts))
+
+
+class _Hosting:
+    """A plain graph whose ``dmap_`` hosts ``inner``: recovery is configured for
+    ``inner``, and the ``dmap_`` that carries it is in no component of its own."""
+
+    def __init__(self, graph, inner):
+        self.graph, self.recordable_id = graph, inner.recordable_id
+
+    def __call__(self, *args):
+        return self.graph(*args)
+
+
+@pytest.mark.parametrize("cuts", CUTS)
+def test_dmap_component_inside_the_child_survives_every_restart_boundary_in_process(tmp_path, cuts):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running, values, __workers__=3, in_process=True)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    assert actual[6] == {1: 16, 3: 101}
+
+
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+@pytest.mark.parametrize("child", [running, running_then_scaled], ids=["component-alone", "component-then-more"])
+def test_dmap_component_inside_the_child_survives_restarts_across_processes(tmp_path, cuts, child):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(child, values, __workers__=3)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA, (EVENTS,), cuts)
+    scale = 10 if child is running_then_scaled else 1
+    assert actual[6] == {1: 16 * scale, 3: 101 * scale}
+
+
+def test_dmap_restarts_without_recovery_lose_the_hosted_component(tmp_path):
+    # The control for the tests above: the same restart with nothing configured.
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running, values, __workers__=3, in_process=True)
+
+    # Cut after the removal: with nothing restored the next day's source could not
+    # even express the removal of a key it never held, which is the other face
+    # of why a hosting dmap_ takes its inputs through component boundaries.
+    days = _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:5],), 0) + _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[5:],), 5)
+    assert days[6] == {1: 7, 3: 1}      # recovered, it is {1: 16, 3: 101}
+
+
+NESTED = hg.TSD[str, hg.TSD[str, hg.TS[int]]]
+NESTED_RESULT = hg.TSD[str, hg.TS[int]]
+NESTED_EVENTS = [None, {"x": {"a": 1, "b": 2}, "y": {"c": 10}}, {"x": {"a": 3}}, None,
+                 {"x": {"b": hg.REMOVE}}, {"y": hg.REMOVE}, {"x": {"b": 7}, "y": {"c": 4}}, None]
+
+
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_dmap_with_a_dynamic_owner_nested_in_the_worker_survives_restarts(tmp_path, cuts, in_process):
+    @hg.component
+    def scenario(values: NESTED) -> NESTED_RESULT:
+        return hg.dmap_(nested_owner, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, scenario, (NESTED,), NESTED_RESULT, (NESTED_EVENTS,), cuts)
+    # Pinned so the comparison cannot pass on silence: the day "x" and "y" both tick.
+    assert actual[6] is not None and set(actual[6]) == {"x", "y"}
+
+
+def test_dmap_refusal_reaches_through_the_worker_and_says_which_node_and_why(tmp_path):
+    # Not a dmap_ limit: a child that ENDS in a reduce gives the worker's map_
+    # a forwarding terminal, a form map_ itself cannot checkpoint yet. What
+    # dmap_ adds is that the refusal names the node inside the worker, carries
+    # map_'s own reason, and arrives at wiring. Flip this when map_ learns.
+    @hg.component
+    def scenario(values: NESTED) -> NESTED_RESULT:
+        return hg.dmap_(forwarding_terminal, values, __workers__=2, in_process=True)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with pytest.raises(Exception, match=r"hosts 'map_', which cannot be recovered: .*forwarding outputs"):
+        _run(scenario, (NESTED,), NESTED_RESULT, (NESTED_EVENTS[:2],), 0, store, None)
+
+
+@hg.compute_node
+def forgetful_total(ts: hg.TS[int], _state: hg.STATE = None) -> hg.TS[int]:
+    _state.total = getattr(_state, "total", 0) + ts.value
+    return _state.total
+
+
+def test_dmap_over_an_unrecoverable_child_is_refused_at_wiring_and_still_runs_without_recovery(tmp_path):
+    @hg.component
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(forgetful_total, values, __workers__=2, in_process=True)
+
+    # Recovery configured: the owner walks its worker plans at wiring, where a
+    # component learns everything else, and names what cannot be recovered.
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    with pytest.raises(Exception, match="cannot be recovered"):
+        _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:3],), 0, store, None)
+
+    # Recovery not configured: the same child wires and runs, as most do.
+    assert _run(scenario, (SCHEMA,), SCHEMA, (EVENTS[:3],), 0) == [None, {1: 2, 2: 10, 3: 100}, {1: 5}]
+
+
+@hg.sink_node
+def record(value: hg.TS[int], path: str, clock: hg.CLOCK = None):
+    # An ordinary sink: it acts in the worker process, asks for the clock, and
+    # declares nothing about recovery. One file per process, so rows from the
+    # worker of each day stay apart until they are read back in time order.
+    with open(f"{path}.{os.getpid()}", "ab") as stream:
+        pickle.dump((clock.evaluation_time, value.value), stream)
+
+
+@hg.graph
+def priced_and_published(ts: hg.TS[int], path: str) -> None:
+    # What recovers is the component. The sink beside it is processed.
+    record(running(ts), path=path)
+
+
+@hg.graph
+def priced(ts: hg.TS[int]) -> hg.TS[int]:
+    return running(ts)
+
+
+def _rows(path):
+    rows = []
+    for file in sorted(Path(path).parent.glob(Path(path).name + ".*")):
+        with file.open("rb") as stream:
+            while True:
+                try:
+                    rows.append(pickle.load(stream))
+                except EOFError:
+                    break
+    assert all(int(file.suffix[1:]) != os.getpid() for file in Path(path).parent.glob(Path(path).name + ".*"))
+    return sorted(rows)
+
+
+def _run_pipeline(pipeline, events, offset, store=None, previous=None):
+    source = _source(hg.TS[int], events, offset)
+
+    @hg.graph
+    def application() -> None:
+        hg.spawn_(pipeline, source())
+
+    with hg.GlobalState() as state:
+        if store is not None:
+            persistence.configure_component_recovery(
+                store, running.recordable_id, f"cut-{offset + len(events)}", previous,
+                revision="scenario-v1", global_state=state)
+        hg.eval_node(application, __start_time__=hg.MIN_ST + offset * hg.MIN_TD,
+                     __end_time__=hg.MIN_ST + (offset + len(events)) * hg.MIN_TD)
+
+
+PIPELINE_EVENTS = [None, 1, 2, None, 3, 4, None, 5]
+PIPELINES = {
+    "one-stage": lambda path: hg.bind_(priced_and_published, path=path),
+    "sink-in-the-next-stage": lambda path: hg.pipeline_([priced, hg.bind_(record, path=path)]),
+}
+
+
+@pytest.mark.parametrize("shape", list(PIPELINES))
+@pytest.mark.parametrize("cuts", PROCESS_CUTS)
+def test_spawn_component_inside_a_stage_survives_restarts_and_its_sink_declares_nothing(tmp_path, cuts, shape):
+    expected_path, resumed_path = str(tmp_path / "expected"), str(tmp_path / "resumed")
+    _run_pipeline(PIPELINES[shape](expected_path), PIPELINE_EVENTS, 0)
+    expected = _rows(expected_path)
+    # Pinned so the comparison cannot pass on silence or on reset totals.
+    assert [value for _, value in expected] == [1, 3, 6, 10, 15]
+
+    previous, begin = None, 0
+    for end in (*cuts, len(PIPELINE_EVENTS)):
+        store = persistence.ComponentCheckpointStore(tmp_path / "store")
+        _run_pipeline(PIPELINES[shape](resumed_path), PIPELINE_EVENTS[begin:end], begin, store, previous)
+        previous = f"cut-{end}"
+        assert store.contains(previous)
+        begin = end
+    assert _rows(resumed_path) == expected
+
+
+def test_spawn_restarts_without_recovery_lose_the_component_and_the_sink_sees_it(tmp_path):
+    # The control for the test above: the same restarts with nothing configured.
+    path = str(tmp_path / "forgetful")
+    for begin, end in ((0, 3), (3, len(PIPELINE_EVENTS))):
+        _run_pipeline(PIPELINES["one-stage"](path), PIPELINE_EVENTS[begin:end], begin)
+    assert [value for _, value in _rows(path)] == [1, 3, 3, 7, 12]
+
+
+@hg.graph
+def forgetful_and_published(ts: hg.TS[int], path: str) -> None:
+    record(forgetful_component(ts), path=path)
+
+
+@hg.component
+def forgetful_component(ts: hg.TS[int]) -> hg.TS[int]:
+    return forgetful_total(ts)
+
+
+def test_spawn_with_an_unrecoverable_node_inside_the_hosted_component_is_refused_at_wiring(tmp_path):
+    source = _source(hg.TS[int], [None, 1], 0)
+
+    @hg.graph
+    def application() -> None:
+        hg.spawn_(hg.bind_(forgetful_and_published, path=str(tmp_path / "trace")), source())
+
+    with hg.GlobalState() as state:
+        persistence.configure_component_recovery(
+            persistence.ComponentCheckpointStore(tmp_path / "store"), forgetful_component.recordable_id,
+            "cut-2", None, revision="scenario-v1", global_state=state)
+        with pytest.raises(Exception, match=r"spawn_ worker 0 .* cannot be recovered"):
+            hg.eval_node(application, __start_time__=hg.MIN_ST, __end_time__=hg.MIN_ST + 2 * hg.MIN_TD)
+
+
+@hg.sink_node
+def audit(value: hg.TS[int], path: str, clock: hg.CLOCK = None, _state: hg.STATE = None):
+    # Everything a transient sink may hold: ordinary state and the clock. It has
+    # no recordable state, so recovery leaves it alone wherever it sits.
+    _state.seen = getattr(_state, "seen", 0) + 1
+    with open(path, "ab") as stream:
+        pickle.dump((clock.evaluation_time, value.value, _state.seen), stream)
+
+
+def test_a_python_sink_inside_a_component_is_transient_and_the_component_around_it_recovers(tmp_path):
+    path = str(tmp_path / "audit")
+
+    @hg.component
+    def scenario(ts: hg.TS[int]) -> hg.TS[int]:
+        total = running_total(ts)
+        audit(total, path=path)
+        return total
+
+    events = [None, 1, 2, None, 3]
+    actual = compare_restarts(tmp_path / "store", scenario, (hg.TS[int],), hg.TS[int], (events,), (2, 4))
+    assert actual == [None, 1, 3, None, 6]
+    rows = []
+    with open(path, "rb") as stream:
+        while True:
+            try:
+                rows.append(pickle.load(stream)[1:])
+            except EOFError:
+                break
+    # The uninterrupted run, then the three days. The totals it was shown are
+    # right every time, because the component recovered; its own counter starts
+    # again with each run, because it did not -- and was never asked to.
+    assert rows == [(1, 1), (3, 2), (6, 3), (1, 1), (3, 1), (6, 1)]
+
+
+@hg.sink_node
+def transient_timer(ts: hg.TS[int], delay: int, scheduler: hg.SCHEDULER = None):
+    pass
+
+
+@transient_timer.start
+def transient_timer_start(delay: int, scheduler: hg.SCHEDULER = None):
+    scheduler.schedule(delay * hg.MIN_TD)
+
+
+@hg.graph
+def running_with_timer(ts: hg.TS[int]) -> hg.TS[int]:
+    total = running(ts)
+    transient_timer(total, delay=100)
+    return total
+
+
+@hg.sink_node(valid=())
+def immediate_sink(ts: hg.TS[int], scheduler: hg.SCHEDULER = None, state: hg.STATE = None):
+    state.calls += 1
+
+
+@immediate_sink.start
+def immediate_sink_start(scheduler: hg.SCHEDULER = None, state: hg.STATE = None):
+    state.calls = 0
+    scheduler.schedule(0 * hg.MIN_TD)
+
+
+@immediate_sink.stop
+def immediate_sink_stop(state: hg.STATE = None):
+    assert state.calls > 0, "transient sink startup work was lost"
+
+
+@hg.graph
+def total_with_immediate_sink(ts: hg.TS[int]) -> hg.TS[int]:
+    total = running_total(ts)
+    immediate_sink(total)
+    return total
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_transient_sink_timer_does_not_block_dmap_checkpoint(tmp_path, in_process):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_with_timer, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, running), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 3}]
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_whole_dmap_worker_runs_transient_startup_work_on_quiet_restored_day(tmp_path, in_process):
+    @hg.component
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(total_with_immediate_sink, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, scenario, (SCHEMA,), SCHEMA, ([{1: 1}, None, {1: 2}],), (1, 2))
+    assert actual == [{1: 1}, None, {1: 3}]
+
+
+@hg.component
+def nested_running(ts: hg.TS[int]) -> hg.TS[int]:
+    return running(running_total(ts))
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_hosted_nested_component_accepts_a_selected_parent_dependency(tmp_path, in_process):
+    @hg.graph
+    def scenario(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(nested_running, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path, _Hosting(scenario, nested_running), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 4}]
+    with pytest.raises(Exception, match="fed from outside its component"):
+        _run(_Hosting(scenario, SimpleNamespace(recordable_id="nested_running.running")),
+             (SCHEMA,), SCHEMA, ([{1: 1}],), 0, persistence.ComponentCheckpointStore(tmp_path / "inner"))
+
+
+@hg.sink_node
+def transient_observer(ts: hg.TS[int]):
+    pass
+
+
+@hg.component(recordable_id="compatible")
+def compatible_before(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@hg.component(recordable_id="compatible")
+def compatible_after(ts: hg.TS[int]) -> hg.TS[int]:
+    transient_observer(ts)
+    return running_total(ts)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_adding_a_transient_sink_preserves_hosted_component_compatibility(tmp_path, in_process):
+    @hg.graph
+    def before(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(compatible_before, values, __workers__=2, in_process=in_process)
+
+    @hg.graph
+    def after(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(compatible_after, values, __workers__=2, in_process=in_process)
+
+    store = persistence.ComponentCheckpointStore(tmp_path)
+    assert _run(_Hosting(before, compatible_before), (SCHEMA,), SCHEMA, ([{1: 1}],), 0, store) == [{1: 1}]
+    assert _run(_Hosting(after, compatible_after), (SCHEMA,), SCHEMA, ([{1: 2}],), 1, store, "cut-1") == [{1: 3}]
+
+
+@hg.component(recordable_id="worker")
+def named_worker(ts: hg.TS[int]) -> hg.TS[int]:
+    return running_total(ts)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in-process", "processes"])
+def test_worker_scope_is_not_a_user_component(tmp_path, in_process):
+    @hg.graph
+    def absent(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(running_total, values, __workers__=2, in_process=in_process)
+
+    with pytest.raises(Exception, match="configured component was not wired"):
+        _run(_Hosting(absent, named_worker), (SCHEMA,), SCHEMA, ([{1: 1}],), 0,
+             persistence.ComponentCheckpointStore(tmp_path / "absent"))
+
+    @hg.graph
+    def present(values: SCHEMA) -> SCHEMA:
+        return hg.dmap_(named_worker, values, __workers__=2, in_process=in_process)
+
+    actual = compare_restarts(tmp_path / "present", _Hosting(present, named_worker), (SCHEMA,), SCHEMA,
+                              ([{1: 1}, {1: 2}],), (1,))
+    assert actual == [{1: 1}, {1: 3}]

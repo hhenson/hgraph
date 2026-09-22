@@ -246,6 +246,7 @@ namespace hgraph
                 key_set_ts_ops.key_at_slot_impl               = &key_at_slot;
                 key_set_ts_ops.contains_impl                  = &set_contains;
                 key_set_ts_ops.find_slot_impl                 = &find_slot;
+                key_set_ts_ops.find_stored_slot_impl          = &find_stored_slot;
                 key_set_ts_ops.make_values_range_impl         = &set_range<TSDProxySetSurface::Live>;
                 key_set_ts_ops.make_added_values_range_impl   = &set_range<TSDProxySetSurface::Added>;
                 key_set_ts_ops.make_removed_values_range_impl = &set_range<TSDProxySetSurface::Removed>;
@@ -276,6 +277,10 @@ namespace hgraph
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
                 dict_ops.next_modified_slot_impl = &next_modified_slot;
+                dict_ops.membership_slot_added_impl = &membership_added;
+                dict_ops.membership_slot_removed_impl = &membership_removed;
+                dict_ops.next_membership_added_slot_impl = &next_membership_added;
+                dict_ops.next_membership_removed_slot_impl = &next_membership_removed;
                 dict_ops.make_ts_values_range_impl = &ts_value_range<TSDProxyMapSurface::Live>;
                 dict_ops.make_valid_keys_range_impl = &set_range<TSDProxySetSurface::Live>;
                 dict_ops.make_valid_ts_values_range_impl = &ts_value_range<TSDProxyMapSurface::Live>;
@@ -549,10 +554,8 @@ namespace hgraph
                     .child_count = [](const void *, const void *memory) noexcept {
                         if (memory == nullptr) return std::size_t{0};
                         const auto &proxy = proxy_storage(memory);
-                        std::size_t count = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                            count += proxy.has_child(slot) ? 1U : 0U;
-                        return count;
+                        // Ordinal 0 is the key set; ordinal n + 1 is slot n.
+                        return proxy.child_capacity() + 1;
                     },
                     .child_at = [](const void *context, void *memory, std::size_t index) noexcept {
                         if (context == nullptr || memory == nullptr) return detail::TSDataOwnedChild{};
@@ -564,21 +567,26 @@ namespace hgraph
                                 .attach_parent = false,
                             };
                         auto &proxy = proxy_storage(memory);
-                        std::size_t seen = 1;
-                        for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
-                        {
-                            if (!proxy.has_child(slot)) { continue; }
-                            if (seen++ == index)
-                                return detail::TSDataOwnedChild{
-                                    .type = proxy.element_type(),
-                                    .data = proxy.owned_child_memory(slot),
-                                    .parent_child_id = slot,
-                                };
-                        }
-                        return detail::TSDataOwnedChild{};
+                        const auto slot = index - 1;
+                        if (slot >= proxy.child_capacity() || !proxy.has_child(slot))
+                            return detail::TSDataOwnedChild{};
+                        return detail::TSDataOwnedChild{
+                            .type = proxy.element_type(),
+                            .data = proxy.owned_child_memory(slot),
+                            .parent_child_id = slot,
+                        };
                     },
                     .stop = [](const void *, void *memory) noexcept {
                         if (memory != nullptr) proxy_storage(memory).stop();
+                    },
+                    .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
+                        const auto &proxy = proxy_storage(memory);
+                        if (!proxy.source_available() || !proxy.has_child(slot)) { return false; }
+                        const auto source = proxy.source_dict();
+                        // Stop retains the child for removal-cycle observations;
+                        // later reads must not wait for the source's lazy erase.
+                        return source.slot_live(slot) ||
+                               (source.slot_occupied(slot) && source.structural_delta_current(time));
                     },
                 };
                 return ops;
@@ -627,15 +635,21 @@ namespace hgraph
                 return proxy.source_available() && proxy.key_set_tracking().last_modified_time != MIN_DT;
             }
 
-            // A TSD's ``all_valid`` is its ``valid``. A key only exists once it
-            // has a value, so there is no partially populated state for a
-            // deeper walk to detect, and walking into the values would make
-            // this a recursive check. Upstream agrees: ``TSD`` declares no
-            // ``all_valid`` override and inherits
-            // ``PythonTimeSeriesOutput.all_valid``, which returns ``valid``.
-            [[nodiscard]] static bool all_valid(const void *context, const void *memory) noexcept
+            // The projected children, not the source dictionary's values,
+            // determine validity. Never ask a child for its own all_valid.
+            [[nodiscard]] static bool all_valid(const void *context, const void *memory)
             {
-                return has_current_value(context, memory);
+                if (!has_current_value(context, memory)) { return false; }
+                const auto &store = proxy_storage(memory);
+                const auto source = source_dict(memory);
+                const auto &ops = ctx(context)->element_type.ops_ref();
+                for (std::size_t slot = 0; slot < source.slot_capacity(); ++slot)
+                {
+                    if (!source.slot_live(slot)) { continue; }
+                    if (!store.has_child(slot) ||
+                        !ops.has_current_value_impl(ops.context, store.child_at_slot(slot))) { return false; }
+                }
+                return true;
             }
 
             [[nodiscard]] static const void *value_memory(const void *, const void *memory) noexcept
@@ -715,6 +729,15 @@ namespace hgraph
                 return child_tracking != nullptr &&
                        child_tracking->last_modified_time == store.tracking().last_modified_time;
             }
+
+            [[nodiscard]] static bool membership_removed(const void *, const void *memory, std::size_t slot)
+            { return source_available(memory) && source_dict(memory).membership_slot_removed(slot); }
+            [[nodiscard]] static bool membership_added(const void *, const void *memory, std::size_t slot)
+            { return source_available(memory) && source_dict(memory).membership_slot_added(slot); }
+            [[nodiscard]] static std::size_t next_membership_added(const void *, const void *memory, std::size_t previous)
+            { return source_available(memory) ? source_dict(memory).next_membership_added_slot(previous) : TS_DATA_NO_CHILD_ID; }
+            [[nodiscard]] static std::size_t next_membership_removed(const void *, const void *memory, std::size_t previous)
+            { return source_available(memory) ? source_dict(memory).next_membership_removed_slot(previous) : TS_DATA_NO_CHILD_ID; }
 
             [[nodiscard]] static std::size_t next_modified_slot(const void *context,
                                                                 const void *memory,
@@ -818,6 +841,13 @@ namespace hgraph
             {
                 if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
                 return source_available(memory) ? source_dict(memory).find_slot(key) : TS_DATA_NO_CHILD_ID;
+            }
+
+            [[nodiscard]] static std::size_t find_stored_slot(const void *context, const void *memory,
+                                                              const ValueView &key)
+            {
+                if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
+                return source_available(memory) ? source_dict(memory).find_stored_slot(key) : TS_DATA_NO_CHILD_ID;
             }
 
             template <TSDProxySetSurface Surface>

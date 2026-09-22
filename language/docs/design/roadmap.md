@@ -128,8 +128,9 @@ syntax. Imported operator-contract conformance and public native nominal-struct
 metadata require the versioned descriptors owned by Stage F. Registry-backed
 completion for deferred nominal calls occurs in hgraph IR once all wiring-time
 values and erased callable shapes exist, and therefore belongs to Stage D.
-Until those owning stages complete, the cases fail closed or remain explicitly
-deferred; the temporary AST backends never silently discard a constraint.
+Imported operator implementations are supported for the catalog's admitted
+contracts. Constraint reconstruction and deferred completion remain incomplete;
+both hgraph-IR backends fail closed rather than discard those requirements.
 
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source
@@ -220,8 +221,9 @@ wiring target no longer includes syntax AST headers.
 - [x] migrate expression-level type syntax from the temporary
   syntax/`ResolvedModule` adapter to hgraph IR and remove the obsolete AST
   type/expression/call evaluator;
-- [x] remove duplicate expression, type, generic, phase, and classification
-  logic from the emitter;
+- [ ] finish removing duplicate expression/type/phase classification from
+  the emitter; shared admission planning and checked constant arithmetic now
+  own the reviewed validity, recursion, extent and integer-overflow rules;
 - [x] retain typed hgraph-IR handles for structs, operators, callables, and
   tests in one source-order sequence, with source ranges owned by the
   referenced records;
@@ -284,15 +286,20 @@ remain rejected.
 
 ### G. Standard-library migration
 
-Status: the low-level `hgraph.native` substrate is compiled and installed. The
-HGL-authored `hgraph.std.len_` and `hgraph.std.is_empty` families are the first
-compiled integration examples, covering strings, fixed/unbounded lists, sets,
-and maps. They intentionally use parallel identities and do not replace the
-core implementations: complete core-contract metadata, start/never-valid
-collection semantics, retained rolling sizes, and TSB schema metadata remain
-named blockers.
+The current authoring milestone uses the [implementation catalogue](migration-catalogue.md).
+Compiled parallel HGL bodies and bindings to exposed native functions count as
+completed authoring work. Delegation to an existing temporal operator remains
+pending. Production replacement is a separate, deferred decision.
 
-- generate the complete core graph/node inventory and classify each item;
+
+Status: the native substrate and parallel HGL scalar, stream, collection-query,
+conversion and calendar domains are compiled and installed. The checked
+[catalogue](../../stdlib/catalogue/README.md) joins source declarations,
+registration templates, registry signatures and HGL evidence. It records
+completed domains separately from missing startup, error/ownership, generic,
+structural and provider contracts. Core replacement remains deferred.
+
+- [x] generate the core operator inventory and record candidate-domain dispositions;
 - select representative composition, stateless scalar-node, stateful-node,
   collection, and native-kernel migrations;
 - close missing language semantics through explicit design discussions;
@@ -341,7 +348,12 @@ No new source syntax is needed for these checkpoints. Nullable lookup policy,
 recordable state/cache design, and other unresolved language decisions remain
 separate work.
 
+<a id="feature-status-matrix-2026-09-07"></a>
+
 ## Feature status matrix
+
+Status entries audited against main on 2026-09-19. The dated anchor is
+retained for existing links.
 
 Unnamed `test { ... }` contexts now provide module-wide, cross-part private
 helpers. Production compilation excludes helper code, registrations, and
@@ -365,38 +377,41 @@ re-audited on one date.
 The compiler has crossed the gate for starting Stage G: the complete core
 inventory can be generated and the first pure-composition candidates can be
 selected. That does not mean the compiler is feature-complete or that every
-core implementation is expressible; roughly 15% of `lib/std` is expressible
-today (#767, "Readiness").
+core implementation is expressible; the [catalogue](../../stdlib/catalogue/README.md)
+records the current counts per disposition (the 2026-09-07 review estimated
+15%; PR #953 authored 62 of 210 identities).
 
 | Surface | Status | Fail-closed boundary or named blocker |
 | --- | --- | --- |
 | `module`, explicit `part`, selective and aliased `use`, `export`, canonical JSON descriptors, generated registration | implemented | Repeatable `--part` and CMake `PARTS` assemble one shared scope, descriptor, and provider with original-file diagnostics. Parts are explicit; automatic discovery, dependency closure, and lock files are not implemented. Only `hgraph.std`, `hgraph.analytics`, and modules named by `--module-descriptor` resolve; there are no wildcard imports or re-exports. |
 | `fn`, `export fn`, anonymous `fn`, bodyless `operator`, `impl fn` | partial | Both backends. `emit-cpp` supports imported `impl fn` with a supported descriptor-backed contract; direct wiring reaches an `impl fn` only through a loaded native image and rejects a direct call; direct wiring rejects a call to a generic plain `fn` ("generic functions are not supported by the first pass"); a concise `map(..., fn(a) => ...)` lambda is lowered by `emit-cpp` but rejected by direct wiring ("anonymous functions are not supported by the first pass"), #767 item 3. |
 | Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. An unbounded generic in a temporal contract lowers to a complete `TsVar` source shape; scalar-only key positions use `ScalarVar`. Residual `const` predicates, imported contract constraints, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
-| Parameter packs | partial | Syntax, typed HIR, hgraph IR, descriptor format v5, call binding, composition and runtime traversal, generated `VarIn`/`VarKwIn` contracts, native runtime-node aggregate inputs, `{n}`/`{n:*}`/`{n:m}` cardinality, compile-time `len`/`keys`/`types`/`type_at` reflection, quantified `each` constraints, and evaluation-local `schemas(values)` views are implemented. `...T` is homogeneous positional and lowers to `Args<>`/TSL; `<...Ts>(x: ...Ts)` is heterogeneous positional/tuple-shaped and `<...Fields>(x: ...{Fields})` is heterogeneous named/bundle-shaped, both lowered to `Kwargs<>`/TSB with explicit call-style registration. Runtime schema elements lower directly to each child endpoint's existing C++ metadata pointer and cannot escape a native call. A runtime function remains limited to one aggregate pack input; composition functions may combine positional and named packs ([ADR 0007](decisions/0007-parameter-packs.md)). |
+| Parameter packs | partial | Syntax, typed HIR, hgraph IR, descriptor format v6, call binding, composition and runtime traversal, generated `VarIn`/`VarKwIn` contracts, native runtime-node aggregate inputs, `{n}`/`{n:*}`/`{n:m}` cardinality, compile-time `len`/`keys`/`types`/`type_at` reflection, quantified `each` constraints, and evaluation-local `schemas(values)` views are implemented. `...T` is homogeneous positional and lowers to `Args<>`/TSL; `<...Ts>(x: ...Ts)` is heterogeneous positional/tuple-shaped and `<...Fields>(x: ...{Fields})` is heterogeneous named/bundle-shaped, both lowered to `Kwargs<>`/TSB with explicit call-style registration. Runtime schema elements lower directly to each child endpoint's existing C++ metadata pointer and cannot escape a native call. A runtime function remains limited to one aggregate pack input; composition functions may combine positional and named packs ([ADR 0007](decisions/0007-parameter-packs.md)). |
 | `instantiate op<A, ...>` | partial | Concrete arguments specialize a matching generic `impl fn`; `_` retains a resolver slot. Both IRs distinguish the cases, descriptors retain residual generics, and `emit-cpp` maps a retained fixed-list size to `SIZE<"name">`. Constraints over retained slots and retained values read by a body require residual-constraint/reification designs and fail closed. Materialization also supports selectively imported operators with supported descriptor-backed signatures. |
 | Canonical scalars, the eight temporal types, `@` and duration literals | partial | Lexer, parser, HIR, and both backends for `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`. Zoned and civil literals are rejected by both backends. Of the arithmetic table in the language reference only `str + str`, `duration ± duration`, `datetime ± duration`, `datetime - datetime`, and `duration * i64` are typed; `date ± duration`, `date - date`, `duration * f64`, and `duration / ...` are "arithmetic operands must both be numeric" (#767 item 2b: the emitter needs temporal arithmetic helpers before the checker admits them). |
 | `zoned_time` scalar; `Time` and `CivilDateTime` ordering | blocked | hgraph-side asks recorded under Slice 2 with no RFC in `docs/source/rfc/` yet; both backends fail closed meanwhile. |
 | `tuple`, `list`, `set`, `map` | partial | `list<T, n>`, `set<T>`, and `map<K, V>` map to TSL, TSS, and TSD. `eval` drives scalar and `atomic` parameters only; a structural `tuple` has no time-series schema in direct wiring; time-series tuple and list literals, and compound constant literals in generated defaults, are rejected. A fixed list size must be a non-negative constant (or a `const` generic of type `i64`); zero is a fixed empty list and `unbounded` uses the original hgraph sentinel `-1`. Typed HIR validates the distinction; non-scalar map keys have no language rule yet (#767 item 6). |
 | `atomic<T>` | implemented | Whether `atomic<f64>` is normalized to `f64` is not fixed (types-and-expressions.md). |
-| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Not accepted as a runtime-node parameter; window iteration and an either-kind parameter spelling are undefined; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780). A `const` size generic may be concretely materialized; retained named rolling sizes remain blocked because hgraph has no corresponding named-size marker. Unresolved generic plain functions remain an `emit-cpp` limitation. |
+| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Accepted as runtime-node parameters, with native window element and metadata queries; general window iteration and an either-kind parameter spelling remain open; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780). A `const` size generic may be concretely materialized; retained named rolling sizes remain blocked because hgraph has no corresponding named-size marker. Unresolved generic plain functions remain an `emit-cpp` limitation. |
 | Named TSW size generics | blocked | `emit-cpp` binds a size-generic window to `TSWAny<T>`; hgraph's `TypePattern` carries concrete sizes and an any-window wildcard but no named size variable (Slice 2 ask, no RFC). |
 | `ref<T>` | partial | Explicit contracts, descriptors, guarded fixed-list reference routing, and forwarded conditional captures in both backends. Wiring-time dereference, `map<K, ref<V>>`, and `ref<ref<T>>` are rejected. |
 | `signal` | implemented | Input-only, payload-erased, no default value. |
 | Nominal, generic, and abstract `struct`; defaults, optional fields, `delta<S>` | partial | Scalar Bundle values, type-only generic specializations, `atomic<S>`, field-wise temporal construction, and sparse scalar deltas in both backends. Constructor inference, multiple-parent field order, temporal `delta` consumption, nested temporal construction, and `delta` in a field default fail closed. |
+| Struct imports ([ADR 0013](decisions/0013-struct-imports.md)) | partial | `use m::{Quote}` and `m::Quote` bind a struct another module exports; the identity stays the owner's, so both modules name one schema and a value crosses without conversion. An importer re-describes the owner's whole layout (ancestors first, the closure over parents and field types), registers it under the owner's qualified name in direct wiring, and in generated C++ refers to the exporter's own type and includes its headers rather than re-declaring it. A local struct may inherit an imported abstract parent, and an imported struct constructs in either spelling. A layout that disagrees with a registered schema is refused, naming the part that differs. Fail closed: inheriting or applying a generic imported family whose parent is itself applied, every field default except `null` on an optional field, and importing a plain `export fn` (behaviour crosses through an operator contract). |
+| Recursive struct fields ([ADR 0012](decisions/0012-recursive-struct-fields.md)) | partial | The resolver admits an optional `atomic<T>` edge and names the rule any other edge breaks; typed HIR and hgraph IR mark edges by identity; both backends realize an edge as an owner of its target through hgraph's `recursive_bundle_closure` (hgraph RFC 0041), which registers each group of mutually reachable specializations as one `recursive_bundles` batch, and give the temporal shape a `TS[Owned[T]]` endpoint that binds as `TS[T]`; generated C++ spells an edge `hgraph::Edge<T>` and agrees with direct wiring tick for tick. Descriptor format 6 marks each edge in an exported struct's layout, and `hgl check` validates it without loading code; `examples/recursive-fields.hgl` runs under `hgl test` and as generated C++. A second module imports a recursive struct and rebuilds its edges ([ADR 0013](decisions/0013-struct-imports.md), `examples/struct-imports/`). Fail closed: recursion through a container, a generic argument, or inheritance. A value of an abstract edge's family cannot yet be built in HGL, since a concrete struct is not assignable to its abstract parent. |
 | Explicit optional-field clearing (`field: null` in a `delta<S>`) | blocked | Needs a public hgraph clear-delta operation or encoding distinct from an omitted delta field; `ts_delta.h` has none ([Language model](language-model.md#structured-values-and-deltas)). |
 | Typed `const` generic struct metadata (`Vector<T, const size>`) | blocked | hgraph nominal Bundle `generic_arguments` carry type arguments only; both backends report "const generic struct arguments require typed constant Bundle metadata in hgraph". |
 | `const` parameters, `const` generics, `--set` | implemented | |
 | Value-level `const fn` | partial | Local non-generic, fixed-arity declarations with scalar parameter/result types (or a void result), value calls, defaults, temporal-first graph selection, explicit `const(function)` selection, default lifting, shared `eval` adapters, and transitive native-phase checks are implemented. Structural value signatures are diagnosed pending runtime-value/ownership lowering. Generic/pack lowering, operator/native/export modifier combinations, imported value descriptors, and migration of existing `native fn` remain separate work ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md), [guide](../user-guide/value-functions.md)). |
-| Reconstructible node-local `cache<T>` | provisional | Concept and pre-`start` construction agreed; complete declaration/initializer syntax and HGL implementation remain open. Maps to native `State<T>`; HGL `state` remains recordable. Native static nodes currently reject combining `State` and `RecordableState`. Generic recordable-state initialization remains a separate gap ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
+| Reconstructible node-local `cache` | partial | `cache name[: T] = init`, scalar cache fields aggregated into one native `State<T>` and re-initialized on every start ([ADR 0011](decisions/0011-cache-declarations.md)). `cache` may be declared beside `state`: the generated node carries one `RecordableState<>` and one `State<>`, a restored state field wins over its initializer and every cache field is rebuilt by `start`, covered across a component checkpoint. Non-scalar caches and generic recordable-state initialization remain separate gaps ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
 | Native type lifecycle and target mappings | provisional | Semantic contracts, requirements, implementations, and target realizations must be distinct. Current C++ descriptor metadata is a starting point, not a generalized mapping implementation. Native type/hook syntax, capability contracts, mapping composition, and alternative target support remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#language-contracts-and-target-mappings)). |
 | `let`, `var`, typed uninitialized `var`, definite assignment | implemented | An assignment cannot change a `var`'s type; a runtime uninitialized local must be scalar. |
 | Graph-phase `for`: `elements`/`items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; maps use `values`/`items` and lists use `elements`/`items`. `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
 | Runtime `for`, `keys`/`values`/`elements`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `values` is the keyed/named value projection and `elements` is list/set traversal; they are not aliases. Runtime `key_set` now supports membership queries and borrowed added/removed ranges; runtime key-set `last_modified` still requires persistent projection tracking. See the [surface completion record](native-surface-proposal.md). |
-| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs, and homogeneous/heterogeneous parameter-pack traversal. Fail closed: calls to other HGL functions, non-scalar state, zero-input sources, `key_set`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity-dominance ordering is still checked by `emit-cpp` only. |
-| `inject clock`, `inject scheduler` | provisional | Documented in the user guide; neither word occurs in `src/`; `emit-cpp` reports "injectable 'clock' is not supported by emit-cpp yet". |
+| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs, and homogeneous/heterogeneous parameter-pack traversal. Reusable scalar value-helper calls and runtime `key_set` are supported. Fail closed: temporal HGL calls from runtime bodies, non-scalar state, zero-input functions that do not inject `scheduler`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity dominance, selector bounds and activation planning are shared `hgl check` diagnostics. |
+| `inject clock`, `inject scheduler`, `scheduled()`, `passivate`/`activate` | implemented | [ADR 0010](decisions/0010-lifecycle-capabilities.md): `EvaluationClockView` and `NodeScheduler` selectors on every hook, fixed method surfaces (no tags), the scheduler handler selector with an explicitly empty activation set, scheduler-driven sources, and input activity on direct temporal parameters. An explicitly empty validity set remains open. |
 | Scalar (wiring-time) `if`, including `else if` | implemented | |
-| Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. The documented status of a temporal conditional embedded in another expression is under review (#767 items 4 and 5). |
+| Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. Embedded temporal conditionals are implemented in both backends and covered by `choose_embedded` in the parity fixture. |
 | `switch` / `case` / `default` | provisional | Agreed 2026-09-06 ([Switch](switch.md)); no keyword, parser, or lowering; the words are not reserved, and a `switch` yields generic parse errors. |
 | `enum`, `Mode::m`, `Mode(...)`, `keys`/`values`/`elements(Mode)` | provisional | Agreed ([Type extensions](type-extensions.md#enum-types)); `enum` is "expected a declaration, found 'enum'"; integer-conversion spelling and the native ABI are open. |
 | `str(value)` | provisional | Agreed spelling; `str` is not an expression start ("expected an expression, found 'str'"). |
@@ -404,7 +419,7 @@ today (#767, "Readiness").
 | Timed harness sequences (`[0s: v, ...]`) | provisional | Parsed and typed; "timed sequences are not supported by the first pass". |
 | `hgl run` | partial | `--entry`, `--mode`, `--start`, `--end`, `--set`; an entry is an `export fn` whose parameters are all `const`. |
 | `hgl run --config run.toml` (`[run]`, `[run.params]`) | provisional | Documented format; not read. |
-| Native interface | partial | JSON descriptor format v5, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-value plus overloaded generic typed-view, payload-erased `signal` input-view, and borrowed runtime `schema` calls, top-level source `native fn` C++ projections emitted as formatted plain functions and importable descriptor declarations, literal module-local `cpp include` declarations, and the installed `hgl::core_native` library/descriptor. Native `requires` clauses fail closed until catalog constraint reconstruction exists. Erased current/delta return values and equality, dependent reference results, hash/ordering carriers, source-native allocation/exception effects, linked source dependencies, owned opaque state, scripted external dependencies, transitive closure, duration-window generics, nominal bundle/ref typed views, and the AOT lifecycle ABI remain; direct wiring does not emulate native C++. Format v5 retains explicit temporal/runtime `kind`, generic/parameter pack shape and cardinality, quantified constraints, and native schema handles. |
+| Native interface | partial | JSON descriptor format v6, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-value plus overloaded generic typed-view, payload-erased `signal` input-view, and borrowed runtime `schema` calls, top-level source `native fn` C++ projections emitted as formatted plain functions and importable descriptor declarations, literal module-local `cpp include` declarations, `throws` on a source native (descriptor policy `translated`, admitted in evaluation; a raise ends the evaluation under hgraph's node error model, [ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)), and the installed `hgl::core_native` library/descriptor. Native `requires` clauses fail closed until catalog constraint reconstruction exists. Erased current/delta return values and equality, dependent reference results, hash/ordering carriers, source-native allocation effects and owned non-scalar results, linked source dependencies, owned opaque state, scripted external dependencies, transitive closure, duration-window generics, nominal bundle/ref typed views, and the AOT lifecycle ABI remain; direct wiring does not emulate native C++. Format v6 retains explicit temporal/runtime `kind`, generic/parameter pack shape and cardinality, quantified constraints, native schema handles, and recursive struct edges. |
 | Tooling: `check` (`--dump-tokens`, `--dump-ast`, `--dump-hir`, `--dump-hgraph-ir`), `test`, `run`, `emit-cpp`, `repl`, `hgl_add_module()` with `PARTS` and `PYTHON_MODULE`, native cache v3 | partial | Scripted loading and the cache are Unix-only; Windows, child orchestration, cache pruning, automatic part discovery, and dependency lock files are staged; there is no `hgl build`; the driver does not invoke `hgraph_ir::complete`. |
 
 The inventory comes next. Its first candidate set should prefer pure
@@ -413,6 +428,28 @@ their actual requirements are recorded. Compiler work after that point is
 driven by a selected migration and one already-defined semantic contract;
 every `blocked` row stays fail-closed until its design or owning hgraph API
 is agreed.
+
+## Review corrections and next gates (2026-09-19)
+
+Before further language or library expansion, validate the shared admission pass,
+retained-generic diagnostics, recursion rejection across commands, direct versus
+compiled wiring arithmetic, and independent rounding boundary expectations.
+A green language suite alone does not prove full native/Python compatibility.
+Catalogue counts measure authoring disposition, not line/branch coverage.
+
+Native pending scheduling now has a dedicated checkpoint element independent of
+user state: restore rebuilds tags and re-arms graph notifications. Single-shot
+scheduling remains best effort and is excluded. Native `schedule` overloads and
+the HGL constant-delay implementation now preserve the finite emission counter
+through repeated checkpoints, including exhausted budgets and unchanged pending
+deadlines ([ADR 0011](decisions/0011-cache-declarations.md)). Mixed HGL
+state/cache lowering is implemented, with construction and recovery coverage;
+native coexistence and aggregation of multiple source cache fields were already
+available. Next proceed with explicit deferred operator/provider closure planning, remaining
+B1/B2 ownership/lifecycle/validity work, B3/B4 value and structural/reference
+contracts, and B5/B6 domains and higher-order work. Production cutover still
+requires per-domain native/Python parity, installed-SDK and performance evidence,
+and removal or delegation of the old implementation.
 
 ## Corrective programme (2026-09-07)
 
@@ -424,12 +461,12 @@ issue and updates the matrix above in the same change.
 | # | Item | Status |
 | --- | --- | --- |
 | 1 | Parser: bound the applied-constructor look-ahead so comparisons parse | [PR #768](https://github.com/hhenson/hgraph/pull/768) |
-| 2 | Checker enforcement: rolling, list, and map shape rules, the approved injectable list, runtime-block placement, and the temporal arithmetic table move into `type_check.cpp`; backend copies removed | open |
-| 3 | Shared IR guards: `control_flow.cpp` diagnoses once, no diagnostic string duplicated across backends, one reserved-name table, concise `map` lambda parity | in flight |
-| 4 | Tests: `hgl test` for every example with a `test`, the embedded temporal `if` pinned, direct-wiring refs, generics, and windows, dynamic-traversal ticks, REPL smoke gating, wired `stdlib/examples/invalid/` fixtures | in flight |
-| 5 | Documentation reconciliation: this matrix, the corrected language reference, and the stale claims listed in the issue | in flight |
-| 6 | Design records: error model, `i64` division, overflow, and NaN, string operators, first-tick validity, descriptor `kind` naming, `elements`/`values` alias policy, type-keyword callees, normative grammar; hgraph-side asks promoted to RFCs | open |
-| 7 | Stage G on-ramp: the inventory, the five first candidates, then the ranked blockers | open |
+| 2 | Checker enforcement: rolling, list, and map shape rules, the approved injectable list, runtime-block placement, and the temporal arithmetic table move into `type_check.cpp`; backend copies removed | [PR #780](https://github.com/hhenson/hgraph/pull/780); item 2b (the temporal arithmetic table) waits for emitter support of temporal arithmetic in runtime bodies |
+| 3 | Shared IR guards: `control_flow.cpp` diagnoses once, no diagnostic string duplicated across backends, one reserved-name table, concise `map` lambda parity | [PR #783](https://github.com/hhenson/hgraph/pull/783) |
+| 4 | Tests: `hgl test` for every example with a `test`, the embedded temporal `if` pinned, direct-wiring refs, generics, and windows, dynamic-traversal ticks, REPL smoke gating, wired `stdlib/examples/invalid/` fixtures | [PR #782](https://github.com/hhenson/hgraph/pull/782) |
+| 5 | Documentation reconciliation: this matrix, the corrected language reference, and the stale claims listed in the issue | [PR #781](https://github.com/hhenson/hgraph/pull/781) |
+| 6 | Design records: error model, `i64` division, overflow, and NaN, string operators, first-tick validity, descriptor `kind` naming, `elements`/`values` alias policy, type-keyword callees, normative grammar; hgraph-side asks promoted to RFCs | open; the error model is decided ([ADR 0009](decisions/0009-native-errors-and-the-node-error-model.md)) |
+| 7 | Stage G on-ramp: the inventory, the five first candidates, then the ranked blockers | [PR #953](https://github.com/hhenson/hgraph/pull/953): checked catalogue, 62 authored identities; blockers B1–B6 ranked in the [catalogue](../../stdlib/catalogue/README.md) and defined in the [requirements ledger](migration-requirements.md) |
 
 ## Prototype checkpoint (2026-09-06)
 
@@ -449,7 +486,7 @@ optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
-Generated runtime sources and calls, compound constant literals, runtime-node
+Calls to temporal HGL functions from runtime evaluation, compound constant literals, runtime-node
 `if` used as a value, and runtime constructs outside the supported
 selector/output forms fail closed with a diagnostic that names the construct.
 A temporal conditional embedded inside another expression is implemented in
@@ -668,9 +705,9 @@ Candidates, in risk order:
 - add a public native operation or canonical delta encoding for explicitly
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
-- implement the agreed reconstructible-cache semantics and pre-`start`
-  construction, after settling declaration/initializer syntax and native
-  coexistence with recordable state;
+- extend the implemented scalar cache, native state/cache coexistence and mixed
+  HGL lowering with non-scalar storage. Native pending alarms and finite
+  `schedule` progress have separate checkpoint coverage;
 - extend the implemented local `const fn` slice with generic/pack lowering,
   public value descriptors, and phase-eligible HGL/native operator candidates;
 - native type lifecycles and target mappings, staged through the bounded
