@@ -1687,7 +1687,12 @@ walk:
   structure with escaping assignments. Each selected result is remapped for
   subsequent composition. A branch that leaves an initialized escaping binding
   unchanged receives a `REF`-qualified input; generated branches adapt it to
-  the result slot's declared schema before returning it. A consumed conditional
+  the result slot's declared schema before returning it. Such a branch passes
+  its input through, so the switch publishes that input's reference and the
+  result port can be the `REF` of its declared schema (`nested_graphs.rst`,
+  "switch_ output modes"). A port conversion treats a REF-transparently
+  equivalent schema as already satisfied and re-describes the port rather than
+  wiring a `convert` node. A consumed conditional
   without `else` materializes a type-resolved native `nothing` source as its
   false result. An early return moves the remaining lexical body into ordered
   continuation segments; top-level and nested direct conditional statements
