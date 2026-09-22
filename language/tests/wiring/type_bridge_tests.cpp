@@ -127,7 +127,32 @@ namespace
         node.fields          = {{"label", hgl::semantics::ImportedScalarType::I64, false, false},
                                 {"next", edge, false, true}};
 
-        module.structs = {std::move(base), std::move(root), std::move(venue), std::move(node)};
+        // A two-struct closure, so a member OTHER than the root can be the one
+        // already registered.
+        hgl::semantics::ImportedType to_tail;
+        to_tail.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+        to_tail.children = {symbol(module_name + ".Tail")};
+
+        hgl::semantics::ImportedType to_head;
+        to_head.kind     = hgl::semantics::ImportedTypeKind::Atomic;
+        to_head.children = {symbol(module_name + ".Head")};
+
+        hgl::semantics::ImportedStruct head;
+        head.module_identity = module.identity;
+        head.name            = "Head";
+        head.identity        = module_name + ".Head";
+        head.fields          = {{"mark", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"tail", to_tail, false, true}};
+
+        hgl::semantics::ImportedStruct tail;
+        tail.module_identity = module.identity;
+        tail.name            = "Tail";
+        tail.identity        = module_name + ".Tail";
+        tail.fields          = {{"size", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"head", to_head, false, true}};
+
+        module.structs = {std::move(base),  std::move(root), std::move(venue),
+                          std::move(node),  std::move(head), std::move(tail)};
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
@@ -730,4 +755,39 @@ fn take(c: atomic<g::Child>) -> i64 => c.extra
               catalog};
     // Refused at the name, before anything could be rebuilt wrong.
     CHECK(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("a recursive closure member registered incompatibly is rejected", "[wiring][types][struct-imports][recursive]") {
+    // The ROOT agrees and its edge still names the right target, so a
+    // root-only check passes -- but the target is already registered with a
+    // different layout, and the closure describes only what is missing. `Head`
+    // would have been registered against somebody else's `Tail`, with usable
+    // metadata and no diagnostic.
+    auto      &registry = hgraph::TypeRegistry::instance();
+    const auto types    = hgraph::stdlib::register_standard_types();
+    const auto *other   = registry.bundle("checks.member", "Other", {{"tag", types.str_type}});
+    REQUIRE(other != nullptr);
+    // `Tail` is described as {size: i64, head: atomic<Head>}; this is not that.
+    REQUIRE(registry.bundle("checks.member", "Tail",
+                            {{"size", types.str_type}, {"head", registry.owned(other)}}) != nullptr);
+
+    const hgl::semantics::ModuleCatalog catalog = exported_shapes("checks.member");
+    Unit                                unit{R"(
+module checks.import_member
+
+use checks.member as shapes
+
+fn walking(head: atomic<shapes::Head>) -> atomic<shapes::Head> => head
+)",
+                                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    CHECK(bridge.value(unit.graph.types[unit.parameter("walking", "head").value].children.front()) == nullptr);
+    REQUIRE(unit.diagnostics.has_errors());
+    const std::string rendered = unit.diagnostics.render(unit.file);
+    INFO(rendered);
+    // Named at the member that disagrees, not at the root.
+    CHECK(rendered.find("Tail") != std::string::npos);
 }

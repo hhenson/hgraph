@@ -72,13 +72,19 @@ null result, so returning the registered-but-incompatible metadata would let a
 run continue against the wrong field layout and print the diagnostic
 afterwards.
 
-**The comparison runs on the way out as well as the way in.** Describing a
-closure is not agreeing with what got registered: `recursive_bundle_closure`
-accepts whichever batch closed first, under its own lock and without comparing
-descriptions, so a bridge that loses that race finds nothing at the preflight
-and would then cache the winner's layout. Re-running the comparison against
-what is actually registered makes the check total — first or not, the
-registered schema has to be the one described.
+**Every member of the closure is compared, on the way in and on the way out.**
+Two things make a root-only check insufficient. The registry describes only
+what is *not* already registered, so a member that is already there is never
+described and never compared — registering `A { next: atomic<B> }` against
+somebody else's `B` is as wrong as registering somebody else's `A`, and
+comparing an edge by the target it *names* is only sufficient because that
+target is checked as a member in its own right. And
+`recursive_bundle_closure` accepts whichever batch closed first, under its own
+lock and without comparing descriptions, so a bridge that loses that race
+finds nothing to compare on the way in and would cache the winner's layout.
+The closure is therefore collected whole before anything is decided, every
+registered member is compared before the close, and every member again after
+it.
 
 ### Catalog
 

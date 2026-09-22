@@ -328,13 +328,47 @@ namespace hgl::wiring
     /// generated C++, so both backends register identical schemas. This bridge
     /// only describes each specialization when the registry asks for it.
     const hgraph::ValueTypeMetaData *TypeBridge::recursive_value(Specialization root, syntax::SourceRange range) {
-        if (registry_.value_type(root.qualified()) != nullptr) { return registered(root, range); }
         // A realization failure is already reported; this unwinds the closure.
         struct Reported
         {};
+        const std::string root_name = root.qualified();
+
+        // The WHOLE closure, collected before anything is decided: the root and
+        // every specialization its edges reach. The registry describes only
+        // what is not yet registered, so a member that is already there would
+        // never be compared -- and registering `A { next: atomic<B> }` against
+        // somebody else's `B` is as wrong as registering somebody else's `A`.
+        // Comparing an edge by the target it NAMES is only sufficient because
+        // the target is checked as a member in its own right.
         std::unordered_map<std::string, Specialization> pending;
-        const std::string                               root_name = root.qualified();
-        pending.emplace(root_name, std::move(root));
+        {
+            std::vector<Specialization> work;
+            work.push_back(std::move(root));
+            while (!work.empty()) {
+                Specialization    current = std::move(work.back());
+                const std::string name    = current.qualified();
+                work.pop_back();
+                if (pending.contains(name)) { continue; }
+                const Specialization &member = pending.emplace(name, std::move(current)).first->second;
+                for (const hgraph_ir::StructField &field : member.contract->fields) {
+                    if (!field.recursive) { continue; }
+                    std::optional<Specialization> target = recursive_target(field, member.applied);
+                    if (!target) { return nullptr; }
+                    work.push_back(std::move(*target));
+                }
+            }
+        }
+
+        // Every member that is already registered has to agree with this
+        // module's description of it, whether or not the root is one of them.
+        const auto members_agree = [&]() {
+            return std::ranges::all_of(pending, [&](const auto &entry) {
+                return registry_.value_type(entry.first) == nullptr || registered(entry.second, range) != nullptr;
+            });
+        };
+        if (!members_agree()) { return nullptr; }
+        if (const hgraph::ValueTypeMetaData *existing = registry_.value_type(root_name)) { return existing; }
+
         const auto describe = [&](std::string_view name) -> hgraph::RecursiveBundleRequest {
             const auto found = pending.find(std::string{name});
             if (found == pending.end()) { throw std::logic_error("undescribed recursive struct '" + std::string{name} + "'"); }
@@ -372,10 +406,11 @@ namespace hgl::wiring
             // registered. The closure accepts whichever batch closed first,
             // under its own lock, without comparing descriptions -- so a
             // bridge that loses that race would cache the other's layout even
-            // though the preflight above found nothing to compare against.
-            // Re-running the comparison on the way out makes the check total:
-            // first or not, the registered schema has to be the one described.
-            return registered(pending.at(root_name), range);
+            // though nothing was registered to compare against on the way in.
+            // Re-running the same comparison over every member makes the check
+            // total: first or not, what is registered has to be what was
+            // described.
+            return members_agree() ? closed : nullptr;
         } catch (const Reported &) { return nullptr; } catch (const std::exception &error) {
             report(range, "cannot register recursive struct '" + root_name + "': " + error.what());
             return nullptr;
