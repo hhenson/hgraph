@@ -358,3 +358,42 @@ export fn clock_source() -> i64 {
     start { scheduler.schedule(0s) }
     when scheduled() { return 1 }
 }
+
+# ADR 0011 / ADR 0008: `state` is recordable and survives a restore; `cache` is
+# rebuilt by every start. One function declaring both is the mixed case, and
+# encoding both in the result makes the difference observable -- `total` keeps
+# counting across a restore, `seen` starts again.
+export fn mixed_total(value: i64) -> i64 {
+    state total: i64 = 0
+    cache seen: i64 = 0
+    when modified(value) && valid(value) {
+        total += value
+        seen += 1
+        return total * 10 + seen
+    }
+}
+
+# Two of each, so the recordable TSB and the generated cache struct both carry
+# more than one field and the storages cannot be told apart by arity.
+export fn mixed_bundle(value: i64) -> i64 {
+    state total: i64 = 0
+    state seen: i64 = 0
+    cache count: i64 = 0
+    cache scale: i64 = 2
+    start { count = 0 }
+    when modified(value) && valid(value) {
+        total += value
+        seen += 1
+        count += 1
+        return (total + seen) * scale + count
+    }
+}
+
+test {
+    # Wired through the scripted path, so direct wiring over the generated
+    # artifact carries a node holding both storages at once.
+    test mixed_state_and_cache {
+        assert eval(mixed_total, value: [1, 2]) == [11, 32]
+        assert eval(mixed_bundle, value: [1, 2]) == [5, 12]
+    }
+}

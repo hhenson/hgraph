@@ -18,7 +18,7 @@ is accepted.
 retains its wiring-time meaning. Local fixed-arity functions and
 [role selection/lifting](../user-guide/value-functions.md) are implemented.
 Generic/pack value-function lowering is not implemented. Scalar `cache`
-declarations are implemented; combining `cache` with `state` is rejected.
+declarations are implemented, including beside `state`.
 Native type lifecycle forms and target-mapping declarations remain outside
 the implemented grammar. Their agreed semantics and open syntax are recorded
 in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
@@ -1206,8 +1206,12 @@ State, cache, and inject declarations precede executable blocks. The first
 slice requires a state or cache initializer and permits at most one `start`
 and one `stop` block. A `cache` is node-local data outside record/replay,
 re-initialized on every start; multiple scalar cache fields share a generated struct in one native
-`State<>` slot. Combining cache with `state` is still unsupported by HGL lowering, although
-native static nodes support both selectors ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
+`State<>` slot. A function may declare both: the two storages are planned
+independently, as native static nodes admit one `State<>` and one
+`RecordableState<>`, and `start` seeds a state field only when it is not
+already valid while assigning every cache field unconditionally -- so a
+restored state survives and its cache is rebuilt from it
+([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -2323,8 +2327,8 @@ observation rather than rule, is collected under
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
-- non-scalar reconstructible caches and mixed state/cache storage, native type
-  lifecycle and mapping contracts, lifecycle output access, and runtime sinks;
+- non-scalar reconstructible caches, native type lifecycle and mapping
+  contracts, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior;
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction

@@ -15,7 +15,7 @@ for hgraph, not a second runtime.
 >
 > The [status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
 > records the boundaries. In particular, enum/switch syntax, imported contract
-> constraints/properties, mixed state/cache, generic constructor inference,
+> constraints/properties, generic constructor inference,
 > optional-field clearing, and wiring-time reference dereference are not
 > implemented. Later target mappings in this guide do not override those limits.
 

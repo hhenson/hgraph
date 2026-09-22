@@ -702,11 +702,6 @@ namespace hgl::hgraph_ir
             if (info.uses_scheduled && !info.scheduler_binding.valid()) {
                 backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
             }
-            if (!info.caches.empty() && !info.states.empty()) {
-                fail(Category::Type, info.caches.front().range,
-                     "'cache' and 'state' cannot be combined in one runtime function yet: HGL mixed state/cache "
-                     "lowering is not implemented");
-            }
             if (temporal_count == 0 && !info.scheduler_binding.valid()) {
                 // A source with nothing to activate it never evaluates (ADR 0010).
                 backend(planned.range, "typed HIR admitted a runtime source without the scheduler capability");

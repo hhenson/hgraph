@@ -324,6 +324,7 @@ namespace hgl::codegen
             "defaults",
             "recordable_state",
             "hgl_state",
+            "hgl_cache",
             "hgl_output",
         };
 

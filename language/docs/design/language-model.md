@@ -670,12 +670,13 @@ not require recordability, but rebuilding it must preserve observable
 computation; arbitrary resources still need a native ownership/lifecycle
 contract. `cache name[: T] = init` is the declaration
 ([ADR 0011](decisions/0011-cache-declarations.md)): scalar cache fields share one generated native struct, re-initialized on
-every start, not yet beside `state`.
+every start, and may be declared beside `state`.
 Both cache and state storage/objects must be constructed before `start`,
 separately from logical initialization or restore. See
 [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
-for the reconstruction contract. Native nodes support both state selectors;
-mixed HGL lowering remains unimplemented.
+for the reconstruction contract. Native nodes support both state selectors, and
+a function declaring `state` and `cache` lowers to both: a restored state field
+wins over its initializer, a cache field is rebuilt by every start.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special
@@ -951,7 +952,7 @@ Later decisions must define:
 - collection delta literals and the native encoding for explicit optional-field
   clearing;
 - remaining phase/effect and modifier rules for value-level `const fn`,
-  non-scalar cache storage and mixed state/cache support, native type/target mappings, lifecycle
+  non-scalar cache storage, native type/target mappings, lifecycle
   output access, and sinks; the agreed direction is in
   [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md).
 

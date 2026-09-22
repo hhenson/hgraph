@@ -693,7 +693,7 @@ if(UNIX)
         PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "5 tests, 0 failed"
+        PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
     )
 
     add_test(
