@@ -1180,7 +1180,7 @@ TEST_CASE("operators: shared TypePattern input matcher mirrors wiring semantics"
     CHECK_FALSE(ts_pattern_match(nested_ref, ts_type<TSL<TS<Int>, 2>>(), nested_strict));
 }
 
-TEST_CASE("operators: resolving a generic dereferences everything, at every depth (#847)")
+TEST_CASE("operators: resolving a generic dereferences everything at every depth (#847)")
 {
     auto &registry = TypeRegistry::instance();
     (void)registry.register_scalar<Int>("int");
