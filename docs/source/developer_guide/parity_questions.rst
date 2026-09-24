@@ -40,52 +40,48 @@ HGL catalogue disposition for the new operator.
    user-built values convert, including an unregistered class in ``types``.
    All 239 table and data-frame tests pass.
 
-**Issues to resolve**
+**Owner review (2026-09-24)**
 
-A. *The binding is a new mechanism.* "A Python class is the face of a named
-   native schema" needs a design record. It must check that the Python fields
-   match the native fields by name and order, and define how it meets
-   generics and inheritance. It is useful beyond ``TableSchema``: the Kafka
-   extension's classes mirror their native schemas by annotation today. The
-   alternative is a public Python annotation meaning "an hgraph type".
-B. *No wire form.* The binary codec refuses ``type`` (``BinaryWireFormError``).
-   That is correct, since a carrier holds interned pointers. So a
-   ``TS[TableSchema]`` cannot be checkpointed, recorded on a durable backend
-   or sent across ``dmap_``/``spawn``, and ``to_json`` fails with
-   ``unsupported atomic scalar 'type'``. A wire form needs a portable
-   schema descriptor, written on encode and resolved back to the interned
-   schema on decode (the manifest's schema descriptor is the obvious base).
-   The parity case, a constant inside a graph, does not need it.
-C. *Per-tick cost.* Converting a type-valued field calls into Python
-   (``_carrier_value`` → ``_value_type``) and the reverse binding. A Python
-   node producing a ``TableSchema`` every tick measured **+12 type-system
-   lock acquisitions per tick**, against the per-tick registry-free rule
-   (``CLAUDE.md`` §7). The conversions need a lock-free cache (class →
-   carrier, schema → class) in the bridge.
-D. *Eager ``.value`` outside a graph.* ``evaluate_const`` needs an active
-   ``GlobalState`` for the table configuration. Today's
-   ``table_schema(tp).value`` works at module level, so the eager path needs
-   the default configuration as a fallback. This is small.
-E. *Text.* ``str_`` of a type field writes ``type[int]``, where released
-   hgraph writes Python's repr (``<class 'int'>``). The text form of a type
-   value is a Text-rule decision (VAL-8).
-F. *Registration during conversion.* Converting an unregistered class
-   registers an opaque value type. That is harmless at wiring; per tick it is
-   issue C again, with the same fix.
-G. ``to_table`` of a ``TS[TableSchema]`` has no overload, because a type has
-   no column form. Low priority.
-H. The new operator needs an HGL catalogue disposition. This is trivial.
+- *Per-tick cost: withdrawn.* Measured without the test harness's output
+  recording, a Python node producing a new ``TableSchema`` every tick, and a
+  Python reader converting its ``types`` and ``tp``, take **no** type-system
+  locks during evaluation (10 per tick, identical to a plain tuple node; all
+  harness). The "+12 per tick" first reported came from ``eval_node``
+  converting its recorded outputs after the run. A type is resolved once, to
+  an interned schema, and only referenced from then on.
+- *Text: ruled.* A type's text is its name: ``str_`` of ``int`` is ``int``,
+  of a time-series type ``TS[int]``. (Today ``TypeCarrier`` renders
+  ``type[int]``.)
+- *Serialising a type: to and from its name.* The canonical name already
+  exists; C++ has no parser back (the manifest descriptor of RFC 0022 is
+  one-way: identity bytes, no decode). A core type-name parser, cold path
+  and cached by name, gives every type value a wire form and a JSON form. A
+  named type (a registered bundle or enum) must be registered in the
+  decoding process first, as the binary codec already requires.
+- *Table schema: Arrow.* A schema's target is an Arrow frame, and its
+  columns come from a closed set (``HGRAPH_TABLE_ATOMIC_LEAVES`` in
+  ``table_codec.cpp``: 17 leaves and lists of them), each with a fixed Arrow
+  type. So the column types are Arrow types, not general type values. Arrow
+  brings their serialisation (IPC) and their Python face (``pyarrow``). The
+  one ambiguity is ``Str`` and ``ZoneId``, both ``utf8``. A field-metadata
+  tag resolves it, and decoding a table does not need it, because the layout
+  comes from ``tp``. Only ``tp`` remains a type value.
 
-**Proposed approach**
+**Revised proposal**
 
-- *Phase 1, in process (makes ``table_schema`` native; closes the review
-  finding):* the operator; ``TypeCarrier`` Python conversion with cached,
-  lock-free conversions (C, F); the native-schema binding (A), with its
-  design record; the eager fallback (D); a decision on the text form (E); the
-  catalogue entry (H). RFC-level, because it makes a type a first-class
-  runtime value: one RFC, "types as values".
-- *Phase 2, only when a schema must be persisted or cross a process:* wire
-  forms by schema descriptor (B), then ``to_table`` (G).
+1. ``TableSchema`` carries its target frame's **Arrow schema**: column
+   names, Arrow types and field metadata. It is a native scalar, like
+   ``Frame``, with Arrow IPC as its wire form and ``pyarrow.Schema`` in
+   Python. ``keys`` stays a field (``getattr_`` on it is #821). ``types``
+   derives from the Arrow schema; Python maps it to classes through the
+   closed leaf table, so ``table_shape`` and released-style reads keep
+   working. The smaller alternative is ``types`` as Arrow type names
+   (strings), with no new value kind.
+2. ``tp`` is a type value. Its text is its name, and its wire and JSON form
+   is its name, parsed back through a core type-name parser.
+3. The rest of phase 1 as before: the operator, the ``TypeCarrier`` Python
+   conversion, the native-schema binding of the Python class, the eager
+   fallback outside a graph, and the catalogue entry.
 
-Questions for the owner: is phase 1 the right scope; the binding (A) or a
-public "hgraph type" annotation; and the text of a type value (E).
+Still for the owner: an Arrow-schema value (1) or Arrow type names; and
+binding the Python class by name or a public "hgraph type" annotation.
