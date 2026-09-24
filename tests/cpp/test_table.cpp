@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <type_traits>
 #include <limits>
 
 // Step 3 of the record/replay/table design record: the Arrow-backed Frame
@@ -586,11 +587,13 @@ namespace
     {
         static constexpr auto name = "table_schema_graph";
 
-        static Port<TS<stdlib::TableSchema>> compose(Wiring &w)
+        // The public C++ name is the runtime name, hgraph::TableSchema.
+        static Port<TS<hgraph::TableSchema>> compose(Wiring &w)
         {
-            return wire<stdlib::table_schema>(w, ts_type<TS<Int>>()).template as<TS<stdlib::TableSchema>>();
+            return wire<stdlib::table_schema>(w, ts_type<TS<Int>>()).template as<TS<hgraph::TableSchema>>();
         }
     };
+    static_assert(std::is_same_v<hgraph::TableSchema, stdlib::TableSchema>);
 }  // namespace
 
 TEST_CASE("table operators: table_schema publishes the layout as one constant tick (RFC 0042)")

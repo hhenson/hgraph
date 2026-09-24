@@ -8,6 +8,25 @@
 
 #include <cstdint>
 
+namespace hgraph
+{
+    /**
+     * The row layout ``to_table`` produces for a time-series type, as a value:
+     * released hgraph's ``TableSchema`` (RFC 0042). ``tp`` is the time-series
+     * type and ``types`` each column's scalar type, both held as type values;
+     * ``keys`` are the column names in row order, ``partition_keys`` the TSD
+     * key columns (empty for one row per tick) and ``removed_keys`` their
+     * removal flags. Python's ``hgraph.TableSchema`` is this schema's face,
+     * bound by name (``namespace="hgraph"``).
+     */
+    using TableSchema =
+        Bundle<"hgraph::TableSchema", Field<"tp", TypeCarrier>, Field<"keys", HomogeneousTuple<Str>>,
+               Field<"types", HomogeneousTuple<TypeCarrier>>, Field<"partition_keys", HomogeneousTuple<Str>>,
+               Field<"removed_keys", HomogeneousTuple<Str>>, Field<"date_time_key", Str>,
+               Field<"as_of_key", Str>, Field<"is_multi_row", Bool>>;
+
+}  // namespace hgraph
+
 namespace hgraph::stdlib
 {
     /** Row-selection policy shared by ``to_table`` and table recording. */
@@ -62,20 +81,8 @@ namespace hgraph::stdlib
     {
     };
 
-    /**
-     * The row layout ``to_table`` produces for a time-series type, as a value:
-     * released hgraph's ``TableSchema`` (RFC 0042). ``tp`` is the time-series
-     * type and ``types`` each column's scalar type, both held as type values;
-     * ``keys`` are the column names in row order, ``partition_keys`` the TSD
-     * key columns (empty for one row per tick) and ``removed_keys`` their
-     * removal flags. Python's ``hgraph.TableSchema`` is this schema's face,
-     * bound by name (``namespace="hgraph"``).
-     */
-    using TableSchema =
-        Bundle<"hgraph::TableSchema", Field<"tp", TypeCarrier>, Field<"keys", HomogeneousTuple<Str>>,
-               Field<"types", HomogeneousTuple<TypeCarrier>>, Field<"partition_keys", HomogeneousTuple<Str>>,
-               Field<"removed_keys", HomogeneousTuple<Str>>, Field<"date_time_key", Str>,
-               Field<"as_of_key", Str>, Field<"is_multi_row", Bool>>;
+    /** The table-layout value ``table_schema`` publishes; see ``hgraph::TableSchema``. */
+    using TableSchema = hgraph::TableSchema;
 
     /**
      * ``table_schema`` — the ``TableSchema`` that ``to_table`` produces for
