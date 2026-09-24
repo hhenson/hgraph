@@ -558,7 +558,12 @@ way:
   map is unordered) admits a ``str_`` difference only where both renderings
   spell, as Python literals, the same value containing a map or a set.
 
-The last four came from the parity triage of 2026-09-24, which derived the
+* ``first-empty-set-result`` (OP-5, the owner's ruling of 2026-09-24) admits
+  one position only: the candidate's first tick of a dictionary set
+  operator, holding exactly the empty dictionary, where the reference is
+  silent, at a cycle in which the operator is admitted.
+
+The last five came from the parity triage of 2026-09-24, which derived the
 runtime specification's operator contracts
 (``docs/source/runtime_spec/operators.md``, evidence in
 ``runtime_spec/validation/parity``).

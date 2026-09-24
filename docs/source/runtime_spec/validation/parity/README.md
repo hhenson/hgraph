@@ -45,7 +45,7 @@ matches, or no rule decides, the question goes to the owner.
 
 | Family | Issues | Rules | Verdict | Decision |
 |---|---|---|---|---|
-| TSD set operators | 56 (see assessment) | OP-4–OP-7 | 51 reference, 1 C++ (#978), 4 neither | Correct C++. #978 and the four hinge on the first empty result (point to settle 1), raised as a question |
+| TSD set operators | 56 (see assessment) | OP-4–OP-7 | 51 reference, 1 C++ (#978), 4 neither | Correct C++. #978 and the four follow the owner's ruling that the first empty result publishes; accepted (`first-empty-set-result`, `n-ary-set-fold`) |
 | Three-operand TSS fold | #1428, #1478 | OP-7 | C++ | Accepted (already in `parity_matrix.rst`; now a family) |
 | Key-set reader tick | #1139, #1140, #1160, #1200, #1391, #1393 | OP-1–OP-3 | C++ | Accepted: Python's `is_empty` ticks the key set it reads |
 | Aggregate over an invalid list | #1181, #1246, #1355, #1494, #1476, #1538 | OP-1, OP-2 | reference | Correct C++ |
@@ -88,7 +88,11 @@ observation in those four matches Python, and C++ matches it too once
 corrected. So the parity issues close, and the rule remains a question
 (point to settle 1). #978 depends on the same rule one level down: without
 it, a three-operand symmetric difference whose first two operands cancel
-never publishes in either runtime, although its value is well defined.
+never publishes in either runtime, although its value is well defined. The
+owner ruled on 2026-09-24 that the first empty result publishes
+([decisions.json](decisions.json)), so the reasoning stands and the C++
+runtime follows it; released hgraph's silence there is an accepted
+deviation.
 
 ## Observations outside the issues
 
@@ -146,3 +150,10 @@ unchanged.
   from Python 3.14's Unicode 16.0.0 database
   (`tools/generate_unicode_printable.py`). Printable ASCII keeps its inline
   fast path. Both recipes match Python.
+- **First empty result** (OP-5, owner ruling 2026-09-24). A TSD union or
+  symmetric difference now validates its output with the empty dictionary on
+  its first admitted evaluation, as intersection and difference do and as
+  every TSS set operator already did in both runtimes. The symmetric
+  difference drops its admission flag: validity marks admission again. #978,
+  #983, #984, #1004 and #1008 now differ from Python only inside the
+  `first-empty-set-result` and `n-ary-set-fold` families.

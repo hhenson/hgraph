@@ -51,6 +51,7 @@ IEEE_LOG_DOMAIN = "ieee-log-domain"
 N_ARY_SET_FOLD = "n-ary-set-fold"
 KEY_SET_READER_TICK = "key-set-reader-tick"
 UNORDERED_MEMBER_TEXT = "unordered-member-text"
+FIRST_EMPTY_SET_RESULT = "first-empty-set-result"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -1169,6 +1170,55 @@ def _unordered_member_text_relation(
     return reordered
 
 
+def _first_empty_set_result_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Owner ruling 2026-09-24 (runtime spec OP-5): a dictionary set
+    operator's first admitted evaluation publishes its result even when it is
+    empty. Released hgraph builds ``^`` and ``|`` over dictionaries on
+    ``map_``, which publishes nothing for an empty result. Admitted only for
+    a single position: the candidate's first tick, holding exactly the empty
+    dictionary, where the reference is silent, at THE cycle the operator is
+    first admitted (every operand valid; one for union). Every other
+    position agrees."""
+    if difference.get("classification") != "value":
+        return False
+    candidate_trace = candidate.get("trace")
+    if not isinstance(candidate_trace, list):
+        return False
+    reference_trace = reference.get("trace")
+    if reference_trace is None:
+        reference_trace = [None] * len(candidate_trace)
+    if not isinstance(reference_trace, list) or len(reference_trace) != len(candidate_trace):
+        return False
+    differing = [
+        index
+        for index, (expected, actual) in enumerate(zip(reference_trace, candidate_trace))
+        if expected != actual
+    ]
+    if len(differing) != 1:
+        return False
+    [index] = differing
+    if reference_trace[index] is not None or candidate_trace[index] != {"$map": []}:
+        return False
+    if any(tick is not None for tick in candidate_trace[:index]):
+        return False
+    inputs = recipe.get("inputs") or {}
+    first_ticks = []
+    for name in sorted(inputs):
+        ticked = [position for position, tick in enumerate(inputs[name]) if tick is not None]
+        first_ticks.append(ticked[0] if ticked else None)
+    operation = (recipe.get("parameters") or {}).get("operation")
+    valid = [tick for tick in first_ticks if tick is not None]
+    if operation in ("union", "bit_or"):
+        return bool(valid) and index == min(valid)
+    return len(valid) == len(first_ticks) and bool(valid) and index == max(valid)
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -1194,6 +1244,7 @@ RELATIONS = {
     N_ARY_SET_FOLD: _n_ary_set_fold_relation,
     KEY_SET_READER_TICK: _key_set_reader_tick_relation,
     UNORDERED_MEMBER_TEXT: _unordered_member_text_relation,
+    FIRST_EMPTY_SET_RESULT: _first_empty_set_result_relation,
 }
 
 #: Relations that reason about a ``status`` difference and therefore run

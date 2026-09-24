@@ -57,6 +57,13 @@ spellings `|`, `&`, `-` and `^`, act on TSS values and on TSD key sets.
 | difference | in lhs, not in rhs | both valid | lhs |
 | symmetric difference | in an odd number of operands | every operand valid | the one operand holding it; for three or more, the pairwise left fold |
 
+The first admitted evaluation publishes the result even when it is empty:
+an admitted result is a value, and valid does not mean non-empty (TS-1;
+owner ruling 2026-09-24). After that a change that nets to nothing does not
+tick. Both runtimes already do this for sets. Python 0.5.41 does it for
+`difference` and `intersection` of dictionaries, but not for their `^` and
+`|`, which it builds on `map_`.
+
 A member entering the result, or a TSD child whose forwarding operand changes
 because another operand lost the key, takes the new operand's current value.
 That is a derived change: an equal value is not published again, unless
@@ -131,7 +138,8 @@ Rules
   recomputation.
 - **OP-5** A set operator's members are those in the table above. A TSD output
   child forwards the operand the table names (OP-4); a derived change of
-  forwarding operand publishes only a different value.
+  forwarding operand publishes only a different value. The first admitted
+  evaluation publishes the result, empty or not.
 - **OP-6** `union` reads the valid operands and ignores an invalid one.
   `intersection`, `difference` and `symmetric_difference` follow OP-1.
 - **OP-7** `union`, `intersection` and `symmetric_difference` fold pairwise
@@ -154,17 +162,13 @@ never a default value. This is the TSD row of the value and delta table in
 Points to settle
 ----------------
 
-1. **The first empty result.** Once a set operator is admitted, its result
-   has a value, even if that value is empty. Does its first evaluation
-   publish an empty dictionary to become valid? TS-1 and "valid does not
-   mean non-empty" suggest yes. Python 0.5.41 publishes it for `difference`
-   and `intersection` (built on `tsd_get_items`) but not for symmetric
-   difference or union (built on `map_`). The C++ runtime publishes it only
-   for `intersection`. The parity issues are unaffected: both runtimes
-   stay silent for symmetric difference. The answer matters for folds: if
-   the first empty result does not validate, `symmetric_difference(a, b, c)`
-   never publishes when `a` and `b` cancel, although its value is well
-   defined (#978). Raised as a question for the owner.
+1. **The first empty result.** Settled 2026-09-24 by the owner: yes, the
+   first admitted evaluation publishes an empty result (OP-5). The reasons:
+   validity means having a value, and an admitted result has one; the four
+   set operators should not differ by how they are built; and without it
+   `symmetric_difference(a, b, c)` never publishes when `a` and `b` cancel,
+   although its value is well defined (#978). Both runtimes already
+   publish the empty first result for sets.
 2. **The order of a map's text.** Settled 2026-09-24 by the owner: a map is
    an unordered map and provides no ordering guarantee, so the order of its
    text is unspecified (Scalar types, Text; OP-9). Python writes insertion

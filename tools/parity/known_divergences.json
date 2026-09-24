@@ -263,6 +263,18 @@
       "issue": "https://github.com/hhenson/hgraph/issues/1082",
       "reason": "Owner ruling 2026-09-24 (runtime spec OP-9, VAL-8): a map is an unordered map with no ordering guarantee, and a set has no order, so the members in str_'s text come in no specified order. Released hgraph writes insertion order; this runtime writes storage order, which reuses a removed key's slot (#1082, #1083, #1086). Admitted only when every differing rendering spells the same Python literal containing a map or a set.",
       "review_after": "2027-09-24"
+    },
+    {
+      "family": "first-empty-set-result",
+      "template": "set_operator",
+      "parameters_equal": {
+        "shape": "tsd"
+      },
+      "parameters_not_equal": {},
+      "relation": "first-empty-set-result",
+      "issue": "https://github.com/hhenson/hgraph/issues/983",
+      "reason": "Owner ruling 2026-09-24 (runtime spec OP-5): a dictionary set operator's first admitted evaluation publishes its result even when empty, as intersection and difference do in both runtimes and as every set operator over TSS does. Released hgraph builds ^ and | over dictionaries on map_, which publishes nothing for an empty result (#983, #984, #1004, #1008). Admitted only for the candidate's first tick, holding exactly the empty dictionary, where the reference is silent, at an admitted cycle; every other position agrees.",
+      "review_after": "2027-09-24"
     }
   ]
 }

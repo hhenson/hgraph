@@ -304,3 +304,24 @@ TEST_CASE("operator contracts: a map's text has its members in no specified orde
     const Str last = rendered[2]->view().checked_as<Str>();
     CHECK((last == "{'a': -19, 'b': -19}" || last == "{'b': -19, 'a': -19}"));
 }
+
+TEST_CASE("operator contracts: a set operator's first admitted result validates, even empty (OP-5)")
+{
+    stdlib::register_standard_operators();
+
+    // Owner ruling 2026-09-24 (parity #983, #984, #1004, #1008): both operands
+    // hold the same keys, so the symmetric difference is the empty dictionary.
+    CHECK_OUTPUT((eval_node<stdlib::bit_xor, IntDict, IntDict>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{3, -9}}), dict_delta<Int, TS<Int>>({{1, -18}})),
+                     values<Value>(dict_delta<Int, TS<Int>>({{3, -19}}), none))),
+                 values<Value>(dict_delta<Int, TS<Int>>({}), dict_delta<Int, TS<Int>>({{1, -18}})));
+    // A union of empty dictionaries is the empty dictionary.
+    CHECK_OUTPUT((eval_node<stdlib::bit_or, IntDict, IntDict>(
+                     values<Value>(dict_delta<Int, TS<Int>>({})), values<Value>(dict_delta<Int, TS<Int>>({})))),
+                 values<Value>(dict_delta<Int, TS<Int>>({})));
+    // Afterwards a net-empty change does not tick (the no-change ruling).
+    CHECK_OUTPUT((eval_node<stdlib::bit_xor, IntDict, IntDict>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}}), dict_delta<Int, TS<Int>>({{1, 2}})),
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 3}}), none))),
+                 values<Value>(dict_delta<Int, TS<Int>>({}), none));
+}

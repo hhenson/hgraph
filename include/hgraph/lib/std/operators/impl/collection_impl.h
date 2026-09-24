@@ -2151,6 +2151,11 @@ namespace hgraph::stdlib
                         adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
+                // Admitted once an operand is valid (OP-6): the first admitted
+                // result is a value even when it is empty, so it validates the
+                // output (runtime spec OP-5, owner ruling 2026-09-24). Touch last,
+                // and only to validate.
+                if (!out.valid() && (lhs.valid() || rhs.valid())) { mutation.touch(); }
             }
         };
 
@@ -2162,11 +2167,14 @@ namespace hgraph::stdlib
             // operand is nil, not the empty dictionary (parity #959).
             static void eval(In<"lhs", TSD<ScalarVar<"K">, TsVar<"V">>> lhs,
                              In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>> rhs,
-                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out, State<Bool> admitted)
+                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
             {
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // The first admitted evaluation always validates the output
+                // (below), so an invalid output marks it.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
@@ -2199,11 +2207,8 @@ namespace hgraph::stdlib
                     }
                 }
                 // Gated first cycles: keys that ticked while the other operand
-                // was still invalid backfill once, on admission. An empty first
-                // result does not validate the output (runtime spec, operator
-                // point to settle 1), so validity cannot mark admission here.
-                // Losing the flag on recovery costs one idempotent pass.
-                if (!admitted.get())
+                // was still invalid backfill once, on admission.
+                if (first_admission)
                 {
                     for (const auto [key, child] : lhs.items())
                     {
@@ -2219,8 +2224,12 @@ namespace hgraph::stdlib
                             adopt_tsd_child(mutation, out_dict, key, child);
                         }
                     }
-                    admitted.set(true);
                 }
+                // The first admitted result validates the output even when both
+                // operands hold the same keys (OP-5, owner ruling 2026-09-24):
+                // a three-operand fold whose first two operands cancel would
+                // otherwise never publish.
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 

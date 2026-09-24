@@ -4257,3 +4257,33 @@ def test_unordered_member_text_family_admits_only_a_reordering():
     assert not classify(["set()"], ["{}"])
     # Unparseable renderings stay reportable.
     assert not classify(["{'a': datetime.date(2020, 1, 1)}"], ["{'a': 2020-01-01}"])
+
+
+def test_first_empty_set_result_family_admits_only_the_validating_tick():
+    """Owner ruling 2026-09-24 (#983, #984, #1004, #1008)."""
+    families = _family_named("first-empty-set-result")
+    recipe = {
+        "template": "set_operator",
+        "parameters": {"element_type": "int", "operation": "bit_xor", "shape": "tsd"},
+        "inputs": {"a": [{"c": -9}, {"c": {"$remove": True}}, {"c": -19}],
+                   "b": [{"c": -19}, {"a": -18}, {"c": {"$remove": True}}]},
+    }
+
+    def classify(reference_trace, candidate_trace, source=recipe):
+        return _classify(
+            source,
+            {"status": "ok", "trace": reference_trace},
+            {"status": "ok", "trace": candidate_trace},
+            families,
+        )
+
+    later = [{"$map": [["a", -18], ["c", -19]]}, {"$map": [["c", -19]]}]
+    assert classify([None, *later], [{"$map": []}, *later])
+    assert classify(None, [{"$map": []}, None, None])
+    # Not empty, not the first tick, or a later disagreement: a defect.
+    assert not classify([None, *later], [{"$map": [["c", -9]]}, *later])
+    assert not classify([None, None, None], [None, {"$map": []}, None])
+    assert not classify([None, *later], [{"$map": []}, later[0], None])
+    # Before every operand of ^ is valid there is no admitted result.
+    early = dict(recipe, inputs={"a": [{"c": 1}, None], "b": [None, {"c": 1}]})
+    assert not classify([None, None], [{"$map": []}, None], source=early)

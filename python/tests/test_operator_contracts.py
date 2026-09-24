@@ -3,7 +3,9 @@ contracts (docs/source/runtime_spec/operators.md, OP-1 to OP-11).
 
 Each test is the minimized recipe of a parity issue whose reasoned expectation
 matched released hgraph 0.5.41 (runtime_spec/validation/parity), so it pins
-the released trace. The native twin is tests/cpp/test_operator_contracts.cpp.
+the released trace -- except a test marked as an accepted deviation, which
+pins this runtime's reasoned answer where released hgraph differs. The native
+twin is tests/cpp/test_operator_contracts.cpp.
 """
 
 import hgraph as hg
@@ -331,3 +333,19 @@ def test_a_maps_text_has_its_members_in_any_order():
 
     out = eval_node(render, [{"a": 2}, {"a": hg.REMOVE, "b": -19}, {"a": -19}])
     assert [ast.literal_eval(text) for text in out] == [{"a": 2}, {"b": -19}, {"a": -19, "b": -19}]
+
+
+def test_a_set_operators_first_admitted_result_validates_even_empty():
+    # Accepted deviation, OP-5 and the owner's ruling of 2026-09-24: an
+    # admitted result is a value even when empty. Released hgraph publishes
+    # nothing here for ^ and | (it builds them on map_), which also leaves a
+    # three-operand fold whose first two operands cancel silent.
+    # Parity #983, #984, #1004, #1008, #978.
+    assert _binary(hg.bit_xor, [{"c": -9}, {"a": -18}], [{"c": -19}, None]) == [{}, {"a": -18}]
+    assert _binary(hg.bit_or, [{}], [{}]) == [{}]
+
+    @graph
+    def three(a: D, b: D, c: D) -> D:
+        return hg.symmetric_difference(a, b, c)
+
+    assert eval_node(three, [{"a": -11}], [{"a": -19}], [{"a": -19}]) == [{"a": -19}]

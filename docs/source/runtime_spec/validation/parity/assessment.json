@@ -10,7 +10,6 @@
   },
   "1004": {
    "family": "tsd-set-operators",
-   "open_point": 1,
    "verdict": "neither"
   },
   "1005": {
@@ -27,7 +26,6 @@
   },
   "1008": {
    "family": "tsd-set-operators",
-   "open_point": 1,
    "verdict": "neither"
   },
   "1009": {
@@ -312,7 +310,6 @@
   },
   "978": {
    "family": "tsd-set-operators",
-   "open_point": 1,
    "verdict": "candidate"
   },
   "979": {
@@ -333,12 +330,10 @@
   },
   "983": {
    "family": "tsd-set-operators",
-   "open_point": 1,
    "verdict": "neither"
   },
   "984": {
    "family": "tsd-set-operators",
-   "open_point": 1,
    "verdict": "neither"
   }
  },

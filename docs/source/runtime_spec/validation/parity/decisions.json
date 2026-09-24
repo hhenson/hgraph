@@ -17,5 +17,26 @@
     ],
     "previous_expected": "open (point to settle 2)",
     "expected": "each rendering is the text of the expected map, in any member order"
+  },
+  {
+    "id": "first-empty-set-result",
+    "date": "2026-09-24",
+    "authority": "User ruling, with the reasoning agreed",
+    "rules": [
+      "TS-1",
+      "OP-5"
+    ],
+    "question": "Point to settle 1: should a set operator's first admitted evaluation publish an empty dictionary? Python 0.5.41 does for difference and intersection but not for ^ and |; the C++ runtime did only for intersection.",
+    "ruling": "Yes (owner: 'I suspect the answer should be yes. But make sure it makes sense to you as well.').",
+    "rationale": "An admitted result is a value even when empty (valid does not mean non-empty); one rule across the four operators, as both runtimes already have for sets; and without it a three-operand symmetric difference whose first two operands cancel never publishes (#978).",
+    "cases": [
+      "978",
+      "983",
+      "984",
+      "1004",
+      "1008"
+    ],
+    "previous_expected": "open (point to settle 1)",
+    "expected": "tsd_set_model.py unchanged: the first admitted evaluation publishes, empty or not"
   }
 ]

@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The twenty accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The twenty-one accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
@@ -50,7 +50,8 @@ re-pointed at the same ``map_`` reference adds another application of the
 no-change-means-no-tick ruling, as described below. The key-set reader tick
 joined on 2026-09-24, from the parity triage that derived the runtime
 specification's operator contracts (``runtime_spec/operators.md``), and the
-unordered text of a map the same day, by the owner's ruling.
+unordered text of a map and the first empty set-operator result the same
+day, by the owner's rulings.
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -107,6 +108,16 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
      - Evaluates the fold (runtime spec OP-7). A superset, so no released
        program changes meaning. The ``n-ary-set-fold`` relation checks the
        candidate's final members against the fold of the recipe's inputs
+   * - The first admitted result of ``^`` or ``|`` over dictionaries, when it
+       is empty (family ``first-empty-set-result``)
+     - Publishes nothing: both are built on ``map_``, which never publishes an
+       empty dictionary. A three-operand symmetric difference whose first two
+       operands cancel therefore never publishes at all
+     - Publishes the empty dictionary, validating the output, as
+       ``intersection`` and ``difference`` do in both runtimes and every set
+       operator over a TSS does (runtime spec OP-5, owner ruling 2026-09-24).
+       The relation admits only the candidate's first tick holding exactly
+       the empty dictionary at an admitted cycle
    * - ``str_`` of a map (or a set) whose members were inserted in a
        different order (family ``unordered-member-text``)
      - Writes a dictionary's members in insertion order

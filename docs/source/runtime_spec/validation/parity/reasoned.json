@@ -72,13 +72,13 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
-   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",
     "OP-6",
     "OP-7"
-   ]
+   ],
+   "ruling": "first-empty-set-result"
   },
   "1005": {
    "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
@@ -159,13 +159,13 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
-   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",
     "OP-6",
     "OP-7"
-   ]
+   ],
+   "ruling": "first-empty-set-result"
   },
   "1009": {
    "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
@@ -1714,13 +1714,13 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
-   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",
     "OP-6",
     "OP-7"
-   ]
+   ],
+   "ruling": "first-empty-set-result"
   },
   "979": {
    "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
@@ -1848,13 +1848,13 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
-   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",
     "OP-6",
     "OP-7"
-   ]
+   ],
+   "ruling": "first-empty-set-result"
   },
   "984": {
    "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
@@ -1885,13 +1885,13 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
-   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",
     "OP-6",
     "OP-7"
-   ]
+   ],
+   "ruling": "first-empty-set-result"
   }
  },
  "date": "2026-09-24",
