@@ -4141,6 +4141,26 @@ def test_n_ary_set_fold_family_admits_only_the_fold():
     assert not _classify(
         unadmitted, silent, {"status": "ok", "trace": [None, {"$map": [["b", -17]]}]}, families
     )
+    # Codex review on #1625: every admitted cycle is checked, not only the
+    # final value -- a transient wrong member corrected later is a defect.
+    two_ticks = dict(tss, inputs={"a": sets({1, 2}, None), "b": sets({2}, None), "c": sets({2, 3}, None)})
+    assert _classify(two_ticks, rejected, {"status": "ok", "trace": sets({2}, None)}, families)
+    corrected = [
+        {"$set_delta": {"added": [9], "removed": []}},
+        {"$set_delta": {"added": [2], "removed": [9]}},
+    ]
+    assert not _classify(two_ticks, rejected, {"status": "ok", "trace": corrected}, families)
+    # A fold that empties again is still the fold (it published, then removed).
+    emptied = dict(
+        tsd,
+        inputs={"a": [{"x": 1}, {"x": {"$remove": True}}], "b": [{"y": 2}, None], "c": [{"y": 3}, None]},
+    )
+    assert _classify(
+        emptied,
+        silent,
+        {"status": "ok", "trace": [{"$map": [["x", 1]]}, {"$map": [["x", {"$remove": True}]]}]},
+        families,
+    )
     # Publishing before the last operand's first tick is a defect too.
     late = dict(tsd, inputs={"a": [{"x": 1}, None], "b": [{"y": 2}, None], "c": [None, {"z": 3}]})
     assert not _classify(
@@ -4198,6 +4218,10 @@ def test_key_set_reader_tick_family_admits_only_empty_set_answers():
         "trace": [{"$map": [["empty", True], ["size", 1]]}],
     }
     assert not _classify(recipe, wrong, candidate(("empty", True)), families)
+    # Codex review on #1625: a dictionary that ticked empty has a valid key
+    # set, so its missing aggregates are defects even with no key.
+    ticked_empty = dict(recipe, inputs={"probe": [None], "values": [{}]})
+    assert not _classify(ticked_empty, reference, candidate(("empty", True)), families)
     # Once the dictionary holds a key, the key set really ticked: a missing
     # size is a defect.
     keyed = dict(recipe, inputs={"probe": [None], "values": [{"1": 5}]})

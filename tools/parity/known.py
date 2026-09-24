@@ -896,11 +896,14 @@ def _n_ary_set_fold_relation(
     """Runtime spec OP-7 (parity_matrix.rst): intersection and symmetric
     difference fold pairwise over three or more operands. Released hgraph has
     no zero for either fold: three sets fail at wiring, and three
-    dictionaries fold through ``nothing`` and never publish. Admitted only
-    with three or more operands, exactly that reference outcome, and a
-    candidate whose FINAL value is the fold of the recipe's final operands --
-    so a wrong fold result stays reportable. Every operand must be valid:
-    publishing over a never-ticked operand is not this deviation (OP-6)."""
+    dictionaries fold through ``nothing`` and never publish. With no
+    reference trace to compare, the relation models the fold itself: from
+    the cycle every operand is first valid (OP-6), the candidate's
+    accumulated value must equal the fold of the operands after EVERY cycle,
+    it publishes on that first cycle and otherwise only when the fold
+    changes, and it publishes nothing before. A transient wrong member, a
+    late or missing tick, or a publication over an invalid operand stays
+    reportable."""
     parameters = recipe.get("parameters") or {}
     operation = parameters.get("operation")
     if operation not in ("intersection", "symmetric_difference"):
@@ -912,60 +915,66 @@ def _n_ary_set_fold_relation(
     if not isinstance(trace, list):
         return False
     names = sorted(inputs)
-    # OP-6: neither fold is admitted until every operand is valid, so the
-    # candidate publishes nothing before the cycle in which the last operand
-    # first ticks. An operand that never ticks leaves no fold at all.
-    first_valid = []
-    for name in names:
-        ticked = [index for index, tick in enumerate(inputs[name]) if tick is not None]
-        if not ticked:
-            return False
-        first_valid.append(ticked[0])
-    admitted_at = max(first_valid)
-    if any(tick is not None for tick in trace[:admitted_at]):
-        return False
-    if parameters.get("shape", "tss") == "tss":
+    shape = parameters.get("shape", "tss")
+    if shape == "tss":
         if difference.get("classification") != "status":
             return False
         if reference.get("status") != "error" or reference.get("phase") != "wiring":
             return False
-        operands = []
-        for name in names:
-            members: set[str] = set()
-            for tick in inputs[name]:
-                if not _apply_set_tick(members, tick):
-                    return False
-            operands.append(members)
-        folded = operands[0]
-        for members in operands[1:]:
-            folded = folded & members if operation == "intersection" else folded ^ members
-        published: set[str] = set()
-        for tick in trace:
-            if not _apply_set_tick(published, tick):
-                return False
-        return published == folded
-    if reference.get("status") != "ok" or reference.get("trace") is not None:
+        apply_tick, empty = _apply_set_tick, set
+    else:
+        if reference.get("status") != "ok" or reference.get("trace") is not None:
+            return False
+        apply_tick, empty = _apply_map_tick, dict
+    cycles = max(len(inputs[name]) for name in names)
+    if len(trace) != cycles:
         return False
-    operands_by_key = []
-    for name in names:
-        state: dict[Any, Any] = {}
-        for tick in inputs[name]:
-            if not _apply_map_tick(state, tick):
+    operands = [empty() for _ in names]
+    valid = [False for _ in names]
+    published = empty()
+    previous = None
+    for index in range(cycles):
+        for position, name in enumerate(names):
+            tick = inputs[name][index] if index < len(inputs[name]) else None
+            if tick is not None:
+                valid[position] = True
+            if not apply_tick(operands[position], tick):
                 return False
-        operands_by_key.append(state)
-    folded: dict[Any, Any] = dict(operands_by_key[0])
-    for state in operands_by_key[1:]:
-        if operation == "intersection":
+        if not apply_tick(published, trace[index]):
+            return False
+        if not all(valid):
+            if trace[index] is not None:
+                return False
+            continue
+        folded = _fold_members(operation, operands)
+        first = previous is None
+        if published != folded:
+            return False
+        if first and trace[index] is None:
+            return False
+        if not first and trace[index] is not None and folded == previous:
+            return False
+        if not first and trace[index] is None and folded != previous:
+            return False
+        previous = folded
+    return previous is not None
+
+
+def _fold_members(operation: str, operands: list) -> Any:
+    """Pairwise left fold of set members or dictionary entries; for a
+    dictionary a symmetric difference keeps the value of the last operand
+    that holds a key an odd number of times, an intersection lhs's value."""
+    folded = operands[0].copy()
+    for state in operands[1:]:
+        if isinstance(folded, set):
+            folded = folded & state if operation == "intersection" else folded ^ state
+        elif operation == "intersection":
             folded = {key: value for key, value in folded.items() if key in state}
         else:
             merged = {key: value for key, value in folded.items() if key not in state}
             merged.update({key: value for key, value in state.items() if key not in folded})
             folded = merged
-    published_map: dict[Any, Any] = {}
-    for tick in trace:
-        if not _apply_map_tick(published_map, tick):
-            return False
-    return bool(published_map) and published_map == folded
+    return folded
 
 
 #: The answers the released key-set side effect publishes for an EMPTY set
@@ -994,7 +1003,8 @@ def _key_set_reader_tick_relation(
     not. Admitted tick by tick: a field only the reference publishes must be
     one of those aggregates with exactly its empty-set answer, at a tick where
     the dictionary holds no key; every other field agrees; the candidate
-    publishes nothing the reference does not."""
+    publishes nothing the reference does not. The waiver lasts only while the
+    dictionary has never ticked."""
     if difference.get("classification") not in ("value", "length"):
         return False
     reference_trace = reference.get("trace")
@@ -1009,11 +1019,15 @@ def _key_set_reader_tick_relation(
     if not isinstance(values_ticks, list):
         return False
     live: dict[Any, Any] = {}
+    dictionary_ticked = False
     admitted = False
     tolerance = family.get("float_abs_tolerance", 0.0)
     for index, (ref_tick, cand_tick) in enumerate(zip(reference_trace, candidate_trace)):
-        if index < len(values_ticks) and not _apply_map_tick(live, values_ticks[index]):
-            return False
+        if index < len(values_ticks):
+            if values_ticks[index] is not None:
+                dictionary_ticked = True
+            if not _apply_map_tick(live, values_ticks[index]):
+                return False
         ref_entries = _map_entries(ref_tick)
         cand_entries = _map_entries(cand_tick)
         if ref_entries is None or cand_entries is None:
@@ -1022,7 +1036,10 @@ def _key_set_reader_tick_relation(
             return False
         extra = set(ref_entries) - set(cand_entries)
         if extra:
-            if live:
+            # Only a NEVER-ticked dictionary's key set is invalid; once it has
+            # ticked -- even empty, even after losing its last key -- its
+            # aggregates are real answers and a missing one is a defect.
+            if dictionary_ticked or live:
                 return False
             for name in extra:
                 if name not in _EMPTY_KEY_SET_AGGREGATES:
