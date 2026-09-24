@@ -1,5 +1,5 @@
 {
-  "source_fingerprint": "67a752eb2e156bba15296b941f95381d5ddfde25f52bb52e3f1d6841626d3680",
+  "source_fingerprint": "4fc829a525e1f51fe96a5c73dbdc4767aa85929c6b325f1ac7ce89e414bbe94d",
   "operators": {
     "__apply_value_callable": [
       {
@@ -25266,6 +25266,33 @@
         "kwargs_type": null,
         "output": "~__out__",
         "id": "symmetric_difference:05822dabb0a3"
+      }
+    ],
+    "table_schema": [
+      {
+        "parameters": [
+          {
+            "name": "tp",
+            "kind": "type",
+            "type": "type[~S]",
+            "default": false,
+            "carrier": "time-series"
+          }
+        ],
+        "variadic": false,
+        "positional_count": 1,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[hgraph::TableSchema]",
+        "id": "table_schema:17b035dd910b"
       }
     ],
     "take": [
