@@ -110,4 +110,37 @@ TEST_CASE("operator contracts: a nested child forwards only its own changes (OP-
                  values<Value>(dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 1}, {11, 2}})},
                                                        {2, dict_delta<Int, TS<Int>>({{20, 3}})}}),
                                dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 5}})}})));
+
+TEST_CASE("operator contracts: an aggregate publishes nothing over an invalid collection (OP-2)")
+{
+    stdlib::register_standard_operators();
+    using IntList = TSL<TS<Int>, 2>;
+
+    // Parity #1476 / #1538: no element of the list ever ticks.
+    CHECK_OUTPUT((eval_node<stdlib::sum_, IntList>(values<Value>(none, none))), values<Int>(none, none));
+    // Admitted once one element is valid; the valid elements are read.
+    CHECK_OUTPUT((eval_node<stdlib::sum_, IntList>(values<Value>(none, list_delta<TS<Int>>({{1, 5}})))),
+                 values<Int>(none, 5));
+
+    // A never-ticked set is not the empty set: nothing, not 0 or a default.
+    CHECK_OUTPUT((eval_node<stdlib::sum_, TSS<Int>>(values<Value>(none, none))), values<Int>(none, none));
+    CHECK_OUTPUT((eval_node<stdlib::sum_, TSS<Int>>(values<Value>(set_delta<Int>({}, {}), none))),
+                 values<Int>(0, none));
+    CHECK_OUTPUT((eval_node<stdlib::sum_, TSD<Int, TS<Int>>>(values<Value>(none, none))),
+                 values<Int>(none, none));
+}
+
+TEST_CASE("operator contracts: all_ and any_ publish nothing before an argument is valid (OP-2)")
+{
+    stdlib::register_standard_operators();
+
+    // Parity #1181, #1246, #1355, #1494.
+    CHECK_OUTPUT(eval_node<stdlib::all_>(values<Bool>(none), values<Bool>(none), values<Bool>(none)),
+                 values<Bool>(none));
+    CHECK_OUTPUT(eval_node<stdlib::any_>(values<Bool>(none), values<Bool>(none)), values<Bool>(none));
+    // An argument not yet valid reads as released hgraph's None: falsy.
+    CHECK_OUTPUT(eval_node<stdlib::all_>(values<Bool>(true, true), values<Bool>(none, true)),
+                 values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::any_>(values<Bool>(none, false), values<Bool>(true, none)),
+                 values<Bool>(true, true));
 }

@@ -124,31 +124,55 @@ namespace hgraph::stdlib
             }
         };
 
-        struct all_bool_binary
+        /** ``all_(*args)`` over the packed arguments. The list is non-peered,
+            so the node is admitted once any argument is valid and publishes
+            nothing before (runtime spec OP-2). An invalid argument reads as
+            released hgraph's ``None`` in ``all(args.value)``: falsy. */
+        struct all_bool_list
         {
-            static constexpr auto name              = "all_bool_binary";
-            static constexpr bool schedule_on_start = true;
+            static constexpr auto name = "all_bool_list";
 
-            static void eval(In<"lhs", TS<Bool>, InputValidity::Unchecked> lhs,
-                             In<"rhs", TS<Bool>, InputValidity::Unchecked> rhs,
-                             Out<TS<Bool>> out)
+            static void eval(In<"ts", TSL<TS<Bool>, SIZE<"N">>> ts, Out<TS<Bool>> out)
             {
-                out.set(lhs.valid() && lhs.value() && rhs.valid() && rhs.value());
+                Bool result = true;
+                for (std::size_t i = 0; i < ts.size() && result; ++i)
+                {
+                    auto child = ts[i];
+                    result = child.valid() && child.value();
+                }
+                out.set(result);
             }
         };
 
-        struct any_bool_binary
+        /** ``any_(*args)``: as ``all_bool_list``, with ``any(args.value)``. */
+        struct any_bool_list
         {
-            static constexpr auto name              = "any_bool_binary";
-            static constexpr bool schedule_on_start = true;
+            static constexpr auto name = "any_bool_list";
 
-            static void eval(In<"lhs", TS<Bool>, InputValidity::Unchecked> lhs,
-                             In<"rhs", TS<Bool>, InputValidity::Unchecked> rhs,
-                             Out<TS<Bool>> out)
+            static void eval(In<"ts", TSL<TS<Bool>, SIZE<"N">>> ts, Out<TS<Bool>> out)
             {
-                out.set((lhs.valid() && lhs.value()) || (rhs.valid() && rhs.value()));
+                Bool result = false;
+                for (std::size_t i = 0; i < ts.size() && !result; ++i)
+                {
+                    auto child = ts[i];
+                    result = child.valid() && child.value();
+                }
+                out.set(result);
             }
         };
+
+        [[nodiscard]] inline WiringPortRef pack_bool_arguments(Wiring &w, const VarIn<"args", TS<Bool>> &args)
+        {
+            auto &registry = TypeRegistry::instance();
+            const auto *element = args[0].schema;
+            std::vector<WiringPortRef> children;
+            children.reserve(args.size());
+            for (const WiringPortRef &child : args)
+            {
+                children.push_back(graph_wiring_detail::adapt_source_for_input(w, element, child));
+            }
+            return WiringPortRef::structural_source(registry.tsl(element, args.size()), std::move(children));
+        }
 
         [[nodiscard]] inline Port<TS<Bool>> bool_const(Wiring &w, Bool value)
         {
@@ -374,11 +398,9 @@ namespace hgraph::stdlib
         static Port<TS<Bool>> compose(Wiring &w, VarIn<"args", TS<Bool>> args)
         {
             if (args.empty()) { return control_impl_detail::bool_const(w, true); }
-            std::vector<WiringPortRef> elements{args.begin(), args.end()};
-            elements.push_back(control_impl_detail::bool_const(w, true).erased());
-            return Port<TS<Bool>>{w, higher_order_impl_detail::reduce_layout(
-                                        w, fn<control_impl_detail::all_bool_binary>(),
-                                        std::move(elements))};
+            return Port<TS<Bool>>{w, wire<control_impl_detail::all_bool_list>(
+                                        w, Port<void>{w, control_impl_detail::pack_bool_arguments(w, args)})
+                                        .erased()};
         }
     };
 
@@ -389,11 +411,9 @@ namespace hgraph::stdlib
         static Port<TS<Bool>> compose(Wiring &w, VarIn<"args", TS<Bool>> args)
         {
             if (args.empty()) { return control_impl_detail::bool_const(w, false); }
-            std::vector<WiringPortRef> elements{args.begin(), args.end()};
-            elements.push_back(control_impl_detail::bool_const(w, false).erased());
-            return Port<TS<Bool>>{w, higher_order_impl_detail::reduce_layout(
-                                        w, fn<control_impl_detail::any_bool_binary>(),
-                                        std::move(elements))};
+            return Port<TS<Bool>>{w, wire<control_impl_detail::any_bool_list>(
+                                        w, Port<void>{w, control_impl_detail::pack_bool_arguments(w, args)})
+                                        .erased()};
         }
     };
 
@@ -401,7 +421,8 @@ namespace hgraph::stdlib
     {
         static constexpr bool schedule_on_start = true;
 
-        static void eval(In<"arg", TSD<ScalarVar<"K">, TS<Bool>>, InputValidity::Unchecked> arg,
+        // Admitted once the dictionary is valid (runtime spec OP-2).
+        static void eval(In<"arg", TSD<ScalarVar<"K">, TS<Bool>>> arg,
                          Out<TS<Bool>> out)
         {
             Bool result = true;
@@ -421,7 +442,8 @@ namespace hgraph::stdlib
     {
         static constexpr bool schedule_on_start = true;
 
-        static void eval(In<"arg", TSD<ScalarVar<"K">, TS<Bool>>, InputValidity::Unchecked> arg,
+        // Admitted once the dictionary is valid (runtime spec OP-2).
+        static void eval(In<"arg", TSD<ScalarVar<"K">, TS<Bool>>> arg,
                          Out<TS<Bool>> out)
         {
             Bool result = false;

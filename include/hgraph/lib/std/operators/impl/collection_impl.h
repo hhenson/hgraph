@@ -396,7 +396,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              Out<TS<ScalarVar<"K">>> out)
             {
                 const TSSInputView &set = ts;
@@ -417,7 +417,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              Out<TS<ScalarVar<"K">>> out)
             {
                 const TSSInputView &set = ts;
@@ -440,7 +440,7 @@ namespace hgraph::stdlib
             static constexpr auto name = Min ? "min_tss_default" : "max_tss_default";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              In<"default_value", TS<ScalarVar<"K">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"K">>> out)
             {
@@ -469,7 +469,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 const TSDInputView &dict = ts;
@@ -491,7 +491,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 const TSDInputView &dict = ts;
@@ -513,7 +513,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 std::optional<Value> best;
@@ -536,7 +536,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 std::optional<Value> best;
@@ -560,7 +560,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "sum_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (const T &key : ts.values()) { total += key; }
@@ -570,7 +570,7 @@ namespace hgraph::stdlib
 
         template <typename T, auto N>
         [[nodiscard]] inline std::tuple<Float, std::size_t, std::size_t> tsl_sum_valid_and_size(
-            const In<"ts", TSL<TS<T>, N>, InputValidity::Unchecked> &ts)
+            const In<"ts", TSL<TS<T>, N>> &ts)
         {
             Float       total       = 0.0;
             std::size_t valid_count = 0;
@@ -591,7 +591,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "sum_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (std::size_t i = 0; i < ts.size(); ++i)
@@ -609,7 +609,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, _, size] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -624,7 +624,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, valid_count, _] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -653,7 +653,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, valid_count, _] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -678,7 +678,7 @@ namespace hgraph::stdlib
 
         template <typename T>
         [[nodiscard]] inline std::pair<Float, std::size_t> tss_sum_and_count(
-            const In<"ts", TSS<T>, InputValidity::Unchecked> &ts)
+            const In<"ts", TSS<T>> &ts)
         {
             Float       total = 0.0;
             std::size_t count = 0;
@@ -696,7 +696,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 out.set(count == 0 ? std::numeric_limits<Float>::quiet_NaN() : total / static_cast<Float>(count));
@@ -709,7 +709,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 if (count <= 1)
@@ -735,7 +735,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 if (count <= 1)
@@ -761,7 +761,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "sum_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (const auto child : ts.valid_values()) { total += child.value(); }
@@ -769,9 +769,8 @@ namespace hgraph::stdlib
             }
         };
 
-        template <typename T>
-        [[nodiscard]] inline std::pair<Float, std::size_t> tsd_sum_and_count(
-            const In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> &ts)
+        template <typename Input>
+        [[nodiscard]] inline std::pair<Float, std::size_t> tsd_sum_and_count(const Input &ts)
         {
             Float       total = 0.0;
             std::size_t count = 0;
@@ -789,6 +788,9 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
+            // Unchecked by contract: released hgraph's mean over a dictionary is
+            // default(div_(sum_, len_), NaN), so a never-valid dictionary's
+            // mean is NaN (runtime spec operators.md, "Admission and nil").
             static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
                              Out<TS<Float>> out)
             {
@@ -803,7 +805,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts,
                              Out<TS<Float>> out)
             {
                 const auto [total, count] = tsd_sum_and_count(ts);
@@ -830,7 +832,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts,
                              Out<TS<Float>> out)
             {
                 const auto [total, count] = tsd_sum_and_count(ts);

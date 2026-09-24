@@ -25,7 +25,10 @@ A contract may name inputs that the operator reads while they are invalid.
 It must then say what an invalid input contributes. `union` names every
 operand: the empty set is its identity and gathering is its purpose, so an
 invalid operand contributes nothing. `format_` with `__strict__` false
-names its arguments.
+names its arguments. `mean` over a dictionary names its whole input: Python
+0.5.41 defines it as `default(div_(sum_, len_), NaN)`, so a dictionary that
+has never ticked has a NaN mean. Its `sum_`, `min_` and `max_` name nothing
+and publish nothing.
 
 A non-peered fixed collection is valid while any child is valid. An aggregate
 over a fixed list is therefore admitted once one element is valid, and reads

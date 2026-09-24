@@ -80,3 +80,66 @@ def test_a_nested_child_forwards_only_its_own_changes():
         {1: {10: 1, 11: 2}, 2: {20: 3}},
         {1: {10: 5}},
     ]
+
+def test_aggregates_publish_nothing_over_an_invalid_collection():
+    # OP-1, OP-2. A never-ticked collection is nil, not empty.
+    L = hg.TSL[TS[int], hg.Size[2]]
+
+    @graph
+    def sum_list(values: L) -> TS[int]:
+        return hg.sum_(values)
+
+    assert eval_node(sum_list, [None, None], resolution_dict={"values": L}) is None
+    assert eval_node(sum_list, [None, {1: 5}], resolution_dict={"values": L}) == [None, 5]
+
+    # Parity #1476 / #1538: the declared size is added to a sum that never exists.
+    @graph
+    def pinned(values: hg.TSL[TS[int], hg.SIZE], _sz: type[hg.SIZE] = hg.AUTO_RESOLVE) -> TS[int]:
+        return hg.sum_(values) + hg.const(_sz.SIZE)
+
+    assert eval_node(pinned, [None], resolution_dict={"values": L}) is None
+
+    S = hg.TSS[int]
+    for operator, empty in ((hg.sum_, 0), (hg.min_, None), (hg.max_, None)):
+        @graph
+        def over_set(values: S) -> TS[int]:
+            return operator(values)
+
+        assert eval_node(over_set, [None, None]) is None
+        assert eval_node(over_set, [set(), None]) == ([empty, None] if empty is not None else None)
+
+    # A default answers an empty set, not a missing one.
+    @graph
+    def minimum_or_seven(values: S) -> TS[int]:
+        return hg.min_(values, default_value=7)
+
+    assert eval_node(minimum_or_seven, [None, None]) is None
+    assert eval_node(minimum_or_seven, [set(), None]) == [7, None]
+
+    # released hgraph's dictionary mean is default(div_(sum_, len_), NaN): its
+    # contract names NaN for a missing dictionary, so that stays.
+    @graph
+    def mean_dict(values: D) -> TS[float]:
+        return hg.mean(values)
+
+    [nan] = eval_node(mean_dict, [None])
+    assert nan != nan
+
+
+def test_all_and_any_publish_nothing_before_an_argument_is_valid():
+    # OP-2. Parity #1181, #1246, #1355, #1494.
+    B = TS[bool]
+
+    @graph
+    def all3(a: B, b: B, c: B) -> B:
+        return hg.all_(a, b, c)
+
+    @graph
+    def any2(a: B, b: B) -> B:
+        return hg.any_(a, b)
+
+    assert eval_node(all3, [None], [None], [None]) is None
+    assert eval_node(any2, [None], [None]) is None
+    # An argument not yet valid reads as None: falsy.
+    assert eval_node(all3, [True, None], [None, True], [True, None]) == [False, True]
+    assert eval_node(any2, [None, False], [True, None]) == [True, True]

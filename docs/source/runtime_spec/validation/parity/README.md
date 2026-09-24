@@ -90,7 +90,30 @@ never publishes in either runtime, although its value is well defined.
 ## Observations outside the issues
 
 Probing the aggregates found the C++ runtime publishing `sum_` and `mean` over a
-never-valid TSS as well as a list, where Python and the C++ `min_`, `max_` and
-`len_` publish nothing. The same correction covers them (OP-2). Both runtimes
-publish `is_empty` of a never-ticked set as `True`, against OP-1; nothing here
-depends on it, and it stays as it is (point to settle 3).
+never-valid TSS or TSD as well as a list, and `min_`/`max_` with a default over
+a never-valid set, where Python and the C++ `min_`, `max_` and `len_` publish
+nothing. The same correction covers them (OP-2). `mean` over a dictionary is
+the exception on both sides by contract (NaN, see Operator contracts). Both
+runtimes publish `is_empty` of a never-ticked set as `True`, against OP-1;
+nothing here depends on it, and it stays as it is (point to settle 3).
+
+## C++ corrections
+
+Each correction cites the rules above and carries native and Python
+regressions in `tests/cpp/test_operator_contracts.cpp` and
+`python/tests/test_operator_contracts.py`. The observations in
+[observed.json](observed.json) are the measurements before correction and stay
+unchanged.
+
+- **TSD set operators** (OP-4 to OP-7). A union's rhs tick was dropped
+  whenever lhs held the key: a lazily-cleared slot bit reported lhs's last
+  tick. Children are forwarded, not derived. Symmetric difference waits for
+  both operands, and difference validates on admission. All 56 recipes match
+  Python.
+- **Aggregate admission** (OP-1, OP-2). `sum_`, `mean`, `var`, `std`, `min_`
+  and `max_` over a list, set or dictionary, `min_`/`max_` with a default over
+  a set, and `all_`/`any_` publish nothing before their collection is valid.
+  `all_`/`any_` over arguments are one node over the packed list, not a
+  seeded reduction. The dictionary `mean` keeps its NaN default. The six
+  aggregate recipes match Python. The key-set pipeline now publishes only
+  `empty` before a key arrives, inside the `key-set-reader-tick` family.

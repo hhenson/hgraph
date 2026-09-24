@@ -4347,10 +4347,11 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
 {
     stdlib::register_standard_operators();
 
+    // Nothing before an argument is valid (runtime spec OP-2, parity #1181).
     CHECK_OUTPUT(eval_node<stdlib::all_>(values<Bool>(none, true, false)),
-                 values<Bool>(false, true, false));
+                 values<Bool>(none, true, false));
     CHECK_OUTPUT(eval_node<stdlib::any_>(values<Bool>(none, true, false)),
-                 values<Bool>(false, true, false));
+                 values<Bool>(none, true, false));
     CHECK_OUTPUT(eval_node<stdlib::all_>(values<Bool>(true, true, true),
                                          values<Bool>(true, false, true),
                                          values<Bool>(true, true, none)),
