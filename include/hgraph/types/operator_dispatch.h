@@ -1213,9 +1213,13 @@ namespace hgraph
             }
             else if constexpr (operator_dispatch_detail::is_named_port<P>::value)
             {
+                using S = typename operator_dispatch_detail::named_port_schema<P>::type;
                 pp.kind = ParamPattern::Kind::Input;
                 pp.name = std::string{P::field_name.sv()};
-                pp.ts   = to_pattern<typename operator_dispatch_detail::named_port_schema<P>::type>();
+                // A named erased port (``NamedPort<"ts", void>``) takes the port as
+                // supplied under its public name, as ``Port<void>`` does unnamed.
+                if constexpr (std::is_void_v<S>) { pp.ts = TypePattern::var(std::string{"__erased_port_"} + std::to_string(I)); }
+                else { pp.ts = to_pattern<S>(); }
             }
             else if constexpr (graph_wiring_detail::is_port<P>::value)
             {

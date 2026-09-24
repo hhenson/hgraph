@@ -654,7 +654,10 @@ namespace hgraph
     {
         static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
         {
-            concrete = unify_dereference(concrete);
+            // Resolving a generic dereferences everything, at every depth
+            // (owner ruling 2026-09-24, #847); a REF binds only where the
+            // pattern names one.
+            concrete = TypeRegistry::instance().dereference(concrete);
             if constexpr (sizeof...(C) > 0)
             {
                 if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
@@ -758,7 +761,7 @@ namespace hgraph
         template <fixed_string VarName>
         void unify_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
-            c = unify_dereference(c);
+            c = TypeRegistry::instance().dereference(c);
             m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
         }
 

@@ -1432,7 +1432,11 @@ struct getitem_tsb_by_name {
     return container_impl_detail::has_tsb_field<Str>(context, "key");
   }
 
-  static WiringPortRef compose(Wiring &, NamedPort<"ts", TsVar<"S">> ts,
+  // A structural projection: it resolves no generic, so it takes the port
+  // exactly as supplied (a named erased port) and returns the field as supplied
+  // -- a REF field stays a REF (#847; resolving a generic would dereference
+  // it). This is released hgraph's tsb["x"] and our attribute access.
+  static WiringPortRef compose(Wiring &, NamedPort<"ts", void> ts,
                                Scalar<"key", Str> key) {
     const TSValueTypeMetaData *schema = ts.erased().schema;
     std::size_t index =
@@ -1455,7 +1459,11 @@ struct getitem_tsb_by_index {
     return container_impl_detail::has_tsb_field<Int>(context, "key");
   }
 
-  static WiringPortRef compose(Wiring &, NamedPort<"ts", TsVar<"S">> ts,
+  // A structural projection: it resolves no generic, so it takes the port
+  // exactly as supplied (a named erased port) and returns the field as supplied
+  // -- a REF field stays a REF (#847; resolving a generic would dereference
+  // it). This is released hgraph's tsb["x"] and our attribute access.
+  static WiringPortRef compose(Wiring &, NamedPort<"ts", void> ts,
                                Scalar<"key", Int> key) {
     const TSValueTypeMetaData *schema = ts.erased().schema;
     std::size_t index =

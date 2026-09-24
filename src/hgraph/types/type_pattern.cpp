@@ -291,12 +291,13 @@ namespace hgraph
                                  const TSValueTypeMetaData *concrete,
                                  ResolutionMap &map)
     {
-        if (pattern.kind == TypePattern::Kind::Var && concrete != nullptr && concrete->kind == TSTypeKind::REF)
+        if (pattern.kind == TypePattern::Kind::Var && concrete != nullptr && TypeRegistry::contains_ref(concrete))
         {
-            // OUTPUT direction: no REF transparency for a top-level variable -
-            // the caller asked for a reference, so the produced port must BE
-            // one. (Input-side transparency stands: consumers of value ports
-            // adapt at input binding.)
+            // OUTPUT direction: a requested output is the caller EXPRESSING
+            // the schema it wants, so a REF in it -- at any depth, not only
+            // the top level -- is kept: the produced port must carry it
+            // (#847). (Input-side transparency stands: a generic input binds
+            // the dereferenced schema and consumers adapt at input binding.)
             if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
             {
                 return time_series_value_equivalent(bound, concrete);
@@ -335,11 +336,14 @@ namespace hgraph
                 if (concrete->kind != TSTypeKind::TSB) { return false; }
                 if (pattern.schema_var)
                 {
+                    // A schema variable is a generic too: it binds the
+                    // dereferenced schema (see the Var case below).
+                    const TSValueTypeMetaData *value = TypeRegistry::instance().dereference(concrete);
                     if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                     {
-                        return time_series_schema_equivalent(bound, concrete);
+                        return time_series_schema_equivalent(bound, value);
                     }
-                    map.bind_ts(pattern.name, concrete);
+                    map.bind_ts(pattern.name, value);
                     return true;
                 }
                 if (!named_tsb_pattern_match(pattern, concrete, map)) { return false; }
@@ -383,12 +387,22 @@ namespace hgraph
         {
             case TypePattern::Kind::Var:
             {
+                // Resolving a generic dereferences everything: the variable
+                // binds the schema with every reference followed at every
+                // depth. Code that depends on a REF says so with a REF pattern
+                // (owner ruling 2026-09-24, #847).
+                const TSValueTypeMetaData *value = TypeRegistry::instance().dereference(concrete);
                 if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                 {
-                    return bound == concrete && ts_allowed_by_constraints(pattern, concrete);
+                    // A variable bound up front (an initial resolution) is
+                    // the caller EXPRESSING the schema it wants, references
+                    // included: it matches an argument exactly as supplied as
+                    // well as dereferenced. Bindings made by matching are
+                    // always dereferenced, so only an explicit one keeps a REF.
+                    return (bound == value || bound == concrete) && ts_allowed_by_constraints(pattern, bound);
                 }
-                if (!ts_allowed_by_constraints(pattern, concrete)) { return false; }
-                map.bind_ts(pattern.name, concrete);
+                if (!ts_allowed_by_constraints(pattern, value)) { return false; }
+                map.bind_ts(pattern.name, value);
                 return true;
             }
             case TypePattern::Kind::Concrete: return time_series_schema_equivalent(pattern.meta, concrete);

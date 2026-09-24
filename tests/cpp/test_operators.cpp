@@ -1180,6 +1180,47 @@ TEST_CASE("operators: shared TypePattern input matcher mirrors wiring semantics"
     CHECK_FALSE(ts_pattern_match(nested_ref, ts_type<TSL<TS<Int>, 2>>(), nested_strict));
 }
 
+TEST_CASE("operators: resolving a generic dereferences everything, at every depth (#847)")
+{
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+    (void)registry.register_scalar<Str>("str");
+
+    const TSValueTypeMetaData *refs   = ts_type<TSD<Str, REF<TS<Int>>>>();  // a map_ output
+    const TSValueTypeMetaData *values = ts_type<TSD<Str, TS<Int>>>();
+    const TypePattern          var    = TypePattern::var("S");
+
+    // The matcher: a variable binds the schema with every reference followed.
+    ResolutionMap nested;
+    REQUIRE(input_ts_pattern_match(var, refs, nested));
+    CHECK(nested.find_ts("S") == values);
+    ResolutionMap wrapped;
+    REQUIRE(ts_pattern_match(var, ts_type<REF<TSD<Str, REF<TS<Int>>>>>(), wrapped));
+    CHECK(wrapped.find_ts("S") == values);
+    ResolutionMap in_list;
+    REQUIRE(ts_pattern_match(var, ts_type<TSL<REF<TS<Int>>, 2>>(), in_list));
+    CHECK(in_list.find_ts("S") == ts_type<TSL<TS<Int>, 2>>());
+
+    // The static unifier agrees.
+    ResolutionMap unified;
+    ts_unifier<TsVar<"S">>::unify(refs, unified);
+    CHECK(unified.find_ts("S") == values);
+
+    // Code that depends on a reference expresses it. A REF pattern binds under it:
+    ResolutionMap element;
+    REQUIRE(input_ts_pattern_match(to_pattern<TSD<ScalarVar<"K">, REF<TsVar<"V">>>>(), refs, element));
+    CHECK(element.find_ts("V") == ts_type<TS<Int>>());
+    // an initial resolution states the schema, so the port matches as supplied:
+    ResolutionMap stated;
+    stated.bind_ts("S", refs);
+    CHECK(input_ts_pattern_match(var, refs, stated));
+    CHECK(stated.find_ts("S") == refs);
+    // and a requested output keeps a nested REF verbatim.
+    ResolutionMap requested;
+    REQUIRE(output_ts_pattern_match(var, refs, requested));
+    CHECK(requested.find_ts("S") == refs);
+}
+
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")
 {
     auto &registry = TypeRegistry::instance();

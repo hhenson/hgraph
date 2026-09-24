@@ -108,21 +108,27 @@ and is handed a ref token produces *plausible nonsense* rather than failing:
 ``log_`` printed the token, and ``combine[TS[JSON]]`` serialised ``"<ref>"``
 where the value belonged. Nothing raises, and the output looks like data.
 
-**Where the rule is applied.** At the point arguments are BOUND, not in each
-consumer:
+**Where the rule is applied.** Where a generic is RESOLVED and where
+arguments are BOUND, not in each consumer:
 
+* generic resolution — the matcher's variable case (``ts_pattern_match``,
+  and the named-``TSB`` schema variable of ``input_ts_pattern_match``) and
+  the static unifier's ``TsVar`` bind ``TypeRegistry::dereference(concrete)``,
+  the *deep* dereference: a ``TSD[str, REF[TS[int]]]`` (a ``map_`` output)
+  binds ``TSD[str, TS[int]]``, and input binding then installs the from-REF
+  link per element. Whenever a generic is resolved, everything is
+  dereferenced (owner ruling 2026-09-24, #847). Before this, the matcher
+  stripped only the outer reference, so ``debug_print`` over a ``map_``
+  output printed each element's reference token instead of its value;
 * ordinary inputs — ``adapt_source_for_input`` installs the adaptation. A
   peered *reference* source (a top-level ``REF``) is described by its value
   schema whenever the declared input contains no ``REF``, so a hand-wired
   consumer that builds its node schema from the port (``reduce``, ``mesh_``)
   sees the value it will observe; input binding installs the from-REF link.
-  Only the top-level reference is rewritten: a value collection whose
-  elements are references (a ``map_`` output) is left as supplied, because
-  its element links dereference on access and describing it by element
-  values would install a from-REF link per element for a consumer that may
-  only hold tokens (an interleaved A/B against ``main`` showed no runtime
-  difference either way; the narrower rewrite is the minimal adaptation).
-  The rule follows structural ``TSL``/``TSB``
+  That description rewrites only the top-level reference: a value
+  collection whose elements are references is described as supplied, and a
+  declared input that resolved a generic already names the dereferenced
+  elements (previous bullet). The rule follows structural ``TSL``/``TSB``
   sources down to their leaves but stops at a declared ``REF``: the children
   of a source adapted to ``REF[X]`` keep their reference identity, which is
   how ``race`` observes a candidate going invalid. Before this was made
@@ -164,10 +170,31 @@ declare ordinary ``VarIn`` / ``VarKwIn`` selectors and are covered — they each
 used to dereference by hand, and those calls were removed once the rule was
 structural.
 
-Structure-preserving packing is different: ``tsb_itemwise`` and the
-``map_`` / ``switch_`` / ``mesh_`` machinery pass references deliberately —
-they route values rather than consuming them — so they are *not* covered by
-this rule.
+**Code that depends on a reference expresses it.** A generic never binds
+one by accident, so every site that needs the token says so, in one of these
+ways:
+
+* a ``REF`` pattern -- ``REF<TsVar<"S">>``, ``TSD<K, REF<TsVar<"V">>>`` --
+  binds the variable under the reference;
+* an explicit schema -- a variable bound up front (an initial resolution,
+  ``wire(..., __resolutions__=...)``) is the caller stating the schema, so
+  the matcher accepts the supplied port as it is. The Python node wrapper
+  does this: its native ``args`` is a generic pack, and it pre-binds the
+  pack to the node's declared inputs (``_declared_args``), so a Python node
+  that declares ``REF[TS[int]]`` receives the reference;
+* a requested output -- ``output_ts_pattern_match`` keeps a requested
+  schema that contains a ``REF`` at any depth verbatim
+  (``nothing[TSD[str, REF[TS[int]]]]`` produces what it names);
+* a structural projection -- an operator that selects part of a port
+  without consuming it takes an erased port (``Port<void>``, or
+  ``NamedPort<"ts", void>`` to keep a public parameter name), which
+  resolves no generic and is passed the port as supplied. ``getitem_`` on a
+  ``TSB`` does this, so ``tsb["x"]`` on a field declared ``REF[TS[int]]``
+  returns that reference.
+
+The ``map_`` / ``switch_`` / ``mesh_`` machinery and ``tsb_itemwise`` route
+references deliberately: they build their schemas from the ports as supplied
+and do not resolve a generic over them.
 
 **The owners.** Binding applies the rule to the argument it binds; an
 operator that reasons about a schema binding never rewrites (a nested graph's
