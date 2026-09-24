@@ -260,7 +260,10 @@ namespace hgraph
             case ResolutionKind::Scalar:
                 if (type.scalar() == nullptr) { throw std::invalid_argument("type value: a null scalar type"); }
                 return "scalar:" + std::string{type.scalar()->name()};
-            default: return "size:" + std::to_string(*type.size());
+            default:
+                // The unbounded sentinel is written as Python writes it: -1.
+                if (*type.size() == unbounded_tsl_size) { return "size:-1"; }
+                return "size:" + std::to_string(*type.size());
         }
     }
 
@@ -299,7 +302,9 @@ namespace hgraph
         }
         else if (serialised.starts_with("size:"))
         {
-            type = TypeCarrier::of_size(static_cast<std::size_t>(parse_count(serialised.substr(5), serialised)));
+            const auto count = serialised.substr(5);
+            type = TypeCarrier::of_size(count == "-1" ? unbounded_tsl_size
+                                                      : static_cast<std::size_t>(parse_count(count, serialised)));
         }
         else
         {

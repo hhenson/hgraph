@@ -137,6 +137,8 @@ TEST_CASE("type values: the serialised form names the kind, so a TSB and its bun
     CHECK(parse_type_value(serialise_type_value(as_ts)) == as_ts);
     CHECK(parse_type_value(serialise_type_value(as_scalar)) == as_scalar);
     CHECK(parse_type_value("size:3") == TypeCarrier::of_size(3));
+    CHECK(serialise_type_value(TypeCarrier::of_size(unbounded_tsl_size)) == "size:-1");
+    CHECK(parse_type_value("size:-1") == TypeCarrier::of_size(unbounded_tsl_size));
     // The text stays the bare name.
     CHECK(Value{as_ts}.to_string() == "hgraph.test.names::Tagged");
 }
