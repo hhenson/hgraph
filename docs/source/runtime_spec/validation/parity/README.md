@@ -42,7 +42,7 @@ matches, or no rule decides, the question goes to the owner.
 
 | Family | Issues | Rules | Verdict | Decision |
 |---|---|---|---|---|
-| TSD set operators | 56 (see assessment) | OP-4–OP-7 | 51 reference, 1 C++ (#978), 4 neither | Correct C++; #978 accepted (OP-7 superset); first empty result raised as a question |
+| TSD set operators | 56 (see assessment) | OP-4–OP-7 | 51 reference, 1 C++ (#978), 4 neither | Correct C++. #978 and the four hinge on the first empty result (point to settle 1), raised as a question |
 | Three-operand TSS fold | #1428, #1478 | OP-7 | C++ | Accepted (already in `parity_matrix.rst`; now a family) |
 | Key-set reader tick | #1139, #1140, #1160, #1200, #1391, #1393 | OP-1–OP-3 | C++ | Accepted: Python's `is_empty` ticks the key set it reads |
 | Aggregate over an invalid list | #1181, #1246, #1355, #1494, #1476, #1538 | OP-1, OP-2 | reference | Correct C++ |
@@ -67,8 +67,13 @@ matches, or no rule decides, the question goes to the owner.
   The family relation admits exactly the empty-set aggregates the Python
   side effect produces.
 - **Three-operand folds.** OP-7. Python has no zero for an intersection or
-  symmetric-difference fold: three TSS operands fail at wiring, and three TSD
-  operands to symmetric difference fold through `nothing` and never publish.
+  symmetric-difference fold, so three TSS operands fail at wiring (#1428,
+  #1478). Three TSD operands to symmetric difference fold through `nothing`
+  and never publish. The C++ answer to #978 matched the fold only because
+  its binary symmetric difference read a never-ticked operand as empty
+  (against OP-6). Once it is gated, the intermediate `a ^ b` of #978 is an
+  empty first result, so the fold publishes only if point to settle 1 is
+  ruled yes. The family's TSD clause is kept for that ruling.
 - **`ln`.** OP-10, already accepted in `parity_matrix.rst`. It was pinned by
   one fingerprint and the generator reached it by another recipe.
 
@@ -78,7 +83,9 @@ In #983, #984, #1004 and #1008 the reasoning publishes the first empty
 symmetric difference to validate the output; neither runtime does. Every other
 observation in those four matches Python, and C++ matches it too once
 corrected. So the parity issues close, and the rule remains a question
-(point to settle 1).
+(point to settle 1). #978 depends on the same rule one level down: without
+it, a three-operand symmetric difference whose first two operands cancel
+never publishes in either runtime, although its value is well defined.
 
 ## Observations outside the issues
 

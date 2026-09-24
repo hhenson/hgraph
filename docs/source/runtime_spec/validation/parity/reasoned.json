@@ -1667,7 +1667,7 @@
    ]
   },
   "978": {
-   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not. Three operands fold pairwise through the empty intermediate a^b; that intermediate publishes (and so the fold does) only if the first empty result validates, which is point to settle 1.",
    "expected": [
     {
      "$map": [
@@ -1680,6 +1680,7 @@
    ],
    "family": "tsd-set-operators",
    "mode": "trace",
+   "open_point": 1,
    "rules": [
     "OP-4",
     "OP-5",

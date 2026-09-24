@@ -315,6 +315,7 @@
   },
   "978": {
    "family": "tsd-set-operators",
+   "open_point": 1,
    "verdict": "candidate"
   },
   "979": {

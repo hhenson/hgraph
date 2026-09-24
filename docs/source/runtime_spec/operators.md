@@ -64,7 +64,8 @@ number of operands; `difference` takes exactly two. Python 0.5.41 cannot
 fold intersection or symmetric difference: it has no zero for the fold. It
 rejects three TSS operands at wiring, and three TSD operands to symmetric
 difference never publish. The fold is an accepted superset
-(`parity_matrix.rst`).
+(`parity_matrix.rst`). Over dictionaries a fold whose intermediate result is
+empty also depends on point to settle 1.
 
 
 Formatting and sinks
@@ -153,7 +154,10 @@ Points to settle
    and `intersection` (built on `tsd_get_items`) but not for symmetric
    difference or union (built on `map_`). The C++ runtime publishes it only
    for `intersection`. The parity issues are unaffected: both runtimes
-   stay silent for symmetric difference. Raised as a question for the owner.
+   stay silent for symmetric difference. The answer matters for folds: if
+   the first empty result does not validate, `symmetric_difference(a, b, c)`
+   never publishes when `a` and `b` cancel, although its value is well
+   defined (#978). Raised as a question for the owner.
 2. **The order of a map's text.** A map has no order and every value has one
    text form (VAL-8, Scalar types). Python writes a dictionary in insertion
    order; the C++ runtime writes it in storage order, which reuses the slot
