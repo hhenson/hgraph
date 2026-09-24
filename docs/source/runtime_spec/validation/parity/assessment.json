@@ -164,13 +164,11 @@
   },
   "1082": {
    "family": "map-text-order",
-   "open_point": 2,
-   "verdict": "open"
+   "verdict": "both"
   },
   "1083": {
    "family": "map-text-order",
-   "open_point": 2,
-   "verdict": "open"
+   "verdict": "both"
   },
   "1084": {
    "family": "tsd-set-operators",
@@ -182,8 +180,7 @@
   },
   "1086": {
    "family": "map-text-order",
-   "open_point": 2,
-   "verdict": "open"
+   "verdict": "both"
   },
   "1087": {
    "family": "tsd-set-operators",
@@ -369,7 +366,7 @@
   {
    "count": 3,
    "family": "map-text-order",
-   "verdict": "open"
+   "verdict": "both"
   },
   {
    "count": 2,

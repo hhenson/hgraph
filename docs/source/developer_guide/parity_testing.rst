@@ -554,7 +554,11 @@ way:
   holding its empty-set answer, at a tick where the dictionary has no key,
   and every shared field agrees.
 
-The last three came from the parity triage of 2026-09-24, which derived the
+* ``unordered-member-text`` (OP-9, the owner's ruling of 2026-09-24 that a
+  map is unordered) admits a ``str_`` difference only where both renderings
+  spell, as Python literals, the same value containing a map or a set.
+
+The last four came from the parity triage of 2026-09-24, which derived the
 runtime specification's operator contracts
 (``docs/source/runtime_spec/operators.md``, evidence in
 ``runtime_spec/validation/parity``).

@@ -50,6 +50,7 @@ EMPTY_DELTA_ELISION = "empty-delta-elision"
 IEEE_LOG_DOMAIN = "ieee-log-domain"
 N_ARY_SET_FOLD = "n-ary-set-fold"
 KEY_SET_READER_TICK = "key-set-reader-tick"
+UNORDERED_MEMBER_TEXT = "unordered-member-text"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -1070,6 +1071,64 @@ def _map_entries(tick: Any) -> dict[str, Any] | None:
     return entries
 
 
+def _literal_members(text: Any) -> Any:
+    """The container a rendering spells, or None when it is not a literal."""
+    import ast
+
+    if not isinstance(text, str):
+        return None
+    try:
+        return ast.literal_eval(text)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return None
+
+
+def _contains_unordered(value: Any) -> bool:
+    if isinstance(value, (dict, set, frozenset)):
+        return True
+    if isinstance(value, (tuple, list)):
+        return any(_contains_unordered(item) for item in value)
+    return False
+
+
+def _unordered_member_text_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Owner ruling 2026-09-24 (runtime spec OP-9, VAL-8): a map is an
+    unordered map with no ordering guarantee, and a set has no order, so the
+    members in their text come in no specified order. Released hgraph writes
+    insertion order; this runtime writes storage order. Admitted only when
+    every differing rendering spells, as a Python literal, the SAME value
+    containing a map or a set -- so a wrong member, a changed value or a
+    different spelling (``set()`` against ``{}``) stays reportable."""
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if not isinstance(reference_trace, list) or not isinstance(candidate_trace, list):
+        return False
+    if len(reference_trace) != len(candidate_trace):
+        return False
+    reordered = False
+    for expected, actual in zip(reference_trace, candidate_trace):
+        if expected == actual:
+            continue
+        expected_value = _literal_members(expected)
+        actual_value = _literal_members(actual)
+        if expected_value is None or actual_value is None:
+            return False
+        if type(expected_value) is not type(actual_value) or expected_value != actual_value:
+            return False
+        if not _contains_unordered(expected_value):
+            return False
+        reordered = True
+    return reordered
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -1094,6 +1153,7 @@ RELATIONS = {
     IEEE_LOG_DOMAIN: _ieee_log_domain_relation,
     N_ARY_SET_FOLD: _n_ary_set_fold_relation,
     KEY_SET_READER_TICK: _key_set_reader_tick_relation,
+    UNORDERED_MEMBER_TEXT: _unordered_member_text_relation,
 }
 
 #: Relations that reason about a ``status`` difference and therefore run

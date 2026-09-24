@@ -1,0 +1,21 @@
+[
+  {
+    "id": "unordered-map-text",
+    "date": "2026-09-24",
+    "authority": "User ruling",
+    "rules": [
+      "VAL-8",
+      "OP-9"
+    ],
+    "question": "Point to settle 2: Python writes a dictionary's text in insertion order; the C++ runtime writes storage order, which reuses a removed key's slot. Which order is the contract?",
+    "ruling": "Map is equivalent to un-ordered map, i.e. there are no ordering guarantees provided.",
+    "rationale": "A map has no order, so the order of the members in its text is unspecified and both runtimes conform. Sets have no order either (VAL-8) and are treated the same way.",
+    "cases": [
+      "1082",
+      "1083",
+      "1086"
+    ],
+    "previous_expected": "open (point to settle 2)",
+    "expected": "each rendering is the text of the expected map, in any member order"
+  }
+]

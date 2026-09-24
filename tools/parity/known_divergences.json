@@ -251,6 +251,18 @@
       "issue": "https://github.com/hhenson/hgraph/issues/1139",
       "reason": "Accepted deviation (parity_matrix.rst; runtime spec OP-3, NOD-21, TS-21): released hgraph's is_empty over a TSS initialises a child output owned by the set, which marks a never-ticked key set modified, so len_, sum_, mean, min_ and max_ of the key set publish their empty-set answers (#1139, #1140, #1160, #1200, #1391, #1393). A reader never changes its producer here. Admitted tick by tick: a field only the reference publishes must be one of those aggregates with exactly its empty-set answer, at a tick where the dictionary holds no key, and every shared field agrees.",
       "review_after": "2027-09-24"
+    },
+    {
+      "family": "unordered-member-text",
+      "template": "unary_operator",
+      "parameters_equal": {
+        "operation": "str_"
+      },
+      "parameters_not_equal": {},
+      "relation": "unordered-member-text",
+      "issue": "https://github.com/hhenson/hgraph/issues/1082",
+      "reason": "Owner ruling 2026-09-24 (runtime spec OP-9, VAL-8): a map is an unordered map with no ordering guarantee, and a set has no order, so the members in str_'s text come in no specified order. Released hgraph writes insertion order; this runtime writes storage order, which reuses a removed key's slot (#1082, #1083, #1086). Admitted only when every differing rendering spells the same Python literal containing a map or a set.",
+      "review_after": "2027-09-24"
     }
   ]
 }

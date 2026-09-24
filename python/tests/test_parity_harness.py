@@ -4226,3 +4226,30 @@ def test_key_set_reader_tick_family_admits_only_empty_set_answers():
     # size is a defect.
     keyed = dict(recipe, inputs={"probe": [None], "values": [{"1": 5}]})
     assert not _classify(keyed, reference, candidate(("empty", True)), families)
+
+
+def test_unordered_member_text_family_admits_only_a_reordering():
+    """Owner ruling 2026-09-24 (#1082, #1083, #1086): a map's text has no
+    member order."""
+    families = _family_named("unordered-member-text")
+    recipe = {"template": "unary_operator", "parameters": {"input_type": "tsd", "operation": "str_"}}
+
+    def classify(reference_trace, candidate_trace):
+        return _classify(
+            recipe,
+            {"status": "ok", "trace": reference_trace},
+            {"status": "ok", "trace": candidate_trace},
+            families,
+        )
+
+    assert classify(["{'a': 2}", "{'b': -19, 'a': -19}"], ["{'a': 2}", "{'a': -19, 'b': -19}"])
+    assert classify(["({'b': 1, 'a': 2},)"], ["({'a': 2, 'b': 1},)"])
+    assert classify(["{2, 1}"], ["{1, 2}"])
+    # A different member or value, an extra member, or a tuple reordering is a defect.
+    assert not classify(["{'b': -19, 'a': -19}"], ["{'a': -19, 'b': -18}"])
+    assert not classify(["{'b': 1}"], ["{'a': 1, 'b': 1}"])
+    assert not classify(["(1, 2)"], ["(2, 1)"])
+    # The set() rendering is the separate empty-set family, not a reordering.
+    assert not classify(["set()"], ["{}"])
+    # Unparseable renderings stay reportable.
+    assert not classify(["{'a': datetime.date(2020, 1, 1)}"], ["{'a': 2020-01-01}"])

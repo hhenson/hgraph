@@ -318,3 +318,16 @@ def test_a_string_in_a_container_renders_as_pythons_repr():
         return hg.str_(ts)
 
     assert eval_node(render, samples) == [str(sample) for sample in samples]
+
+
+def test_a_maps_text_has_its_members_in_any_order():
+    # OP-9, owner ruling 2026-09-24: a map is unordered, so str_ fixes its
+    # members but not their order. Parity #1082, #1083, #1086.
+    import ast
+
+    @graph
+    def render(ts: D) -> TS[str]:
+        return hg.str_(ts)
+
+    out = eval_node(render, [{"a": 2}, {"a": hg.REMOVE, "b": -19}, {"a": -19}])
+    assert [ast.literal_eval(text) for text in out] == [{"a": 2}, {"b": -19}, {"a": -19, "b": -19}]

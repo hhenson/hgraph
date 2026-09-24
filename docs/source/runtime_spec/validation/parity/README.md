@@ -32,6 +32,9 @@ not 56 separate expectations. [check.py](check.py) regenerates
 [assessment.json](assessment.json) from [observed.json](observed.json); it
 never reads an expectation from an observation.
 
+[decisions.json](decisions.json) records the owner's rulings; a ruling
+replaces an open expectation and keeps the question it answered.
+
 Per [Conformance](../../conformance.md): reasoning that matches the reference
 alone means the C++ runtime is corrected and the issue closes when the trace
 matches. Reasoning that matches the C++ runtime alone means the deviation is
@@ -51,7 +54,7 @@ matches, or no rule decides, the question goes to the owner.
 | Empty recording | #1315 | OP-11 | reference | Correct C++ |
 | `repr` escaping | #960, #1062 | OP-9 | reference | Correct C++ |
 | `ln` domain | #1116 | OP-10 | C++ | Accepted (already in `parity_matrix.rst`; now a family) |
-| Map text order | #1082, #1083, #1086 | VAL-8 | open | Question for the owner (point to settle 2) |
+| Map text order | #1082, #1083, #1086 | VAL-8, OP-9 | both (by ruling) | Accepted: owner ruling 2026-09-24, a map is unordered ([decisions.json](decisions.json)) |
 
 ### Why each accepted family is accepted
 

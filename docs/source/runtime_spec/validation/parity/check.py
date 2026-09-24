@@ -35,6 +35,23 @@ def _fields_absent(result: dict, spec: dict) -> bool:
     return not names & set(spec["fields"])
 
 
+def _map_texts(result: dict, expected: list) -> bool:
+    # User ruling 2026-09-24: a map's text lists its entries in no specified
+    # order, so each rendering is compared as the map it spells.
+    import ast
+
+    trace = result.get("trace")
+    if result.get("status") != "ok" or not isinstance(trace, list) or len(trace) != len(expected):
+        return False
+    for text, entries in zip(trace, expected):
+        try:
+            if ast.literal_eval(text) != entries:
+                return False
+        except (ValueError, SyntaxError):
+            return False
+    return True
+
+
 def satisfies(result: dict, expectation: dict) -> bool:
     mode = expectation["mode"]
     if mode == "trace":
@@ -43,6 +60,8 @@ def satisfies(result: dict, expectation: dict) -> bool:
         )
     if mode == "map-fields-absent":
         return _fields_absent(result, expectation["expected"])
+    if mode == "map-text":
+        return _map_texts(result, expectation["expected"])
     raise ValueError(f"unknown mode {mode!r}")
 
 

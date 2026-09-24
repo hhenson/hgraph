@@ -1055,20 +1055,43 @@
    ]
   },
   "1082": {
-   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "derivation": "User ruling 2026-09-24 (decisions.json): a map is unordered, so its text lists the live entries in any order. The entries are the dictionary after each tick.",
+   "expected": [
+    {
+     "a": 2
+    },
+    {
+     "b": -19
+    },
+    {
+     "a": -19,
+     "b": -19
+    }
+   ],
    "family": "map-text-order",
-   "mode": "open",
-   "open_point": 2,
+   "mode": "map-text",
    "rules": [
     "VAL-8",
     "OP-9"
    ]
   },
   "1083": {
-   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "derivation": "User ruling 2026-09-24 (decisions.json): a map is unordered, so its text lists the live entries in any order. The entries are the dictionary after each tick.",
+   "expected": [
+    {
+     "a": -19,
+     "b": -19
+    },
+    {
+     "b": -19
+    },
+    {
+     "a": -19,
+     "b": -19
+    }
+   ],
    "family": "map-text-order",
-   "mode": "open",
-   "open_point": 2,
+   "mode": "map-text",
    "rules": [
     "VAL-8",
     "OP-9"
@@ -1099,10 +1122,21 @@
    ]
   },
   "1086": {
-   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "derivation": "User ruling 2026-09-24 (decisions.json): a map is unordered, so its text lists the live entries in any order. The entries are the dictionary after each tick.",
+   "expected": [
+    {
+     "a": -5
+    },
+    {
+     "b": -8
+    },
+    {
+     "a": -13,
+     "b": -8
+    }
+   ],
    "family": "map-text-order",
-   "mode": "open",
-   "open_point": 2,
+   "mode": "map-text",
    "rules": [
     "VAL-8",
     "OP-9"
