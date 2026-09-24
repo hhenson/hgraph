@@ -378,7 +378,13 @@ namespace hgraph::stdlib
         mismatch fails the run instead of writing a deferred report.  It
         still publishes the core-neutral ``ComparisonSummary`` (RFC 0025) —
         per tick, since the throw means stop may never see a final count —
-        so both compare implementations answer the same summary query. */
+        so both compare implementations answer the same summary query.
+
+        ``recordable_id`` defaults to empty, as on the frame backend, so
+        ``compare(lhs, rhs)`` takes the enclosing component's id, as
+        released hgraph's does. With no id and no recordable trait it fails
+        at start, like the frame backend (released hgraph fails at stop).
+        Ruling 2026-09-24, issue #818 item 5.4. */
     struct memory_compare_impl
     {
         static constexpr auto name = "memory_compare";
@@ -388,27 +394,23 @@ namespace hgraph::stdlib
             return record_replay::effective_backend_is(context, record_replay::MEMORY);
         }
 
-        static auto defaults() { return std::tuple{arg<"model">(Str{})}; }
+        static auto defaults()
+        {
+            return std::tuple{arg<"recordable_id">(Str{}), arg<"model">(Str{})};
+        }
 
         static void start(Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
                           GlobalStateView gs,
                           State<record_replay_memory_detail::MemoryCompareState> state)
         {
-            // A bare compare outside any recordable scope has no id to
-            // resolve; it keeps its throw-only contract (empty fq_key).
-            std::string fq_key;
-            if (!recordable_id.value().empty() ||
-                traits.trait(record_replay::RECORDABLE_ID_TRAIT).valid())
-            {
-                fq_key = record_replay::fq_recordable_id(traits, recordable_id.value()) +
-                         ".__compare__";
-                // Zero the published summary NOW: a rerun over the same
-                // GlobalState that receives no ticks must report 0/0 (the
-                // frame compare's stop publishes exactly that), never the
-                // previous run's counts.
-                record_replay::publish_comparison_summary(gs, fq_key,
-                                                          record_replay::ComparisonSummary{});
-            }
+            // Throws when there is neither an id nor a recordable trait.
+            std::string fq_key =
+                record_replay::fq_recordable_id(traits, recordable_id.value()) + ".__compare__";
+            // Zero the published summary NOW: a rerun over the same
+            // GlobalState that receives no ticks must report 0/0 (the frame
+            // compare's stop publishes exactly that), never the previous
+            // run's counts.
+            record_replay::publish_comparison_summary(gs, fq_key, record_replay::ComparisonSummary{});
             state.set(record_replay_memory_detail::MemoryCompareState{.fq_key = std::move(fq_key)});
         }
 
@@ -423,16 +425,12 @@ namespace hgraph::stdlib
             auto &counters = state.modify();
             counters.compared += 1;
             if (!equal) { counters.mismatches += 1; }
-            if (!counters.fq_key.empty())
-            {
-                // Published before the throw below so the failing tick is
-                // visible in the summary.
-                record_replay::publish_comparison_summary(
-                    gs, counters.fq_key,
-                    record_replay::ComparisonSummary{
-                        static_cast<std::size_t>(counters.compared),
-                        static_cast<std::size_t>(counters.mismatches)});
-            }
+            // Published before the throw below so the failing tick is
+            // visible in the summary.
+            record_replay::publish_comparison_summary(
+                gs, counters.fq_key,
+                record_replay::ComparisonSummary{static_cast<std::size_t>(counters.compared),
+                                                 static_cast<std::size_t>(counters.mismatches)});
             if (!equal)
             {
                 throw std::runtime_error("record/replay comparison failed");

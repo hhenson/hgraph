@@ -183,6 +183,16 @@ fingerprinted.
   "``switch_`` output modes"), which fixed the far more common scalar case, where
   a consumer re-pointed back to the upstream field re-ticked a stale value.
   Pinned by ``python/tests/ported/_wiring/test_tsd_wiring.py::test_tsd_in_bundle_ref``.
+- **``compare`` outside any component, and its ``recordable_id``
+  keyword.** ``compare(lhs, rhs)`` wires on every backend and takes the
+  enclosing component's recordable id, as in released hgraph. With neither
+  an id nor a recordable trait, released hgraph wires and fails at stop
+  (``Trait recordable_id not found``); this runtime fails at start (``no
+  recordable id provided``), one phase earlier, before any tick is compared.
+  ``compare(lhs, rhs, recordable_id="x")`` is a documented superset that
+  released hgraph rejects at wiring. Ruling 2026-09-24 (issue #818 item 5.4,
+  option A of the question in PR #1635); pinned by ``tests/cpp/test_component.cpp``,
+  "compare: recordable_id defaults to the enclosing recordable id".
 - **``setattr_`` with an attribute the schema does not declare.** Released
   hgraph succeeds and leaves the value unchanged; this runtime raises a
   ``WiringError``. Rejecting a write to an undeclared field is the better
