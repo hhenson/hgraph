@@ -1454,7 +1454,8 @@ TEST_CASE("operators: wired callable parameter inspection reports names and posi
     const auto parameters =
         OperatorRegistry::instance().wired_fn_parameters("zero");
     CHECK(parameters.names == std::vector<std::string>{"op"});
-    CHECK(parameters.positions == std::vector<std::size_t>{0});
+    // zero(tp, op), released hgraph's order (parity #818 item 2.1).
+    CHECK(parameters.positions == std::vector<std::size_t>{1});
     CHECK(OperatorRegistry::instance()
               .wired_fn_parameters("not_registered")
               .names.empty());
