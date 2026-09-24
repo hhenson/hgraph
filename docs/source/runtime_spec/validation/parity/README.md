@@ -117,3 +117,9 @@ unchanged.
   seeded reduction. The dictionary `mean` keeps its NaN default. The six
   aggregate recipes match Python. The key-set pipeline now publishes only
   `empty` before a key arrives, inside the `key-set-reader-tick` family.
+- **Strict formatting** (OP-8). `print_`, `log_` and the formatting
+  `assert_` format only once every packed argument is valid, as `format_`
+  does with its default `__strict__`. There is no `<n/a>` placeholder. A
+  failing formatted assertion whose argument is not yet valid raises
+  nothing, as in Python, and `log_`'s `sample_count` counts only formatted
+  messages. The four `print_` recipes match Python.

@@ -4,11 +4,16 @@
 // released hgraph (runtime_spec/validation/parity); the Python-authored twin
 // of each case is python/tests/test_operator_contracts.py.
 
+#include <hgraph/lib/std/operators/impl/io_impl.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace
 {
@@ -16,6 +21,35 @@ namespace
     using namespace hgraph::testing;
 
     using IntDict = TSD<Int, TS<Int>>;
+
+    // io_write_slot takes a plain function pointer, so the buffer lives here.
+    inline std::vector<std::string> printed_lines{};
+    inline void capture_line(std::string_view line, bool) { printed_lines.emplace_back(line); }
+
+    struct CapturedPrint
+    {
+        stdlib::IoWriteFn previous;
+        CapturedPrint() : previous(stdlib::io_write_slot())
+        {
+            printed_lines.clear();
+            stdlib::io_write_slot() = &capture_line;
+        }
+        ~CapturedPrint() { stdlib::io_write_slot() = previous; }
+    };
+
+    /** ``print_("v={}", ts)``, wired as print_'s compose wires it. */
+    struct PrintValueGraph
+    {
+        static constexpr auto name = "operator_contracts_print_value";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto format = wire<stdlib::const_>(w, Str{"v={}"}).as<TS<Str>>();
+            WiringPortRef packed = stdlib::io_impl_detail::pack_format_args({ts.erased()}, {});
+            wire<stdlib::print_sink_op>(w, format, Port<void>{w, std::move(packed)}, Bool{true});
+            return ts;
+        }
+    };
 }  // namespace
 
 TEST_CASE("operator contracts: a TSD union forwards the most recent tick (OP-4, OP-5)")
@@ -144,4 +178,23 @@ TEST_CASE("operator contracts: all_ and any_ publish nothing before an argument 
                  values<Bool>(false, true));
     CHECK_OUTPUT(eval_node<stdlib::any_>(values<Bool>(none, false), values<Bool>(true, none)),
                  values<Bool>(true, true));
+}
+
+TEST_CASE("operator contracts: print_ waits for every argument (OP-8)")
+{
+    stdlib::register_standard_operators();
+
+    // Parity #1122, #1339, #1564, #1613: the argument never ticks, so nothing
+    // is printed -- no placeholder line.
+    {
+        CapturedPrint capture;
+        static_cast<void>(eval_node<PrintValueGraph>(values<Int>(none, none)));
+        CHECK(printed_lines.empty());
+    }
+    // Once the argument is valid the format ticks print as usual.
+    {
+        CapturedPrint capture;
+        static_cast<void>(eval_node<PrintValueGraph>(values<Int>(none, 5, 6)));
+        CHECK(printed_lines == std::vector<std::string>{"v=5", "v=6"});
+    }
 }

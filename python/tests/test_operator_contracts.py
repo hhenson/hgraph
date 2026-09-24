@@ -158,3 +158,53 @@ def test_all_and_any_evaluate_at_start_over_already_valid_arguments():
 
     assert eval_node(switched, [None, "a"], [True, None], [True, None]) == [None, True]
     assert eval_node(switched, [None, "b"], [False, None], [True, None]) == [None, True]
+
+def _printed(capsys):
+    # Released hgraph also logs its own [hgraph] lines to stdout.
+    return [line for line in capsys.readouterr().out.splitlines() if "[hgraph]" not in line]
+
+
+def test_print_waits_for_every_argument(capsys):
+    # OP-8. Parity #1122, #1339, #1564, #1613: print_ formats as format_ does
+    # with __strict__ true, so an argument that never ticks prints nothing.
+    for tp, ticks in ((TS[int], [None]), (TS[float], [None]), (TS[bool], [None, None])):
+        @graph
+        def printed(ts: tp) -> tp:
+            hg.print_("v={value}", value=ts)
+            return ts
+
+        eval_node(printed, ticks)
+        assert _printed(capsys) == []
+
+    @graph
+    def printed_later(ts: TS[int]) -> TS[int]:
+        hg.print_("v={value}", value=ts)
+        return ts
+
+    eval_node(printed_later, [None, 5])
+    assert _printed(capsys) == ["v=5"]
+
+    # With no arguments the format string itself prints when it ticks.
+    @graph
+    def plain(ts: TS[int]) -> TS[int]:
+        hg.print_("hello")
+        return ts
+
+    eval_node(plain, [1])
+    assert _printed(capsys) == ["hello"]
+
+
+def test_a_formatted_assert_needs_its_arguments():
+    # OP-8: released hgraph formats the message with format_ and asserts
+    # through a sink that needs that message, so a failing condition whose
+    # argument is not yet valid raises nothing.
+    import pytest
+
+    @graph
+    def checked(condition: TS[bool], detail: TS[int]) -> TS[bool]:
+        hg.assert_(condition, "failed with {}", detail)
+        return condition
+
+    assert eval_node(checked, [False], [None]) == [False]
+    with pytest.raises(Exception, match="failed with 3"):
+        eval_node(checked, [True, False], [None, 3])
