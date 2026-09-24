@@ -29,6 +29,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    operators
    writing_nodes
    parity_matrix
+   parity_questions
    parity_testing
    surface_triage
    tornado_parity
