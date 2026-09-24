@@ -859,7 +859,7 @@ class _compare_Operator(_Protocol):
        Expected or reference stream.
 
     ``recordable_id`` : scalar; ``str``
-       Optional explicit identity; context supplies it when omitted.
+       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``model`` : scalar; ``str``
        Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
@@ -878,14 +878,14 @@ class _compare_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None``
+    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str, model: str = ...) -> None: ...
+    def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str = ..., model: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 compare: _compare_Operator

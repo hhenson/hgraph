@@ -577,8 +577,11 @@ not) and is recorded as a failure — never skipped.
 ``GlobalState`` key (``publish_comparison_summary``): the frame compare at
 stop alongside its detailed rows, the memory compare per tick with its
 counters resolved at start (published before the failing throw, so a
-shared-GlobalState caller sees the mismatching tick; a bare compare
-outside any recordable scope publishes nothing).  The memory compare
+shared-GlobalState caller sees the mismatching tick).  On every backend
+``recordable_id`` defaults to empty, so ``compare(lhs, rhs)`` takes the
+enclosing recordable id, as in released hgraph; with neither an id nor a
+recordable trait it fails at start (ruling 2026-09-24, #818 item 5.4; the
+memory compare's former throw-only mode for that case is gone).  The memory compare
 also publishes ``0/0`` at START: a rerun over the same ``GlobalState``
 that receives no ticks reports an empty run — matching the frame
 compare's empty stop — never the previous run's counts.
