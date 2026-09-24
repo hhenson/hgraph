@@ -159,14 +159,15 @@ def test_tsd_in_bundle_ref():
     # deviation: both branches pass the same map_ output through as ``b``, so
     # the flip re-points ``b`` at the reference it already holds. That is no
     # change here (the no-change-means-no-tick ruling), and only ``a`` ticks;
-    # an unchanged TSD field renders as an empty delta. Released hgraph
+    # ``b`` has no news, so it is absent from the delta (TS-24, issue #835).
+    # Released hgraph
     # re-reports the whole dictionary, because its map_ output is
     # reference-valued and the consumer re-binds it element by element
     # (parity_matrix.rst, "Recorded but outside the corpus"). The field stays
     # bound either way: the later key tick agrees on both sides.
     assert eval_node(source, [{0}, None, {1}], [0, 1, None]) == [
         {'a': 0, 'b': {0: {0: 0}}},
-        {'a': 1, 'b': {}},
+        {'a': 1},
         {'b': {0: {1: 0}, 1: {0: 1, 1: 1}}},
     ]
 
