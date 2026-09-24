@@ -50,6 +50,30 @@ namespace
             return ts;
         }
     };
+
+    /** ``print_("v={}", ts)`` through the public operator. */
+    struct PublicPrintGraph
+    {
+        static constexpr auto name = "operator_contracts_public_print";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            wire<stdlib::print_>(w, Str{"v={}"}, ts);
+            return ts;
+        }
+    };
+
+    /** ``assert_(condition, "failed with {}", detail)`` through the public operator. */
+    struct PublicAssertGraph
+    {
+        static constexpr auto name = "operator_contracts_public_assert";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Bool>> condition, Port<TS<Int>> detail)
+        {
+            wire<stdlib::assert_>(w, condition, Str{"failed with {}"}, detail);
+            return condition;
+        }
+    };
 }  // namespace
 
 TEST_CASE("operator contracts: a TSD union forwards the most recent tick (OP-4, OP-5)")
@@ -197,4 +221,17 @@ TEST_CASE("operator contracts: print_ waits for every argument (OP-8)")
         static_cast<void>(eval_node<PrintValueGraph>(values<Int>(none, 5, 6)));
         CHECK(printed_lines == std::vector<std::string>{"v=5", "v=6"});
     }
+}
+
+TEST_CASE("operator contracts: public print_ and assert_ wait for their arguments (OP-8)")
+{
+    stdlib::register_standard_operators();
+    {
+        CapturedPrint capture;
+        static_cast<void>(eval_node<PublicPrintGraph>(values<Int>(none, 5, 6)));
+        CHECK(printed_lines == std::vector<std::string>{"v=5", "v=6"});
+    }
+    // A failing condition whose argument is not yet valid raises nothing.
+    CHECK_OUTPUT(eval_node<PublicAssertGraph>(values<Bool>(false), values<Int>(none)), values<Bool>(false));
+    CHECK_THROWS(eval_node<PublicAssertGraph>(values<Bool>(true, false), values<Int>(none, 3)));
 }
