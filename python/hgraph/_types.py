@@ -1355,10 +1355,13 @@ def _bind_native_schema(scalar, native_schema):
     python_fields = list(_compound_python_field_types(scalar).items())
     native_names = [name for name, _ in native_fields]
     python_names = [name for name, _ in python_fields]
+    # A face that diverges from its native schema is the registry's
+    # "different schema" error (the same ValueError it raised before binding
+    # existed), with the divergence named.
     if python_names != native_names:
-        raise TypeError(
-            f"{where}: fields {python_names} do not match native schema "
-            f"{native_schema!r} fields {native_names}")
+        raise ValueError(
+            f"{where}: named bundle {native_schema!r} is already registered with a different schema: "
+            f"fields {python_names} do not match native fields {native_names}")
     for (name, annotation), (_, native_type) in zip(python_fields, native_fields):
         if _is_self_recursive_annotation(annotation, scalar, {}):
             declared_name = f"Owned[{native_schema}]"
@@ -1367,9 +1370,10 @@ def _bind_native_schema(scalar, native_schema):
             declared_name = getattr(declared, "name", declared)
         if declared_name == native_type.name:
             continue
-        raise TypeError(
-            f"{where}.{name}: annotation {annotation!r} is {declared_name!r}, "
-            f"but native schema {native_schema!r} stores {native_type.name!r}")
+        raise ValueError(
+            f"{where}.{name}: named bundle {native_schema!r} is already registered with a different "
+            f"schema: annotation {annotation!r} is {declared_name!r}, but the native field stores "
+            f"{native_type.name!r}")
     return meta
 
 

@@ -87,7 +87,7 @@ def test_fields_in_a_different_order_are_refused():
         b: str
         a: int
 
-    with pytest.raises(TypeError, match=r"fields \['b', 'a'\] do not match"):
+    with pytest.raises(ValueError, match=r"fields \['b', 'a'\] do not match"):
         _value_type(Ordered)
 
 
@@ -98,7 +98,7 @@ def test_a_missing_field_is_refused():
     class Missing(CompoundScalar, namespace=NS):
         a: int
 
-    with pytest.raises(TypeError, match=r"fields \['a'\] do not match"):
+    with pytest.raises(ValueError, match=r"fields \['a'\] do not match"):
         _value_type(Missing)
 
 
@@ -110,7 +110,7 @@ def test_a_field_of_the_wrong_type_is_refused_by_name():
         a: int
         b: int
 
-    with pytest.raises(TypeError, match=r"WrongType\.b: .* stores 'str'"):
+    with pytest.raises(ValueError, match=r"WrongType\.b: .* stores 'str'"):
         _value_type(WrongType)
 
 
@@ -121,7 +121,7 @@ def test_type_does_not_stand_for_an_ordinary_native_field():
     class NotAType(CompoundScalar, namespace=NS):
         a: type
 
-    with pytest.raises(TypeError, match=r"NotAType\.a: .* stores 'int'"):
+    with pytest.raises(ValueError, match=r"NotAType\.a: .* stores 'int'"):
         _value_type(NotAType)
 
 
@@ -193,7 +193,7 @@ def test_a_type_position_is_checked_where_it_sits_not_by_rewriting_the_name():
     class Swapped(CompoundScalar, namespace=NS):
         pair: tuple[type, object]
 
-    with pytest.raises(TypeError, match=r"Swapped\.pair"):
+    with pytest.raises(ValueError, match=r"Swapped\.pair"):
         _value_type(Swapped)
 
     _hgraph.qualified_bundle_vt(NS, "Ordered2", [("pair", _hgraph.fixed_tuple_vt([OBJECT, TYPE]))])

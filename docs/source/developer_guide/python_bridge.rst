@@ -530,8 +530,9 @@ rewritten with a marker at each ``type`` leaf before its schema is computed,
 because Python maps ``type`` and ``object`` to one scalar and the schema
 alone cannot say which position is which. A field annotated as the class
 itself is the native self edge, ``Owned[<schema>]``. An empty namespace is a
-bare top-level name, as the registry spells it. A mismatch is a
-``TypeError`` naming the field. A generic specialisation has its own name
+bare top-level name, as the registry spells it. A mismatch is the
+registry's ``ValueError`` (*already registered with a different schema*,
+as before binding existed), now naming the field. A generic specialisation has its own name
 (``Name[int]``) and never binds; a class without an explicit namespace never
 does either, and a namespaced class with no native twin registers from its
 annotations as before. The native schema must be registered before its
