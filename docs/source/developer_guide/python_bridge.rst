@@ -389,7 +389,8 @@ a type is what a type argument crosses as, below. From Python it accepts
 whatever a type-argument slot accepts (``_carrier_value``: a ``TS[...]``
 expression, a class, a schema or a size). Conversion resolves through
 Python-level caches and takes no type-system locks per tick. A type's text is
-its name (``int``, ``TS[int]``). Python has no annotation of its own for the
+its name (``int``, ``TS[int]``); it serialises as its kind-tagged name
+(``scalar:int``, ``ts:TS[int]``), see *Type values* in the scalar plans page. Python has no annotation of its own for the
 scalar: ``type`` is the Python-object scalar, so a user meets a type value
 through a native schema's field.
 
