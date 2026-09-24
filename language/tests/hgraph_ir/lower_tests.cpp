@@ -221,7 +221,7 @@ TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-
     // first native interface, and the restriction propagates through the
     // const fn helpers that wrap it.
     const std::string prelude = R"(module example
-native fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
+native const fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
 const fn inner(a: f64) -> f64 => node_hooks_only(a)
 const fn outer(a: f64) -> f64 => inner(a)
 )";

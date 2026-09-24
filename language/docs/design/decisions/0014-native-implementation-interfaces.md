@@ -113,17 +113,22 @@ entry points, not per-function mappings. Installed sources include the provider.
 The generated public C++ scalar wrappers retain their existing const-reference
 ABI; provider methods use values for bool/i64/f64 and const references for other
 scalars. `const` in that C++ spelling does not change HGL temporal roles.
+Native value calls lift over time-series arguments through the same runtime
+node policy as ordinary `const fn`, including imported calls. Descriptor format
+7 records `value`, `temporal`, or `legacy-value`; hooks do not determine role.
+Legacy inline `native fn` is rejected inside `const fn`: value helpers must
+state `native const fn`. Calendar/duration helpers now use the scalar provider.
 Scripted `test` accepts the corresponding `--native-provider-header` and
 `--native-provider` options. Its cache is bypassed until provider-header
 transitive dependencies can be fingerprinted.
 
-The 31 scalar substrate implementations live in `stdlib/cpp/native_scalar.h`.
+The 56 scalar substrate implementations live in `stdlib/cpp/native_scalar.h`.
 `native/scalar_values_i64.hgl` is a shared declaration part used by both target
 implementations. `emit-native-rust <file> --out <file>` generates a checked Rust
 trait for concrete bool/i64/f64 value declarations. Rust overloads, generics,
 fallible contracts and other scalar mappings are rejected until implemented.
 
-Temporal declarations retain their source role but cannot use this scalar
+New temporal declarations retain their source role but cannot use this scalar
 provider ABI. The temporal provider ABI and explicit collection-borrow spelling
 remain outstanding. Existing inline view helpers retain their legacy behaviour
 while that migration is pending; they are not examples of the new typing rules.

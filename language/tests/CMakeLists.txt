@@ -490,6 +490,10 @@ hgl_add_module(hgl_native_provider_fixture STATIC
     NATIVE_PROVIDER checks::scalar_provider::native)
 target_include_directories(hgl_native_provider_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/codegen/native-provider)
 hgl_apply_warnings(hgl_native_provider_fixture)
+hgl_add_module(hgl_native_provider_consumer_fixture STATIC
+    HGL codegen/native-provider-consumer.hgl
+    LINK_LIBRARIES hgl_native_provider_fixture)
+hgl_apply_warnings(hgl_native_provider_consumer_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_native_provider_tests.cpp
@@ -514,6 +518,7 @@ set(_hgl_generated_test_sources
     codegen/generated_imported_struct_tests.cpp
 )
 set(_hgl_generated_test_libraries
+    hgl_native_provider_consumer_fixture
     hgl_native_provider_fixture
     hgl_codegen_fixture
     hgl_structural_fixture

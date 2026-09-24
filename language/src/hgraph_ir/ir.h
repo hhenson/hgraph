@@ -298,7 +298,7 @@ namespace hgl::hgraph_ir
         std::vector<std::string> imported_targets{};
         std::vector<std::string> runtime_images{};
         std::string              descriptor_fingerprint{};
-        bool                     is_const{false};
+        NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
         bool                     source_defined{false};
         std::string              cpp_parameters{};
         std::string              cpp_body{};

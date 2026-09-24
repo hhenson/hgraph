@@ -84,8 +84,9 @@ namespace
         return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
     }
 
-    hgl::semantics::ModuleCatalog native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {
-                                                     hgl::semantics::NativeCallPhase::Evaluation}) {
+    hgl::semantics::ModuleCatalog
+    native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {hgl::semantics::NativeCallPhase::Evaluation},
+                   hgl::NativeExecutionRole                     role   = hgl::NativeExecutionRole::LegacyValue) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
         module.identity = "acme.stats";
@@ -98,6 +99,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = std::move(phases),
+            .execution_role         = role,
             .public_headers         = {"acme/stats.h"},
             .cmake_packages         = {"acme"},
             .imported_targets       = {"acme::stats"},
@@ -2635,4 +2637,35 @@ TEST_CASE("an admitted recursive struct edge is marked in typed HIR", "[ir][recu
     CHECK(marked("Node", "next"));
     CHECK_FALSE(marked("Node", "value"));
     CHECK(hgl::ir::print_hir(lowered.hir).find(" recursive") != std::string::npos);
+}
+
+TEST_CASE("native value roles survive imports and lift while temporal roles cannot be value calls", "[ir][native][interface]") {
+    using hgl::NativeExecutionRole;
+    using hgl::semantics::NativeCallPhase;
+    for (const auto role : {NativeExecutionRole::Value, NativeExecutionRole::Temporal}) {
+        const auto catalog = native_catalog({NativeCallPhase::Evaluation}, role);
+        for (const auto body : {"fn f(value: f64) -> f64 => blend(value, 3)", "const fn f(value: f64) -> f64 => blend(value, 3)"}) {
+            Lowered lowered{std::string{"module t\nuse acme.stats::{blend}\n"} + body + "\n", catalog};
+            require_clean(lowered);
+            REQUIRE(lowered.hir.native_functions.front().execution_role == role);
+            if (role == NativeExecutionRole::Value) {
+                CHECK(complete(lowered));
+                INFO(lowered.diagnostics.render(lowered.file));
+                CHECK_FALSE(lowered.diagnostics.has_errors());
+            } else {
+                CHECK_FALSE(complete(lowered));
+                CHECK(lowered.diagnostics.render(lowered.file).find("temporal native fn cannot") != std::string::npos);
+            }
+        }
+    }
+}
+
+TEST_CASE("inline native fn cannot silently become a const fn dependency", "[ir][native][interface]") {
+    Lowered lowered{R"(module t
+native fn legacy(value: i64) -> i64 { cpp(hgraph::Int value) { return value; } }
+const fn value(value: i64) -> i64 => legacy(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("declare native const fn") != std::string::npos);
 }

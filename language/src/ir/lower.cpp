@@ -813,30 +813,31 @@ namespace hgl::ir
                     case K::Each:
                         target.node = hir::ConstraintEach{symbol(source.identity), child(source.source), child(source.body)};
                         break;
-                    case K::Operator: {
-                        // An operator requirement names an OPERATOR, not one of
-                        // the struct's generic parameters, so the generics table
-                        // never holds it. It interns as an imported operator by
-                        // its canonical identity, carrying the registry name the
-                        // solver dispatches on -- looking it up among the
-                        // generics yields no symbol, and the solver then refuses
-                        // every application.
-                        hir::SymbolId op = hir::no_symbol;
-                        if (!source.identity.empty()) {
-                            // `external_name` IS the registry key the solver
-                            // dispatches on; `canonical_name` is the defining
-                            // module's identity, independent of that spelling.
-                            op = external_symbol(hir::SymbolKind::ImportedOperator, source.identity, source.registry_name,
-                                                 source.identity, range);
+                    case K::Operator:
+                        {
+                            // An operator requirement names an OPERATOR, not one of
+                            // the struct's generic parameters, so the generics table
+                            // never holds it. It interns as an imported operator by
+                            // its canonical identity, carrying the registry name the
+                            // solver dispatches on -- looking it up among the
+                            // generics yields no symbol, and the solver then refuses
+                            // every application.
+                            hir::SymbolId op = hir::no_symbol;
+                            if (!source.identity.empty()) {
+                                // `external_name` IS the registry key the solver
+                                // dispatches on; `canonical_name` is the defining
+                                // module's identity, independent of that spelling.
+                                op = external_symbol(hir::SymbolKind::ImportedOperator, source.identity, source.registry_name,
+                                                     source.identity, range);
+                            }
+                            hir::OperatorRequirement requirement{op, {}, hir::no_type};
+                            for (const std::uint32_t argument : source.arguments) {
+                                requirement.arguments.push_back(child(argument));
+                            }
+                            if (source.type) { requirement.result = imported_type(*source.type, generics, range); }
+                            target.node = std::move(requirement);
+                            break;
                         }
-                        hir::OperatorRequirement requirement{op, {}, hir::no_type};
-                        for (const std::uint32_t argument : source.arguments) {
-                            requirement.arguments.push_back(child(argument));
-                        }
-                        if (source.type) { requirement.result = imported_type(*source.type, generics, range); }
-                        target.node = std::move(requirement);
-                        break;
-                    }
                     case K::Relation:
                         target.node = hir::ConstraintRelation{imported_relation_op(source.operator_spelling), child(source.lhs),
                                                               child(source.rhs), source.relation_category};
@@ -1099,8 +1100,9 @@ namespace hgl::ir
                             hir::NativeParameter{parameter.name, imported_type(parameter.type, generic_symbols, range),
                                                  parameter.is_const, lower_native_access(parameter.access)});
                     }
-                    target.result = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
-                    target.throws = source.throws;
+                    target.result         = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
+                    target.throws         = source.throws;
+                    target.execution_role = source.execution_role;
                     for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
                     result_.native_functions.push_back(std::move(target));
                 }
@@ -1752,11 +1754,13 @@ namespace hgl::ir
                             const bool views = std::ranges::any_of(function.parameters, [](const hir::NativeParameter &parameter) {
                                 return parameter.access == hir::NativeParameterAccess::InputView;
                             });
-                            function.phases = views ? std::vector{hir::NativePhase::Evaluation}
-                                                    : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation,
-                                                                  hir::NativePhase::Stop};
-                            function.throws = node.throws;
-                            function.is_const = node.is_const;
+                            function.phases =
+                                views ? std::vector{hir::NativePhase::Evaluation}
+                                      : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation, hir::NativePhase::Stop};
+                            function.throws         = node.throws;
+                            function.execution_role = node.is_const                      ? NativeExecutionRole::Value
+                                                      : node.implementation.body.empty() ? NativeExecutionRole::Temporal
+                                                                                         : NativeExecutionRole::LegacyValue;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;

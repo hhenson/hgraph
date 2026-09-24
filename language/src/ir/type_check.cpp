@@ -583,7 +583,8 @@ namespace hgl::ir
                                         return parameter.is_const;
                                     }) && !injects_capability(id, "scheduler")) {
                                     diagnostics_.report(syntax::Category::Injectable, declaration.range,
-                                                        "a runtime function without temporal parameters must 'inject scheduler' and schedule itself");
+                                                        "a runtime function without temporal parameters must 'inject scheduler' "
+                                                        "and schedule itself");
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
@@ -1909,9 +1910,24 @@ namespace hgl::ir
                        module_.symbol(reference->symbol).kind == SymbolKind::SignalParameter;
             }
 
+            [[nodiscard]] NativePhase native_call_phase(const NativeFunction        &function,
+                                                        const std::vector<Argument> &arguments) const {
+                if (function.execution_role == NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
+                    std::ranges::any_of(
+                        arguments, [&](const Argument &argument) { return module_.expr(argument.value).phase == Phase::Wiring; })) {
+                    return NativePhase::Evaluation;
+                }
+                return active_native_phase_;
+            }
+
             [[nodiscard]] bool native_candidate_matches(const NativeFunction &function, const std::vector<Argument> &arguments,
                                                         TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
-                if (!active_value_function_ && std::ranges::find(function.phases, active_native_phase_) == function.phases.end()) {
+                if (function.execution_role == NativeExecutionRole::Temporal ||
+                    (active_value_function_ && function.execution_role == NativeExecutionRole::LegacyValue)) {
+                    return false;
+                }
+                if (!active_value_function_ &&
+                    std::ranges::find(function.phases, native_call_phase(function, arguments)) == function.phases.end()) {
                     return false;
                 }
                 std::vector<ExprId> bound;
@@ -1921,7 +1937,10 @@ namespace hgl::ir
                     const Expr            &argument  = module_.expr(bound[index]);
                     const NativeParameter &parameter = function.parameters[index];
                     if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
-                    if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) { return false; }
+                    if (function.execution_role != NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
+                        argument.phase != Phase::Constant) {
+                        return false;
+                    }
                     if (parameter.access == NativeParameterAccess::InputView && !native_input_view_argument(bound[index])) {
                         return false;
                     }
@@ -1948,7 +1967,17 @@ namespace hgl::ir
             void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
                                    TypeId expected) {
                 const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
-                const bool phase_allowed        = std::ranges::find(function.phases, active_native_phase_) != function.phases.end();
+                if (function.execution_role == NativeExecutionRole::Temporal) {
+                    type_error(expression.range,
+                               "a temporal native fn cannot be called as a value; its provider ABI is not implemented yet");
+                    return;
+                }
+                if (active_value_function_ && function.execution_role == NativeExecutionRole::LegacyValue) {
+                    type_error(expression.range, "a legacy native fn cannot be called from const fn; declare native const fn");
+                    return;
+                }
+                const NativePhase call_phase    = native_call_phase(function, call.arguments);
+                const bool        phase_allowed = std::ranges::find(function.phases, call_phase) != function.phases.end();
                 if (!phase_allowed && !active_value_function_) {
                     static constexpr std::string_view names[]{"wiring", "start", "evaluation", "stop"};
                     diagnostics_.report(syntax::Category::Phase, expression.range,
@@ -1974,7 +2003,8 @@ namespace hgl::ir
                         diagnostics_.report(syntax::Category::Phase, argument.range,
                                             "a const native parameter requires a compile-time value");
                     }
-                    if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
+                    if (function.execution_role != NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
+                        argument.phase != Phase::Constant) {
                         diagnostics_.report(syntax::Category::Phase, argument.range,
                                             "a wiring-phase native value call requires compile-time arguments");
                     }
@@ -1993,6 +2023,16 @@ namespace hgl::ir
                                                  .target        = target,
                                                  .identity      = function.identity,
                                                  .substitutions = std::move(substitutions)};
+                if (function.execution_role == NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
+                    call_phase == NativePhase::Evaluation) {
+                    expression.phase      = Phase::Wiring;
+                    expression.value_kind = expression.type == void_type_ ? ValueKind::Void : ValueKind::Signal;
+                    expression.effects |= Effect::WireGraph;
+                    for (ExprId argument : bound) {
+                        expression.operation.lift_inputs.push_back(argument.valid() &&
+                                                                   module_.expr(argument).phase == Phase::Wiring);
+                    }
+                }
                 contextualize(expression, expected);
             }
 

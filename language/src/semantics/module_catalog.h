@@ -1,6 +1,7 @@
 #ifndef HGL_SEMANTICS_MODULE_CATALOG_H
 #define HGL_SEMANTICS_MODULE_CATALOG_H
 
+#include "native_contract.h"
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -130,13 +131,14 @@ namespace hgl::semantics
         std::optional<ImportedType>    result{};
         std::vector<NativeCallPhase>   phases{};
         /// Descriptor exception policy "translated": the call may raise.
-        bool                           throws{false};
-        std::vector<std::string>       public_headers{};
-        std::vector<std::string>       cmake_packages{};
-        std::vector<std::string>       imported_targets{};
-        std::vector<std::string>       runtime_images{};
-        std::string                    descriptor_fingerprint{};
-        std::string                    support_error{};
+        bool                     throws{false};
+        NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        std::vector<std::string> public_headers{};
+        std::vector<std::string> cmake_packages{};
+        std::vector<std::string> imported_targets{};
+        std::vector<std::string> runtime_images{};
+        std::string              descriptor_fingerprint{};
+        std::string              support_error{};
     };
 
     struct ImportedOperatorParameter

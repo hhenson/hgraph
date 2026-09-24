@@ -5,3 +5,6 @@ native const fn bit_and(lhs: i64, rhs: i64) -> i64
 export fn bitwise(lhs: i64, rhs: i64) -> i64 {
     when { return bit_and(lhs, rhs) }
 }
+
+export fn lifted(lhs: i64, rhs: i64) -> i64 => bit_and(rhs: rhs, lhs: lhs)
+export fn mixed(lhs: i64) -> i64 => bit_and(lhs, 3)

@@ -1,157 +1,55 @@
 # Pure calendar/value projections; HGL owns temporal activation and tick policy.
 module hgraph.native part temporal_values
-cpp include <hgraph/types/temporal.h>
-cpp include <chrono>
 
-native fn year(value: date) -> i64 {
-    cpp(const hgraph::Date &value) {
-        return static_cast<hgraph::Int>(static_cast<int>((value).year()));
-    }
-}
+native const fn year(value: date) -> i64
 
-native fn month(value: date) -> i64 {
-    cpp(const hgraph::Date &value) {
-        return static_cast<hgraph::Int>(static_cast<unsigned>((value).month()));
-    }
-}
+native const fn month(value: date) -> i64
 
-native fn day(value: date) -> i64 {
-    cpp(const hgraph::Date &value) {
-        return static_cast<hgraph::Int>(static_cast<unsigned>((value).day()));
-    }
-}
+native const fn day(value: date) -> i64
 
-native fn weekday(value: date) -> i64 {
-    cpp(const hgraph::Date &value) {
-        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding() - 1);
-    }
-}
+native const fn weekday(value: date) -> i64
 
-native fn isoweekday(value: date) -> i64 {
-    cpp(const hgraph::Date &value) {
-        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding());
-    }
-}
+native const fn isoweekday(value: date) -> i64
 
-native fn year(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(static_cast<int>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).year()));
-    }
-}
+native const fn year(value: datetime) -> i64
 
-native fn month(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).month()));
-    }
-}
+native const fn month(value: datetime) -> i64
 
-native fn day(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).day()));
-    }
-}
+native const fn day(value: datetime) -> i64
 
-native fn weekday(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding() - 1);
-    }
-}
+native const fn weekday(value: datetime) -> i64
 
-native fn isoweekday(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding());
-    }
-}
+native const fn isoweekday(value: datetime) -> i64
 
-native fn hour(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 3600000000);
-    }
-}
+native const fn hour(value: datetime) -> i64
 
-native fn minute(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 60000000 % 60);
-    }
-}
+native const fn minute(value: datetime) -> i64
 
-native fn second(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 1000000 % 60);
-    }
-}
+native const fn second(value: datetime) -> i64
 
-native fn microsecond(value: datetime) -> i64 {
-    cpp(const hgraph::DateTime &value) {
-        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds % 1000000);
-    }
-}
+native const fn microsecond(value: datetime) -> i64
 
-native fn hour(value: time) -> i64 {
-    cpp(const hgraph::Time &value) {
-        return static_cast<hgraph::Int>(value.microseconds / 3600000000);
-    }
-}
+native const fn hour(value: time) -> i64
 
-native fn minute(value: time) -> i64 {
-    cpp(const hgraph::Time &value) {
-        return static_cast<hgraph::Int>(value.microseconds / 60000000 % 60);
-    }
-}
+native const fn minute(value: time) -> i64
 
-native fn second(value: time) -> i64 {
-    cpp(const hgraph::Time &value) {
-        return static_cast<hgraph::Int>(value.microseconds / 1000000 % 60);
-    }
-}
+native const fn second(value: time) -> i64
 
-native fn microsecond(value: time) -> i64 {
-    cpp(const hgraph::Time &value) {
-        return static_cast<hgraph::Int>(value.microseconds % 1000000);
-    }
-}
+native const fn microsecond(value: time) -> i64
 
-native fn days(value: duration) -> i64 {
-    cpp(const hgraph::TimeDelta &value) {
-        return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::days>(value).count());
-    }
-}
+native const fn days(value: duration) -> i64
 
-native fn seconds(value: duration) -> i64 {
-    cpp(const hgraph::TimeDelta &value) {
-        return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::seconds>(value - std::chrono::floor<std::chrono::days>(value)).count());
-    }
-}
+native const fn seconds(value: duration) -> i64
 
-native fn microseconds(value: duration) -> i64 {
-    cpp(const hgraph::TimeDelta &value) {
-        return static_cast<hgraph::Int>((value - std::chrono::floor<std::chrono::seconds>(value)).count());
-    }
-}
+native const fn microseconds(value: duration) -> i64
 
-native fn total_seconds(value: duration) -> f64 {
-    cpp(const hgraph::TimeDelta &value) {
-        return std::chrono::duration<hgraph::Float>(value).count();
-    }
-}
+native const fn total_seconds(value: duration) -> f64
 
-native fn timestamp(value: datetime) -> f64 {
-    cpp(const hgraph::DateTime &value) {
-        return std::chrono::duration<hgraph::Float>(value.time_since_epoch()).count();
-    }
-}
+native const fn timestamp(value: datetime) -> f64
 
-native fn datepart(value: datetime) -> datetime {
-    cpp(const hgraph::DateTime &value) {
-        return std::chrono::floor<std::chrono::days>(value);
-    }
-}
+native const fn datepart(value: datetime) -> datetime
 
-native fn calendar_date(value: datetime) -> date {
-    cpp(const hgraph::DateTime &value) {
-        return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
-    }
-}
+native const fn calendar_date(value: datetime) -> date
 
 test {
     const fn calendar_year(value: date) -> i64 => year(value)

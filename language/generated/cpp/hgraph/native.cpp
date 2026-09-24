@@ -118,131 +118,42 @@ namespace hgraph_::native
         // sets_maps.hgl:24
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
 
-        // temporal_values.hgl:6
-        hgraph::Int year(const hgraph::Date &value) noexcept { return static_cast<hgraph::Int>(static_cast<int>((value).year())); }
-
-        // temporal_values.hgl:12
-        hgraph::Int month(const hgraph::Date &value) noexcept {
-            return static_cast<hgraph::Int>(static_cast<unsigned>((value).month()));
-        }
-
-        // temporal_values.hgl:18
-        hgraph::Int day(const hgraph::Date &value) noexcept {
-            return static_cast<hgraph::Int>(static_cast<unsigned>((value).day()));
-        }
-
-        // temporal_values.hgl:24
-        hgraph::Int weekday(const hgraph::Date &value) noexcept {
-            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding() - 1);
-        }
-
-        // temporal_values.hgl:30
-        hgraph::Int isoweekday(const hgraph::Date &value) noexcept {
-            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding());
-        }
-
-        // temporal_values.hgl:36
-        hgraph::Int year__candidate_2(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(static_cast<int>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).year()));
-        }
-
-        // temporal_values.hgl:42
-        hgraph::Int month__candidate_2(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(
-                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).month()));
-        }
-
-        // temporal_values.hgl:48
-        hgraph::Int day__candidate_2(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(
-                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).day()));
-        }
-
-        // temporal_values.hgl:54
+        hgraph::Int year(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.year(value); }
+        hgraph::Int month(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.month(value); }
+        hgraph::Int day(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.day(value); }
+        hgraph::Int weekday(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.weekday(value); }
+        hgraph::Int isoweekday(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.isoweekday(value); }
+        hgraph::Int year__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.year(value); }
+        hgraph::Int month__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.month(value); }
+        hgraph::Int day__candidate_2(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.day(value); }
         hgraph::Int weekday__candidate_2(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding() - 1);
+            return hgl::stdlib::scalar_native.weekday(value);
         }
-
-        // temporal_values.hgl:60
         hgraph::Int isoweekday__candidate_2(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding());
+            return hgl::stdlib::scalar_native.isoweekday(value);
         }
-
-        // temporal_values.hgl:66
-        hgraph::Int hour(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 3600000000);
-        }
-
-        // temporal_values.hgl:72
-        hgraph::Int minute(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 60000000 % 60);
-        }
-
-        // temporal_values.hgl:78
-        hgraph::Int second(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 1000000 % 60);
-        }
-
-        // temporal_values.hgl:84
-        hgraph::Int microsecond(const hgraph::DateTime &value) noexcept {
-            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds % 1000000);
-        }
-
-        // temporal_values.hgl:90
-        hgraph::Int hour__candidate_2(const hgraph::Time &value) noexcept {
-            return static_cast<hgraph::Int>(value.microseconds / 3600000000);
-        }
-
-        // temporal_values.hgl:96
-        hgraph::Int minute__candidate_2(const hgraph::Time &value) noexcept {
-            return static_cast<hgraph::Int>(value.microseconds / 60000000 % 60);
-        }
-
-        // temporal_values.hgl:102
-        hgraph::Int second__candidate_2(const hgraph::Time &value) noexcept {
-            return static_cast<hgraph::Int>(value.microseconds / 1000000 % 60);
-        }
-
-        // temporal_values.hgl:108
+        hgraph::Int hour(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.hour(value); }
+        hgraph::Int minute(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.minute(value); }
+        hgraph::Int second(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.second(value); }
+        hgraph::Int microsecond(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.microsecond(value); }
+        hgraph::Int hour__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.hour(value); }
+        hgraph::Int minute__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.minute(value); }
+        hgraph::Int second__candidate_2(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.second(value); }
         hgraph::Int microsecond__candidate_2(const hgraph::Time &value) noexcept {
-            return static_cast<hgraph::Int>(value.microseconds % 1000000);
+            return hgl::stdlib::scalar_native.microsecond(value);
         }
-
-        // temporal_values.hgl:114
-        hgraph::Int days(const hgraph::TimeDelta &value) noexcept {
-            return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::days>(value).count());
-        }
-
-        // temporal_values.hgl:120
-        hgraph::Int seconds(const hgraph::TimeDelta &value) noexcept {
-            return static_cast<hgraph::Int>(
-                std::chrono::floor<std::chrono::seconds>(value - std::chrono::floor<std::chrono::days>(value)).count());
-        }
-
-        // temporal_values.hgl:126
-        hgraph::Int microseconds(const hgraph::TimeDelta &value) noexcept {
-            return static_cast<hgraph::Int>((value - std::chrono::floor<std::chrono::seconds>(value)).count());
-        }
-
-        // temporal_values.hgl:132
+        hgraph::Int days(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.days(value); }
+        hgraph::Int seconds(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.seconds(value); }
+        hgraph::Int microseconds(const hgraph::TimeDelta &value) noexcept { return hgl::stdlib::scalar_native.microseconds(value); }
         hgraph::Float total_seconds(const hgraph::TimeDelta &value) noexcept {
-            return std::chrono::duration<hgraph::Float>(value).count();
+            return hgl::stdlib::scalar_native.total_seconds(value);
         }
-
-        // temporal_values.hgl:138
-        hgraph::Float timestamp(const hgraph::DateTime &value) noexcept {
-            return std::chrono::duration<hgraph::Float>(value.time_since_epoch()).count();
+        hgraph::Float    timestamp(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.timestamp(value); }
+        hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.datepart(value); }
+        hgraph::Date     calendar_date(const hgraph::DateTime &value) noexcept {
+            return hgl::stdlib::scalar_native.calendar_date(value);
         }
-
-        // temporal_values.hgl:144
-        hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept { return std::chrono::floor<std::chrono::days>(value); }
-
-        // temporal_values.hgl:150
-        hgraph::Date calendar_date(const hgraph::DateTime &value) noexcept {
-            return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
-        }
-
-        // temporal_values.hgl:184
+        // temporal_values.hgl:82
         hgraph::DateTime midnight(const hgraph::Date &value) noexcept { return hgraph::DateTime{std::chrono::sys_days{value}}; }
 
         // windows.hgl:10

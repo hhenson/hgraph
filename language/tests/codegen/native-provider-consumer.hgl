@@ -1,0 +1,3 @@
+module checks.native_consumer
+use checks.native_provider::{bit_and}
+export fn lifted(lhs: i64, rhs: i64) -> i64 => bit_and(lhs, rhs)

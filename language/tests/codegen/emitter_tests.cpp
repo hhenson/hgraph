@@ -204,6 +204,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = {NativeCallPhase::Evaluation},
+            .execution_role         = hgl::NativeExecutionRole::Value,
             .public_headers         = {std::move(header)},
             .cmake_packages         = {"acme_stats"},
             .imported_targets       = {"acme::stats"},

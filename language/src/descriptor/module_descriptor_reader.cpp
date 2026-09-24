@@ -7,9 +7,9 @@
 #include <simdjson.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
-#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -17,9 +17,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace hgl::descriptor
@@ -1007,6 +1007,17 @@ namespace hgl::descriptor
                                      {"serialized", NativeThreadSafety::Serialized}},
                                     declaration.thread_safety)) {
                         return false;
+                    }
+                    const Element *role = required(fields, "execution_role", item_path);
+                    if (role == nullptr) { return false; }
+                    {
+                        if (!enum_value(*role, member_path(item_path, "execution_role"),
+                                        {{"legacy-value", NativeExecutionRole::LegacyValue},
+                                         {"value", NativeExecutionRole::Value},
+                                         {"temporal", NativeExecutionRole::Temporal}},
+                                        declaration.execution_role)) {
+                            return false;
+                        }
                     }
                     out.push_back(std::move(declaration));
                     ++index;

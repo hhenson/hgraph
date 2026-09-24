@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +99,109 @@ namespace hgl::stdlib
         static hgraph::Float as_float(hgraph::Bool value) noexcept { return static_cast<hgraph::Float>(value); }
 
         static hgraph::Float as_float(hgraph::Int value) noexcept { return static_cast<hgraph::Float>(value); }
+
+        static hgraph::Int year(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<int>((value).year()));
+        }
+
+        static hgraph::Int month(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<unsigned>((value).month()));
+        }
+
+        static hgraph::Int day(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<unsigned>((value).day()));
+        }
+
+        static hgraph::Int weekday(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding() - 1);
+        }
+
+        static hgraph::Int isoweekday(const hgraph::Date &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding());
+        }
+
+        static hgraph::Int year(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(static_cast<int>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).year()));
+        }
+
+        static hgraph::Int month(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(
+                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).month()));
+        }
+
+        static hgraph::Int day(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(
+                static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).day()));
+        }
+
+        static hgraph::Int weekday(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding() - 1);
+        }
+
+        static hgraph::Int isoweekday(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding());
+        }
+
+        static hgraph::Int hour(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 3600000000);
+        }
+
+        static hgraph::Int minute(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 60000000 % 60);
+        }
+
+        static hgraph::Int second(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 1000000 % 60);
+        }
+
+        static hgraph::Int microsecond(const hgraph::DateTime &value) noexcept {
+            return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds % 1000000);
+        }
+
+        static hgraph::Int hour(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 3600000000);
+        }
+
+        static hgraph::Int minute(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 60000000 % 60);
+        }
+
+        static hgraph::Int second(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds / 1000000 % 60);
+        }
+
+        static hgraph::Int microsecond(const hgraph::Time &value) noexcept {
+            return static_cast<hgraph::Int>(value.microseconds % 1000000);
+        }
+
+        static hgraph::Int days(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::days>(value).count());
+        }
+
+        static hgraph::Int seconds(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>(
+                std::chrono::floor<std::chrono::seconds>(value - std::chrono::floor<std::chrono::days>(value)).count());
+        }
+
+        static hgraph::Int microseconds(const hgraph::TimeDelta &value) noexcept {
+            return static_cast<hgraph::Int>((value - std::chrono::floor<std::chrono::seconds>(value)).count());
+        }
+
+        static hgraph::Float total_seconds(const hgraph::TimeDelta &value) noexcept {
+            return std::chrono::duration<hgraph::Float>(value).count();
+        }
+
+        static hgraph::Float timestamp(const hgraph::DateTime &value) noexcept {
+            return std::chrono::duration<hgraph::Float>(value.time_since_epoch()).count();
+        }
+
+        static hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept {
+            return std::chrono::floor<std::chrono::days>(value);
+        }
+
+        static hgraph::Date calendar_date(const hgraph::DateTime &value) noexcept {
+            return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
+        }
     };
 
     inline constexpr auto scalar_native = hgraph_::native::native_interface::bind<ScalarNative>();
