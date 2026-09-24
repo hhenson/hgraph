@@ -1,0 +1,189 @@
+Operator contracts
+==================
+
+Status: draft, 2026-09-24. Derived while triaging the open parity issues;
+covers the operator families those issues exercised. The rest of the library
+remains open (OPEN-10, OPEN-11 in [Beyond the runtime core](boundaries.md)).
+[Parity validation](validation/parity/README.md) records each derivation
+against the Python 0.5.41 and C++ observations.
+
+An operator **contract** says what an operator publishes as a function of its
+inputs. It is stated in terms of the core chapters: an operator is a node, or
+a graph of nodes, and obeys the node and time-series rules like any other.
+Where the core rules do not decide a question, a point to settle names it.
+
+
+Admission and nil
+-----------------
+
+An operator's inputs are admitted by NOD-2: by default every input must be
+valid before the operator is evaluated. An invalid input is nil (TS-2). It is
+not an empty collection, a zero or a default. A set that has never ticked
+is not the empty set; it is no set at all.
+
+A contract may name inputs that the operator reads while they are invalid.
+It must then say what an invalid input contributes. `union` names every
+operand: the empty set is its identity and gathering is its purpose, so an
+invalid operand contributes nothing. `format_` with `__strict__` false
+names its arguments. `mean` over a dictionary names its whole input: Python
+0.5.41 defines it as `default(div_(sum_, len_), NaN)`, so a dictionary that
+has never ticked has a NaN mean. Its `sum_`, `min_` and `max_` name nothing
+and publish nothing.
+
+A non-peered fixed collection is valid while any child is valid. An aggregate
+over a fixed list is therefore admitted once one element is valid, and reads
+the valid elements only (the accepted valid-subset reduce, issue #95).
+
+An operator never changes what it reads. Reading a view that an output
+derives from itself, such as a key set's emptiness, must not make that
+output, or its owner, tick (NOD-5, NOD-21, TS-21).
+
+An operator that **derives** a value may elide an unchanged recomputation.
+An operator that **forwards** a value, routing one input's ticks to its
+output, publishes every tick it forwards, equal or not: the tick is the news
+(ruling 2026-07-17, enforced 2026-09-15; `roadmap.rst`).
+
+
+Set operators
+-------------
+
+`union`, `intersection`, `difference` and `symmetric_difference`, and their
+spellings `|`, `&`, `-` and `^`, act on TSS values and on TSD key sets.
+
+| Operator | Result members | Admission | A TSD output child forwards |
+|---|---|---|---|
+| union | in any operand | the valid operands | the operand whose child ticked most recently; leftmost on a same-cycle tie |
+| intersection | in every operand | every operand valid | lhs |
+| difference | in lhs, not in rhs | both valid | lhs |
+| symmetric difference | in an odd number of operands | every operand valid | the one operand holding it; for three or more, the pairwise left fold |
+
+The first admitted evaluation publishes the result even when it is empty:
+an admitted result is a value, and valid does not mean non-empty (TS-1;
+owner ruling 2026-09-24). After that a change that nets to nothing does not
+tick. Both runtimes already do this for sets. Python 0.5.41 does it for
+`difference` and `intersection` of dictionaries, but not for their `^` and
+`|`, which it builds on `map_`.
+
+A member entering the result, or a TSD child whose forwarding operand changes
+because another operand lost the key, takes the new operand's current value.
+That is a derived change: an equal value is not published again, unless
+the new operand's child also ticked in this cycle, which is forwarded.
+
+`union`, `intersection` and `symmetric_difference` fold pairwise over any
+number of operands; `difference` takes exactly two. Python 0.5.41 cannot
+fold intersection or symmetric difference: it has no zero for the fold. It
+rejects three TSS operands at wiring, and three TSD operands to symmetric
+difference never publish. The fold is an accepted superset
+(`parity_matrix.rst`). Over dictionaries a fold whose intermediate result is
+empty also depends on point to settle 1.
+
+
+Formatting and sinks
+--------------------
+
+`format_` with `__strict__` true, its default, publishes nothing until every
+argument is valid. There is no placeholder for a missing argument. `print_`,
+`log_` and the formatting `assert_` format their arguments exactly as
+`format_` does with its defaults, so none of them emits a line before every
+argument is valid.
+
+
+Text
+----
+
+`str_` gives Python's `str` of the value. A string at the top level is its
+own text. Inside a container a string is written as Python's `repr` writes
+it: quoted as Python chooses, with the backslash, quote and every character
+that Python's `str.isprintable` rejects escaped. `\t`, `\n` and `\r` are
+named; other characters below U+0100 are `\xNN`; others below U+10000 are
+`\uNNNN`, and the rest `\UNNNNNNNN`. A map or a set is unordered, so its
+text lists its members in no specified order: Python writes insertion order,
+the C++ runtime storage order (ruling 2026-09-24). Printability follows the Unicode version
+the implementation records (16.0.0, generated by
+`tools/generate_unicode_printable.py`); a character whose category differs
+between Unicode versions may render differently under another Python.
+
+
+Numbers
+-------
+
+`ln` of zero is negative infinity and of a negative number is NaN: the IEEE
+results. Python 0.5.41 raises `ValueError` from `math.log`. Accepted
+deviation (`parity_matrix.rst`).
+
+
+Recording
+---------
+
+A recording exists from the moment its recording node starts. A recorded
+time-series that never ticks leaves an empty recording, which is distinct
+from no recording at all; replaying it publishes nothing.
+
+
+Rules
+-----
+
+- **OP-1** Unless its contract names an input it may read while invalid, an
+  operator publishes nothing until every input is valid. It never substitutes
+  an empty collection, a zero or a default for a nil input.
+- **OP-2** An aggregate over a collection — `sum_`, `mean`, `min_`, `max_`,
+  `all_`, `any_`, `len_` of a set — follows OP-1. A default value answers an
+  empty valid collection, not an invalid one. An aggregate over a fixed list
+  reads its valid elements once any element is valid.
+- **OP-3** An operator never changes an input or its producer. A derived view
+  of an output — a key set's emptiness, a membership test — is read without
+  ticking that output.
+- **OP-4** An operator that forwards a value publishes every tick it forwards,
+  equal or not. An operator that derives a value may elide an unchanged
+  recomputation.
+- **OP-5** A set operator's members are those in the table above. A TSD output
+  child forwards the operand the table names (OP-4); a derived change of
+  forwarding operand publishes only a different value. The first admitted
+  evaluation publishes the result, empty or not.
+- **OP-6** `union` reads the valid operands and ignores an invalid one.
+  `intersection`, `difference` and `symmetric_difference` follow OP-1.
+- **OP-7** `union`, `intersection` and `symmetric_difference` fold pairwise
+  over any number of operands; `difference` takes exactly two.
+- **OP-8** `format_` with `__strict__` true, and `print_`, `log_` and the
+  formatting `assert_`, produce nothing until every argument is valid.
+- **OP-9** `str_` of a container renders each string as Python's `repr`,
+  escaping every character `str.isprintable` rejects. The members of a map or
+  a set appear in no specified order.
+- **OP-10** `ln` of a non-positive float is `-inf` for zero and NaN below zero.
+- **OP-11** A recording exists from its recording node's start; one that
+  recorded no tick is empty, not absent.
+
+A TSD delta holding a nested dictionary includes the inner dictionary's delta:
+its valid modified children only. An invalid inner child contributes nothing,
+never a default value. This is the TSD row of the value and delta table in
+[Time-series types](time_series.md); no new rule is needed.
+
+
+Points to settle
+----------------
+
+1. **The first empty result.** Settled 2026-09-24 by the owner: yes, the
+   first admitted evaluation publishes an empty result (OP-5). The reasons:
+   validity means having a value, and an admitted result has one; the four
+   set operators should not differ by how they are built; and without it
+   `symmetric_difference(a, b, c)` never publishes when `a` and `b` cancel,
+   although its value is well defined (#978). Both runtimes already
+   publish the empty first result for sets.
+2. **The order of a map's text.** Settled 2026-09-24 by the owner: a map is
+   an unordered map and provides no ordering guarantee, so the order of its
+   text is unspecified (Scalar types, Text; OP-9). Python writes insertion
+   order and the C++ runtime storage order; both conform. A set has no order
+   either (VAL-8) and is treated the same way.
+3. **The emptiness of an invalid set.** `is_empty` of a never-ticked set is
+   `True` in both runtimes. OP-1 would publish nothing. Both runtimes agree,
+   no parity issue depends on it, and nothing here changes it.
+
+
+Sources
+-------
+
+The parity issues triaged on 2026-09-24 (`validation/parity`); Python
+hgraph 0.5.41 `_impl/_operators` (`_tsd_operators.py`, `_tss_operators.py`,
+`_set_operators.py`, `_str_operators.py`, `_graph_operators.py`); the C++
+`stdlib` operator implementations; `developer_guide/roadmap.rst` (the
+no-change ruling) and `parity_matrix.rst` (accepted deviations).

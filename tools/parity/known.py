@@ -28,6 +28,7 @@ rather than from membership.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,11 @@ POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
 EMPTY_DELTA_ELISION = "empty-delta-elision"
+IEEE_LOG_DOMAIN = "ieee-log-domain"
+N_ARY_SET_FOLD = "n-ary-set-fold"
+KEY_SET_READER_TICK = "key-set-reader-tick"
+UNORDERED_MEMBER_TEXT = "unordered-member-text"
+FIRST_EMPTY_SET_RESULT = "first-empty-set-result"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -782,6 +788,441 @@ def _unbounded_integer_width_relation(
     )
 
 
+def _decode_canonical_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict) and set(value) == {"$float"}:
+        encoded = value["$float"]
+        if encoded == "nan":
+            return math.nan
+        if encoded in ("inf", "-inf"):
+            return math.inf if encoded == "inf" else -math.inf
+        try:
+            return float.fromhex(encoded)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _ieee_log_domain_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-10 (parity_matrix.rst): ``ln`` of zero is ``-inf`` and
+    of a negative number NaN, where released hgraph raises from ``math.log``.
+    A status relation: the reference raised at run time, and EVERY value the
+    candidate published is the IEEE logarithm of the input that ticked, with
+    at least one input not positive. A wrong logarithm, a missing tick or an
+    all-positive recipe stays reportable."""
+    if difference.get("classification") != "status":
+        return False
+    if reference.get("status") != "error" or reference.get("phase") != "runtime":
+        return False
+    if candidate.get("status") != "ok":
+        return False
+    ticks = (recipe.get("inputs") or {}).get("ts")
+    trace = candidate.get("trace")
+    if not isinstance(ticks, list) or not isinstance(trace, list):
+        return False
+    if len(ticks) != len(trace):
+        return False
+    non_positive = False
+    for tick, published in zip(ticks, trace):
+        if tick is None:
+            if published is not None:
+                return False
+            continue
+        value = _decode_canonical_float(tick)
+        answer = _decode_canonical_float(published)
+        if value is None or answer is None:
+            return False
+        if value > 0:
+            expected = math.log(value)
+            if not math.isclose(answer, expected, rel_tol=1e-15, abs_tol=1e-15):
+                return False
+        elif value == 0:
+            non_positive = True
+            if answer != -math.inf:
+                return False
+        else:
+            non_positive = True
+            if not math.isnan(answer):
+                return False
+    return non_positive
+
+
+def _apply_map_tick(state: dict[Any, Any], tick: Any) -> bool:
+    if tick is None:
+        return True
+    if isinstance(tick, dict) and set(tick) == {"$map"}:
+        entries = tick["$map"]
+    elif isinstance(tick, dict):
+        entries = list(tick.items())
+    else:
+        return False
+    for key, value in entries:
+        if isinstance(value, dict) and (
+            value.get("$remove") or value.get("$remove_if_exists")
+        ):
+            state.pop(json.dumps(key, sort_keys=True), None)
+        else:
+            state[json.dumps(key, sort_keys=True)] = value
+    return True
+
+
+def _apply_set_tick(state: set[str], tick: Any) -> bool:
+    if tick is None:
+        return True
+    if not (isinstance(tick, dict) and set(tick) == {"$set_delta"}):
+        return False
+    delta = tick["$set_delta"]
+    for item in delta.get("removed", ()):
+        state.discard(json.dumps(item, sort_keys=True))
+    for item in delta.get("added", ()):
+        state.add(json.dumps(item, sort_keys=True))
+    return True
+
+
+def _n_ary_set_fold_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-7 (parity_matrix.rst): intersection and symmetric
+    difference fold pairwise over three or more operands. Released hgraph has
+    no zero for either fold: three sets fail at wiring, and three
+    dictionaries fold through ``nothing`` and never publish. With no
+    reference trace to compare, the relation models the fold itself: from
+    the cycle every operand is first valid (OP-6), the candidate's
+    accumulated value must equal the fold of the operands after EVERY cycle,
+    it publishes on that first cycle and otherwise only when the fold
+    changes, and it publishes nothing before. A transient wrong member, a
+    late or missing tick, or a publication over an invalid operand stays
+    reportable."""
+    parameters = recipe.get("parameters") or {}
+    operation = parameters.get("operation")
+    if operation not in ("intersection", "symmetric_difference"):
+        return False
+    inputs = recipe.get("inputs") or {}
+    if len(inputs) < 3 or candidate.get("status") != "ok":
+        return False
+    trace = candidate.get("trace")
+    if not isinstance(trace, list):
+        return False
+    names = sorted(inputs)
+    shape = parameters.get("shape", "tss")
+    if shape == "tss":
+        if difference.get("classification") != "status":
+            return False
+        if reference.get("status") != "error" or reference.get("phase") != "wiring":
+            return False
+        apply_tick, empty = _apply_set_tick, set
+    else:
+        if reference.get("status") != "ok" or reference.get("trace") is not None:
+            return False
+        apply_tick, empty = _apply_map_tick, dict
+    cycles = max(len(inputs[name]) for name in names)
+    if len(trace) != cycles:
+        return False
+    operands = [empty() for _ in names]
+    valid = [False for _ in names]
+    published = empty()
+    previous = None
+    for index in range(cycles):
+        for position, name in enumerate(names):
+            tick = inputs[name][index] if index < len(inputs[name]) else None
+            if tick is not None:
+                valid[position] = True
+            if not apply_tick(operands[position], tick):
+                return False
+        if not apply_tick(published, trace[index]):
+            return False
+        if not all(valid):
+            if trace[index] is not None:
+                return False
+            continue
+        folded = _fold_members(operation, operands)
+        first = previous is None
+        if published != folded:
+            return False
+        if first and trace[index] is None:
+            return False
+        if not first and trace[index] is not None and folded == previous:
+            return False
+        if not first and trace[index] is None and folded != previous:
+            return False
+        previous = folded
+    return previous is not None
+
+
+def _fold_members(operation: str, operands: list) -> Any:
+    """Pairwise left fold of set members or dictionary entries; for a
+    dictionary a symmetric difference keeps the value of the last operand
+    that holds a key an odd number of times, an intersection lhs's value."""
+    folded = operands[0].copy()
+    for state in operands[1:]:
+        if isinstance(folded, set):
+            folded = folded & state if operation == "intersection" else folded ^ state
+        elif operation == "intersection":
+            folded = {key: value for key, value in folded.items() if key in state}
+        else:
+            merged = {key: value for key, value in folded.items() if key not in state}
+            merged.update({key: value for key, value in state.items() if key not in folded})
+            folded = merged
+    return folded
+
+
+#: The answers the released key-set side effect publishes for an EMPTY set
+#: in the tsd_key_set_pipeline template (``min_``/``max_`` there take
+#: ``default_value=0``).
+_EMPTY_KEY_SET_AGGREGATES = {
+    "size": 0,
+    "total": 0,
+    "average": {"$float": "nan"},
+    "minimum": 0,
+    "maximum": 0,
+}
+
+
+def _key_set_reader_tick_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-3 (parity_matrix.rst): released hgraph's ``is_empty``
+    over a TSS initialises a child output owned by the set, which marks a
+    never-ticked key set modified, so the key set's aggregates publish the
+    empty-set answers. A reader never changes its producer here, so they do
+    not. Admitted tick by tick: a field only the reference publishes must be
+    one of those aggregates with exactly its empty-set answer, at a tick where
+    the dictionary holds no key; every other field agrees; the candidate
+    publishes nothing the reference does not. The waiver lasts only while the
+    dictionary has never ticked."""
+    if difference.get("classification") not in ("value", "length"):
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if not isinstance(reference_trace, list):
+        return False
+    if candidate_trace is None:
+        candidate_trace = [None] * len(reference_trace)
+    if not isinstance(candidate_trace, list) or len(candidate_trace) != len(reference_trace):
+        return False
+    values_ticks = (recipe.get("inputs") or {}).get("values")
+    if not isinstance(values_ticks, list):
+        return False
+    live: dict[Any, Any] = {}
+    dictionary_ticked = False
+    admitted = False
+    tolerance = family.get("float_abs_tolerance", 0.0)
+    for index, (ref_tick, cand_tick) in enumerate(zip(reference_trace, candidate_trace)):
+        if index < len(values_ticks):
+            if values_ticks[index] is not None:
+                dictionary_ticked = True
+            if not _apply_map_tick(live, values_ticks[index]):
+                return False
+        ref_entries = _map_entries(ref_tick)
+        cand_entries = _map_entries(cand_tick)
+        if ref_entries is None or cand_entries is None:
+            return False
+        if set(cand_entries) - set(ref_entries):
+            return False
+        extra = set(ref_entries) - set(cand_entries)
+        if extra:
+            # Only a NEVER-ticked dictionary's key set is invalid; once it has
+            # ticked -- even empty, even after losing its last key -- its
+            # aggregates are real answers and a missing one is a defect.
+            if dictionary_ticked or live:
+                return False
+            for name in extra:
+                if name not in _EMPTY_KEY_SET_AGGREGATES:
+                    return False
+                if ref_entries[name] != _EMPTY_KEY_SET_AGGREGATES[name]:
+                    return False
+            admitted = True
+        shared = {name: ref_entries[name] for name in cand_entries}
+        if compare_outcomes(
+            {"status": "ok", "trace": [shared]},
+            {"status": "ok", "trace": [cand_entries]},
+            float_abs_tolerance=tolerance,
+        ) is not None:
+            return False
+    return admitted
+
+
+def _map_entries(tick: Any) -> dict[str, Any] | None:
+    if tick is None:
+        return {}
+    if not (isinstance(tick, dict) and set(tick) == {"$map"}):
+        return None
+    entries = {}
+    for entry in tick["$map"]:
+        if not (isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], str)):
+            return None
+        entries[entry[0]] = entry[1]
+    return entries
+
+
+def _literal_shape(text: Any) -> Any:
+    """A type-strict, order-free shape of a Python literal rendering, or None.
+
+    Parsed from the syntax tree rather than evaluated: evaluation would let
+    ``{1}`` equal ``{True}`` and collapse ``{1, 1}`` to ``{1}``. A set's or a
+    map's members are sorted; a duplicate member is not a valid rendering."""
+    import ast
+
+    if not isinstance(text, str):
+        return None
+    try:
+        tree = ast.parse(text, mode="eval")
+    except (SyntaxError, ValueError, MemoryError, RecursionError):
+        return None
+
+    def shape(node: Any) -> Any:
+        if isinstance(node, ast.Constant):
+            return ("const", type(node.value).__name__, repr(node.value))
+        if (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, (ast.USub, ast.UAdd))
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, (int, float, complex))
+            and not isinstance(node.operand.value, bool)
+        ):
+            sign = "-" if isinstance(node.op, ast.USub) else "+"
+            return ("const", type(node.operand.value).__name__, sign + repr(node.operand.value))
+        if isinstance(node, (ast.Tuple, ast.List)):
+            members = [shape(item) for item in node.elts]
+            if any(member is None for member in members):
+                return None
+            return (type(node).__name__.lower(), tuple(members))
+        if isinstance(node, ast.Set):
+            members = [shape(item) for item in node.elts]
+            if any(member is None for member in members) or len(set(members)) != len(members):
+                return None
+            return ("set", tuple(sorted(members, key=repr)))
+        if isinstance(node, ast.Dict):
+            if any(key is None for key in node.keys):
+                return None
+            keys = [shape(key) for key in node.keys]
+            values = [shape(value) for value in node.values]
+            if any(item is None for item in keys + values) or len(set(keys)) != len(keys):
+                return None
+            return ("dict", tuple(sorted(zip(keys, values), key=repr)))
+        return None
+
+    return shape(tree.body)
+
+
+def _contains_unordered(value: Any) -> bool:
+    if not isinstance(value, tuple) or not value:
+        return False
+    if value[0] in ("set", "dict"):
+        return True
+    if value[0] in ("tuple", "list"):
+        return any(_contains_unordered(member) for member in value[1])
+    return False
+
+
+def _unordered_member_text_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Owner ruling 2026-09-24 (runtime spec OP-9, VAL-8): a map is an
+    unordered map with no ordering guarantee, and a set has no order, so the
+    members in their text come in no specified order. Released hgraph writes
+    insertion order; this runtime writes storage order. Admitted only when
+    every differing rendering spells, as a Python literal, the same members
+    -- compared type-strictly, with no duplicate member -- in a map or a set,
+    so a wrong member, a changed value or type (``{1}`` against ``{True}``),
+    a duplicate, or a different spelling (``set()`` against ``{}``) stays
+    reportable."""
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if not isinstance(reference_trace, list) or not isinstance(candidate_trace, list):
+        return False
+    if len(reference_trace) != len(candidate_trace):
+        return False
+    reordered = False
+    for expected, actual in zip(reference_trace, candidate_trace):
+        if expected == actual:
+            continue
+        expected_shape = _literal_shape(expected)
+        actual_shape = _literal_shape(actual)
+        if expected_shape is None or actual_shape is None or expected_shape != actual_shape:
+            return False
+        if not _contains_unordered(expected_shape):
+            return False
+        reordered = True
+    return reordered
+
+
+def _first_empty_set_result_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Owner ruling 2026-09-24 (runtime spec OP-5): a dictionary set
+    operator's first admitted evaluation publishes its result even when it is
+    empty. Released hgraph builds ``^`` and ``|`` over dictionaries on
+    ``map_``, which publishes nothing for an empty result. Admitted only for
+    a single position: the candidate's first tick, holding exactly the empty
+    dictionary, where the reference is silent, at THE cycle the operator is
+    first admitted (every operand valid; one for union). Every other
+    position agrees."""
+    if difference.get("classification") != "value":
+        return False
+    operation = (recipe.get("parameters") or {}).get("operation")
+    if operation not in ("bit_xor", "symmetric_difference", "bit_or", "union"):
+        # Released difference and intersection already publish the empty
+        # first result, so a difference there is not this deviation.
+        return False
+    candidate_trace = candidate.get("trace")
+    if not isinstance(candidate_trace, list):
+        return False
+    reference_trace = reference.get("trace")
+    if reference_trace is None:
+        reference_trace = [None] * len(candidate_trace)
+    if not isinstance(reference_trace, list) or len(reference_trace) != len(candidate_trace):
+        return False
+    differing = [
+        index
+        for index, (expected, actual) in enumerate(zip(reference_trace, candidate_trace))
+        if expected != actual
+    ]
+    if len(differing) != 1:
+        return False
+    [index] = differing
+    if reference_trace[index] is not None or candidate_trace[index] != {"$map": []}:
+        return False
+    if any(tick is not None for tick in candidate_trace[:index]):
+        return False
+    inputs = recipe.get("inputs") or {}
+    first_ticks = []
+    for name in sorted(inputs):
+        ticked = [position for position, tick in enumerate(inputs[name]) if tick is not None]
+        first_ticks.append(ticked[0] if ticked else None)
+    valid = [tick for tick in first_ticks if tick is not None]
+    if operation in ("union", "bit_or"):
+        return bool(valid) and index == min(valid)
+    return len(valid) == len(first_ticks) and bool(valid) and index == max(valid)
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -803,12 +1244,19 @@ RELATIONS = {
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
     UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
     EMPTY_DELTA_ELISION: _empty_delta_elision_relation,
+    IEEE_LOG_DOMAIN: _ieee_log_domain_relation,
+    N_ARY_SET_FOLD: _n_ary_set_fold_relation,
+    KEY_SET_READER_TICK: _key_set_reader_tick_relation,
+    UNORDERED_MEMBER_TEXT: _unordered_member_text_relation,
+    FIRST_EMPTY_SET_RESULT: _first_empty_set_result_relation,
 }
 
 #: Relations that reason about a ``status`` difference and therefore run
 #: outside the both-sides-ok gate. Everything else compares two traces and
 #: must not see a run that did not produce one.
-STATUS_RELATIONS = frozenset({UNBOUNDED_INTEGER_WIDTH})
+STATUS_RELATIONS = frozenset(
+    {UNBOUNDED_INTEGER_WIDTH, IEEE_LOG_DOMAIN, N_ARY_SET_FOLD}
+)
 
 
 def is_known_family_failure(

@@ -416,6 +416,31 @@ TEST_CASE("logger: log_ formats positional and named time-series arguments")
     CHECK_THAT(all, Catch::Matchers::ContainsSubstring("named value 42"));
 }
 
+TEST_CASE("logger: log_ waits for every argument and samples only formatted messages (OP-8)")
+{
+    stdlib::register_standard_operators();
+    {
+        // Parity OP-8: no placeholder line for an argument that never ticked.
+        CapturedLog captured;
+        CHECK_OUTPUT(eval_node<LogOperatorGraph>(values<Int>(none, 5)), values<Int>(none, 5));
+        const std::string all = captured.joined();
+        CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("n/a"));
+        CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000001] observed"));
+        CHECK_THAT(all, Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000002] observed 5"));
+    }
+    {
+        // Released hgraph samples count(msg) over format_'s output: the
+        // start-time evaluation with no argument is not a message, so every
+        // third FORMATTED message is "c", not "b".
+        CapturedLog captured;
+        CHECK_OUTPUT(eval_node<SampledLogGraph>(values<Str>(none, "a", "b", "c")),
+                     values<Str>(none, "a", "b", "c"));
+        const std::string all = captured.joined();
+        CHECK_THAT(all, Catch::Matchers::ContainsSubstring("sampled c"));
+        CHECK_THAT(all, !Catch::Matchers::ContainsSubstring("sampled b"));
+    }
+}
+
 TEST_CASE("logger: log_ supports an empty format-argument pack")
 {
     stdlib::register_standard_operators();

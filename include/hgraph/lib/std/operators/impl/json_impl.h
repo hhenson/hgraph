@@ -453,12 +453,16 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "json_encode";
 
+        // A pre-bound ``SCALAR`` (``json_encode[SCALAR: str](ts)``) chooses the
+        // encoding just as the ``_tp`` argument does.
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
         {
-            return json_tree::is_json_ts(resolution.find_ts("S"));
+            const auto *scalar = resolution.find_scalar("SCALAR");
+            return json_tree::is_json_ts(resolution.find_ts("S")) &&
+                   (scalar == nullptr || scalar == scalar_descriptor<Str>::value_meta());
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Out<TS<Str>> out)
+        static void eval(In<"ts", TsVar<"S">> ts, TypeArg<"_tp", Str, AutoResolve>, Out<TS<Str>> out)
         {
             std::string result;
             json_tree::encode(ts.base().value(), result);
@@ -473,10 +477,12 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
         {
-            return json_tree::is_json_ts(resolution.find_ts("S"));
+            const auto *scalar = resolution.find_scalar("SCALAR");
+            return json_tree::is_json_ts(resolution.find_ts("S")) &&
+                   (scalar == nullptr || scalar == scalar_descriptor<Bytes>::value_meta());
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Out<TS<Bytes>> out)
+        static void eval(In<"ts", TsVar<"S">> ts, TypeArg<"_tp", Bytes, AutoResolve>, Out<TS<Bytes>> out)
         {
             std::string result;
             json_tree::encode(ts.base().value(), result);

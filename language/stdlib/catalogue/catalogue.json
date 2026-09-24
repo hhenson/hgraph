@@ -10647,7 +10647,7 @@
           "marker": "default_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 214
+          "line": 216
         }
       ],
       "registration_sites": [
@@ -14991,7 +14991,7 @@
           "marker": "from_json",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 157
+          "line": 161
         }
       ],
       "registration_sites": [
@@ -19061,7 +19061,7 @@
           "marker": "json_as_bool",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 135
+          "line": 139
         }
       ],
       "registration_sites": [
@@ -19124,7 +19124,7 @@
           "marker": "json_as_float",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 113
+          "line": 117
         }
       ],
       "registration_sites": [
@@ -19187,7 +19187,7 @@
           "marker": "json_as_int",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 102
+          "line": 106
         }
       ],
       "registration_sites": [
@@ -19250,7 +19250,7 @@
           "marker": "json_as_str",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 124
+          "line": 128
         }
       ],
       "registration_sites": [
@@ -19313,7 +19313,7 @@
           "marker": "json_decode",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 91
+          "line": 95
         }
       ],
       "registration_sites": [
@@ -19409,7 +19409,7 @@
           "marker": "json_encode",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 80
+          "line": 83
         }
       ],
       "registration_sites": [
@@ -19439,10 +19439,17 @@
               "type": "~S",
               "default": false,
               "carrier": null
+            },
+            {
+              "name": "_tp",
+              "kind": "type",
+              "type": "type[str]",
+              "default": true,
+              "carrier": "scalar"
             }
           ],
           "variadic": false,
-          "positional_count": 1,
+          "positional_count": 2,
           "positional_cardinality": [
             0,
             null
@@ -19454,7 +19461,7 @@
           ],
           "kwargs_type": null,
           "output": "TS[str]",
-          "id": "json_encode:9c967717b79b"
+          "id": "json_encode:0c64b7495f82"
         },
         {
           "parameters": [
@@ -19464,10 +19471,17 @@
               "type": "~S",
               "default": false,
               "carrier": null
+            },
+            {
+              "name": "_tp",
+              "kind": "type",
+              "type": "type[bytes]",
+              "default": true,
+              "carrier": "scalar"
             }
           ],
           "variadic": false,
-          "positional_count": 1,
+          "positional_count": 2,
           "positional_cardinality": [
             0,
             null
@@ -19479,7 +19493,7 @@
           ],
           "kwargs_type": null,
           "output": "TS[bytes]",
-          "id": "json_encode:b0c628a70a84"
+          "id": "json_encode:312e9e50caa7"
         }
       ],
       "hgl": [],
@@ -29484,7 +29498,7 @@
           "marker": "nothing",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 200
+          "line": 202
         }
       ],
       "registration_sites": [
@@ -41934,7 +41948,7 @@
           "marker": "zero_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 187
+          "line": 189
         }
       ],
       "registration_sites": [
@@ -41975,30 +41989,12 @@
         {
           "parameters": [
             {
-              "name": "op",
-              "kind": "scalar",
-              "type": "fn",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 1,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "TS[float]",
-          "id": "zero:1de67e292bc9"
-        },
-        {
-          "parameters": [
+              "name": "tp",
+              "kind": "type",
+              "type": "type[TS[int]]",
+              "default": true,
+              "carrier": "time-series"
+            },
             {
               "name": "op",
               "kind": "scalar",
@@ -42008,57 +42004,7 @@
             }
           ],
           "variadic": false,
-          "positional_count": 1,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "TSD[~K, ~V]",
-          "id": "zero:46acf4879a2c"
-        },
-        {
-          "parameters": [
-            {
-              "name": "op",
-              "kind": "scalar",
-              "type": "fn",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 1,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "TS[str]",
-          "id": "zero:8585ff2962b5"
-        },
-        {
-          "parameters": [
-            {
-              "name": "op",
-              "kind": "scalar",
-              "type": "fn",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 1,
+          "positional_count": 2,
           "positional_cardinality": [
             0,
             null
@@ -42070,7 +42016,103 @@
           ],
           "kwargs_type": null,
           "output": "TS[int]",
-          "id": "zero:8dc8d93248d8"
+          "id": "zero:28da2f8b2235"
+        },
+        {
+          "parameters": [
+            {
+              "name": "tp",
+              "kind": "type",
+              "type": "type[TS[float]]",
+              "default": true,
+              "carrier": "time-series"
+            },
+            {
+              "name": "op",
+              "kind": "scalar",
+              "type": "fn",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[float]",
+          "id": "zero:2b226bc5071d"
+        },
+        {
+          "parameters": [
+            {
+              "name": "tp",
+              "kind": "type",
+              "type": "type[TS[str]]",
+              "default": true,
+              "carrier": "time-series"
+            },
+            {
+              "name": "op",
+              "kind": "scalar",
+              "type": "fn",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[str]",
+          "id": "zero:6147f121d145"
+        },
+        {
+          "parameters": [
+            {
+              "name": "tp",
+              "kind": "type",
+              "type": "type[TSD[~K, ~V]]",
+              "default": true,
+              "carrier": "time-series"
+            },
+            {
+              "name": "op",
+              "kind": "scalar",
+              "type": "fn",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TSD[~K, ~V]",
+          "id": "zero:668745b1c633"
         }
       ],
       "hgl": [],
@@ -43546,7 +43588,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4147
+      "line": 4268
     },
     {
       "operator": "Operator",
@@ -43554,7 +43596,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4148
+      "line": 4269
     },
     {
       "operator": "Operator",
@@ -43562,7 +43604,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4149
+      "line": 4270
     },
     {
       "operator": "Operator",
@@ -43570,7 +43612,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4150
+      "line": 4271
     },
     {
       "operator": "Operator",
@@ -43578,7 +43620,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4157
+      "line": 4278
     },
     {
       "operator": "Operator",
@@ -43586,7 +43628,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4158
+      "line": 4279
     },
     {
       "operator": "Operator",
@@ -43594,7 +43636,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4159
+      "line": 4280
     },
     {
       "operator": "Operator",
@@ -43602,7 +43644,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 4160
+      "line": 4281
     },
     {
       "operator": "Operator",

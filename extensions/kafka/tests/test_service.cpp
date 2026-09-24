@@ -279,10 +279,10 @@ void test_mixed_burst_stops_at_first_output_collision() {
               output[1].has_value() && output[2].has_value() &&
               output[3].has_value(),
           "mixed Kafka burst did not resume after each output collision");
-  const auto tsd_delta_empty = [](const ValueView &value) {
-    const auto delta = value.as_bundle();
-    return delta.at("removed").as_set().empty() &&
-           delta.at("modified").as_map().empty();
+  // A bundle delta holds only the fields with news (TS-24, #835): an output
+  // dictionary that did not tick this cycle is absent, not an empty delta.
+  const auto no_news = [](const ValueView &value) {
+    return !value.has_value();
   };
 
   const auto first = output[0]->view().as_bundle();
@@ -291,7 +291,7 @@ void test_mixed_burst_stops_at_first_output_collision() {
   require(first_subscriptions.contains(first_key.view()) &&
               first_subscriptions.contains(second_key.view()),
           "the emitter did not delegate the collision-free queue prefix");
-  require(tsd_delta_empty(first.at("deliveries")) &&
+  require(no_news(first.at("deliveries")) &&
               !first.at("events").has_value(),
           "an event overtook the first subscription-key collision");
 
@@ -314,7 +314,7 @@ void test_mixed_burst_stops_at_first_output_collision() {
   const auto third = output[2]->view().as_bundle();
   const auto third_deliveries =
       third.at("deliveries").as_bundle().at("modified").as_map();
-  require(tsd_delta_empty(third.at("subscriptions")) &&
+  require(no_news(third.at("subscriptions")) &&
               third_deliveries.size() == 1 &&
               third_deliveries.contains(first_delivery_key.view()),
           "the emitter did not resume from the blocked delivery event");
@@ -322,8 +322,8 @@ void test_mixed_burst_stops_at_first_output_collision() {
           "the emitter did not continue to the first scalar service event");
 
   const auto fourth = output[3]->view().as_bundle();
-  require(tsd_delta_empty(fourth.at("subscriptions")) &&
-              tsd_delta_empty(fourth.at("deliveries")) &&
+  require(no_news(fourth.at("subscriptions")) &&
+              no_news(fourth.at("deliveries")) &&
               fourth.at("events").has_value(),
           "the emitter did not resume from the scalar output collision");
 }

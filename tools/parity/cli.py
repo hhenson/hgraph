@@ -46,7 +46,7 @@ from .environments import PARITY_ROOT, prepare_environments
 from .generate import generate_recipes
 from .issues import publish_failures
 from .model import Recipe, RecipeError, load_corpus
-from .process import operator_inventory, run_recipe
+from .process import operator_inventory, require_importable, run_recipe
 from .reduce import reduce_recipe
 
 
@@ -510,6 +510,7 @@ def command_campaign(args) -> int:
         if index % args.shard_count == args.shard_index
     ]
     environments = _prepare(args)
+    require_importable(environments.candidate_python, role="candidate")
     inventory = operator_inventory(environments.reference_python)["operators"]
     report = run_campaign(
         recipes,

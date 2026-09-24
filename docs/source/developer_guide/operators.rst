@@ -980,7 +980,14 @@ or materialised (``TypeArg::value()``).
 
 1. call normalisation -- a concrete carrier default is synthesised like any
    default and therefore binds; a deferred carrier fills its slot with an
-   empty carrier value and counts as one default;
+   empty carrier value and counts as one default. A positional argument that
+   is not a type (a port or a non-carrier value) passes over a type argument
+   that has a default when the next positional parameter is required, and
+   the type argument takes its default: ``zero[TS[int]](add_)`` reaches
+   ``op`` (ruling 2026-09-24, a superset of 0.5, which rejects it). When the
+   next parameter is optional, or keyword-only, or the variadic tail, the
+   0.5 positions stand, so ``const(value, delay)`` and ``replay(key, id)``
+   are still rejected (RFC 0033);
 2. parameter matching in declared order -- a supplied carrier goes through
    ``type_carrier_match``: the form must agree (a time-series where a
    scalar is expected is *"expects a scalar type, got a time-series type"*),
