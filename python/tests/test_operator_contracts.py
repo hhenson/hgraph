@@ -122,8 +122,10 @@ def test_aggregates_publish_nothing_over_an_invalid_collection():
     def mean_dict(values: D) -> TS[float]:
         return hg.mean(values)
 
+    import math
+
     [nan] = eval_node(mean_dict, [None])
-    assert nan != nan
+    assert math.isnan(nan)
 
 
 def test_all_and_any_publish_nothing_before_an_argument_is_valid():
@@ -143,3 +145,16 @@ def test_all_and_any_publish_nothing_before_an_argument_is_valid():
     # An argument not yet valid reads as None: falsy.
     assert eval_node(all3, [True, None], [None, True], [True, None]) == [False, True]
     assert eval_node(any2, [None, False], [True, None]) == [True, True]
+
+
+def test_all_and_any_evaluate_at_start_over_already_valid_arguments():
+    # Codex review on #1628: a branch started after its arguments ticked sees
+    # them valid at start and publishes then, as released hgraph does.
+    B = TS[bool]
+
+    @graph
+    def switched(key: TS[str], x: B, y: B) -> B:
+        return hg.switch_(key, {"a": lambda x, y: hg.all_(x, y), "b": lambda x, y: hg.any_(x, y)}, x, y)
+
+    assert eval_node(switched, [None, "a"], [True, None], [True, None]) == [None, True]
+    assert eval_node(switched, [None, "b"], [False, None], [True, None]) == [None, True]

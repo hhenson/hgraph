@@ -131,6 +131,10 @@ namespace hgraph::stdlib
         struct all_bool_list
         {
             static constexpr auto name = "all_bool_list";
+            // Evaluated at start when arguments are already valid -- a branch
+            // or map key started after its sources ticked -- and still not
+            // admitted while every argument is invalid (the checked list).
+            static constexpr bool schedule_on_start = true;
 
             static void eval(In<"ts", TSL<TS<Bool>, SIZE<"N">>> ts, Out<TS<Bool>> out)
             {
@@ -148,6 +152,10 @@ namespace hgraph::stdlib
         struct any_bool_list
         {
             static constexpr auto name = "any_bool_list";
+            // Evaluated at start when arguments are already valid -- a branch
+            // or map key started after its sources ticked -- and still not
+            // admitted while every argument is invalid (the checked list).
+            static constexpr bool schedule_on_start = true;
 
             static void eval(In<"ts", TSL<TS<Bool>, SIZE<"N">>> ts, Out<TS<Bool>> out)
             {

@@ -110,6 +110,7 @@ TEST_CASE("operator contracts: a nested child forwards only its own changes (OP-
                  values<Value>(dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 1}, {11, 2}})},
                                                        {2, dict_delta<Int, TS<Int>>({{20, 3}})}}),
                                dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 5}})}})));
+}
 
 TEST_CASE("operator contracts: an aggregate publishes nothing over an invalid collection (OP-2)")
 {
