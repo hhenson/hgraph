@@ -123,3 +123,13 @@ unchanged.
   failing formatted assertion whose argument is not yet valid raises
   nothing, as in Python, and `log_`'s `sample_count` counts only formatted
   messages. The four `print_` recipes match Python.
+- **Nested entries** (the TSD row of the value and delta table; TS-19).
+  `convert[TSD[K, V]](key, value)` copied a value-layer snapshot of `value`
+  into each entry, and a value copy cannot represent an invalid child, so a
+  nested dictionary entry published a default `0`. Released hgraph holds a
+  reference to `value` in every entry. Each entry now reconciles with
+  `value`'s time-series state: fully when the entry is empty, incrementally
+  when `value` ticks. A new `membership` reconcile option mirrors keys whose
+  children are invalid, which publication snapshots deliberately omit
+  (`TS_DATA_OPS_ABI_VERSION` 23). The three recipes match Python, and so does
+  the nested key membership a node reads.

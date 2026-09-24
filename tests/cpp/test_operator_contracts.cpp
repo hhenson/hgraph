@@ -72,6 +72,19 @@ namespace
         {
             wire<stdlib::assert_>(w, condition, Str{"failed with {}"}, detail);
             return condition;
+
+    using InnerDict = TSD<Str, TS<Int>>;
+    using NestedDict = TSD<Str, InnerDict>;
+
+    /** ``convert[TSD[str, TSD[str, TS[int]]]](key, convert[TSD[str, TS[int]]](key, value))``. */
+    struct NestedConvertGraph
+    {
+        static constexpr auto name = "operator_contracts_nested_convert";
+
+        static Port<NestedDict> compose(Wiring &w, Port<TS<Int>> value, Port<TS<Str>> key)
+        {
+            auto inner = wire<stdlib::convert, InnerDict>(w, key, value);
+            return wire<stdlib::convert, NestedDict>(w, key, inner);
         }
     };
 }  // namespace
@@ -234,4 +247,16 @@ TEST_CASE("operator contracts: public print_ and assert_ wait for their argument
     // A failing condition whose argument is not yet valid raises nothing.
     CHECK_OUTPUT(eval_node<PublicAssertGraph>(values<Bool>(false), values<Int>(none)), values<Bool>(false));
     CHECK_THROWS(eval_node<PublicAssertGraph>(values<Bool>(true, false), values<Int>(none, 3)));
+
+TEST_CASE("operator contracts: a nested entry keeps an invalid child invalid")
+{
+    stdlib::register_standard_operators();
+
+    // Parity #963-#965 (the TSD row of the time-series value/delta table): the
+    // inner dictionary holds key "c" with a child that never ticks, so the
+    // outer delta holds "c" with an empty inner delta -- never a default 0.
+    CHECK_OUTPUT((eval_node<NestedConvertGraph>(values<Int>(none, 5), values<Str>(Str{"c"}, none))),
+                 values<Value>(dict_delta<Str, InnerDict>({{Str{"c"}, dict_delta<Str, TS<Int>>({})}}),
+                               dict_delta<Str, InnerDict>(
+                                   {{Str{"c"}, dict_delta<Str, TS<Int>>({{Str{"c"}, 5}})}})));
 }

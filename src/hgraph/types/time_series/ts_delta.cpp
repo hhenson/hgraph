@@ -886,21 +886,35 @@ namespace hgraph
             }
             auto mutation = target_dict.begin_mutation(target.evaluation_time());
             const auto source_dict = source.as_dict();
+            const TSCurrentReconcileOptions child_options{
+                TSCurrentReconcileScope::Full, options.sample_all, options.membership};
 
             if (options.scope == TSCurrentReconcileScope::Full)
             {
                 std::vector<Value> removals;
                 for (const auto key : target_dict.keys())
                 {
-                    const auto source_child = source_dict.at(key);
-                    if (!source_child_live(source_child))
-                    {
-                        removals.emplace_back(key);
-                    }
+                    const bool keep = options.membership ? source_dict.contains(key)
+                                                         : source_child_live(source_dict.at(key));
+                    if (!keep) { removals.emplace_back(key); }
                 }
                 for (const auto &key : removals)
                 {
                     static_cast<void>(mutation.erase(key.view()));
+                }
+                if (options.membership)
+                {
+                    for (const auto key : source_dict.keys())
+                    {
+                        const auto source_child = source_dict.at(key);
+                        TSOutputView target_child{target.output(), mutation.at(key), target.evaluation_time()};
+                        if (source_child_live(source_child))
+                        {
+                            reconcile_current(target_child, source_child, child_options);
+                        }
+                        else { invalidate_target(target_child); }
+                    }
+                    return;
                 }
                 for (auto &&[key, source_child] : source_dict.valid_items())
                 {
@@ -908,8 +922,7 @@ namespace hgraph
                     reconcile_current(
                         TSOutputView{target.output(), target_child, target.evaluation_time()},
                         source_child,
-                        TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
-                                                  options.sample_all});
+                        child_options);
                 }
                 return;
             }
@@ -930,6 +943,14 @@ namespace hgraph
                 {
                     static_cast<void>(mutation.erase(key));
                 }
+                if (options.membership)
+                {
+                    // A key joins whether or not its child has a value (TS-19).
+                    for (const auto key : source_dict.added_keys())
+                    {
+                        static_cast<void>(mutation.at(key));
+                    }
+                }
             }
             auto modified_items = [&]() {
                 if constexpr (std::same_as<Source, TSInputView>)
@@ -948,8 +969,7 @@ namespace hgraph
                 reconcile_current(
                     TSOutputView{target.output(), target_child, target.evaluation_time()},
                     source_child,
-                    TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
-                                              options.sample_all});
+                    child_options);
             }
         }
 

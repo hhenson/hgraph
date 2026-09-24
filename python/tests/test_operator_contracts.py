@@ -208,3 +208,38 @@ def test_a_formatted_assert_needs_its_arguments():
     assert eval_node(checked, [False], [None]) == [False]
     with pytest.raises(Exception, match="failed with 3"):
         eval_node(checked, [True, False], [None, 3])
+
+
+def test_a_nested_entry_keeps_an_invalid_child_invalid():
+    # Time-series spec, TSD row of the value/delta table: a delta holds only
+    # valid modified children, so an inner child that never ticked is absent,
+    # never a default value. Parity #963, #964, #965.
+    I = TS[int]
+    N = hg.TSD[str, hg.TSD[str, I]]
+
+    @graph
+    def nested(value: I, key: TS[str]) -> N:
+        inner = hg.convert[hg.TSD[str, I]](key, value)
+        return hg.convert[N](key, inner)
+
+    assert eval_node(nested, [None], ["c"]) == [{"c": {}}]
+
+    # Its membership is exact too (TS-19): the inner key exists, invalid.
+    @hg.compute_node
+    def inner_members(ts: N) -> TS[str]:
+        return ";".join(
+            f"{k}:{sorted((k2, c.valid) for k2, c in inner.items())}" for k, inner in ts.items()
+        )
+
+    @graph
+    def nested_members(value: I, key: TS[str]) -> TS[str]:
+        return inner_members(nested(value, key))
+
+    assert eval_node(nested_members, [None], ["c"]) == ["c:[('c', False)]"]
+    assert eval_node(nested, [None, 5], ["c", None]) == [{"c": {}}, {"c": {"c": 5}}]
+    # A flat entry still forwards every tick of its value, equal or not.
+    @graph
+    def flat(value: I, key: TS[str]) -> hg.TSD[str, I]:
+        return hg.convert[hg.TSD[str, I]](key, value)
+
+    assert eval_node(flat, [None, 5, 5], ["c", None, None]) == [{}, {"c": 5}, {"c": 5}]
