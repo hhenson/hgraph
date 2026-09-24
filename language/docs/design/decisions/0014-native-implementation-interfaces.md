@@ -19,6 +19,11 @@ in ordinary source files. Native-library builds own their dependencies.
 - A borrowed input must be explicit in the language contract. An ordinary
   value parameter cannot silently acquire endpoint access because it is native.
 
+Use one checked function contract for HGL and native implementations. Function
+and parameter `const`, overload selection, capability requirements and phase
+checks have the same meaning. Binding consumes that contract; it does not
+introduce a separate native type system or a third function kind.
+
 For example, this contract admits a scalar implementation:
 
 ```hgl
@@ -72,6 +77,140 @@ library build selects its provider; calls use that static implementation. No per
 registration is introduced. Lifetime, validity, phase and error rules remain
 part of the HGL contract; a matching native signature alone does not prove them.
 
+## Outputs and capabilities
+
+Agreed extension; contract blocks and value-function injection are not yet
+implemented. Reuse `inject` in declaration-only native contracts:
+
+```hgl
+native fn accumulate(value: i64) -> i64 {
+    inject out, logger
+}
+
+native const fn describe(value: i64) -> str {
+    inject logger
+}
+```
+
+An HGL implementation requests capabilities in its body. The checked contract
+records capability requirements for both forms, including descriptor imports.
+They add no caller-supplied argument, temporal input or activation dependency.
+Requirements of called helpers must also be satisfied.
+
+The portable contract and the target's requests are distinct. A contract makes
+its declared capabilities available; a target implementation may use a subset.
+Its binding records that subset in native source and validates it against the
+contract. Only the used facilities need runtime provisioning. Call checking
+still uses the portable requirements, so changing targets cannot silently make
+an otherwise invalid call valid.
+
+For example, C++ may request `out, logger` while Rust requests only `out`.
+Their native parameter lists need not match: each generated adapter checks its
+target's declared requests. Observable logging obligations, if any, still apply
+to both implementations. Internal allocators, scratch storage and equivalent
+runtime machinery belong to the provider, not the HGL signature. An extra
+semantic capability, such as a clock affecting the result, must be declared in
+the shared contract. A target unable to supply a required capability rejects
+the binding; it must not silently substitute different behaviour.
+
+| Request | Capability type | Ownership and access |
+| --- | --- | --- |
+| `out` | `Output<T>` from the temporal result `-> T` | Current node; evaluation writes |
+| `logger` | `Logger` | Supplied context; logging only |
+| `clock` | `EvaluationClock` | Current run; read-only, admitted runtime phases |
+| `scheduler` | `Scheduler` | Current node; admitted runtime phases |
+
+These are language capability types, not payloads to temporalize. Their public
+type spelling and target wrappers remain to be implemented. `out` designates
+the existing result, never an additional output. An outputless function cannot
+request it. For nested collections, its shape is the complete result schema.
+Existing validity, delta and write-order rules still apply.
+
+`const fn` means non-temporal, not pure. It may request a logger when the call
+context supplies one; otherwise the call is rejected. Injection alone must not
+classify it as a node. It returns its value directly and cannot request its own
+temporal `out`, scheduler or node state. Access to a caller's node capabilities
+needs an explicit ownership contract; that extension is not settled here.
+Clock access requires a runtime context and an admitted phase, not merely a
+`const fn` declaration. No injection implicitly creates a run or node.
+
+Capability access is borrowed for the call. It cannot escape in a result,
+state or cache. Check requirements at each call, including transitive calls,
+and preserve them across imports. Do not constant-fold or reorder effects
+merely because the function is `const`.
+
+Illustrative target signatures for the declarations above (not existing APIs):
+
+```cpp
+static void accumulate(const Input<Int>& value, Output<Int>& out, Logger& logger);
+static String describe(Int value, Logger& logger);
+```
+
+```rust
+fn accumulate(value: Input<'_, i64>, out: Output<'_, i64>, logger: Logger<'_>);
+fn describe(value: i64, logger: Logger<'_>) -> String;
+```
+
+C++ `bind<Implementation>()` and the Rust trait check their target's generated
+signatures. The examples show implementations requesting both capabilities;
+neither requires all targets to use that same parameter list. Encoding the
+target's request subset in source remains binding implementation work.
+The first implementation publishes through `out`; its native `void`/unit result
+does not remove the HGL temporal result. The second returns a scalar string.
+The adapter for temporal implementations returning a complete value, and the
+full lifecycle ABI, remain separate implementation work.
+
+### Calling from a node
+
+```hgl
+fn describe_each(value: i64) -> str {
+    inject logger
+    when {
+        return describe(value)
+    }
+}
+```
+
+During evaluation, `describe` receives the current scalar value and borrows the
+enclosing node's logger. It returns a string; the enclosing `return` publishes
+it. No helper node or output is created. Include the helper's requirements in
+the enclosing node's contract and provision the target's used subset.
+
+A call to `native fn`, like a call to HGL `fn`, composes or wires a temporal
+computation during graph construction. It is not a direct call inside `when`.
+A helper that mutates the caller's output needs explicit borrowed access;
+the spelling and checking of that access remain unsettled. Its scalar result
+never implies ownership of the caller's temporal output.
+
+### Acceptance cases
+
+Reasoned expectations, pending compiler implementation and executable checks.
+Run every applicable case with HGL/native bodies and local/imported contracts.
+
+| Case | Expected result |
+| --- | --- |
+| `const fn` and `native const fn` with `i64` argument/result | Scalar types in both; no temporal argument introduced by binding |
+| `fn` and `native fn` with `i64` argument/result | Temporal types in both; a parameter marked `const` remains configuration |
+| Temporal `-> i64` with `inject out` | One `Output<i64>`; no extra output or activation dependency |
+| Outputless or value function requests `out` | Diagnostic; a scalar return is not a temporal output |
+| Value helper requests logger in a supplied logging context | Direct value call plus logging; no extra node or tick |
+| Same call without logger, including through a helper/import | Diagnostic before emission |
+| C++ uses `out, logger`; Rust uses only `out` | Same portable call checks; each binding provisions its declared subset |
+| Provider requests an undeclared semantic capability | Binding diagnostic; internal runtime machinery needs no HGL declaration |
+| Target cannot supply a required capability | Binding diagnostic; no silent fallback |
+| Scheduler request without a node, or clock without runtime context | Diagnostic; no implicit owner |
+| Capability used in a forbidden phase or retained after the call | Diagnostic |
+| Node returns an identity logging helper's result for input ticks `2, _, 2` | Two helper calls and output ticks `2, _, 2`; no tick on the idle cycle |
+| `describe_each` receives input ticks `2, _, 2` | Two direct helper calls using the same node's logger; two string ticks, no tick on the idle cycle |
+| Temporal HGL/native function called inside `when` | Same diagnostic; no graph wiring during evaluation |
+| Nested output receives two different child writes in one evaluation | One accumulated delta under the existing output rules |
+
+Language diagnostics have no Python/C++ runtime oracle. For runtime cases,
+record values, ticks, effects and owner identity against reasoned, Python and
+C++ results before implementing bindings. Accept two-way agreement with a
+variation report; if Python and C++ agree against reasoning, revisit reasoning.
+Escalate three-way disagreement. No new comparison results are claimed here.
+
 ## Dependencies
 
 HGL consumers import the shared interface. A package selects its implementation
@@ -116,6 +255,8 @@ scalars. `const` in that C++ spelling does not change HGL temporal roles.
 Native value calls lift over time-series arguments through the same runtime
 node policy as ordinary `const fn`, including imported calls. Descriptor format
 7 records `value`, `temporal`, or `legacy-value`; hooks do not determine role.
+`legacy-value` is a migration detail, not an agreed language function kind;
+the separate native checking paths must converge on the common contract above.
 Legacy inline `native fn` is rejected inside `const fn`: value helpers must
 state `native const fn`. Calendar/duration helpers now use the scalar provider.
 Scripted `test` accepts the corresponding `--native-provider-header` and

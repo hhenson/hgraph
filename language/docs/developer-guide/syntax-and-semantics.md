@@ -1891,6 +1891,12 @@ iterator-only body as runtime.
 
 ## Runtime state, injectables, and lifecycle
 
+This section describes implemented HGL. The agreed
+[native capability contract](../design/decisions/0014-native-implementation-interfaces.md#outputs-and-capabilities)
+extends the same requests to native declarations and permits context-supplied
+services in value functions. That extension does not make injection alone a
+node classifier; it is not implemented yet.
+
 Each `state` declaration introduces a mutable function-lifetime binding. The
 compiler aggregates all declarations into one typed recordable-state schema.
 Initializers run during startup only for fields that were not restored by

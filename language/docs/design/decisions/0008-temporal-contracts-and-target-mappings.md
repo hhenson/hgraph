@@ -56,8 +56,12 @@ The marker does not mean compile-time-only, constant folding, purity, immutable
 arguments, or absence of side effects. A native helper may mutate an explicitly
 permitted cache argument. Mutation, allocation, I/O, borrowing, and allowed
 lifecycle phases need their own contracts; `const fn` does not authorize them.
-Nor may a value function declare node state, inject a node capability, or
-contain `when`, `start`, or `stop` blocks. Its calls must remain value-level.
+A value function cannot declare its own node state or contain `when`, `start`,
+or `stop` blocks. Its calls remain value-level. The agreed
+[capability contract](0014-native-implementation-interfaces.md#outputs-and-capabilities)
+allows context-supplied services such as logging without creating a node;
+ownership and phase checks govern access. The current compiler still rejects
+injection in value functions; this extension is not implemented.
 
 Parameter-level `const` retains its existing meaning: fixed wiring-time
 configuration on a temporal callable. Function-level `const` is not shorthand
