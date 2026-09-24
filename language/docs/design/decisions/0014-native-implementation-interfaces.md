@@ -79,19 +79,33 @@ part of the HGL contract; a matching native signature alone does not prove them.
 
 ## Outputs and capabilities
 
-Use `inject` in native contracts. Value helpers support `logger` and `clock`
-in C++; Rust trait emission supports `logger`. The temporal example below is
-agreed syntax awaiting its provider ABI:
+Separate the shared signature from target implementation requirements. The
+[implementation-part rules](../native-implementation-parts.md) define matching
+and acceptance cases. A temporal `{}` is a graph; `{ when; }` is a node.
+
+Shared interface:
 
 ```hgl
+module example.native
+native fn accumulate(value: i64) -> i64
+native const fn describe(value: i64) -> str
+```
+
+Selected target part:
+
+```hgl
+module example.native part cpp_impl
 native fn accumulate(value: i64) -> i64 {
     inject out, logger
+    when;
 }
-
 native const fn describe(value: i64) -> str {
     inject logger
 }
 ```
+
+The compiler checks these contracts; temporal execution still needs its provider
+ABI. Value helpers support logger/clock in C++ and logger in Rust traits.
 
 An HGL implementation requests capabilities in its body. The checked contract
 records capability requirements for both forms, including descriptor imports.
@@ -101,21 +115,14 @@ Compute this transitively, independent of declaration order, and deduplicate
 explicit and inferred requests. Missing `inject` in the caller is not an error;
 an unavailable capability or forbidden phase still is.
 
-The portable contract and the target's requests are distinct. A contract makes
-its declared capabilities available; a target implementation may use a subset.
-Its binding records that subset in native source and validates it against the
-contract. Only the used facilities need runtime provisioning. Call checking
-still uses the portable requirements, so changing targets cannot silently make
-an otherwise invalid call valid.
-
-For example, C++ may request `out, logger` while Rust requests only `out`.
-Their native parameter lists need not match: each generated adapter checks its
-target's declared requests. Observable logging obligations, if any, still apply
-to both implementations. Internal allocators, scratch storage and equivalent
-runtime machinery belong to the provider, not the HGL signature. An extra
-semantic capability, such as a clock affecting the result, must be declared in
-the shared contract. A target unable to supply a required capability rejects
-the binding; it must not silently substitute different behaviour.
+The shared declaration owns types and observable behaviour. The selected
+implementation part owns injectable requests and lifecycle hooks. C++ may
+request `out, logger` while Rust requests only `out`; each generated interface
+uses its selected requirements. Calls silently inherit selected value-helper
+requirements. A constructed node owns its own capabilities. Target selection
+may expose an unavailable service, which is a checking error. It cannot relax
+promised observable behaviour. Provider-private allocators and scratch storage
+remain native implementation details.
 
 | Request | Capability type | Ownership and access |
 | --- | --- | --- |
@@ -157,8 +164,8 @@ fn describe(value: i64, logger: Logger<'_>) -> String;
 
 C++ `bind<Implementation>()` and the Rust trait check their target's generated
 signatures. The examples show implementations requesting both capabilities;
-neither requires all targets to use that same parameter list. Encoding the
-target's request subset in source remains binding implementation work.
+neither requires all targets to use that same parameter list. The selected
+implementation part supplies the target requirements.
 The first implementation publishes through `out`; its native `void`/unit result
 does not remove the HGL temporal result. The second returns a scalar string.
 The adapter for temporal implementations returning a complete value, and the
@@ -177,8 +184,7 @@ fn describe_each(value: i64) -> str {
 During evaluation, `describe` receives the current scalar value and borrows the
 enclosing node's logger. It returns a string; the enclosing `return` publishes
 it. No helper node or output is created. The node omits `inject logger`: the
-compiler silently adds it from the helper's contract and provisions the target's
-used subset.
+compiler silently adds the selected helper implementation's requirements.
 
 A call to `native fn`, like a call to HGL `fn`, composes or wires a temporal
 computation during graph construction. It is not a direct call inside `when`.
@@ -190,7 +196,8 @@ never implies ownership of the caller's temporal output.
 
 Acceptance expectations. Value-helper inference, imports, logger forwarding,
 clock reads and ordinary/native call checks have executable coverage. Temporal
-provider output, target subsets and borrowed-output cases remain pending.
+provider output and borrowed-output cases remain pending. Target-specific
+requests, graph/node shape and lifecycle metadata have compiler coverage.
 
 | Case | Expected result |
 | --- | --- |
@@ -201,8 +208,8 @@ provider output, target subsets and borrowed-output cases remain pending.
 | Value helper requests logger in a supplied logging context | Direct value call plus logging; no extra node or tick |
 | Caller omits `inject logger`, including through a helper/import | Silently infer one logger requirement on each caller |
 | Inferred capability has no valid provider in the call context | Diagnostic before emission |
-| C++ uses `out, logger`; Rust uses only `out` | Same portable call checks; each binding provisions its declared subset |
-| Provider requests an undeclared semantic capability | Binding diagnostic; internal runtime machinery needs no HGL declaration |
+| C++ uses `out, logger`; Rust uses only `out` | Same signature; each selected implementation part supplies its requirements |
+| Provider requests a capability absent from its selected HGL implementation part | Binding diagnostic; internal runtime machinery needs no HGL declaration |
 | Target cannot supply a required capability | Binding diagnostic; no silent fallback |
 | Scheduler request without a node, or clock without runtime context | Diagnostic; no implicit owner |
 | Capability used in a forbidden phase or retained after the call | Diagnostic |
@@ -275,11 +282,9 @@ transitive dependencies can be fingerprinted.
 
 The 56 scalar substrate implementations live in `stdlib/cpp/native_scalar.h`.
 `native/scalar_values_i64.hgl` is a shared declaration part used by both target
-implementations. `emit-native-rust <file> --out <file>` generates a checked Rust
+implementations. `emit-native-rust <file> --part <implementation> --out <file>` generates a checked Rust
 trait for concrete bool/i64/f64 value declarations, including a call-borrowed
-logger. C++ value providers also admit the evaluation clock. Target-specific
-request subsets are still pending: the current adapters pass all declared
-capabilities. Rust overloads, generics, clock injection,
+logger. C++ value providers also admit the evaluation clock. Target-specific requests come from the selected implementation part. Rust overloads, generics, clock injection,
 fallible contracts and other scalar mappings are rejected until implemented.
 
 New temporal declarations retain their source role but cannot use this scalar

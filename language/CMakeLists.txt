@@ -419,6 +419,9 @@ set(_hgl_core_native_parts
     stdlib/hgl/hgraph/native/scalar_values.hgl
     stdlib/hgl/hgraph/native/scalar_values_i64.hgl
     stdlib/hgl/hgraph/native/temporal_values.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_scalar_values_i64.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
     NATIVE_PROVIDER_HEADER native_scalar.h
@@ -601,10 +604,16 @@ install(FILES
 install(FILES stdlib/cpp/native_scalar.h
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/cpp
     COMPONENT Development)
-install(FILES ${_hgl_core_native_parts}
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native
-    COMPONENT Development
-)
+foreach(_part IN LISTS _hgl_core_native_parts)
+    get_filename_component(_part_directory "${_part}" DIRECTORY)
+    string(REPLACE "stdlib/hgl/hgraph/native" "" _relative_directory "${_part_directory}")
+    install(FILES ${_part}
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native${_relative_directory}
+        COMPONENT Development)
+endforeach()
+install(FILES stdlib/hgl/hgraph/native/impl/rust_scalar_values_i64.hgl
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native/impl
+    COMPONENT Development)
 install(FILES
     cmake/HglLanguage.cmake
     cmake/hgl_python_module.cpp.in

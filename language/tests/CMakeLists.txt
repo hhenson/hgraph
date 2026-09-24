@@ -486,6 +486,7 @@ endif()
 
 hgl_add_module(hgl_native_provider_fixture STATIC
     HGL codegen/native-provider.hgl
+    PARTS codegen/native-provider-impl.hgl
     NATIVE_PROVIDER_HEADER provider.h
     NATIVE_PROVIDER checks::scalar_provider::native)
 target_include_directories(hgl_native_provider_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/codegen/native-provider)
@@ -661,7 +662,7 @@ if(UNIX)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_source})
         file(STRINGS ${_source} _native_test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _native_test_lines _part_test_count)
-        if(_part_test_count EQUAL 0)
+        if(_part_test_count EQUAL 0 AND NOT _source MATCHES "/native/impl/")
             message(FATAL_ERROR "Native HGL source part must carry its own tests: ${_source}")
         endif()
         math(EXPR _native_test_count "${_native_test_count} + ${_part_test_count}")

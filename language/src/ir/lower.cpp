@@ -497,16 +497,21 @@ namespace hgl::ir
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 std::size_t overload = 0;
+                                const bool  implementation = node.has_contract && node.implementation.body.empty();
                                 for (const auto &family : resolved_.native_families) {
                                     const auto found = std::ranges::find(family, declaration);
                                     if (found != family.end()) {
-                                        overload = static_cast<std::size_t>(found - family.begin());
+                                        overload = static_cast<std::size_t>(std::count_if(family.begin(), found, [&](auto id) {
+                                            const auto &other = std::get<ast::NativeFunctionDecl>(module_.decl(id).node);
+                                            return (other.has_contract && other.implementation.body.empty()) == implementation;
+                                        }));
                                         break;
                                     }
                                 }
                                 declaration_symbols_[declaration] = add_symbol(
                                     hir::SymbolKind::ImportedFunction, node.name.text, node.name.range, declaration, 0, {},
-                                    result_.path + "::" + std::string{node.name.text} + "#" + std::to_string(overload));
+                                    result_.path + "::" + std::string{node.name.text} +
+                                        (implementation ? "#implementation-" : "#") + std::to_string(overload));
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
@@ -1104,6 +1109,8 @@ namespace hgl::ir
                     target.result         = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
                     target.throws         = source.throws;
                     target.execution_role = source.execution_role;
+                    target.implementation_kind = source.implementation_kind;
+                    target.lifecycle           = source.lifecycle;
                     for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
                     result_.native_functions.push_back(std::move(target));
                 }
@@ -1760,6 +1767,17 @@ namespace hgl::ir
                                       : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation, hir::NativePhase::Stop};
                             for (const auto &capability : node.capabilities) {
                                 function.capabilities.emplace_back(capability.text);
+                            }
+                            function.implementation_kind =
+                                !node.implementation.body.empty() ? NativeImplementationKind::InlineCpp
+                                : !node.has_contract              ? NativeImplementationKind::Declaration
+                                : node.is_const                   ? NativeImplementationKind::Value
+                                : std::ranges::any_of(node.lifecycle, [](const auto &hook) { return hook.text == "when"; })
+                                    ? NativeImplementationKind::Node
+                                    : NativeImplementationKind::Graph;
+                            for (const auto &hook : node.lifecycle) { function.lifecycle.emplace_back(hook.text); }
+                            if (!node.is_const && node.implementation.body.empty()) {
+                                function.phases = {hir::NativePhase::Wiring};
                             }
                             function.throws         = node.throws;
                             function.execution_role = node.is_const                      ? NativeExecutionRole::Value

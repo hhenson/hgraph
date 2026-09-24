@@ -1,0 +1,3 @@
+module hgraph.native part rust_scalar_values_i64
+
+native const fn bit_and(lhs: i64, rhs: i64) -> i64 {}

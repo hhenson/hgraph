@@ -578,7 +578,8 @@ tests in `generated_core_native_tests.cpp` cover the native metadata, collection
 and string queries, including pre-validity/passive endpoint inspection and
 evaluation-scoped window eviction flags.
 
-Library-level assertions also live at the end of every native HGL source part.
+Library-level assertions live in the native HGL declaration parts and run
+with their selected implementation parts.
 `hgraph_language_test_core_native_parts` runs `hgl test` with the production
 part inventory, checks the discovered test count, and rejects a native source
 part without any `test` blocks at configure time. It uses the Unix scripted

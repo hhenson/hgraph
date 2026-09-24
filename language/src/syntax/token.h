@@ -85,6 +85,7 @@ namespace hgl::syntax
         Less,     ///< `<`: comparison or generic/type argument opener
         Greater,  ///< `>`: comparison or generic/type argument closer
         Comma,
+        Semicolon,
         Colon,
         ColonColon,
         Dot,

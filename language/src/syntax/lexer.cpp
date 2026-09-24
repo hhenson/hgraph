@@ -662,6 +662,7 @@ namespace hgl::syntax
                     case '}': return one(TokenKind::RBrace);
                     case '[': return one(TokenKind::LBracket);
                     case ']': return one(TokenKind::RBracket);
+                    case ';': return one(TokenKind::Semicolon);
                     case ',': return one(TokenKind::Comma);
                     case '.':
                         if (d == '.' && peek(2) == '.')
@@ -672,11 +673,6 @@ namespace hgl::syntax
                         }
                         return one(TokenKind::Dot);
                     case '%': return one(TokenKind::Percent);
-                    case ';':
-                        error(begin, begin + 1, "';' is not a statement terminator; use a newline");
-                        ++pos_;
-                        push(TokenKind::Error, begin, pos_);
-                        return;
                     default: break;
                 }
                 // Unknown byte (or a UTF-8 lead byte): consume the whole

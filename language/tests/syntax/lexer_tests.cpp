@@ -357,12 +357,11 @@ TEST_CASE("unexpected characters are diagnosed once per code point", "[lexer]") 
     REQUIRE(lexed.diagnostics.diagnostics()[1].message == "unexpected character '\xC3\xA9'");
 }
 
-TEST_CASE("semicolons are diagnosed as terminators", "[lexer]") {
+TEST_CASE("semicolons are tokenized for native hook declarations", "[lexer]") {
     Lexed lexed{"a; b"};
     REQUIRE(kinds(lexed) ==
-            std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Error, TokenKind::Identifier, TokenKind::EndOfFile});
-    REQUIRE(lexed.diagnostics.size() == 1);
-    REQUIRE(lexed.diagnostics.diagnostics()[0].message == "';' is not a statement terminator; use a newline");
+            std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Semicolon, TokenKind::Identifier, TokenKind::EndOfFile});
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
 }
 
 TEST_CASE("token ranges index the source", "[lexer]") {

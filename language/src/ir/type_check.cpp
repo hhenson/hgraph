@@ -66,6 +66,8 @@ namespace hgl::ir
                 check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
+                select_native_implementations();
+                if (diagnostics_.has_errors()) { return false; }
                 check_instantiations();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 infer_capabilities();
@@ -78,6 +80,100 @@ namespace hgl::ir
             }
 
           private:
+            bool same_native_contract(const NativeFunction &contract, const NativeFunction &implementation) {
+                if (contract.identity != implementation.identity || contract.execution_role != implementation.execution_role ||
+                    contract.throws != implementation.throws || contract.parameters.size() != implementation.parameters.size() ||
+                    contract.generics.size() != implementation.generics.size()) {
+                    return false;
+                }
+                detail::GenericSubstitution substitution{module_, canonical_types_};
+                for (std::size_t i = 0; i < contract.generics.size(); ++i) {
+                    const auto &left  = contract.generics[i];
+                    const auto &right = implementation.generics[i];
+                    if (left.is_const != right.is_const || left.is_pack != right.is_pack) { return false; }
+                    if (left.is_const) {
+                        if (!same(left.type, right.type)) { return false; }
+                        const ExprId value{static_cast<std::uint32_t>(module_.exprs.size())};
+                        module_.exprs.push_back(Expr{.type       = right.type,
+                                                     .phase      = Phase::Constant,
+                                                     .value_kind = ValueKind::Constant,
+                                                     .node       = SymbolRef{right.symbol}});
+                        expr_state_.push_back(0);
+                        if (!substitution.bind_value(left.symbol, value)) { return false; }
+                    } else if (!substitution.bind_type(left.symbol, make_type(TypeKind::Symbol, {}, right.symbol))) {
+                        return false;
+                    }
+                }
+                for (std::size_t i = 0; i < contract.parameters.size(); ++i) {
+                    const auto &left  = contract.parameters[i];
+                    const auto &right = implementation.parameters[i];
+                    if (left.name != right.name || left.is_const != right.is_const || left.access != right.access ||
+                        !same(substitution.apply(left.type), right.type)) {
+                        return false;
+                    }
+                }
+                return same(substitution.apply(contract.result), implementation.result);
+            }
+
+            void select_native_implementations() {
+                // Keep the public candidate identity. A selected
+                // part contributes requirements, never an extra overload candidate.
+                std::vector<bool>                       remove(module_.native_functions.size(), false);
+                std::vector<std::optional<std::size_t>> selected(module_.native_functions.size());
+                for (std::size_t i = 0; i < module_.native_functions.size(); ++i) {
+                    auto &implementation = module_.native_functions[i];
+                    if (!implementation.source_defined ||
+                        implementation.implementation_kind == NativeImplementationKind::Declaration ||
+                        implementation.implementation_kind == NativeImplementationKind::InlineCpp) {
+                        continue;
+                    }
+                    std::optional<std::size_t> match;
+                    for (std::size_t j = 0; j < module_.native_functions.size(); ++j) {
+                        const auto &contract = module_.native_functions[j];
+                        if (!contract.source_defined || contract.implementation_kind != NativeImplementationKind::Declaration ||
+                            !same_native_contract(contract, implementation)) {
+                            continue;
+                        }
+                        if (match) {
+                            type_error(implementation.range, "native implementation matches duplicate declarations");
+                            break;
+                        }
+                        match = j;
+                    }
+                    if (!match) {
+                        type_error(implementation.range, "native implementation has no matching declaration");
+                        continue;
+                    }
+                    if (selected[*match]) {
+                        type_error(implementation.range, "native declaration has more than one selected implementation");
+                        continue;
+                    }
+                    selected[*match] = i;
+                    remove[i]        = true;
+                }
+                for (std::size_t i = 0; i < selected.size(); ++i) {
+                    if (!selected[i]) { continue; }
+                    auto       &contract         = module_.native_functions[i];
+                    const auto &implementation   = module_.native_functions[*selected[i]];
+                    contract.implementation_kind = implementation.implementation_kind;
+                    contract.lifecycle           = implementation.lifecycle;
+                    contract.capabilities        = implementation.capabilities;
+                    contract.range               = implementation.range;
+                }
+
+                for (std::size_t i = 0; i < module_.native_functions.size(); ++i) {
+                    if (remove[i]) { continue; }
+                    for (std::size_t j = i + 1; j < module_.native_functions.size(); ++j) {
+                        if (!remove[j] && same_native_contract(module_.native_functions[i], module_.native_functions[j])) {
+                            type_error(module_.native_functions[j].range,
+                                       "duplicate native declaration or selected implementation");
+                        }
+                    }
+                }
+                std::size_t index = 0;
+                std::erase_if(module_.native_functions, [&](const auto &) { return remove[index++]; });
+            }
+
             /// Requirements follow resolved value-call edges, including imports.
             /// A lift owns its own context; its wiring caller does not borrow it.
             void infer_capabilities() {
@@ -93,6 +189,7 @@ namespace hgl::ir
                         std::vector<std::string> required;
                         const SymbolId           target = expression.operation.target;
                         if (const NativeFunction *native = native_function(target)) {
+                            if (native->execution_role == NativeExecutionRole::Temporal) { continue; }
                             required = native->capabilities;
                         } else if (target.valid()) {
                             const FunctionDecl *callee = function(module_.symbol(target).owner);
@@ -1982,7 +2079,8 @@ namespace hgl::ir
 
             [[nodiscard]] bool native_candidate_matches(const NativeFunction &function, const std::vector<Argument> &arguments,
                                                         TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
-                if (function.execution_role == NativeExecutionRole::Temporal ||
+                if ((function.execution_role == NativeExecutionRole::Temporal &&
+                     (active_native_phase_ != NativePhase::Wiring || active_value_function_)) ||
                     (active_value_function_ && function.execution_role == NativeExecutionRole::LegacyValue)) {
                     return false;
                 }
@@ -1997,11 +2095,12 @@ namespace hgl::ir
                     const Expr            &argument  = module_.expr(bound[index]);
                     const NativeParameter &parameter = function.parameters[index];
                     if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
-                    if (function.execution_role != NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
-                        argument.phase != Phase::Constant) {
+                    if (function.execution_role == NativeExecutionRole::LegacyValue &&
+                        active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
                         return false;
                     }
-                    if (parameter.access == NativeParameterAccess::InputView && !native_input_view_argument(bound[index])) {
+                    if (function.execution_role != NativeExecutionRole::Temporal &&
+                        parameter.access == NativeParameterAccess::InputView && !native_input_view_argument(bound[index])) {
                         return false;
                     }
                     if (!native_parameter_matches(bindings, parameter.type, argument.type)) { return false; }
@@ -2027,9 +2126,9 @@ namespace hgl::ir
             void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
                                    TypeId expected) {
                 const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
-                if (function.execution_role == NativeExecutionRole::Temporal) {
-                    type_error(expression.range,
-                               "a temporal native fn cannot be called as a value; its provider ABI is not implemented yet");
+                if (function.execution_role == NativeExecutionRole::Temporal &&
+                    (active_native_phase_ != NativePhase::Wiring || active_value_function_)) {
+                    type_error(expression.range, "a temporal native fn can only be called during graph construction");
                     return;
                 }
                 if (active_value_function_ && function.execution_role == NativeExecutionRole::LegacyValue) {
@@ -2038,7 +2137,8 @@ namespace hgl::ir
                 }
                 const NativePhase call_phase    = native_call_phase(function, call.arguments);
                 const bool        phase_allowed = std::ranges::find(function.phases, call_phase) != function.phases.end();
-                if (!function.capabilities.empty() && call_phase == NativePhase::Wiring && !active_value_function_) {
+                if (function.execution_role != NativeExecutionRole::Temporal && !function.capabilities.empty() &&
+                    call_phase == NativePhase::Wiring && !active_value_function_) {
                     diagnostics_.report(syntax::Category::Phase, expression.range,
                                         "native value helper requires a runtime capability context");
                 }
@@ -2055,7 +2155,8 @@ namespace hgl::ir
                     if (!bound[index].valid()) { continue; }
                     Expr &argument = check_expr(bound[index]);
                     expression.effects |= argument.effects;
-                    if (function.parameters[index].access == NativeParameterAccess::InputView &&
+                    if (function.execution_role != NativeExecutionRole::Temporal &&
+                        function.parameters[index].access == NativeParameterAccess::InputView &&
                         !native_input_view_argument(bound[index])) {
                         type_error(argument.range, "native input-view argument requires a live runtime input");
                     }
@@ -2067,8 +2168,8 @@ namespace hgl::ir
                         diagnostics_.report(syntax::Category::Phase, argument.range,
                                             "a const native parameter requires a compile-time value");
                     }
-                    if (function.execution_role != NativeExecutionRole::Value && active_native_phase_ == NativePhase::Wiring &&
-                        argument.phase != Phase::Constant) {
+                    if (function.execution_role == NativeExecutionRole::LegacyValue &&
+                        active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
                         diagnostics_.report(syntax::Category::Phase, argument.range,
                                             "a wiring-phase native value call requires compile-time arguments");
                     }
@@ -2096,6 +2197,11 @@ namespace hgl::ir
                         expression.operation.lift_inputs.push_back(argument.valid() &&
                                                                    module_.expr(argument).phase == Phase::Wiring);
                     }
+                }
+                if (function.execution_role == NativeExecutionRole::Temporal) {
+                    expression.phase      = Phase::Wiring;
+                    expression.value_kind = expression.type == void_type_ ? ValueKind::Void : ValueKind::Signal;
+                    expression.effects |= Effect::WireGraph;
                 }
                 contextualize(expression, expected);
             }

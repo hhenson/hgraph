@@ -9,9 +9,7 @@ export fn bitwise(lhs: i64, rhs: i64) -> i64 {
 export fn lifted(lhs: i64, rhs: i64) -> i64 => bit_and(rhs: rhs, lhs: lhs)
 export fn mixed(lhs: i64) -> i64 => bit_and(lhs, 3)
 
-native const fn audit(value: i64) -> i64 {
-    inject logger
-}
+native const fn audit(value: i64) -> i64
 
 const fn forward(value: i64) -> i64 => audit(value)
 

@@ -1,0 +1,7 @@
+module checks.native_provider part rust_impl
+
+native const fn audit(value: i64) -> i64 {
+    inject logger
+}
+
+native const fn bit_and(lhs: i64, rhs: i64) -> i64 {}

@@ -432,6 +432,10 @@ namespace hgl::descriptor
                 signature(out, declaration.signature, "        ");
                 out << ",\n        \"capabilities\": ";
                 string_array(out, declaration.capabilities, "        ");
+                out << ",\n        \"implementation_kind\": ";
+                quote_json(out, native_implementation_name(declaration.implementation_kind));
+                out << ",\n        \"lifecycle\": ";
+                string_array(out, declaration.lifecycle, "        ");
                 out << ",\n        \"phases\": ";
                 enum_array(out, declaration.phases, "        ", native_phase_name);
                 out << ",\n        \"effects\": ";

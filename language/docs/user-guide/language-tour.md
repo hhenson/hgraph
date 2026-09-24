@@ -21,7 +21,8 @@ export fn smooth(
 }
 ```
 
-There are no statement terminators or signature separators. Newlines separate
+Ordinary statements have no terminators or signature separators. Native
+implementation contracts use `start;`, `when;` and `stop;` to declare hooks. Newlines separate
 forms, braces delimit block bodies, `#` starts a line comment, and `/* ... */`
 delimits a block comment. `//` means floor division.
 

@@ -293,16 +293,12 @@ namespace hgl::driver
             std::map<std::string, syntax::SourceRange, std::less<>> names;
             for (const ModulePart &part : parts) {
                 const syntax::SourceRange header = assembled_range(part, part.module_range);
-                if (part.name.empty()) {
-                    unit.diagnostics.report(syntax::Category::Module, header,
-                                            "every file in a multi-file module declares 'part <name>'");
-                }
                 if (part.module != expected_module) {
                     unit.diagnostics.report(syntax::Category::Module, header,
                                             "module part declares '" + part.module + "', expected '" + expected_module + "'");
                 }
-                if (!part.name.empty()) {
-                    const syntax::SourceRange name = assembled_range(part, part.name_range);
+                {
+                    const syntax::SourceRange name = part.name.empty() ? header : assembled_range(part, part.name_range);
                     const auto [first, inserted]   = names.emplace(part.name, name);
                     if (!inserted) {
                         auto &diagnostic = unit.diagnostics.report(syntax::Category::Module, name,

@@ -300,7 +300,8 @@ an installed-SDK consumer rebuilds them from source.
 
 With `PARTS`, `prices.hgl` is the anchor whose filename determines the
 generated artifact basenames. It and every listed part declare the same module
-with `part <name>`, and the compiler emits one logical module. Without
+identity; at most one shared interface omits `part <name>`. The compiler emits
+one logical module. Without
 `PARTS`, multiple files in `HGL` remain independent modules which happen to be
 built into the same CMake library.
 

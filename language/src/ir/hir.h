@@ -584,6 +584,8 @@ namespace hgl::ir::hir
         std::string              descriptor_fingerprint{};
         std::vector<std::string> capabilities{};
         NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
+        std::vector<std::string> lifecycle{};
         bool                     source_defined{false};
         std::string              cpp_parameters{};
         std::string              cpp_body{};

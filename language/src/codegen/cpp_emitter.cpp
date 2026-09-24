@@ -853,6 +853,9 @@ namespace hgl::codegen
             std::vector<const gir::NativeFunction *> functions;
             for (const auto &function : graph_.native_functions) {
                 if (function.source_defined && function.cpp_body.empty()) {
+                    if (function.implementation_kind == NativeImplementationKind::Declaration) {
+                        backend(function.range, "native declaration requires a selected implementation part");
+                    }
                     if (function.execution_role != NativeExecutionRole::Value || !function.generics.empty()) {
                         backend(function.range, "external native interface requires a concrete native const fn");
                     }
@@ -2953,7 +2956,10 @@ namespace hgl::codegen
         Value Emitter::call_planned_native(gir::NativeFunctionId id, const std::vector<gir::Argument> &arguments, SourceRange range,
                                            Frame &frame) {
             const gir::NativeFunction &target = native_function(id, range);
-            const std::string          symbol = native_cpp_symbol(id);
+            if (target.execution_role == NativeExecutionRole::Temporal) {
+                backend(range, "native graph/node construction is not supported by the C++ backend yet");
+            }
+            const std::string symbol = native_cpp_symbol(id);
             if (!exact_cpp_symbol(symbol)) {
                 backend(range, "native function '" + target.identity + "' has an invalid exact C++ symbol");
             }

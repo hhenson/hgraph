@@ -2654,7 +2654,8 @@ TEST_CASE("native value roles survive imports and lift while temporal roles cann
                 CHECK_FALSE(lowered.diagnostics.has_errors());
             } else {
                 CHECK_FALSE(complete(lowered));
-                CHECK(lowered.diagnostics.render(lowered.file).find("temporal native fn cannot") != std::string::npos);
+                CHECK((lowered.diagnostics.render(lowered.file).find("graph construction") != std::string::npos ||
+                       lowered.diagnostics.render(lowered.file).find("not available during wiring") != std::string::npos));
             }
         }
     }
@@ -2695,6 +2696,7 @@ const fn leaf(value: i64) -> i64 {
 
 TEST_CASE("native capability requirements survive explicit deduplication and imports", "[ir][typed][capabilities]") {
     Lowered local{R"hgl(module capabilities.native
+native const fn leaf(value: i64) -> i64
 native const fn leaf(value: i64) -> i64 {
     inject logger
 }
@@ -2745,4 +2747,96 @@ fn invalid(value: i64) -> i64 => middle(2)
                                      "\n return value\n}\n")
                   .find("const fn cannot inject its own") != std::string::npos);
     }
+}
+
+TEST_CASE("native implementation contracts match independently of declaration order", "[ir][native][parts]") {
+    using Kind = hgl::NativeImplementationKind;
+    for (const bool reverse : {false, true}) {
+        for (const auto &[body, expected] : std::vector<std::pair<std::string, Kind>>{
+                 {"{}", Kind::Graph}, {"{ when; }", Kind::Node}, {"{ inject out, logger\n start; when; stop; }", Kind::Node}}) {
+            const std::string signature = "native fn filter(value: i64, const limit: i64) -> i64";
+            Lowered           unit{"module contracts\n" +
+                                   (reverse ? signature + body + "\n" + signature : signature + "\n" + signature + body) + "\n"};
+            require_clean(unit);
+            const bool completed = complete(unit);
+            INFO(unit.diagnostics.render(unit.file));
+            REQUIRE(completed);
+            REQUIRE(unit.hir.native_functions.size() == 1);
+            const auto &fn = unit.hir.native_functions.front();
+            CHECK(fn.execution_role == hgl::NativeExecutionRole::Temporal);
+            CHECK(fn.implementation_kind == expected);
+            CHECK(fn.candidate_identity == "contracts::filter#0");
+            CHECK(fn.phases == std::vector{hir::NativePhase::Wiring});
+        }
+    }
+}
+
+TEST_CASE("native implementation matching rejects changed and duplicate contracts", "[ir][native][parts]") {
+    const std::string declaration = "native const fn identity(value: i64) -> i64\n";
+    for (const auto implementation :
+         {"native const fn identity(value: bool) -> i64 {}", "native const fn identity(value: i64) -> bool {}",
+          "native const fn identity(const value: i64) -> i64 {}", "native const fn identity(other: i64) -> i64 {}",
+          "native const fn identity(value: i64) -> i64 throws {}", "native fn identity(value: i64) -> i64 { when; }",
+          "native const fn identity(value: i64) -> i64 {}\nnative const fn identity(value: i64) -> i64 {}",
+          "native const fn identity(value: i64) -> i64"}) {
+        Lowered unit{"module contracts\n" + declaration + implementation + "\n"};
+        require_clean(unit);
+        CHECK_FALSE(complete(unit));
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered missing{"module contracts\nnative const fn identity(value: i64) -> i64 {}\n"};
+    require_clean(missing);
+    CHECK_FALSE(complete(missing));
+}
+
+TEST_CASE("native lifecycle and injection requirements respect ownership", "[ir][native][parts]") {
+    for (const auto source :
+         {"native fn f(value: i64) -> i64 { start; }", "native fn f(value: i64) -> i64 { when; when; }",
+          "native const fn f(value: i64) -> i64 { when; }", "native const fn f(value: i64) -> i64 { inject out }",
+          "native fn f(value: i64) { inject out\n when; }", "native fn f(value: i64) -> i64 { inject scheduler }"}) {
+        Lowered unit{std::string{"module contracts\n"} + source + "\n"};
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("generic native implementation signatures normalize type parameters", "[ir][native][parts]") {
+    Lowered unit{R"hgl(module contracts
+native const fn identity<T>(value: T) -> T
+native const fn identity<U>(value: U) -> U {}
+)hgl"};
+    require_clean(unit);
+    const bool completed = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(completed);
+    CHECK(unit.hir.native_functions.size() == 1);
+}
+
+TEST_CASE("native temporal calls wire without borrowing child node services", "[ir][native][parts]") {
+    for (const auto body : {"{}", "{ inject out, logger, scheduler\n when; }"}) {
+        const std::string declarations =
+            std::string{"module contracts\nnative fn f(value: i64) -> i64\n"} + "native fn f(value: i64) -> i64 " + body + "\n";
+        Lowered wiring{declarations + "fn caller(value: i64) -> i64 => f(value)\n"};
+        require_clean(wiring);
+        const bool completed = complete(wiring);
+        INFO(wiring.diagnostics.render(wiring.file));
+        REQUIRE(completed);
+        const auto &caller = std::get<hir::FunctionDecl>(wiring.hir.declarations.back().node);
+        CHECK(caller.capabilities.empty());
+        CHECK(wiring.hir.expr(caller.concise_body).phase == hir::Phase::Wiring);
+        Lowered evaluation{declarations + "fn caller(value: i64) -> i64 { when { return f(value) } }\n"};
+        require_clean(evaluation);
+        CHECK_FALSE(complete(evaluation));
+    }
+}
+
+TEST_CASE("native implementation matching preserves generic collection cardinalities", "[ir][native][parts]") {
+    Lowered unit{R"hgl(module contracts
+native fn identity<T, const N: i64>(value: list<T, N>) -> list<T, N>
+native fn identity<U, const M: i64>(value: list<U, M>) -> list<U, M> { when; }
+)hgl"};
+    require_clean(unit);
+    const bool completed = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(completed);
+    CHECK(unit.hir.native_functions.size() == 1);
 }
