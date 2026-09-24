@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The eighteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The nineteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
@@ -47,7 +47,9 @@ two residual renderings on the same day; the mixed-numeric ordering comparison
 joined on 2026-09-16, ruled out of the #818 call-shape review rather than
 reported by the campaign, which cannot draw the shape at all. The bundle field
 re-pointed at the same ``map_`` reference adds another application of the
-no-change-means-no-tick ruling, as described below.
+no-change-means-no-tick ruling, as described below. The key-set reader tick
+joined on 2026-09-24, from the parity triage that derived the runtime
+specification's operator contracts (``runtime_spec/operators.md``).
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -86,16 +88,35 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
        arithmetic shift. The ``unbounded-integer-width`` relation admits the
        difference only when the REFERENCE'S answer falls outside the word, so
        an in-range trace against a candidate crash stays reportable
-   * - ``ln`` of a non-positive argument
+   * - ``ln`` of a non-positive argument (family ``ieee-log-domain``)
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
+       (runtime spec OP-10). The ``ieee-log-domain`` relation admits the
+       difference only when every published value is the IEEE logarithm of
+       its input and some input is not positive
    * - ``str_`` of an **empty** TSS
      - ``set()``
      - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
        **not** accepted and are fixed under issue #819
-   * - Three-input ``intersection`` / ``symmetric_difference``
-     - Fails at wiring: no set zero exists for the fold
-     - Evaluates the fold. A superset, so no released program changes meaning
+   * - Three-input ``intersection`` / ``symmetric_difference`` (family
+       ``n-ary-set-fold``)
+     - Fails at wiring over sets: no set zero exists for the fold. Over
+       dictionaries, symmetric difference folds through ``nothing`` and never
+       publishes
+     - Evaluates the fold (runtime spec OP-7). A superset, so no released
+       program changes meaning. The ``n-ary-set-fold`` relation checks the
+       candidate's final members against the fold of the recipe's inputs
+   * - A TSD's key set read by ``is_empty`` before the dictionary has ticked
+       (family ``key-set-reader-tick``)
+     - The read makes the key set tick: ``is_empty`` creates a child output
+       owned by the set, and initialising it marks the set modified. The
+       aggregates of the key set then publish the empty-set answers
+       (``len_`` 0, ``sum_`` 0, ``mean`` NaN, ``min_``/``max_`` their default)
+     - A reader never changes its producer (runtime spec OP-3, NOD-21,
+       TS-21), so the never-ticked key set stays invalid and its aggregates
+       publish nothing. The ``key-set-reader-tick`` relation admits only
+       reference-only fields holding exactly those empty-set answers, at a
+       tick where the dictionary has no key
    * - ``index_of`` answering the same index twice in a row -- a repeated
        miss or a repeated hit (family ``tsl-index-of-no-retick``)
      - Re-emits the index

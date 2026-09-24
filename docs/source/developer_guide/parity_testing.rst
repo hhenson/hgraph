@@ -541,6 +541,23 @@ way:
   non-empty set — which renders identically on both sides — and the
   neighbouring renderings decided **fix** (a bool, a TSD, a tuple: issue #819)
   stay reportable.
+* ``ieee-log-domain`` (runtime spec OP-10) is a status relation: the
+  reference raised at run time, some input is not positive, and every value
+  the candidate published is the IEEE logarithm of its input.
+* ``n-ary-set-fold`` (OP-7) admits three or more operands to intersection or
+  symmetric difference, when the reference rejected sets at wiring or never
+  published over dictionaries. The candidate publishes nothing before every
+  operand is valid (OP-6) and ends with the fold of the recipe's final
+  operands.
+* ``key-set-reader-tick`` (OP-3) compares ``tsd_key_set_pipeline`` tick by
+  tick: a field only the reference publishes must be a key-set aggregate
+  holding its empty-set answer, at a tick where the dictionary has no key,
+  and every shared field agrees.
+
+The last three came from the parity triage of 2026-09-24, which derived the
+runtime specification's operator contracts
+(``docs/source/runtime_spec/operators.md``, evidence in
+``runtime_spec/validation/parity``).
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through

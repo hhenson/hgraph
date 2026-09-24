@@ -1,0 +1,1864 @@
+{
+ "cases": {
+  "1002": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1003": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1004": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": []
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -18
+      ],
+      [
+       "c",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "open_point": 1,
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1005": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1006": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1007": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1008": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": []
+    },
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "open_point": 1,
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1009": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1010": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -5
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -5
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1028": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    {
+     "$map": [
+      [
+       "b",
+       -19
+      ],
+      [
+       "c",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "b",
+       -17
+      ]
+     ]
+    },
+    null,
+    null
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1029": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1030": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       2
+      ]
+     ]
+    },
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       2
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1031": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -7
+      ],
+      [
+       "c",
+       2
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1032": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       -19
+      ]
+     ]
+    },
+    null,
+    {
+     "$map": [
+      [
+       "b",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1033": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    null
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1034": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1035": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1036": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1037": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1038": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1039": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1040": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ],
+      [
+       "b",
+       -13
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "b",
+       {
+        "$remove": true
+       }
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       {
+        "$remove": true
+       }
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1041": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       10
+      ]
+     ]
+    },
+    null,
+    {
+     "$map": [
+      [
+       "b",
+       10
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1042": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "b",
+       6
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1043": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       -10
+      ],
+      [
+       "c",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1044": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    null,
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    null
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1045": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -11
+      ],
+      [
+       "c",
+       -20
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -17
+      ]
+     ]
+    },
+    null
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1046": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1047": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1048": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "c",
+       -11
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -11
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1049": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1061": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1062": {
+   "derivation": "str_ of a tuple is Python's str: each string element in Python's repr, escaping what str.isprintable rejects.",
+   "expected": [
+    "('\\x87', '\\x0b\\U0008ca7d')"
+   ],
+   "family": "python-repr-escaping",
+   "mode": "trace",
+   "rules": [
+    "OP-9"
+   ]
+  },
+  "1063": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    null
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1064": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1065": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -1
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1066": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1067": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       -20
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "b",
+       7
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1068": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    {
+     "$map": [
+      [
+       "c",
+       -3
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -3
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1069": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -17
+      ]
+     ]
+    },
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -13
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1082": {
+   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "family": "map-text-order",
+   "mode": "open",
+   "open_point": 2,
+   "rules": [
+    "VAL-8",
+    "OP-9"
+   ]
+  },
+  "1083": {
+   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "family": "map-text-order",
+   "mode": "open",
+   "open_point": 2,
+   "rules": [
+    "VAL-8",
+    "OP-9"
+   ]
+  },
+  "1084": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1085": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1086": {
+   "derivation": "A map has no order (VAL-8) and every value has one text form; neither rule fixes the order of the text. Point to settle 2.",
+   "family": "map-text-order",
+   "mode": "open",
+   "open_point": 2,
+   "rules": [
+    "VAL-8",
+    "OP-9"
+   ]
+  },
+  "1087": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "1116": {
+   "derivation": "IEEE log: log(1)=0, log(0)=-inf, log(-1)=nan.",
+   "expected": [
+    {
+     "$float": "0x0.0p+0"
+    },
+    {
+     "$float": "-inf"
+    },
+    {
+     "$float": "nan"
+    }
+   ],
+   "family": "ieee-log-domain",
+   "mode": "trace",
+   "rules": [
+    "OP-10"
+   ]
+  },
+  "1122": {
+   "derivation": "print_ formats as format_ does with __strict__ true: the argument never becomes valid, so nothing is printed.",
+   "expected": {
+    "$map": [
+     [
+      "result",
+      null
+     ],
+     [
+      "stdout",
+      []
+     ]
+    ]
+   },
+   "family": "strict-format",
+   "mode": "trace",
+   "rules": [
+    "OP-8"
+   ]
+  },
+  "1139": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1140": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1160": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1181": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1200": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1246": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1315": {
+   "derivation": "The recording exists from start; with no events it is empty, and replaying it publishes nothing.",
+   "expected": {
+    "$map": [
+     [
+      "live",
+      null
+     ],
+     [
+      "recorded",
+      []
+     ],
+     [
+      "replayed",
+      null
+     ]
+    ]
+   },
+   "family": "empty-recording",
+   "mode": "trace",
+   "rules": [
+    "OP-11"
+   ]
+  },
+  "1339": {
+   "derivation": "print_ formats as format_ does with __strict__ true: the argument never becomes valid, so nothing is printed.",
+   "expected": {
+    "$map": [
+     [
+      "result",
+      null
+     ],
+     [
+      "stdout",
+      []
+     ]
+    ]
+   },
+   "family": "strict-format",
+   "mode": "trace",
+   "rules": [
+    "OP-8"
+   ]
+  },
+  "1355": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1391": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1393": {
+   "derivation": "The TSD never ticks, so its key set is invalid. len_ is not admitted (OP-1, OP-2), and reading is_empty does not make the key set tick (OP-3), so no size is published. The other fields are separate observations (see README).",
+   "expected": {
+    "fields": [
+     "size"
+    ],
+    "tick": 0
+   },
+   "family": "key-set-reader-tick",
+   "mode": "map-fields-absent",
+   "rules": [
+    "OP-1",
+    "OP-2",
+    "OP-3",
+    "NOD-21",
+    "TS-21"
+   ]
+  },
+  "1428": {
+   "derivation": "Three TSS operands fold pairwise; every operand ticks once, so the single tick adds the folded members.",
+   "expected": [
+    {
+     "$set_delta": {
+      "added": [
+       2
+      ],
+      "removed": []
+     }
+    }
+   ],
+   "family": "n-ary-set-fold",
+   "mode": "trace",
+   "rules": [
+    "OP-7"
+   ]
+  },
+  "1476": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1478": {
+   "derivation": "Three TSS operands fold pairwise; every operand ticks once, so the single tick adds the folded members.",
+   "expected": [
+    {
+     "$set_delta": {
+      "added": [
+       1,
+       2,
+       3
+      ],
+      "removed": []
+     }
+    }
+   ],
+   "family": "n-ary-set-fold",
+   "mode": "trace",
+   "rules": [
+    "OP-7"
+   ]
+  },
+  "1494": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1538": {
+   "derivation": "No element of the fixed list ever ticks, so the non-peered list is invalid and the aggregate is not admitted; nothing is published.",
+   "expected": null,
+   "family": "aggregate-over-invalid",
+   "mode": "trace",
+   "rules": [
+    "OP-1",
+    "OP-2"
+   ]
+  },
+  "1564": {
+   "derivation": "print_ formats as format_ does with __strict__ true: the argument never becomes valid, so nothing is printed.",
+   "expected": {
+    "$map": [
+     [
+      "result",
+      null
+     ],
+     [
+      "stdout",
+      []
+     ]
+    ]
+   },
+   "family": "strict-format",
+   "mode": "trace",
+   "rules": [
+    "OP-8"
+   ]
+  },
+  "1613": {
+   "derivation": "print_ formats as format_ does with __strict__ true: the argument never becomes valid, so nothing is printed.",
+   "expected": {
+    "$map": [
+     [
+      "result",
+      null
+     ],
+     [
+      "stdout",
+      []
+     ]
+    ]
+   },
+   "family": "strict-format",
+   "mode": "trace",
+   "rules": [
+    "OP-8"
+   ]
+  },
+  "959": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "960": {
+   "derivation": "str_ of a tuple is Python's str: each string element in Python's repr, escaping what str.isprintable rejects.",
+   "expected": [
+    "('\u00c1\\U00063bba\u00de\u00c6',)"
+   ],
+   "family": "python-repr-escaping",
+   "mode": "trace",
+   "rules": [
+    "OP-9"
+   ]
+  },
+  "961": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": []
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "962": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    {
+     "$map": [
+      [
+       "b",
+       -18
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "b",
+       -18
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "963": {
+   "derivation": "The inner dictionary holds key k with an invalid child: its delta contains no children, so the outer delta holds k with an empty inner delta. An invalid child is never a default value.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "c",
+       {
+        "$map": []
+       }
+      ]
+     ]
+    }
+   ],
+   "family": "nested-delta-invalid-child",
+   "mode": "trace",
+   "rules": [
+    "TS value/delta table (TSD)",
+    "TS-2"
+   ]
+  },
+  "964": {
+   "derivation": "The inner dictionary holds key k with an invalid child: its delta contains no children, so the outer delta holds k with an empty inner delta. An invalid child is never a default value.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       {
+        "$map": []
+       }
+      ]
+     ]
+    }
+   ],
+   "family": "nested-delta-invalid-child",
+   "mode": "trace",
+   "rules": [
+    "TS value/delta table (TSD)",
+    "TS-2"
+   ]
+  },
+  "965": {
+   "derivation": "The inner dictionary holds key k with an invalid child: its delta contains no children, so the outer delta holds k with an empty inner delta. An invalid child is never a default value.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       {
+        "$map": []
+       }
+      ]
+     ]
+    }
+   ],
+   "family": "nested-delta-invalid-child",
+   "mode": "trace",
+   "rules": [
+    "TS value/delta table (TSD)",
+    "TS-2"
+   ]
+  },
+  "966": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "967": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "968": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "969": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "978": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "979": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "b",
+       15
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "b",
+       15
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "980": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": [
+      [
+       "c",
+       12
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       12
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "981": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": null,
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "982": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    null,
+    null,
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "c",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "983": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": []
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "open_point": 1,
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  },
+  "984": {
+   "derivation": "tsd_set_model.py: members by OP-5, admission by OP-6, children forwarded (OP-4) from the operand OP-5 names; the first admitted evaluation publishes (validity), later empty deltas do not.",
+   "expected": [
+    {
+     "$map": []
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ],
+      [
+       "b",
+       -19
+      ]
+     ]
+    },
+    {
+     "$map": [
+      [
+       "a",
+       -19
+      ]
+     ]
+    }
+   ],
+   "family": "tsd-set-operators",
+   "mode": "trace",
+   "open_point": 1,
+   "rules": [
+    "OP-4",
+    "OP-5",
+    "OP-6",
+    "OP-7"
+   ]
+  }
+ },
+ "date": "2026-09-24",
+ "note": "Expectations derived from operators.md and the core chapters. The parity issues had already been observed; each derivation was written from the rules and then scored unchanged. Mismatches with both runtimes were not fitted away (open_point)."
+}

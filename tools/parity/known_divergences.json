@@ -138,7 +138,7 @@
       "parameters_not_equal": {},
       "relation": "valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped/meshed subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly. The mesh_ outer reaches the same startup window (issue #173).",
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values — a mapped/meshed subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly. The mesh_ outer reaches the same startup window (issue #173).",
       "review_after": "2027-07-28"
     },
     {
@@ -151,7 +151,7 @@
       "parameters_not_equal": {},
       "relation": "switch-flip-valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission \u2014 the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
+      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner — only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission — the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
       "review_after": "2027-07-28"
     },
     {
@@ -218,6 +218,39 @@
       "issue": "https://github.com/hhenson/hgraph/issues/862",
       "reason": "Accepted deviation (issue #810 item 4.7, parity_matrix.rst): released hgraph shifts a Python unbounded integer, so a left shift past the machine word still answers; this runtime raises rather than carry Python integer semantics into the value layer. Accepted and pinned by fingerprint; issue #862 is the SAME deviation reached by a reduced recipe, whose fingerprint differs. The family replaces that pin. Admitted only when the reference's own answer falls outside the signed 64-bit word -- an in-range reference trace against a candidate crash stays reportable, and 0 << 70 is 0 on both sides.",
       "review_after": "2027-09-15"
+    },
+    {
+      "family": "ieee-log-domain",
+      "template": "unary_operator",
+      "parameters_equal": {
+        "operation": "ln"
+      },
+      "parameters_not_equal": {},
+      "relation": "ieee-log-domain",
+      "issue": "https://github.com/hhenson/hgraph/issues/1116",
+      "reason": "Accepted deviation (parity_matrix.rst; runtime spec OP-10): ln of zero is -inf and of a negative number NaN, the IEEE results, where released hgraph raises ValueError from math.log. It was listed in the parity matrix but pinned by no family, so the generator filed it as #1116. Admitted only when the reference raised at run time and every value the candidate published is the IEEE logarithm of its input, with some input not positive.",
+      "review_after": "2027-09-24"
+    },
+    {
+      "family": "n-ary-set-fold",
+      "template": "set_operator",
+      "parameters_equal": {},
+      "parameters_not_equal": {},
+      "relation": "n-ary-set-fold",
+      "issue": "https://github.com/hhenson/hgraph/issues/1428",
+      "reason": "Accepted superset (parity_matrix.rst; runtime spec OP-7): intersection and symmetric difference fold pairwise over three or more operands. Released hgraph has no zero for either fold, so three sets fail at wiring (#1428, #1478) and three dictionaries fold through nothing and never publish (#978). Admitted only with three or more operands, exactly that reference outcome, and a candidate whose final value equals the fold of the recipe's final operands.",
+      "review_after": "2027-09-24"
+    },
+    {
+      "family": "key-set-reader-tick",
+      "template": "tsd_key_set_pipeline",
+      "parameters_equal": {},
+      "parameters_not_equal": {},
+      "relation": "key-set-reader-tick",
+      "float_abs_tolerance": 1e-12,
+      "issue": "https://github.com/hhenson/hgraph/issues/1139",
+      "reason": "Accepted deviation (parity_matrix.rst; runtime spec OP-3, NOD-21, TS-21): released hgraph's is_empty over a TSS initialises a child output owned by the set, which marks a never-ticked key set modified, so len_, sum_, mean, min_ and max_ of the key set publish their empty-set answers (#1139, #1140, #1160, #1200, #1391, #1393). A reader never changes its producer here. Admitted tick by tick: a field only the reference publishes must be one of those aggregates with exactly its empty-set answer, at a tick where the dictionary holds no key, and every shared field agrees.",
+      "review_after": "2027-09-24"
     }
   ]
 }

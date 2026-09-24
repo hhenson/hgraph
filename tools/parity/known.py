@@ -28,6 +28,7 @@ rather than from membership.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,9 @@ POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
 EMPTY_DELTA_ELISION = "empty-delta-elision"
+IEEE_LOG_DOMAIN = "ieee-log-domain"
+N_ARY_SET_FOLD = "n-ary-set-fold"
+KEY_SET_READER_TICK = "key-set-reader-tick"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -782,6 +786,273 @@ def _unbounded_integer_width_relation(
     )
 
 
+def _decode_canonical_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict) and set(value) == {"$float"}:
+        encoded = value["$float"]
+        if encoded == "nan":
+            return math.nan
+        if encoded in ("inf", "-inf"):
+            return math.inf if encoded == "inf" else -math.inf
+        try:
+            return float.fromhex(encoded)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _ieee_log_domain_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-10 (parity_matrix.rst): ``ln`` of zero is ``-inf`` and
+    of a negative number NaN, where released hgraph raises from ``math.log``.
+    A status relation: the reference raised at run time, and EVERY value the
+    candidate published is the IEEE logarithm of the input that ticked, with
+    at least one input not positive. A wrong logarithm, a missing tick or an
+    all-positive recipe stays reportable."""
+    if difference.get("classification") != "status":
+        return False
+    if reference.get("status") != "error" or reference.get("phase") != "runtime":
+        return False
+    if candidate.get("status") != "ok":
+        return False
+    ticks = (recipe.get("inputs") or {}).get("ts")
+    trace = candidate.get("trace")
+    if not isinstance(ticks, list) or not isinstance(trace, list):
+        return False
+    if len(ticks) != len(trace):
+        return False
+    non_positive = False
+    for tick, published in zip(ticks, trace):
+        if tick is None:
+            if published is not None:
+                return False
+            continue
+        value = _decode_canonical_float(tick)
+        answer = _decode_canonical_float(published)
+        if value is None or answer is None:
+            return False
+        if value > 0:
+            expected = math.log(value)
+            if not math.isclose(answer, expected, rel_tol=1e-15, abs_tol=1e-15):
+                return False
+        elif value == 0:
+            non_positive = True
+            if answer != -math.inf:
+                return False
+        else:
+            non_positive = True
+            if not math.isnan(answer):
+                return False
+    return non_positive
+
+
+def _apply_map_tick(state: dict[Any, Any], tick: Any) -> bool:
+    if tick is None:
+        return True
+    if isinstance(tick, dict) and set(tick) == {"$map"}:
+        entries = tick["$map"]
+    elif isinstance(tick, dict):
+        entries = list(tick.items())
+    else:
+        return False
+    for key, value in entries:
+        if isinstance(value, dict) and (
+            value.get("$remove") or value.get("$remove_if_exists")
+        ):
+            state.pop(json.dumps(key, sort_keys=True), None)
+        else:
+            state[json.dumps(key, sort_keys=True)] = value
+    return True
+
+
+def _apply_set_tick(state: set[str], tick: Any) -> bool:
+    if tick is None:
+        return True
+    if not (isinstance(tick, dict) and set(tick) == {"$set_delta"}):
+        return False
+    delta = tick["$set_delta"]
+    for item in delta.get("removed", ()):
+        state.discard(json.dumps(item, sort_keys=True))
+    for item in delta.get("added", ()):
+        state.add(json.dumps(item, sort_keys=True))
+    return True
+
+
+def _n_ary_set_fold_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-7 (parity_matrix.rst): intersection and symmetric
+    difference fold pairwise over three or more operands. Released hgraph has
+    no zero for either fold: three sets fail at wiring, and three
+    dictionaries fold through ``nothing`` and never publish. Admitted only
+    with three or more operands, exactly that reference outcome, and a
+    candidate whose FINAL value is the fold of the recipe's final operands --
+    so a wrong fold result stays reportable. Every operand must be valid:
+    publishing over a never-ticked operand is not this deviation (OP-6)."""
+    parameters = recipe.get("parameters") or {}
+    operation = parameters.get("operation")
+    if operation not in ("intersection", "symmetric_difference"):
+        return False
+    inputs = recipe.get("inputs") or {}
+    if len(inputs) < 3 or candidate.get("status") != "ok":
+        return False
+    trace = candidate.get("trace")
+    if not isinstance(trace, list):
+        return False
+    names = sorted(inputs)
+    # OP-6: neither fold is admitted until every operand is valid, so the
+    # candidate publishes nothing before the cycle in which the last operand
+    # first ticks. An operand that never ticks leaves no fold at all.
+    first_valid = []
+    for name in names:
+        ticked = [index for index, tick in enumerate(inputs[name]) if tick is not None]
+        if not ticked:
+            return False
+        first_valid.append(ticked[0])
+    admitted_at = max(first_valid)
+    if any(tick is not None for tick in trace[:admitted_at]):
+        return False
+    if parameters.get("shape", "tss") == "tss":
+        if difference.get("classification") != "status":
+            return False
+        if reference.get("status") != "error" or reference.get("phase") != "wiring":
+            return False
+        operands = []
+        for name in names:
+            members: set[str] = set()
+            for tick in inputs[name]:
+                if not _apply_set_tick(members, tick):
+                    return False
+            operands.append(members)
+        folded = operands[0]
+        for members in operands[1:]:
+            folded = folded & members if operation == "intersection" else folded ^ members
+        published: set[str] = set()
+        for tick in trace:
+            if not _apply_set_tick(published, tick):
+                return False
+        return published == folded
+    if reference.get("status") != "ok" or reference.get("trace") is not None:
+        return False
+    operands_by_key = []
+    for name in names:
+        state: dict[Any, Any] = {}
+        for tick in inputs[name]:
+            if not _apply_map_tick(state, tick):
+                return False
+        operands_by_key.append(state)
+    folded: dict[Any, Any] = dict(operands_by_key[0])
+    for state in operands_by_key[1:]:
+        if operation == "intersection":
+            folded = {key: value for key, value in folded.items() if key in state}
+        else:
+            merged = {key: value for key, value in folded.items() if key not in state}
+            merged.update({key: value for key, value in state.items() if key not in folded})
+            folded = merged
+    published_map: dict[Any, Any] = {}
+    for tick in trace:
+        if not _apply_map_tick(published_map, tick):
+            return False
+    return bool(published_map) and published_map == folded
+
+
+#: The answers the released key-set side effect publishes for an EMPTY set
+#: in the tsd_key_set_pipeline template (``min_``/``max_`` there take
+#: ``default_value=0``).
+_EMPTY_KEY_SET_AGGREGATES = {
+    "size": 0,
+    "total": 0,
+    "average": {"$float": "nan"},
+    "minimum": 0,
+    "maximum": 0,
+}
+
+
+def _key_set_reader_tick_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    family: dict[str, Any],
+) -> bool:
+    """Runtime spec OP-3 (parity_matrix.rst): released hgraph's ``is_empty``
+    over a TSS initialises a child output owned by the set, which marks a
+    never-ticked key set modified, so the key set's aggregates publish the
+    empty-set answers. A reader never changes its producer here, so they do
+    not. Admitted tick by tick: a field only the reference publishes must be
+    one of those aggregates with exactly its empty-set answer, at a tick where
+    the dictionary holds no key; every other field agrees; the candidate
+    publishes nothing the reference does not."""
+    if difference.get("classification") not in ("value", "length"):
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if not isinstance(reference_trace, list):
+        return False
+    if candidate_trace is None:
+        candidate_trace = [None] * len(reference_trace)
+    if not isinstance(candidate_trace, list) or len(candidate_trace) != len(reference_trace):
+        return False
+    values_ticks = (recipe.get("inputs") or {}).get("values")
+    if not isinstance(values_ticks, list):
+        return False
+    live: dict[Any, Any] = {}
+    admitted = False
+    tolerance = family.get("float_abs_tolerance", 0.0)
+    for index, (ref_tick, cand_tick) in enumerate(zip(reference_trace, candidate_trace)):
+        if index < len(values_ticks) and not _apply_map_tick(live, values_ticks[index]):
+            return False
+        ref_entries = _map_entries(ref_tick)
+        cand_entries = _map_entries(cand_tick)
+        if ref_entries is None or cand_entries is None:
+            return False
+        if set(cand_entries) - set(ref_entries):
+            return False
+        extra = set(ref_entries) - set(cand_entries)
+        if extra:
+            if live:
+                return False
+            for name in extra:
+                if name not in _EMPTY_KEY_SET_AGGREGATES:
+                    return False
+                if ref_entries[name] != _EMPTY_KEY_SET_AGGREGATES[name]:
+                    return False
+            admitted = True
+        shared = {name: ref_entries[name] for name in cand_entries}
+        if compare_outcomes(
+            {"status": "ok", "trace": [shared]},
+            {"status": "ok", "trace": [cand_entries]},
+            float_abs_tolerance=tolerance,
+        ) is not None:
+            return False
+    return admitted
+
+
+def _map_entries(tick: Any) -> dict[str, Any] | None:
+    if tick is None:
+        return {}
+    if not (isinstance(tick, dict) and set(tick) == {"$map"}):
+        return None
+    entries = {}
+    for entry in tick["$map"]:
+        if not (isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], str)):
+            return None
+        entries[entry[0]] = entry[1]
+    return entries
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -803,12 +1074,17 @@ RELATIONS = {
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
     UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
     EMPTY_DELTA_ELISION: _empty_delta_elision_relation,
+    IEEE_LOG_DOMAIN: _ieee_log_domain_relation,
+    N_ARY_SET_FOLD: _n_ary_set_fold_relation,
+    KEY_SET_READER_TICK: _key_set_reader_tick_relation,
 }
 
 #: Relations that reason about a ``status`` difference and therefore run
 #: outside the both-sides-ok gate. Everything else compares two traces and
 #: must not see a run that did not produce one.
-STATUS_RELATIONS = frozenset({UNBOUNDED_INTEGER_WIDTH})
+STATUS_RELATIONS = frozenset(
+    {UNBOUNDED_INTEGER_WIDTH, IEEE_LOG_DOMAIN, N_ARY_SET_FOLD}
+)
 
 
 def is_known_family_failure(

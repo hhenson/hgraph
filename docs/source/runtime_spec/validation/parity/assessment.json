@@ -1,0 +1,409 @@
+{
+ "cases": {
+  "1002": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1003": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1004": {
+   "family": "tsd-set-operators",
+   "open_point": 1,
+   "verdict": "neither"
+  },
+  "1005": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1006": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1007": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1008": {
+   "family": "tsd-set-operators",
+   "open_point": 1,
+   "verdict": "neither"
+  },
+  "1009": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1010": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1028": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1029": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1030": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1031": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1032": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1033": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1034": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1035": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1036": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1037": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1038": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1039": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1040": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1041": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1042": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1043": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1044": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1045": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1046": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1047": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1048": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1049": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1061": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1062": {
+   "family": "python-repr-escaping",
+   "verdict": "reference"
+  },
+  "1063": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1064": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1065": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1066": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1067": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1068": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1069": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1082": {
+   "family": "map-text-order",
+   "open_point": 2,
+   "verdict": "open"
+  },
+  "1083": {
+   "family": "map-text-order",
+   "open_point": 2,
+   "verdict": "open"
+  },
+  "1084": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1085": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1086": {
+   "family": "map-text-order",
+   "open_point": 2,
+   "verdict": "open"
+  },
+  "1087": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "1116": {
+   "family": "ieee-log-domain",
+   "verdict": "candidate"
+  },
+  "1122": {
+   "family": "strict-format",
+   "verdict": "reference"
+  },
+  "1139": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1140": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1160": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1181": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1200": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1246": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1315": {
+   "family": "empty-recording",
+   "verdict": "reference"
+  },
+  "1339": {
+   "family": "strict-format",
+   "verdict": "reference"
+  },
+  "1355": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1391": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1393": {
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  "1428": {
+   "family": "n-ary-set-fold",
+   "verdict": "candidate"
+  },
+  "1476": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1478": {
+   "family": "n-ary-set-fold",
+   "verdict": "candidate"
+  },
+  "1494": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1538": {
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  "1564": {
+   "family": "strict-format",
+   "verdict": "reference"
+  },
+  "1613": {
+   "family": "strict-format",
+   "verdict": "reference"
+  },
+  "959": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "960": {
+   "family": "python-repr-escaping",
+   "verdict": "reference"
+  },
+  "961": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "962": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "963": {
+   "family": "nested-delta-invalid-child",
+   "verdict": "reference"
+  },
+  "964": {
+   "family": "nested-delta-invalid-child",
+   "verdict": "reference"
+  },
+  "965": {
+   "family": "nested-delta-invalid-child",
+   "verdict": "reference"
+  },
+  "966": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "967": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "968": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "969": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "978": {
+   "family": "tsd-set-operators",
+   "verdict": "candidate"
+  },
+  "979": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "980": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "981": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "982": {
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  },
+  "983": {
+   "family": "tsd-set-operators",
+   "open_point": 1,
+   "verdict": "neither"
+  },
+  "984": {
+   "family": "tsd-set-operators",
+   "open_point": 1,
+   "verdict": "neither"
+  }
+ },
+ "summary": [
+  {
+   "count": 6,
+   "family": "aggregate-over-invalid",
+   "verdict": "reference"
+  },
+  {
+   "count": 1,
+   "family": "empty-recording",
+   "verdict": "reference"
+  },
+  {
+   "count": 1,
+   "family": "ieee-log-domain",
+   "verdict": "candidate"
+  },
+  {
+   "count": 6,
+   "family": "key-set-reader-tick",
+   "verdict": "candidate"
+  },
+  {
+   "count": 3,
+   "family": "map-text-order",
+   "verdict": "open"
+  },
+  {
+   "count": 2,
+   "family": "n-ary-set-fold",
+   "verdict": "candidate"
+  },
+  {
+   "count": 3,
+   "family": "nested-delta-invalid-child",
+   "verdict": "reference"
+  },
+  {
+   "count": 2,
+   "family": "python-repr-escaping",
+   "verdict": "reference"
+  },
+  {
+   "count": 4,
+   "family": "strict-format",
+   "verdict": "reference"
+  },
+  {
+   "count": 1,
+   "family": "tsd-set-operators",
+   "verdict": "candidate"
+  },
+  {
+   "count": 4,
+   "family": "tsd-set-operators",
+   "verdict": "neither"
+  },
+  {
+   "count": 51,
+   "family": "tsd-set-operators",
+   "verdict": "reference"
+  }
+ ]
+}
