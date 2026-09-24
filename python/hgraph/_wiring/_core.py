@@ -971,7 +971,20 @@ def _port_keys(self):
 
 
 WiringPort.reduce = _port_reduce
-WiringPort.keys = _port_keys
+class _KeysAttribute:
+    """``port.keys``: on a TSB port, the mapping protocol's ``keys()`` (so
+    ``dict(**tsb)`` works); on any other port, attribute sugar for a field
+    named ``keys``, such as ``table_schema(tp).keys`` (parity #821)."""
+
+    def __get__(self, port, owner=None):
+        if port is None:
+            return self
+        if _unwrap(port).ts_type.is_tsb:
+            return _port_keys.__get__(port, owner)
+        return _port_getattr(port, "keys")
+
+
+WiringPort.keys = _KeysAttribute()
 WiringPort.__getattr__ = _port_getattr
 
 class WiringError(RuntimeError):

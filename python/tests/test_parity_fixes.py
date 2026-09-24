@@ -679,3 +679,23 @@ def test_a_reset_window_aggregate_starts_again():
     assert eval_node(
         window_mean, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
     ) == [1.0, 1.5, 3.0, 3.5]
+
+
+def test_table_schema_is_readable_inside_a_graph():
+    """Issue #821: released hgraph's ``table_schema(tp)`` is a constant
+    ``TS[TableSchema]`` whose fields a graph reads; it stays const-evaluable
+    through ``.value``."""
+
+    @graph
+    def keys_of() -> TS[tuple[str, ...]]:
+        return hg.getattr_(hg.table_schema(TS[int]), "keys")
+
+    @graph
+    def keys_by_attribute() -> TS[tuple[str, ...]]:
+        return hg.table_schema(hg.TSD[str, TS[int]]).keys
+
+    assert eval_node(keys_of) == [("__date_time__", "__as_of__", "value")]
+    assert eval_node(keys_by_attribute) == [
+        ("__date_time__", "__as_of__", "__key_1_removed__", "__key_1__", "value")
+    ]
+    assert hg.table_schema(TS[int]).value.types[-1] is int

@@ -12,6 +12,7 @@ from typing import get_args, get_origin
 
 import _hgraph
 
+from ._compat import CompoundScalar
 from ._types import _resolve
 from hgraph._wiring._state import _active_global_state
 
@@ -24,12 +25,15 @@ class ToTableMode(Enum):
 
 
 @dataclass(frozen=True)
-class TableSchema:
-    tp: object
-    keys: tuple
-    types: tuple
-    partition_keys: tuple  # An empty set implies a single row per tick.
-    removed_keys: tuple  # Only present when there are partition_keys.
+class TableSchema(CompoundScalar):
+    """Released hgraph's ``TableSchema`` compound scalar: a graph reads it as
+    ``TS[TableSchema]`` and its fields with ``getattr_`` (parity #821)."""
+
+    tp: type
+    keys: tuple[str, ...]
+    types: tuple[type, ...]
+    partition_keys: tuple[str, ...]  # An empty set implies a single row per tick.
+    removed_keys: tuple[str, ...]  # Only present when there are partition_keys.
     date_time_key: str
     as_of_key: str
     is_multi_row: bool = False  # True for Frame-like multi-row types
@@ -139,24 +143,56 @@ class _EagerValue:
         self.value = value
 
 
-def table_schema(tp) -> _EagerValue:
-    """The TableSchema the ``to_table`` operator will produce for ``tp``."""
+def _const_value_port_type():
+    from ._wiring._core import WiringPort
+
+    class _ConstValuePort(WiringPort):
+        """A constant ``TS[TableSchema]`` port that also carries its value:
+        released hgraph's ``table_schema`` is const-evaluable, so the port is
+        both a time-series edge and ``.value``."""
+
+        __slots__ = ("value",)
+
+        def __init__(self, port, value):
+            super().__init__(port)
+            self.value = value
+
+    return _ConstValuePort
+
+
+_CONST_VALUE_PORT = None
+
+
+def table_schema(tp):
+    """The TableSchema the ``to_table`` operator will produce for ``tp``.
+
+    Inside a graph this is released hgraph's ``TS[TableSchema]``: a constant
+    tick whose fields ``getattr_`` reads (parity #821); it also carries
+    ``.value``. Outside a graph only ``.value`` is available."""
+    global _CONST_VALUE_PORT
     info = _hgraph.table_schema_info(
         _resolve(tp), get_table_schema_date_key(), get_table_schema_as_of_key()
     )
     types = tuple(_LEAF_TYPES.get(name, object) for name in info["types"])
-    return _EagerValue(
-        TableSchema(
-            tp=tp,
-            keys=tuple(info["keys"]),
-            types=types,
-            partition_keys=tuple(info["partition_keys"]),
-            removed_keys=tuple(info["removed_keys"]),
-            date_time_key=info["date_key"],
-            as_of_key=info["as_of_key"],
-            is_multi_row=info["is_multi_row"],
-        )
+    schema = TableSchema(
+        tp=tp,
+        keys=tuple(info["keys"]),
+        types=types,
+        partition_keys=tuple(info["partition_keys"]),
+        removed_keys=tuple(info["removed_keys"]),
+        date_time_key=info["date_key"],
+        as_of_key=info["as_of_key"],
+        is_multi_row=info["is_multi_row"],
     )
+    from ._wiring._core import _wiring_stack
+
+    if not _wiring_stack:
+        return _EagerValue(schema)
+    from hgraph import TS, const
+
+    if _CONST_VALUE_PORT is None:
+        _CONST_VALUE_PORT = _const_value_port_type()
+    return _CONST_VALUE_PORT(const(schema, tp=TS[TableSchema])._port, schema)
 
 
 def table_shape(ts):
