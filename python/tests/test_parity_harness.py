@@ -4284,6 +4284,11 @@ def test_first_empty_set_result_family_admits_only_the_validating_tick():
     assert not classify([None, *later], [{"$map": [["c", -9]]}, *later])
     assert not classify([None, None, None], [None, {"$map": []}, None])
     assert not classify([None, *later], [{"$map": []}, later[0], None])
+    # Codex review on #1634: released difference and intersection already
+    # publish the empty first result, so they are outside the family.
+    for operation in ("difference", "intersection", "bit_and", "sub_"):
+        other = dict(recipe, parameters=dict(recipe["parameters"], operation=operation))
+        assert not classify([None, *later], [{"$map": []}, *later], source=other)
     # Before every operand of ^ is valid there is no admitted result.
     early = dict(recipe, inputs={"a": [{"c": 1}, None], "b": [None, {"c": 1}]})
     assert not classify([None, None], [{"$map": []}, None], source=early)

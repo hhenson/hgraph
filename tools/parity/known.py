@@ -1187,6 +1187,11 @@ def _first_empty_set_result_relation(
     position agrees."""
     if difference.get("classification") != "value":
         return False
+    operation = (recipe.get("parameters") or {}).get("operation")
+    if operation not in ("bit_xor", "symmetric_difference", "bit_or", "union"):
+        # Released difference and intersection already publish the empty
+        # first result, so a difference there is not this deviation.
+        return False
     candidate_trace = candidate.get("trace")
     if not isinstance(candidate_trace, list):
         return False
@@ -1212,7 +1217,6 @@ def _first_empty_set_result_relation(
     for name in sorted(inputs):
         ticked = [position for position, tick in enumerate(inputs[name]) if tick is not None]
         first_ticks.append(ticked[0] if ticked else None)
-    operation = (recipe.get("parameters") or {}).get("operation")
     valid = [tick for tick in first_ticks if tick is not None]
     if operation in ("union", "bit_or"):
         return bool(valid) and index == min(valid)
