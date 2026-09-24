@@ -1,6 +1,7 @@
 """Time-series type expressions mirroring hgraph's: TS[int], TSS[str],
 TSD[str, TS[int]], TSL[TS[int], Size[3]], TSB[Schema]. Each subscription
 resolves to an interned C++ type handle via the _hgraph registry."""
+import re
 import datetime
 import functools
 
@@ -1296,6 +1297,49 @@ def _is_covariant_compound_field(annotation, inherited_annotation):
     )
 
 
+def _bind_native_schema(scalar, native_schema, type_args):
+    """SPIKE: bind a Python class to the named native schema it is the face
+    of. The native schema decides storage; the class must match it field for
+    field -- same names, same order -- and each annotation must name the
+    native field's type, except that an annotation the bridge stores as a
+    Python object (``type``, ``object``) may stand for a native scalar the
+    bridge converts (a ``type`` field is a native type value)."""
+    where = f"{scalar.__module__}.{scalar.__qualname__}"
+    if type_args or getattr(scalar, "__parameters__", ()):
+        raise TypeError(f"{where}: a class bound to a native schema cannot be generic")
+    try:
+        meta = _hgraph.value_type(native_schema)
+    except ValueError:
+        raise TypeError(f"{where}: native schema {native_schema!r} is not registered") from None
+    native_fields = list(meta.fields)
+    if not native_fields:
+        raise TypeError(f"{where}: native schema {native_schema!r} is not a bundle")
+    python_fields = list(_compound_python_field_types(scalar).items())
+    native_names = [name for name, _ in native_fields]
+    python_names = [name for name, _ in python_fields]
+    if python_names != native_names:
+        raise TypeError(
+            f"{where}: fields {python_names} do not match native schema "
+            f"{native_schema!r} fields {native_names}")
+    python_object = _hgraph.value_type("object").name
+    native_type_value = _hgraph.value_type("type").name
+    for (name, annotation), (_, native_type) in zip(python_fields, native_fields):
+        declared = _compound_field_value_type(annotation, scalar, {})
+        if declared is not None and declared.name == native_type.name:
+            continue
+        # The one relaxation: Python spells a native type value ``type``,
+        # which on its own would be a Python object -- wherever the value
+        # sits in the field's type (``tuple[type, ...]``).
+        if declared is not None and declared.name == re.sub(
+                rf"\b{re.escape(native_type_value)}\b", python_object, native_type.name):
+            continue
+        raise TypeError(
+            f"{where}.{name}: annotation {annotation!r} is "
+            f"{getattr(declared, 'name', declared)!r}, but native schema "
+            f"{native_schema!r} stores {native_type.name!r}")
+    return meta
+
+
 def _compound_value_type(scalar, type_args=()):
     from ._compat import CompoundScalar
 
@@ -1303,11 +1347,20 @@ def _compound_value_type(scalar, type_args=()):
     if cache_key in _COMPOUND_TYPE_CACHE:
         return _COMPOUND_TYPE_CACHE[cache_key]
 
-    # SPIKE: a Python class that is the face of a NATIVE schema binds to it
-    # by name; the native schema, not the Python annotations, decides storage.
-    native_schema = scalar.__dict__.get("__native_schema__")
+    # SPIKE: a class that declares a namespace, and whose qualified name is
+    # already a registered native schema, is that schema's Python face: it
+    # binds by name, and the native schema, not its annotations, decides
+    # storage (validated field by field).
+    native_schema = None
+    if scalar.__dict__.get("__compound_namespace_explicit__") and not type_args:
+        qualified = f"{scalar.__dict__['__compound_namespace__']}::{scalar.__name__}"
+        try:
+            _hgraph.value_type(qualified)
+            native_schema = qualified
+        except ValueError:
+            native_schema = None
     if native_schema is not None:
-        meta = _hgraph.value_type(native_schema)
+        meta = _bind_native_schema(scalar, native_schema, type_args)
         _register_bundle_class(meta, scalar, specialization=None)
         _COMPOUND_TYPE_CACHE[cache_key] = meta
         return meta

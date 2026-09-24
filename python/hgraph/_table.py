@@ -25,11 +25,9 @@ class ToTableMode(Enum):
 
 
 @dataclass(frozen=True)
-class TableSchema(CompoundScalar):
+class TableSchema(CompoundScalar, namespace="hgraph"):
     """Released hgraph's ``TableSchema`` compound scalar: a graph reads it as
     ``TS[TableSchema]`` and its fields with ``getattr_`` (parity #821)."""
-
-    __native_schema__ = "hgraph::TableSchema"  # SPIKE: the C++ schema is the storage
 
     tp: type
     keys: tuple[str, ...]
@@ -165,36 +163,34 @@ def _const_value_port_type():
 _CONST_VALUE_PORT = None
 
 
+def _schema_value(tp):
+    """SPIKE: the native kernel's value; the default configuration outside
+    any GlobalState, as the column-name accessors already do."""
+    from ._types import _value_type
+    from ._wiring import GlobalState, evaluate_const
+
+    _value_type(TableSchema)  # bind the class, so the value converts to it
+    if GlobalState.has_instance():
+        return evaluate_const("table_schema", (tp,))
+    with GlobalState():
+        return evaluate_const("table_schema", (tp,))
+
+
 def table_schema(tp):
     """The TableSchema the ``to_table`` operator will produce for ``tp``.
 
     Inside a graph this is released hgraph's ``TS[TableSchema]``: a constant
-    tick whose fields ``getattr_`` reads (parity #821); it also carries
-    ``.value``. Outside a graph only ``.value`` is available."""
+    tick of the native ``table_schema`` operator whose fields ``getattr_``
+    reads (parity #821); it also carries ``.value``. Outside a graph only
+    ``.value`` is available."""
     global _CONST_VALUE_PORT
-    info = _hgraph.table_schema_info(
-        _resolve(tp), get_table_schema_date_key(), get_table_schema_as_of_key()
-    )
-    types = tuple(_LEAF_TYPES.get(name, object) for name in info["types"])
-    schema = TableSchema(
-        tp=tp,
-        keys=tuple(info["keys"]),
-        types=types,
-        partition_keys=tuple(info["partition_keys"]),
-        removed_keys=tuple(info["removed_keys"]),
-        date_time_key=info["date_key"],
-        as_of_key=info["as_of_key"],
-        is_multi_row=info["is_multi_row"],
-    )
+    schema = _schema_value(tp)
     from ._wiring._core import _wiring_stack
 
     if not _wiring_stack:
         return _EagerValue(schema)
-    from hgraph import TS, const
-
     if _CONST_VALUE_PORT is None:
         _CONST_VALUE_PORT = _const_value_port_type()
-    # SPIKE: the native operator publishes the value.
     from ._wiring._core import operator_function
     return _CONST_VALUE_PORT(operator_function("table_schema")(tp)._port, schema)
 
