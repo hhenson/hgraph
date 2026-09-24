@@ -108,7 +108,13 @@ namespace hgraph
     {
         auto &registry = TypeRegistry::instance();
         name           = trim(name);
+        // Every place a named schema lives: the alias table, then the nominal
+        // caches that do not publish an alias, then the Any singleton.
         if (const auto *meta = registry.value_type(name); meta != nullptr) { return meta; }
+        if (const auto *meta = registry.named_bundle(name); meta != nullptr) { return meta; }
+        if (const auto *meta = registry.named_enum(name); meta != nullptr) { return meta; }
+        if (const auto *meta = registry.named_opaque_python(name); meta != nullptr) { return meta; }
+        if (const auto *any = registry.any(); name == any->name()) { return any; }
 
         std::string_view family;
         std::string_view args;
@@ -231,9 +237,11 @@ namespace hgraph
         }
         if (family == "TSL" && (parts.size() == 1 || parts.size() == 2))
         {
+            // The registry leaves the extent out only for the unbounded list;
+            // ``TSL[T,0]`` is the fixed empty one.
             return registry.tsl(parse_ts_type_name(parts[0]),
                                 parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
-                                                  : std::size_t{0});
+                                                  : unbounded_tsl_size);
         }
         if (family == "TSW" && parts.size() == 3)
         {

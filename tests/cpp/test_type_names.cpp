@@ -66,6 +66,9 @@ TEST_CASE("type names: every value schema's name parses back to the schema")
         registry.bundle("hgraph.test.names::Point", {{"x", i}, {"label", s}}),
         registry.map(s, registry.bundle("hgraph.test.names::Point", {{"x", i}, {"label", s}})),
         scalar_descriptor<stdlib::TableSchema>::value_meta(),
+        registry.any(),
+        registry.list(registry.any()),
+        registry.opaque_python("hgraph.test.names::Opaque"),
     };
     for (const auto *schema : schemas)
     {
@@ -91,6 +94,7 @@ TEST_CASE("type names: every time-series schema's name parses back to the schema
         registry.tsd(s, registry.tsd(i, registry.tss(s))),
         registry.tsl(ts_int, 3),
         registry.tsl(ts_int, 0),
+        registry.tsl(ts_int, unbounded_tsl_size),
         registry.tsw(i, 5, 2),
         registry.tsw_duration(i, std::chrono::seconds{10}, std::chrono::seconds{1}),
         registry.ref(ts_int),
