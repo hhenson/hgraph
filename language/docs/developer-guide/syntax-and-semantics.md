@@ -1831,7 +1831,9 @@ determine whether its body describes:
 - or another explicitly admitted hgraph implementation kind.
 
 The implemented classifier (`src/semantics/resolve.cpp`, `classify`) applies
-these rules:
+these rules to temporal `fn` bodies. A `const fn` remains value-level when it
+injects an admitted service; required capabilities also propagate through calls:
+
 
 1. A body containing no node-only construct becomes `CompositionFn`.
 2. The presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
@@ -1890,6 +1892,13 @@ and required-valid. This does not by itself classify an otherwise ordinary or
 iterator-only body as runtime.
 
 ## Runtime state, injectables, and lifecycle
+
+This section describes implemented HGL. The agreed
+[native capability contract](../design/decisions/0014-native-implementation-interfaces.md#outputs-and-capabilities)
+also supports `logger` and `clock` on value functions and native value
+declarations. Calls silently upgrade their callers' injection lists. Injection
+alone does not classify a `const fn` as a node. Temporal native provider
+bindings remain pending.
 
 Each `state` declaration introduces a mutable function-lifetime binding. The
 compiler aggregates all declarations into one typed recordable-state schema.

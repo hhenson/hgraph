@@ -1126,11 +1126,18 @@ namespace hgl::syntax
                 if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
                     result.generics = project_generic_parameters(*generics);
                 }
-                result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
+                result.is_const     = !child_tokens(id, TokenKind::KwConst).empty();
+                result.signature    = project_signature(only_child(id, SyntaxKind::Signature), result.is_const);
                 result.throws       = find_child(id, SyntaxKind::ThrowsClause).has_value();
                 result.requirements = project_optional_requires(id);
 
-                const SyntaxNodeId implementation = only_child(id, SyntaxKind::CppImplementation);
+                for (const auto injection : child_nodes(id, SyntaxKind::InjectDecl)) {
+                    auto capabilities = direct_names(injection, "an injectable name");
+                    result.capabilities.insert(result.capabilities.end(), capabilities.begin(), capabilities.end());
+                }
+                const auto implementation_node = find_child(id, SyntaxKind::CppImplementation);
+                if (!implementation_node) { return ast::Decl{node(id).range, std::move(result)}; }
+                const SyntaxNodeId implementation = *implementation_node;
                 const auto         parameters     = child_tokens(implementation, TokenKind::CppParameterList);
                 const auto         bodies         = child_tokens(implementation, TokenKind::CppBody);
                 require(parameters.size() == 1, "C++ implementation has no unique parameter list");

@@ -4,10 +4,10 @@
 
 #include <algorithm>
 #include <optional>
-#include <unordered_map>
-#include <unordered_set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -558,6 +558,8 @@ namespace hgl::descriptor
             function.runtime_images         = descriptor.build.runtime_images;
             function.descriptor_fingerprint = descriptor.descriptor_fingerprint;
             function.throws                 = declaration.exception_policy == NativeExceptionPolicy::Translated;
+            function.execution_role         = declaration.execution_role;
+            function.capabilities           = declaration.capabilities;
             if (function.name.empty()) {
                 return ReadError{"$.native.declarations[" + std::to_string(declaration_index) + "].identity",
                                  "native function identity must be '" + descriptor.module_identity + "::<name>'"};

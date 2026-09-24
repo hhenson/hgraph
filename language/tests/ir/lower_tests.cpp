@@ -84,8 +84,9 @@ namespace
         return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
     }
 
-    hgl::semantics::ModuleCatalog native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {
-                                                     hgl::semantics::NativeCallPhase::Evaluation}) {
+    hgl::semantics::ModuleCatalog
+    native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {hgl::semantics::NativeCallPhase::Evaluation},
+                   hgl::NativeExecutionRole                     role   = hgl::NativeExecutionRole::LegacyValue) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
         module.identity = "acme.stats";
@@ -98,6 +99,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = std::move(phases),
+            .execution_role         = role,
             .public_headers         = {"acme/stats.h"},
             .cmake_packages         = {"acme"},
             .imported_targets       = {"acme::stats"},
@@ -2635,4 +2637,112 @@ TEST_CASE("an admitted recursive struct edge is marked in typed HIR", "[ir][recu
     CHECK(marked("Node", "next"));
     CHECK_FALSE(marked("Node", "value"));
     CHECK(hgl::ir::print_hir(lowered.hir).find(" recursive") != std::string::npos);
+}
+
+TEST_CASE("native value roles survive imports and lift while temporal roles cannot be value calls", "[ir][native][interface]") {
+    using hgl::NativeExecutionRole;
+    using hgl::semantics::NativeCallPhase;
+    for (const auto role : {NativeExecutionRole::Value, NativeExecutionRole::Temporal}) {
+        const auto catalog = native_catalog({NativeCallPhase::Evaluation}, role);
+        for (const auto body : {"fn f(value: f64) -> f64 => blend(value, 3)", "const fn f(value: f64) -> f64 => blend(value, 3)"}) {
+            Lowered lowered{std::string{"module t\nuse acme.stats::{blend}\n"} + body + "\n", catalog};
+            require_clean(lowered);
+            REQUIRE(lowered.hir.native_functions.front().execution_role == role);
+            if (role == NativeExecutionRole::Value) {
+                CHECK(complete(lowered));
+                INFO(lowered.diagnostics.render(lowered.file));
+                CHECK_FALSE(lowered.diagnostics.has_errors());
+            } else {
+                CHECK_FALSE(complete(lowered));
+                CHECK(lowered.diagnostics.render(lowered.file).find("temporal native fn cannot") != std::string::npos);
+            }
+        }
+    }
+}
+
+TEST_CASE("inline native fn cannot silently become a const fn dependency", "[ir][native][interface]") {
+    Lowered lowered{R"(module t
+native fn legacy(value: i64) -> i64 { cpp(hgraph::Int value) { return value; } }
+const fn value(value: i64) -> i64 => legacy(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("declare native const fn") != std::string::npos);
+}
+
+TEST_CASE("value helper requirements silently upgrade callers transitively", "[ir][typed][capabilities]") {
+    Lowered unit{R"hgl(module capabilities.transitive
+fn caller(value: i64) -> i64 {
+    when { return middle(value) }
+}
+const fn middle(value: i64) -> i64 => leaf(value)
+const fn leaf(value: i64) -> i64 {
+    inject logger
+    logger.info("value")
+    return value
+}
+)hgl"};
+    require_clean(unit);
+    REQUIRE(complete(unit));
+    INFO(unit.diagnostics.render(unit.file));
+    for (const auto &declaration : unit.hir.declarations) {
+        const auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (!fn) { continue; }
+        REQUIRE(fn->capabilities.size() == 1);
+        CHECK(unit.hir.symbol(fn->capabilities.front()).name == "logger");
+    }
+}
+
+TEST_CASE("native capability requirements survive explicit deduplication and imports", "[ir][typed][capabilities]") {
+    Lowered local{R"hgl(module capabilities.native
+native const fn leaf(value: i64) -> i64 {
+    inject logger
+}
+fn caller(value: i64) -> i64 {
+    inject logger
+    when { return leaf(value) }
+}
+)hgl"};
+    require_clean(local);
+    REQUIRE(complete(local));
+    CHECK(local.hir.native_functions.front().capabilities == std::vector<std::string>{"logger"});
+    const auto &fn = std::get<hir::FunctionDecl>(local.hir.declarations.back().node);
+    CHECK(fn.capabilities.size() == 1);
+
+    auto catalog = native_catalog({hgl::semantics::NativeCallPhase::Evaluation}, hgl::NativeExecutionRole::Value);
+    // Build a separate imported contract with an explicit service requirement.
+    hgl::semantics::ImportableModule provider;
+    provider.identity        = "helpers";
+    auto imported            = *catalog.find_function("acme.stats", "blend");
+    imported.module_identity = "helpers";
+    imported.identity        = "helpers::blend";
+    imported.capabilities    = {"logger"};
+    provider.functions.push_back(std::move(imported));
+    REQUIRE_FALSE(catalog.add(std::move(provider)));
+    Lowered consumer{"module capabilities.consumer\nuse helpers::{blend}\n"
+                     "fn caller(value: f64) -> f64 {\n    when { return blend(value, 3) }\n}\n",
+                     catalog};
+    require_clean(consumer);
+    REQUIRE(complete(consumer));
+    const auto &caller = std::get<hir::FunctionDecl>(consumer.hir.declarations.back().node);
+    REQUIRE(caller.capabilities.size() == 1);
+    CHECK(consumer.hir.symbol(caller.capabilities.front()).name == "logger");
+}
+
+TEST_CASE("inferred capabilities do not create runtime context at wiring time", "[ir][typed][capabilities]") {
+    CHECK(completion_diagnostics(R"hgl(module capabilities.phase
+const fn leaf(value: i64) -> i64 {
+    inject logger
+    logger.info("value")
+    return value
+}
+const fn middle(value: i64) -> i64 => leaf(value)
+fn invalid(value: i64) -> i64 => middle(2)
+)hgl")
+              .find("not available in this execution phase") != std::string::npos);
+    for (const auto name : {"out", "scheduler"}) {
+        CHECK(completion_diagnostics(std::string{"module capabilities.owner\nconst fn leaf(value: i64) -> i64 {\n inject "} + name +
+                                     "\n return value\n}\n")
+                  .find("const fn cannot inject its own") != std::string::npos);
+    }
 }

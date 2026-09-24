@@ -138,11 +138,13 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
         module = re.search(r"(?m)^module\s+([\w.]+)", text)
         if module is None:
             raise ValueError(f"missing module declaration: {path}")
-        for match in re.finditer(r"(?m)^(operator|impl fn|native fn)\s+(\w+)", text):
-            following = re.search(r"(?m)^(?:operator |impl fn |native fn |instantiate |test\b)", text[match.end():])
+        for match in re.finditer(r"(?m)^(operator|impl fn|native(?: const)? fn)\s+(\w+)", text):
+            following = re.search(r"(?m)^(?:operator |impl fn |native(?: const)? fn |instantiate |test\b)", text[match.end():])
             end = match.end() + following.start() if following else len(text)
             body = text[match.start():end].strip()
-            kind = {"operator": "contract", "impl fn": "implementation", "native fn": "native-value"}[match[1]]
+            kind = {"operator": "contract", "impl fn": "implementation", "native fn": "native-value", "native const fn": "native-value"}[match[1]]
+            if match[1] == "native fn" and "cpp(" not in body:
+                kind = "native-temporal"
             form = None
             if kind == "implementation":
                 form = "native-delegation" if re.search(r"=>\s*core::", body) else "hgl-runtime" if "when" in body else "hgl-composition"

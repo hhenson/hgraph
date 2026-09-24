@@ -1,6 +1,7 @@
 #ifndef HGL_IR_HIR_H
 #define HGL_IR_HIR_H
 
+#include "native_contract.h"
 #include "syntax/source.h"
 #include "syntax/temporal.h"
 
@@ -575,16 +576,18 @@ namespace hgl::ir::hir
         std::vector<NativePhase>      phases{};
         /// The call may raise; a raised exception ends the evaluation under
         /// hgraph's node error model. Descriptor policy "translated".
-        bool                          throws{false};
-        std::vector<std::string>      public_headers{};
-        std::vector<std::string>      cmake_packages{};
-        std::vector<std::string>      imported_targets{};
-        std::vector<std::string>      runtime_images{};
-        std::string                   descriptor_fingerprint{};
-        bool                          source_defined{false};
-        std::string                   cpp_parameters{};
-        std::string                   cpp_body{};
-        syntax::SourceRange           range{};
+        bool                     throws{false};
+        std::vector<std::string> public_headers{};
+        std::vector<std::string> cmake_packages{};
+        std::vector<std::string> imported_targets{};
+        std::vector<std::string> runtime_images{};
+        std::string              descriptor_fingerprint{};
+        std::vector<std::string> capabilities{};
+        NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        bool                     source_defined{false};
+        std::string              cpp_parameters{};
+        std::string              cpp_body{};
+        syntax::SourceRange      range{};
     };
     struct StructField
     {

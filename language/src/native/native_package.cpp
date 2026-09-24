@@ -335,6 +335,12 @@ namespace hgl::native
                 native.result           = value_policy(declaration.result_policy);
                 native.exception_policy = exception_policy(declaration.exception_policy);
                 native.thread_safety    = thread_safety(declaration.thread_safety);
+                native.capabilities     = declaration.capabilities;
+                switch (declaration.execution_role) {
+                    case ExecutionRole::LegacyValue: native.execution_role = NativeExecutionRole::LegacyValue; break;
+                    case ExecutionRole::Value: native.execution_role = NativeExecutionRole::Value; break;
+                    case ExecutionRole::Temporal: native.execution_role = NativeExecutionRole::Temporal; break;
+                }
                 for (const GenericParameter &generic : declaration.generics) {
                     native.signature.generics.push_back(descriptor::GenericParameter{
                         .name             = generic.name,

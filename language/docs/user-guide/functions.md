@@ -871,7 +871,10 @@ inject
 ```
 
 Capabilities are function-level declarations at the same level as `state`.
-Duplicate, unknown, and phase-incompatible injectables are errors.
+Calling a value helper silently adds its required injectables to the caller's
+list, transitively and without duplicates. This includes native descriptor
+imports. Explicit duplicate declarations, unknown capabilities and unsupported
+phases remain errors; an omitted caller declaration is not an error.
 Any other name is rejected as unapproved, and `out` requires a function
 output. Reading or writing `out` inside `start` or `stop` is rejected while
 lifecycle output access remains an open question.

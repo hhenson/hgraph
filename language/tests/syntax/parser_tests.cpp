@@ -1603,3 +1603,23 @@ TEST_CASE("every example parses cleanly", "[parser][examples]") {
         CHECK(!print_ast(module).empty());
     }
 }
+
+TEST_CASE("native interfaces retain ordinary function and parameter constness", "[parser][native][interface]") {
+    Parsed parsed{"module t\nnative const fn value(lhs: i64, rhs: i64) -> i64\n"
+                  "native fn temporal(value: i64, const factor: i64) -> i64\n"
+                  "native fn source(const value: i64) -> i64\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 4);
+    const auto &value = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
+    CHECK(value.is_const);
+    CHECK(value.implementation.body.empty());
+    CHECK_FALSE(value.signature.parameters.front().is_const);
+    const auto &temporal = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
+    CHECK_FALSE(temporal.is_const);
+    CHECK_FALSE(temporal.signature.parameters.front().is_const);
+    CHECK(temporal.signature.parameters.back().is_const);
+    const auto &source = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
+    CHECK_FALSE(source.is_const);
+    CHECK(source.signature.parameters.front().is_const);
+}

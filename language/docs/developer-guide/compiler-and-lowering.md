@@ -430,8 +430,12 @@ live input schema on every evaluation.
 
 ## Function classification
 
-The classifier consumes resolved syntax and assigns `CompositionFn` or
-`RuntimeFn` (`src/semantics/resolve.cpp`, `classify`):
+For temporal `fn`, the classifier consumes resolved syntax and assigns
+`CompositionFn` or `RuntimeFn` (`src/semantics/resolve.cpp`, `classify`). A `const fn`
+may inject admitted services without becoming a node. After call resolution,
+capability requirements propagate transitively through value calls and imports.
+
+Temporal classification rules:
 
 - no runtime-only construct produces `CompositionFn`;
 - the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in

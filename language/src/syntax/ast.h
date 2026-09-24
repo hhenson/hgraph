@@ -514,6 +514,7 @@ namespace hgl::syntax::ast
     /// generated, directly callable C++ overload.
     struct NativeFunctionDecl
     {
+        bool                          is_const{false};
         Name                          name{};
         std::vector<GenericParameter> generics{};
         Signature                     signature{};
@@ -522,6 +523,7 @@ namespace hgl::syntax::ast
         bool                          throws{false};
         ConstraintId                  requirements{no_node};
         CppImplementation             implementation{};
+        std::vector<Name>             capabilities{};
     };
 
     struct StructField

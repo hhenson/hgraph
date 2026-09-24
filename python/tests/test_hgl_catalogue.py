@@ -45,3 +45,15 @@ def test_check_ignores_a_moved_declaration_but_not_a_changed_inventory():
     renamed = json.loads(text)
     renamed['operators'][0]['name'] += '_not_a_real_operator'
     assert catalogue.comparable(json.dumps(renamed)) != catalogue.comparable(text)
+
+
+def test_native_interface_inventory_preserves_execution_role(tmp_path):
+    source = tmp_path / "language/stdlib/hgl/hgraph/native.hgl"
+    source.parent.mkdir(parents=True)
+    source.write_text("module example.native\n"
+                      "native const fn value(lhs: i64, rhs: i64) -> i64\n"
+                      "native fn temporal(value: i64) -> i64\n")
+    entries = catalogue.hgl_inventory(tmp_path)
+    assert [(entry["name"], entry["kind"]) for entry in entries] == [
+        ("value", "native-value"), ("temporal", "native-temporal")]
+    assert entries[0]["declaration"] == "native const fn value(lhs: i64, rhs: i64) -> i64"

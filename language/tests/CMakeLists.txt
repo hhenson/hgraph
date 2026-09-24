@@ -484,7 +484,19 @@ if(UNIX)
             --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
 endif()
 
+hgl_add_module(hgl_native_provider_fixture STATIC
+    HGL codegen/native-provider.hgl
+    NATIVE_PROVIDER_HEADER provider.h
+    NATIVE_PROVIDER checks::scalar_provider::native)
+target_include_directories(hgl_native_provider_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/codegen/native-provider)
+hgl_apply_warnings(hgl_native_provider_fixture)
+hgl_add_module(hgl_native_provider_consumer_fixture STATIC
+    HGL codegen/native-provider-consumer.hgl
+    LINK_LIBRARIES hgl_native_provider_fixture)
+hgl_apply_warnings(hgl_native_provider_consumer_fixture)
+
 set(_hgl_generated_test_sources
+    codegen/generated_native_provider_tests.cpp
     codegen/generated_tests.cpp
     codegen/generated_operator_tests.cpp
     codegen/generated_runtime_tests.cpp
@@ -506,6 +518,8 @@ set(_hgl_generated_test_sources
     codegen/generated_imported_struct_tests.cpp
 )
 set(_hgl_generated_test_libraries
+    hgl_native_provider_consumer_fixture
+    hgl_native_provider_fixture
     hgl_codegen_fixture
     hgl_structural_fixture
     hgl_recursive_fixture
@@ -653,9 +667,11 @@ if(UNIX)
         math(EXPR _native_test_count "${_native_test_count} + ${_part_test_count}")
     endforeach()
     add_test(NAME hgraph_language_test_core_native_parts
-        COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args})
+        COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args}
+            --native-provider-header native_scalar.h --native-provider hgl::stdlib::scalar_native)
     set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
         PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/cpp"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     # Scripted imported-native tests use a host containing the provider's
     # value symbols. This is separate from hgl, which generates that provider.

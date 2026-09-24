@@ -3,6 +3,7 @@
 
 #include "hgraph_ir/control_flow.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <set>
 #include <string>
@@ -54,6 +55,49 @@ namespace hgl::hgraph_ir
             }
 
           private:
+            Callable native_lift_source(const Value &value, std::size_t value_index) {
+                const NativeFunction &native = result_.native_functions[value.operation.native_function.value];
+                const auto           &call   = std::get<Call>(value.node);
+                std::vector<ValueId>  arguments(native.parameters.size());
+                std::size_t           next = 0;
+                for (const Argument &argument : call.arguments) {
+                    if (argument.name.empty()) {
+                        while (arguments[next].valid()) { ++next; }
+                        arguments[next++] = argument.value;
+                    } else {
+                        const auto found = std::ranges::find(native.parameters, argument.name, &NativeParameter::name);
+                        arguments[static_cast<std::size_t>(found - native.parameters.begin())] = argument.value;
+                    }
+                }
+                Callable source;
+                source.identity  = result_.path + ".$native_value_" + std::to_string(value_index);
+                source.result    = value.type;
+                source.range     = value.range;
+                source.test_only = value.test_only;
+                for (std::size_t index = 0; index < native.parameters.size(); ++index) {
+                    const auto  &parameter = native.parameters[index];
+                    const TypeId type      = result_.values[arguments[index].value].type;
+                    source.identity += "_" + std::to_string(type.value);
+                    Binding binding;
+                    binding.name           = parameter.name;
+                    binding.type           = type;
+                    binding.owner_identity = source.identity;
+                    binding.kind           = BindingKind::ValueParameter;
+                    const BindingId id{static_cast<std::uint32_t>(result_.bindings.size())};
+                    result_.bindings.push_back(std::move(binding));
+                    source.parameters.push_back(Parameter{.name = parameter.name, .type = type, .binding = id});
+                }
+                for (const auto &name : native.capabilities) {
+                    const BindingId id{static_cast<std::uint32_t>(result_.bindings.size())};
+                    const TypeId    type{static_cast<std::uint32_t>(result_.types.size())};
+                    result_.types.push_back(Type{.kind = hir::TypeKind::Capability});
+                    result_.bindings.push_back(
+                        Binding{.name = name, .kind = BindingKind::Capability, .type = type, .owner_identity = source.identity});
+                    source.capabilities.push_back(Capability{.name = name, .type = type, .binding = id});
+                }
+                return source;
+            }
+
             /// Materialize one ordinary runtime node per value function/input mask.
             /// Both AOT generation and scripted eval consume these same nodes; no
             /// backend is allowed to invent a second activation policy.
@@ -62,8 +106,11 @@ namespace hgl::hgraph_ir
                 const std::size_t                           value_count = result_.values.size();
                 for (std::size_t index = 0; index < value_count; ++index) {
                     const Operation operation = result_.values[index].operation;
-                    if (operation.lift_inputs.empty() || !operation.callable.valid()) { continue; }
-                    const Callable source   = result_.callables[operation.callable.value];
+                    if (operation.lift_inputs.empty() || (!operation.callable.valid() && !operation.native_function.valid())) {
+                        continue;
+                    }
+                    const Callable source   = operation.native_function.valid() ? native_lift_source(result_.values[index], index)
+                                                                                : result_.callables[operation.callable.value];
                     std::string    identity = source.identity + "$lift";
                     for (bool input : operation.lift_inputs) { identity += input ? "_input" : "_const"; }
                     CallableId adapter_id;
@@ -87,12 +134,15 @@ namespace hgl::hgraph_ir
                             result_.values.push_back(std::move(value));
                             return id;
                         };
-                        const ValueId callee = add_value(Value{.range      = source.range,
-                                                               .value_kind = hir::ValueKind::Function,
-                                                               .node       = Reference{.kind     = ReferenceKind::Callable,
-                                                                                       .callable = operation.callable,
-                                                                                       .identity = source.identity}});
-                        Call          invocation{.callee = callee};
+                        const ValueId callee = add_value(
+                            Value{.range      = source.range,
+                                  .value_kind = hir::ValueKind::Function,
+                                  .node       = Reference{.kind     = operation.native_function.valid() ? ReferenceKind::NativeFunction
+                                                                                                        : ReferenceKind::Callable,
+                                                          .callable = operation.callable,
+                                                          .native_function = operation.native_function,
+                                                          .identity        = source.identity}});
+                        Call invocation{.callee = callee};
                         for (std::size_t p = 0; p < adapter.parameters.size(); ++p) {
                             Parameter &parameter             = adapter.parameters[p];
                             parameter.is_const               = !operation.lift_inputs[p];
@@ -110,14 +160,16 @@ namespace hgl::hgraph_ir
                                       .node       = Reference{.kind = ReferenceKind::Binding, .binding = parameter.binding}});
                             invocation.arguments.push_back(Argument{parameter.name, argument, source.range});
                         }
-                        const ValueId     call = add_value(Value{.range      = source.range,
-                                                                 .type       = source.result,
-                                                                 .phase      = hir::Phase::Runtime,
-                                                                 .value_kind = hir::ValueKind::RuntimeValue,
-                                                                 .node       = std::move(invocation),
-                                                                 .operation  = Operation{.kind     = OperationKind::ExactFunction,
-                                                                                         .callable = operation.callable,
-                                                                                         .identity = source.identity}});
+                        const ValueId call = add_value(Value{.range      = source.range,
+                                                             .type       = source.result,
+                                                             .phase      = hir::Phase::Runtime,
+                                                             .value_kind = hir::ValueKind::RuntimeValue,
+                                                             .node       = std::move(invocation),
+                                                             .operation  = Operation{.kind            = OperationKind::ExactFunction,
+                                                                                     .callable        = operation.callable,
+                                                                                     .native_function = operation.native_function,
+                                                                                     .identity        = operation.identity,
+                                                                                     .substitutions   = operation.substitutions}});
                         const StatementId returned{static_cast<std::uint32_t>(result_.statements.size())};
                         const bool        outputless = result_.types[source.result.value].kind == hir::TypeKind::Void;
                         result_.statements.push_back(
@@ -128,13 +180,29 @@ namespace hgl::hgraph_ir
                         const StatementId when{static_cast<std::uint32_t>(result_.statements.size())};
                         result_.statements.push_back(Statement{source.range, Activation{{}, body}, adapter.effects});
                         adapter.block_body = BlockId{static_cast<std::uint32_t>(result_.blocks.size())};
-                        result_.blocks.push_back(Block{.range = source.range, .statements = {when}});
+                        std::vector<StatementId> statements;
+                        if (!adapter.capabilities.empty()) {
+                            Inject inject;
+                            for (auto &capability : adapter.capabilities) {
+                                Binding binding        = result_.bindings[capability.binding.value];
+                                binding.owner_identity = identity;
+                                capability.binding     = BindingId{static_cast<std::uint32_t>(result_.bindings.size())};
+                                result_.bindings.push_back(std::move(binding));
+                                inject.bindings.push_back(capability.binding);
+                            }
+                            statements.push_back(StatementId{static_cast<std::uint32_t>(result_.statements.size())});
+                            result_.statements.push_back(Statement{.range = source.range, .node = std::move(inject)});
+                        }
+                        statements.push_back(when);
+                        result_.blocks.push_back(Block{.range = source.range, .statements = std::move(statements)});
                         result_.callables.push_back(std::move(adapter));
                         result_.source_order.push_back(adapter_id);
                         adapters.emplace(identity, adapter_id);
                     }
-                    Value &value             = result_.values[index];
-                    value.operation.callable = adapter_id;
+                    Value &value                    = result_.values[index];
+                    value.operation.callable        = adapter_id;
+                    value.operation.native_function = {};
+                    if (operation.native_function.valid()) { value.operation.substitutions.clear(); }
                     value.operation.identity = identity;
                     value.operation.lift_inputs.clear();
                     const ValueId callee = std::holds_alternative<Call>(value.node) ? std::get<Call>(value.node).callee
@@ -831,6 +899,8 @@ namespace hgl::hgraph_ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.capabilities           = source.capabilities;
+                    target.execution_role         = source.execution_role;
                     target.source_defined         = source.source_defined;
                     target.cpp_parameters         = source.cpp_parameters;
                     target.cpp_body               = source.cpp_body;

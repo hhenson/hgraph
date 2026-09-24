@@ -39,6 +39,9 @@ namespace hgl::codegen
         /// Number of separately compiled implementation parts; one keeps the
         /// traditional header/source pair. Registration order is unchanged.
         std::size_t source_parts{1};
+        /// Package-owned C++ header and bound provider object for declaration-only natives.
+        std::string native_provider_header{};
+        std::string native_provider{};
     };
 
     struct EmittedModule
@@ -49,6 +52,8 @@ namespace hgl::codegen
         std::string module_name{};
         std::string header{};
         std::string source{};
+        /// External provider headers are not covered by the scripted SDK cache key.
+        bool cacheable{true};
         /// Build-private shared definitions and implementation parts, emitted
         /// only when source_parts > 1. Neither changes the public descriptor.
         std::string              implementation_header{};

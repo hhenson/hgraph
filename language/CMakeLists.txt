@@ -284,6 +284,7 @@ include(cmake/HglStageRuntimeDlls.cmake)
 # struct layouts, defaults, lexical bindings, dependency order, composition
 # bodies, and runtime-node bodies.
 add_library(hgl_codegen STATIC
+    src/codegen/native_rust.cpp
     src/codegen/cpp_emitter.cpp
 )
 add_library(hgl::codegen ALIAS hgl_codegen)
@@ -416,14 +417,18 @@ set(_hgl_core_native_parts
     stdlib/hgl/hgraph/native/sets_maps.hgl
     stdlib/hgl/hgraph/native/windows.hgl
     stdlib/hgl/hgraph/native/scalar_values.hgl
+    stdlib/hgl/hgraph/native/scalar_values_i64.hgl
     stdlib/hgl/hgraph/native/temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
+    NATIVE_PROVIDER_HEADER native_scalar.h
+    NATIVE_PROVIDER hgl::stdlib::scalar_native
     HGL stdlib/hgl/hgraph/native.hgl
     PARTS ${_hgl_core_native_parts}
     INCLUDE_DIR ${_hgl_core_native_include_dir}
     SRC_DIR ${_hgl_core_native_src_dir}
 )
+target_include_directories(hgl_core_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/cpp)
 add_library(hgl::core_native ALIAS hgl_core_native)
 set_target_properties(hgl_core_native PROPERTIES EXPORT_NAME core_native)
 # hgl_add_module publishes a build-tree include directory. This target is also
@@ -593,6 +598,9 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )
+install(FILES stdlib/cpp/native_scalar.h
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/cpp
+    COMPONENT Development)
 install(FILES ${_hgl_core_native_parts}
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native
     COMPONENT Development
