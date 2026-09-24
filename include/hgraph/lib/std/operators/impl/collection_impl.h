@@ -1036,6 +1036,17 @@ namespace hgraph::stdlib
             mutation.set(key, source.value());
         }
 
+        /** Forward a source child's tick to the output child (runtime spec
+            OP-4): the tick is the news, so an equal value is published again.
+            ``copy_tsd_child_if_changed`` is the DERIVED counterpart, for a
+            child that changes source without its new source ticking. */
+        inline void forward_tsd_child(TSDDataMutationView &mutation, const ValueView &key,
+                                      const TSInputView &source)
+        {
+            if (!source.valid()) { return; }
+            mutation.set(key, source.value());
+        }
+
         inline void copy_value_if_changed(TSDDataMutationView &mutation, const TSDOutputView &out,
                                           const ValueView &key, const ValueView &value)
         {
@@ -1067,10 +1078,17 @@ namespace hgraph::stdlib
             (void)inner_mutation.erase(inner_key);
         }
 
+        /** True when ``tsd`` holds ``key`` and that child ticked in THIS cycle.
+            Asks the child, not ``slot_modified``: the slot bitset is cleared
+            lazily by the dictionary's next mutation, so on a dictionary that
+            did not tick it still reports its last tick (it silenced a
+            union's rhs whenever the lhs held the key, parity #1069). */
         inline bool tsd_key_has_modified_valid_child(const TSDInputView &tsd, const ValueView &key)
         {
             const std::size_t slot = tsd.find_slot(key);
-            return slot != TS_DATA_NO_CHILD_ID && tsd.slot_modified(slot) && tsd.at_slot(slot).valid();
+            if (slot == TS_DATA_NO_CHILD_ID) { return false; }
+            const TSInputView child = tsd.at_slot(slot);
+            return child.modified() && child.valid();
         }
 
         using FlippedPreviousIndex = ankerl::unordered_dense::map<Value, Value, ValueHash, ValueEqual>;
@@ -1953,6 +1971,10 @@ namespace hgraph::stdlib
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // Validity gating admits the node once both operands are
+                // valid; its first evaluation always validates the output, so
+                // an invalid output marks the first admission.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
@@ -1961,7 +1983,7 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
@@ -1971,14 +1993,21 @@ namespace hgraph::stdlib
                     }
                 }
                 // Gated first cycles: lhs keys the output never saw (ticked
-                // while rhs was still invalid) backfill on this evaluation.
-                for (const auto [key, child] : lhs.items())
+                // while rhs was still invalid) backfill once, on admission.
+                if (first_admission)
                 {
-                    if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                    for (const auto [key, child] : lhs.items())
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        }
                     }
                 }
+                // The first admitted evaluation has a value even when every
+                // lhs key is also in rhs: validate with the empty dict, as
+                // intersection does and hgraph 0.5 does (parity #961).
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 
@@ -1993,6 +2022,9 @@ namespace hgraph::stdlib
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // The first admitted evaluation always validates the output
+                // (below), so an invalid output marks it.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
@@ -2001,7 +2033,7 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
                 }
                 for (const ValueView &key : rhs.added_keys())
                 {
@@ -2010,11 +2042,14 @@ namespace hgraph::stdlib
                         copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
-                for (const auto [key, child] : lhs.items())
+                if (first_admission)
                 {
-                    if (rhs_dict.contains(key) && !out_dict.contains(key))
+                    for (const auto [key, child] : lhs.items())
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        if (rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        }
                     }
                 }
                 // A DISJOINT first tick still validates (emits the empty
@@ -2042,15 +2077,17 @@ namespace hgraph::stdlib
                     return lhs_dict.contains(key) || rhs_dict.contains(key);
                 });
 
+                // Each output child forwards the operand whose child ticked
+                // most recently, lhs on a same-cycle tie (runtime spec OP-5).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                    forward_tsd_child(mutation, key, child);
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
                     if (!tsd_key_has_modified_valid_child(lhs_dict, key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        forward_tsd_child(mutation, key, child);
                     }
                 }
                 for (const ValueView &key : lhs.removed_keys())
@@ -2074,9 +2111,11 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "symmetric_difference_tsd";
 
-            static void eval(In<"lhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> lhs,
-                             In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> rhs,
-                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
+            // Both operands must be valid (runtime spec OP-6): a never-ticked
+            // operand is nil, not the empty dictionary (parity #959).
+            static void eval(In<"lhs", TSD<ScalarVar<"K">, TsVar<"V">>> lhs,
+                             In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>> rhs,
+                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out, State<Bool> admitted)
             {
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
@@ -2087,13 +2126,16 @@ namespace hgraph::stdlib
                     return lhs_dict.contains(key) != rhs_dict.contains(key);
                 });
 
+                // The one operand holding a key forwards it (OP-4, OP-5): a key
+                // whose holder changes in the same cycle as the new holder
+                // ticks is forwarded, equal value or not (parity #1040).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
-                    if (!lhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!lhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
                 }
                 for (const ValueView &key : lhs.removed_keys())
                 {
@@ -2108,6 +2150,29 @@ namespace hgraph::stdlib
                     {
                         copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
                     }
+                }
+                // Gated first cycles: keys that ticked while the other operand
+                // was still invalid backfill once, on admission. An empty first
+                // result does not validate the output (runtime spec, operator
+                // point to settle 1), so validity cannot mark admission here.
+                // Losing the flag on recovery costs one idempotent pass.
+                if (!admitted.get())
+                {
+                    for (const auto [key, child] : lhs.items())
+                    {
+                        if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        }
+                    }
+                    for (const auto [key, child] : rhs.items())
+                    {
+                        if (!lhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        }
+                    }
+                    admitted.set(true);
                 }
             }
         };
