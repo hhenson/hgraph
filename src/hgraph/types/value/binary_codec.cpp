@@ -4,6 +4,8 @@
 #include <hgraph/types/value/binary_session.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/metadata/type_names.h>
+#include <hgraph/types/type_carrier.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/series.h>
@@ -141,6 +143,24 @@ namespace hgraph
             const auto *bytes = reader.take(size);
             Str         text{reinterpret_cast<const char *>(bytes), size};
             return Value{self.binding, &text};
+        }
+
+        // A type value (RFC 0042) is its serialised name, length-prefixed like
+        // ``Str``: interned schema pointers never reach the wire.
+        void write_type(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
+        {
+            auto      &out  = writer.out;
+            const auto text = serialise_type_value(view.checked_as<TypeCarrier>());
+            write_varint(text.size(), out);
+            out.append(text);
+        }
+
+        Value read_type(const BinaryConverter &self, BinaryReader &reader)
+        {
+            const auto  size  = static_cast<std::size_t>(read_varint(reader));
+            const auto *bytes = reader.take(size);
+            TypeCarrier type  = parse_type_value({reinterpret_cast<const char *>(bytes), size});
+            return Value{self.binding, &type};
         }
 
         // ``Bytes`` is the same length-prefixed shape as ``Str`` with a
@@ -1761,6 +1781,11 @@ namespace hgraph
             return hash_bytes(view.checked_as<Str>());
         }
 
+        std::uint64_t hash_type(const BinaryConverter &, const ValueView &view)
+        {
+            return hash_bytes(serialise_type_value(view.checked_as<TypeCarrier>()));
+        }
+
         std::uint64_t hash_blob(const BinaryConverter &, const ValueView &view)
         {
             return hash_bytes(view.checked_as<Bytes>().data);
@@ -1956,6 +1981,13 @@ namespace hgraph
                     {
                         raw->write_ = &write_ranges<CivilDateRangeSet>;
                         raw->read_ = &read_ranges<CivilDateRangeSet>;
+                        break;
+                    }
+                    if (meta == scalar_descriptor<TypeCarrier>::value_meta())
+                    {
+                        raw->write_ = &write_type;
+                        raw->hash_  = &hash_type;
+                        raw->read_  = &read_type;
                         break;
                     }
                     // Not built in. A form registered with the scalar comes

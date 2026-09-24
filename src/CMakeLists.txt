@@ -58,6 +58,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/metadata/type_realization.cpp
     hgraph/types/metadata/schema_table.cpp
     hgraph/types/metadata/type_registry.cpp
+    hgraph/types/metadata/type_names.cpp
     hgraph/types/metadata/value_plan_factory.cpp
     hgraph/types/python_ops.cpp
     hgraph/types/primitive_types.cpp
