@@ -87,6 +87,14 @@ namespace hgl::hgraph_ir
                     result_.bindings.push_back(std::move(binding));
                     source.parameters.push_back(Parameter{.name = parameter.name, .type = type, .binding = id});
                 }
+                for (const auto &name : native.capabilities) {
+                    const BindingId id{static_cast<std::uint32_t>(result_.bindings.size())};
+                    const TypeId    type{static_cast<std::uint32_t>(result_.types.size())};
+                    result_.types.push_back(Type{.kind = hir::TypeKind::Capability});
+                    result_.bindings.push_back(
+                        Binding{.name = name, .kind = BindingKind::Capability, .type = type, .owner_identity = source.identity});
+                    source.capabilities.push_back(Capability{.name = name, .type = type, .binding = id});
+                }
                 return source;
             }
 
@@ -172,7 +180,21 @@ namespace hgl::hgraph_ir
                         const StatementId when{static_cast<std::uint32_t>(result_.statements.size())};
                         result_.statements.push_back(Statement{source.range, Activation{{}, body}, adapter.effects});
                         adapter.block_body = BlockId{static_cast<std::uint32_t>(result_.blocks.size())};
-                        result_.blocks.push_back(Block{.range = source.range, .statements = {when}});
+                        std::vector<StatementId> statements;
+                        if (!adapter.capabilities.empty()) {
+                            Inject inject;
+                            for (auto &capability : adapter.capabilities) {
+                                Binding binding        = result_.bindings[capability.binding.value];
+                                binding.owner_identity = identity;
+                                capability.binding     = BindingId{static_cast<std::uint32_t>(result_.bindings.size())};
+                                result_.bindings.push_back(std::move(binding));
+                                inject.bindings.push_back(capability.binding);
+                            }
+                            statements.push_back(StatementId{static_cast<std::uint32_t>(result_.statements.size())});
+                            result_.statements.push_back(Statement{.range = source.range, .node = std::move(inject)});
+                        }
+                        statements.push_back(when);
+                        result_.blocks.push_back(Block{.range = source.range, .statements = std::move(statements)});
                         result_.callables.push_back(std::move(adapter));
                         result_.source_order.push_back(adapter_id);
                         adapters.emplace(identity, adapter_id);
@@ -877,6 +899,7 @@ namespace hgl::hgraph_ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.capabilities           = source.capabilities;
                     target.execution_role         = source.execution_role;
                     target.source_defined         = source.source_defined;
                     target.cpp_parameters         = source.cpp_parameters;

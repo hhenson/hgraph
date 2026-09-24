@@ -430,6 +430,8 @@ namespace hgl::descriptor
                                                                                               : "legacy-value");
                 out << ",\n        \"signature\": ";
                 signature(out, declaration.signature, "        ");
+                out << ",\n        \"capabilities\": ";
+                string_array(out, declaration.capabilities, "        ");
                 out << ",\n        \"phases\": ";
                 enum_array(out, declaration.phases, "        ", native_phase_name);
                 out << ",\n        \"effects\": ";

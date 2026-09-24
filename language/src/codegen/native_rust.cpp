@@ -1,11 +1,15 @@
 #include "codegen/native_rust.h"
 
+#include <algorithm>
 #include <set>
 #include <string_view>
 
 namespace hgl::codegen
 {
     std::optional<std::string> emit_native_rust(const hgraph_ir::Module &module, syntax::DiagnosticSink &diagnostics) {
+        const bool            needs_logger = std::ranges::any_of(module.native_functions, [](const auto &fn) {
+            return fn.source_defined && std::ranges::find(fn.capabilities, "logger") != fn.capabilities.end();
+        });
         std::string           result = "// Generated from checked HGL native declarations; do not edit.\n"
                                        "/// Implementation of the shared native value interface.\n"
                                        "pub trait Native {\n";
@@ -52,9 +56,29 @@ namespace hgl::codegen
                 first = false;
                 result += "r#" + parameter.name + ": " + type_name(parameter.type);
             }
+            for (const auto &capability : function.capabilities) {
+                if (capability != "logger") {
+                    reject("Rust capability interface currently supports logger only");
+                    continue;
+                }
+                if (!first) { result += ", "; }
+                first = false;
+                std::string capability_name = "hgl_cap_logger";
+                while (std::ranges::any_of(function.parameters, [&](const auto &parameter) { return parameter.name == capability_name; })) {
+                    capability_name += "_";
+                }
+                result += capability_name + ": &mut dyn Logger";
+            }
             result += ") -> " + type_name(function.result) + ";\n";
         }
         result += "}\n";
+        if (needs_logger) {
+            result += "/// Call-scoped logging supplied by the caller.\n"
+                      "pub trait Logger {\n"
+                      "    /// Emit an informational message in the caller context.\n"
+                      "    fn info(&mut self, message: &str);\n"
+                      "}\n";
+        }
         if (!valid || names.empty()) {
             if (names.empty() && valid) {
                 diagnostics.report(syntax::Category::Backend, {}, "Rust native interface contains no value declarations");

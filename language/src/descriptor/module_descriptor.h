@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 7;
+    inline constexpr std::uint32_t module_descriptor_format_version = 8;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -362,6 +362,7 @@ namespace hgl::descriptor
         NativeExceptionPolicy              exception_policy{NativeExceptionPolicy::NoThrow};
         NativeExecutionRole                execution_role{NativeExecutionRole::LegacyValue};
         NativeThreadSafety                 thread_safety{NativeThreadSafety::NodeLocal};
+        std::vector<std::string>           capabilities{};
 
         friend bool operator==(const NativeDeclaration &, const NativeDeclaration &) = default;
     };

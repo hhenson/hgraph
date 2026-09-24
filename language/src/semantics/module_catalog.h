@@ -132,6 +132,7 @@ namespace hgl::semantics
         std::vector<NativeCallPhase>   phases{};
         /// Descriptor exception policy "translated": the call may raise.
         bool                     throws{false};
+        std::vector<std::string> capabilities{};
         NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
         std::vector<std::string> public_headers{};
         std::vector<std::string> cmake_packages{};

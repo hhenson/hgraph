@@ -1081,6 +1081,7 @@ namespace hgl::ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.capabilities           = source.capabilities;
                     for (std::size_t index = 0; index < source.generics.size(); ++index) {
                         const semantics::ImportedGeneric &generic        = source.generics[index];
                         const hir::SymbolId               generic_symbol = add_symbol(
@@ -1757,6 +1758,9 @@ namespace hgl::ir
                             function.phases =
                                 views ? std::vector{hir::NativePhase::Evaluation}
                                       : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation, hir::NativePhase::Stop};
+                            for (const auto &capability : node.capabilities) {
+                                function.capabilities.emplace_back(capability.text);
+                            }
                             function.throws         = node.throws;
                             function.execution_role = node.is_const                      ? NativeExecutionRole::Value
                                                       : node.implementation.body.empty() ? NativeExecutionRole::Temporal

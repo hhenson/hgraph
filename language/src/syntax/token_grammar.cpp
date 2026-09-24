@@ -669,8 +669,10 @@ namespace hgl::syntax
         {
             static constexpr auto start =
                 dsl::peek(contextual<ContextToken::Native> + dsl::opt(token<TokenKind::KwConst>) + token<TokenKind::KwFn>);
-            static constexpr auto body  = token<TokenKind::LBrace> >> dsl::p<newlines> + dsl::p<cpp_implementation> +
-                                                                          dsl::p<newlines> + token<TokenKind::RBrace>;
+            static constexpr auto body = token<TokenKind::LBrace> >>
+                                         dsl::p<newlines> + dsl::while_(dsl::p<inject_decl> >> dsl::p<newlines>) +
+                                             dsl::if_(dsl::peek(token<TokenKind::KwCpp>) >> dsl::p<cpp_implementation>) +
+                                             dsl::p<newlines> + token<TokenKind::RBrace>;
             static constexpr auto
                 rule = start >> contextual<ContextToken::Native> + dsl::opt(token<TokenKind::KwConst>) + token<TokenKind::KwFn> +
                                     dsl::p<name> + dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> +

@@ -691,7 +691,7 @@ namespace hgl::semantics
                 }
                 if (fn.is_const && result_.kinds[id] == FunctionKind::Runtime) {
                     report(Category::FunctionKind, fn.name.range,
-                           "a const fn cannot declare when, state, inject, start, or stop; put temporal policy in a fn wrapper");
+                           "a const fn cannot declare when, state, start, or stop; put temporal policy in a fn wrapper");
                 }
                 if (result_.kinds[id] == FunctionKind::Runtime) {
                     const bool positional = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
@@ -718,6 +718,17 @@ namespace hgl::semantics
             }
 
             void resolve_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                std::unordered_set<std::string> capabilities;
+                for (const auto &capability : fn.capabilities) {
+                    const std::string name{capability.text};
+                    if (!capabilities.insert(name).second) {
+                        report(Category::Injectable, capability.range, "duplicate injectable '" + name + "'");
+                    }
+                    if (!fn.is_const || (name != "logger" && name != "clock")) {
+                        report(Category::Injectable, capability.range,
+                               "native value capabilities currently admit logger and clock only");
+                    }
+                }
                 if (fn.implementation.body.empty() && !fn.is_const) {
                     report(Category::Type, fn.name.range,
                            "native fn is temporal; scalar providers require native const fn; "
@@ -919,31 +930,35 @@ namespace hgl::semantics
             }
 
             [[nodiscard]] FunctionKind classify(const ast::FunctionDecl &fn) const {
-                if (fn.block_body != ast::no_node && block_has_runtime_form(fn.block_body)) { return FunctionKind::Runtime; }
+                if (fn.block_body != ast::no_node && block_has_runtime_form(fn.block_body, fn.is_const)) {
+                    return FunctionKind::Runtime;
+                }
                 return FunctionKind::Composition;
             }
 
-            [[nodiscard]] bool block_has_runtime_form(ast::BlockId id) const {
+            [[nodiscard]] bool block_has_runtime_form(ast::BlockId id, bool value_function = false) const {
                 for (const ast::StmtId stmt_id : module_.block(id).statements) {
-                    if (stmt_has_runtime_form(stmt_id)) { return true; }
+                    if (stmt_has_runtime_form(stmt_id, value_function)) { return true; }
                 }
                 return false;
             }
 
-            [[nodiscard]] bool stmt_has_runtime_form(ast::StmtId id) const {
+            [[nodiscard]] bool stmt_has_runtime_form(ast::StmtId id, bool value_function) const {
                 const ast::Stmt &stmt = module_.stmt(id);
                 return std::visit(
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
-                        if constexpr (std::is_same_v<T, ast::StateDecl> || std::is_same_v<T, ast::InjectDecl> ||
-                                      std::is_same_v<T, ast::LifecycleBlock> || std::is_same_v<T, ast::WhenStmt>) {
+                        if constexpr (std::is_same_v<T, ast::StateDecl> || std::is_same_v<T, ast::LifecycleBlock> ||
+                                      std::is_same_v<T, ast::WhenStmt>) {
                             return true;
+                        } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
+                            return !value_function;
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             // Iteration follows the phase established by its
                             // containing function. A node-only construct in
                             // the body still classifies the whole function as
                             // runtime, but `for` itself is phase-neutral.
-                            return block_has_runtime_form(node.block);
+                            return block_has_runtime_form(node.block, value_function);
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             return expr_has_runtime_form(node.expr);
                         } else if constexpr (std::is_same_v<T, ast::LocalDecl>) {

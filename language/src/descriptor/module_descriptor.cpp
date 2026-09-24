@@ -499,6 +499,7 @@ namespace hgl::descriptor
             declaration.cpp_symbol     = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
             declaration.signature      = schema.native_signature(function);
             declaration.execution_role = function.execution_role;
+            declaration.capabilities   = function.capabilities;
             declaration.phases.clear();
             for (const ir::hir::NativePhase phase : function.phases) {
                 switch (phase) {

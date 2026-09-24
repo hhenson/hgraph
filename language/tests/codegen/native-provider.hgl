@@ -8,3 +8,34 @@ export fn bitwise(lhs: i64, rhs: i64) -> i64 {
 
 export fn lifted(lhs: i64, rhs: i64) -> i64 => bit_and(rhs: rhs, lhs: lhs)
 export fn mixed(lhs: i64) -> i64 => bit_and(lhs, 3)
+
+native const fn audit(value: i64) -> i64 {
+    inject logger
+}
+
+const fn forward(value: i64) -> i64 => audit(value)
+
+export fn audited(value: i64) -> i64 {
+    when { return forward(value) }
+}
+
+const fn hgl_audit(value: i64) -> i64 {
+    inject logger
+    logger.info("HGL helper")
+    return value
+}
+
+export fn hgl_audited(value: i64) -> i64 {
+    when { return hgl_audit(value) }
+}
+
+export fn lifted_audited(value: i64) -> i64 => audit(value)
+
+const fn stamp() -> datetime {
+    inject clock
+    return clock.evaluation_time()
+}
+
+export fn stamped(value: i64) -> datetime {
+    when { return stamp() }
+}

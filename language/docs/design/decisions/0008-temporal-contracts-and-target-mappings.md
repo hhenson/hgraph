@@ -60,8 +60,9 @@ A value function cannot declare its own node state or contain `when`, `start`,
 or `stop` blocks. Its calls remain value-level. The agreed
 [capability contract](0014-native-implementation-interfaces.md#outputs-and-capabilities)
 allows context-supplied services such as logging without creating a node;
-ownership and phase checks govern access. The current compiler still rejects
-injection in value functions; this extension is not implemented.
+ownership and phase checks govern access. Value helpers support `logger` and
+`clock`; their requirements silently propagate to callers. Native temporal
+provider bindings and borrowed access to a caller's output remain pending.
 
 Parameter-level `const` retains its existing meaning: fixed wiring-time
 configuration on a temporal callable. Function-level `const` is not shorthand

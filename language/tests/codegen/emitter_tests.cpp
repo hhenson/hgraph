@@ -2886,8 +2886,8 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
     CHECK(contains(emitted->header, "hgraph::TsVar<\"U\">"));
     CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
-    CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
-    CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
+    CHECK(contains(emitted->header, "hgraph::LoggerView hgl_cap_logger"));
+    CHECK(contains(emitted->header, "hgl_cap_logger.log(2, hgraph::Str{\"value\"});"));
 }
 
 TEST_CASE("emit-cpp preserves explicit reference schemas", "[codegen][ref]") {
@@ -3653,10 +3653,33 @@ TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][
 
 TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][native][interface]") {
     for (const auto declaration : {"native const fn f(value: str) -> i64", "native const fn f(value: i64) -> i64 throws",
+                                   "native const fn f(value: i64) -> i64 { inject clock }",
                                    "native const fn f(value: i64) -> i64\nnative const fn f(value: bool) -> bool"}) {
         Unit unit{std::string{"module t\n"} + declaration + "\n"};
         REQUIRE_FALSE(unit.diagnostics.has_errors());
         CHECK_FALSE(hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics));
         CHECK(unit.diagnostics.has_errors());
     }
+}
+
+TEST_CASE("native capability interfaces explicitly pass borrowed services", "[codegen][native][capabilities]") {
+    Unit unit{R"hgl(module services
+native const fn audit(value: i64) -> i64 {
+    inject logger
+}
+const fn middle(value: i64) -> i64 => audit(value)
+export fn caller(value: i64) -> i64 {
+    when { return middle(value) }
+}
+)hgl"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"});
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::LoggerView hgl_cap_logger"));
+    CHECK(contains(emitted->source, "example::native.audit(value, hgl_cap_logger)"));
+    const auto rust = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
+    REQUIRE(rust);
+    CHECK(contains(*rust, "hgl_cap_logger: &mut dyn Logger"));
 }

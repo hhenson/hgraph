@@ -1,3 +1,7 @@
 module checks.native_consumer
-use checks.native_provider::{bit_and}
+use checks.native_provider::{bit_and, audit}
 export fn lifted(lhs: i64, rhs: i64) -> i64 => bit_and(lhs, rhs)
+
+export fn audited(value: i64) -> i64 {
+    when { return audit(value) }
+}

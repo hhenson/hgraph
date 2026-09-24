@@ -206,6 +206,7 @@ namespace hgl::native
         ValuePolicy                   result_policy{};
         std::vector<Phase>            phases{};
         ExecutionRole                 execution_role{ExecutionRole::LegacyValue};
+        std::vector<std::string>      capabilities{};
         std::vector<Effect>           effects{};
         ExceptionPolicy               exception_policy{ExceptionPolicy::NoThrow};
         ThreadSafety                  thread_safety{ThreadSafety::NodeLocal};

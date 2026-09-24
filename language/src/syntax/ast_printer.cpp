@@ -173,6 +173,9 @@ namespace hgl::syntax
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                for (const auto &capability : d.capabilities) {
+                    line(depth + 1, "Inject", capability.range, std::string{capability.text});
+                }
                 line(depth + 1, "CppImplementation", d.implementation.range,
                      "cpp(" + d.implementation.parameters + ") " + d.implementation.body);
             }

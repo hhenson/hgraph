@@ -68,6 +68,7 @@ namespace hgl::ir
                 void_type_ = canonical_types_.void_type();
                 check_instantiations();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
+                infer_capabilities();
                 check_value_call_phases();
                 ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
@@ -77,11 +78,70 @@ namespace hgl::ir
             }
 
           private:
+            /// Requirements follow resolved value-call edges, including imports.
+            /// A lift owns its own context; its wiring caller does not borrow it.
+            void infer_capabilities() {
+                bool changed;
+                do {
+                    changed = false;
+                    for (Expr &expression : module_.exprs) {
+                        FunctionDecl *owner = function(expression.owner);
+                        if (!owner || expression.operation.kind != OperationKind::ExactFunction ||
+                            !expression.operation.lift_inputs.empty()) {
+                            continue;
+                        }
+                        std::vector<std::string> required;
+                        const SymbolId           target = expression.operation.target;
+                        if (const NativeFunction *native = native_function(target)) {
+                            required = native->capabilities;
+                        } else if (target.valid()) {
+                            const FunctionDecl *callee = function(module_.symbol(target).owner);
+                            if (callee && callee->is_const) {
+                                for (SymbolId capability : callee->capabilities) {
+                                    required.push_back(module_.symbol(capability).name);
+                                }
+                            }
+                        }
+                        for (const std::string &name : required) {
+                            if (std::ranges::any_of(owner->capabilities,
+                                                    [&](SymbolId id) { return module_.symbol(id).name == name; })) {
+                                continue;
+                            }
+                            const SymbolId id{static_cast<std::uint32_t>(module_.symbols.size())};
+                            const TypeId   capability_type = make_type(TypeKind::Capability, {}, id);
+                            module_.symbols.push_back(Symbol{.kind           = SymbolKind::InjectedCapability,
+                                                             .name           = name,
+                                                             .canonical_name = module_.path + ".$capability_" +
+                                                                               std::to_string(expression.owner.value) + "." + name,
+                                                             .owner          = expression.owner,
+                                                             .range          = expression.range,
+                                                             .type           = capability_type});
+                            owner->capabilities.push_back(id);
+                            owner->effects |= Effect::UseCapability;
+                            changed = true;
+                            if (owner->block_body.valid()) {
+                                const StmtId statement{static_cast<std::uint32_t>(module_.stmts.size())};
+                                module_.stmts.push_back(
+                                    Stmt{.range = expression.range, .node = InjectDecl{{id}}, .owner = expression.owner});
+                                auto &statements = module_.blocks[owner->block_body.value].statements;
+                                statements.insert(statements.begin(), statement);
+                            }
+                        }
+                        if (!required.empty()) { expression.effects |= Effect::UseCapability; }
+                    }
+                } while (changed);
+            }
+
             /// Infer the intersection of native lifecycle permissions through
             /// value-call edges. Do this after all bodies, independent of source
             /// order, and never infer purity from `const fn`.
             void check_value_call_phases() {
                 std::vector<unsigned> phases(module_.declarations.size(), 15U);
+                for (const Declaration &declaration : module_.declarations) {
+                    if (const FunctionDecl *fn = function(declaration.id); fn && fn->is_const && !fn->capabilities.empty()) {
+                        phases[declaration.id.value] &= ~(1U << static_cast<unsigned>(NativePhase::Wiring));
+                    }
+                }
                 bool                  changed;
                 do {
                     changed = false;
@@ -576,7 +636,7 @@ namespace hgl::ir
                                 node.effects = body.effects;
                             }
                             collect_capabilities(node, id);
-                            if (node.kind == FunctionKind::Runtime && node.block_body.valid()) {
+                            if ((node.kind == FunctionKind::Runtime || node.is_const) && node.block_body.valid()) {
                                 check_runtime_layout(node.block_body);
                                 if (!node.is_const &&
                                     std::ranges::all_of(node.signature.parameters, [](const Parameter &parameter) {
@@ -1978,6 +2038,10 @@ namespace hgl::ir
                 }
                 const NativePhase call_phase    = native_call_phase(function, call.arguments);
                 const bool        phase_allowed = std::ranges::find(function.phases, call_phase) != function.phases.end();
+                if (!function.capabilities.empty() && call_phase == NativePhase::Wiring && !active_value_function_) {
+                    diagnostics_.report(syntax::Category::Phase, expression.range,
+                                        "native value helper requires a runtime capability context");
+                }
                 if (!phase_allowed && !active_value_function_) {
                     static constexpr std::string_view names[]{"wiring", "start", "evaluation", "stop"};
                     diagnostics_.report(syntax::Category::Phase, expression.range,
@@ -3477,6 +3541,10 @@ namespace hgl::ir
                                 // (syntax-and-semantics.md, "Runtime state,
                                 // injectables, and lifecycle"): `out`, `logger`,
                                 // `clock` and `scheduler` (ADR 0010).
+                                if (fn && fn->is_const && (symbol.name == "out" || symbol.name == "scheduler")) {
+                                    diagnostics_.report(syntax::Category::Injectable, symbol.range,
+                                                        "const fn cannot inject its own '" + symbol.name + "'");
+                                }
                                 if (symbol.name == "out") {
                                     const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
                                     if (!result.valid() || same(result, void_type_)) {

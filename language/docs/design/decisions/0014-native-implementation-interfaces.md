@@ -79,8 +79,9 @@ part of the HGL contract; a matching native signature alone does not prove them.
 
 ## Outputs and capabilities
 
-Agreed extension; contract blocks and value-function injection are not yet
-implemented. Reuse `inject` in declaration-only native contracts:
+Use `inject` in native contracts. Value helpers support `logger` and `clock`
+in C++; Rust trait emission supports `logger`. The temporal example below is
+agreed syntax awaiting its provider ABI:
 
 ```hgl
 native fn accumulate(value: i64) -> i64 {
@@ -95,7 +96,10 @@ native const fn describe(value: i64) -> str {
 An HGL implementation requests capabilities in its body. The checked contract
 records capability requirements for both forms, including descriptor imports.
 They add no caller-supplied argument, temporal input or activation dependency.
-Requirements of called helpers must also be satisfied.
+A call silently adds the callee's required injectables to the caller's list.
+Compute this transitively, independent of declaration order, and deduplicate
+explicit and inferred requests. Missing `inject` in the caller is not an error;
+an unavailable capability or forbidden phase still is.
 
 The portable contract and the target's requests are distinct. A contract makes
 its declared capabilities available; a target implementation may use a subset.
@@ -164,7 +168,6 @@ full lifecycle ABI, remain separate implementation work.
 
 ```hgl
 fn describe_each(value: i64) -> str {
-    inject logger
     when {
         return describe(value)
     }
@@ -173,8 +176,9 @@ fn describe_each(value: i64) -> str {
 
 During evaluation, `describe` receives the current scalar value and borrows the
 enclosing node's logger. It returns a string; the enclosing `return` publishes
-it. No helper node or output is created. Include the helper's requirements in
-the enclosing node's contract and provision the target's used subset.
+it. No helper node or output is created. The node omits `inject logger`: the
+compiler silently adds it from the helper's contract and provisions the target's
+used subset.
 
 A call to `native fn`, like a call to HGL `fn`, composes or wires a temporal
 computation during graph construction. It is not a direct call inside `when`.
@@ -184,8 +188,9 @@ never implies ownership of the caller's temporal output.
 
 ### Acceptance cases
 
-Reasoned expectations, pending compiler implementation and executable checks.
-Run every applicable case with HGL/native bodies and local/imported contracts.
+Acceptance expectations. Value-helper inference, imports, logger forwarding,
+clock reads and ordinary/native call checks have executable coverage. Temporal
+provider output, target subsets and borrowed-output cases remain pending.
 
 | Case | Expected result |
 | --- | --- |
@@ -194,7 +199,8 @@ Run every applicable case with HGL/native bodies and local/imported contracts.
 | Temporal `-> i64` with `inject out` | One `Output<i64>`; no extra output or activation dependency |
 | Outputless or value function requests `out` | Diagnostic; a scalar return is not a temporal output |
 | Value helper requests logger in a supplied logging context | Direct value call plus logging; no extra node or tick |
-| Same call without logger, including through a helper/import | Diagnostic before emission |
+| Caller omits `inject logger`, including through a helper/import | Silently infer one logger requirement on each caller |
+| Inferred capability has no valid provider in the call context | Diagnostic before emission |
 | C++ uses `out, logger`; Rust uses only `out` | Same portable call checks; each binding provisions its declared subset |
 | Provider requests an undeclared semantic capability | Binding diagnostic; internal runtime machinery needs no HGL declaration |
 | Target cannot supply a required capability | Binding diagnostic; no silent fallback |
@@ -209,7 +215,9 @@ Language diagnostics have no Python/C++ runtime oracle. For runtime cases,
 record values, ticks, effects and owner identity against reasoned, Python and
 C++ results before implementing bindings. Accept two-way agreement with a
 variation report; if Python and C++ agree against reasoning, revisit reasoning.
-Escalate three-way disagreement. No new comparison results are claimed here.
+Escalate three-way disagreement. The [helper reference traces](https://github.com/hhenson/hgl/blob/codex/native-interface-bindings/docs/compiler/capabilities/README.md)
+agree across reasoning, Python and C++ for duplicate/idle ticks, helper call
+counts and evaluation-clock reads. Compiler diagnostics are validated separately.
 
 ## Dependencies
 
@@ -254,7 +262,9 @@ ABI; provider methods use values for bool/i64/f64 and const references for other
 scalars. `const` in that C++ spelling does not change HGL temporal roles.
 Native value calls lift over time-series arguments through the same runtime
 node policy as ordinary `const fn`, including imported calls. Descriptor format
-7 records `value`, `temporal`, or `legacy-value`; hooks do not determine role.
+8 records `value`, `temporal`, or `legacy-value` plus required capabilities;
+hooks do not determine role. Capabilities propagate transitively through value
+calls and imported native declarations, without duplicate injection requests.
 `legacy-value` is a migration detail, not an agreed language function kind;
 the separate native checking paths must converge on the common contract above.
 Legacy inline `native fn` is rejected inside `const fn`: value helpers must
@@ -266,7 +276,10 @@ transitive dependencies can be fingerprinted.
 The 56 scalar substrate implementations live in `stdlib/cpp/native_scalar.h`.
 `native/scalar_values_i64.hgl` is a shared declaration part used by both target
 implementations. `emit-native-rust <file> --out <file>` generates a checked Rust
-trait for concrete bool/i64/f64 value declarations. Rust overloads, generics,
+trait for concrete bool/i64/f64 value declarations, including a call-borrowed
+logger. C++ value providers also admit the evaluation clock. Target-specific
+request subsets are still pending: the current adapters pass all declared
+capabilities. Rust overloads, generics, clock injection,
 fallible contracts and other scalar mappings are rejected until implemented.
 
 New temporal declarations retain their source role but cannot use this scalar

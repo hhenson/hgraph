@@ -905,7 +905,7 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 7", "\"format_version\": 6");
+        replace_once(json, "\"format_version\": 8", "\"format_version\": 6");
         check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 6");
     }
 }
@@ -1806,4 +1806,29 @@ TEST_CASE("native descriptor role is required and cannot be guessed from phases"
         replace_once(json, "\"execution_role\": \"legacy-value\"", "\"execution_role\": \"guessed\"");
         CHECK_FALSE(descriptor::read_json(json));
     }
+}
+
+TEST_CASE("native capabilities are required fingerprinted and imported", "[descriptor][capabilities]") {
+    auto       source                                 = scalar_native_descriptor();
+    const auto previous                               = source.descriptor_fingerprint;
+    source.native_declarations.front().execution_role = hgl::NativeExecutionRole::Value;
+    source.native_declarations.front().capabilities   = {"logger"};
+    descriptor::seal(source);
+    CHECK(previous != source.descriptor_fingerprint);
+    const auto parsed = descriptor::read_json(descriptor::to_json(source));
+    REQUIRE(parsed.value);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(*parsed.value, catalog));
+    CHECK(catalog.find_function("checks.reader", "blend")->capabilities == std::vector<std::string>{"logger"});
+    auto json = descriptor::to_json(source);
+    replace_once(json, "\"capabilities\"", "\"missing_capabilities\"");
+    CHECK_FALSE(descriptor::read_json(json));
+    source.native_declarations.front().capabilities = {"logger", "logger"};
+    descriptor::seal(source);
+    CHECK_FALSE(descriptor::read_json(descriptor::to_json(source)));
+    CHECK(descriptor::validate(source));
+    source.native_declarations.front().capabilities = {"unknown"};
+    descriptor::seal(source);
+    CHECK(descriptor::validate(source));
+    CHECK_FALSE(descriptor::read_json(descriptor::to_json(source)));
 }

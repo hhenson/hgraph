@@ -523,6 +523,7 @@ namespace hgl::syntax::ast
         bool                          throws{false};
         ConstraintId                  requirements{no_node};
         CppImplementation             implementation{};
+        std::vector<Name>             capabilities{};
     };
 
     struct StructField

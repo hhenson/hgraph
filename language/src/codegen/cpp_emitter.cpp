@@ -327,6 +327,8 @@ namespace hgl::codegen
             "hgl_state",
             "hgl_cache",
             "hgl_output",
+            "hgl_cap_logger",
+            "hgl_cap_clock",
         };
 
         constexpr std::string_view python_keywords[] = {
@@ -822,6 +824,16 @@ namespace hgl::codegen
             return type.is(hir::ScalarType::Bool) || type.numeric() ? value : "const " + value + " &";
         }
 
+        namespace
+        {
+            std::string capability_type(std::string_view name) {
+                if (name == "logger") { return "hgraph::LoggerView"; }
+                if (name == "clock") { return "hgraph::EvaluationClockView"; }
+                throw std::logic_error("unsupported value capability");
+            }
+            std::string capability_argument(std::string_view name) { return "hgl_cap_" + std::string{name}; }
+        }  // namespace
+
         std::string Emitter::native_parameters(const gir::NativeFunction &function, bool names, bool exported) {
             std::vector<std::string> parameters;
             for (const auto &parameter : function.parameters) {
@@ -830,6 +842,9 @@ namespace hgl::codegen
                     type = "const " + value_type(planned_type(parameter.type, function.range), function.range) + " &";
                 }
                 parameters.push_back(type + (names ? " " + cpp_name(parameter.name) : ""));
+            }
+            for (const auto &name : function.capabilities) {
+                parameters.push_back(capability_type(name) + (names ? " " + capability_argument(name) : ""));
             }
             return join(parameters, ", ");
         }
@@ -863,6 +878,7 @@ namespace hgl::codegen
                 const std::string except = function->throws ? "" : " noexcept";
                 std::vector<std::string> arguments;
                 for (const auto &parameter : function->parameters) { arguments.push_back(cpp_name(parameter.name)); }
+                for (const auto &name : function->capabilities) { arguments.push_back(capability_argument(name)); }
                 out.open("static " + result + " " + name + "(" + native_parameters(*function, true) + ")" + except);
                 out.line("return static_cast<" + result + " (*)(" + native_parameters(*function, false) + ")" + except +
                          ">(&T::" + name + ")(" + join(arguments, ", ") + ");");
@@ -899,6 +915,7 @@ namespace hgl::codegen
                 }
                 std::vector<std::string> arguments;
                 for (const auto &parameter : function.parameters) { arguments.push_back(cpp_name(parameter.name)); }
+                for (const auto &name : function.capabilities) { arguments.push_back(capability_argument(name)); }
                 out.open(signature);
                 out.line("return " + options_.native_provider + "." +
                          cpp_name(std::string_view{function.identity}.substr(function.identity.rfind("::") + 2)) + "(" +
@@ -2912,6 +2929,12 @@ namespace hgl::codegen
             HType result;
             if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
             if (target.kind == gir::CallableKind::ValueFunction) {
+                for (const auto &capability : target.capabilities) {
+                    if (!frame.runtime) { fail(Category::Phase, range, "value helper requires a runtime capability context"); }
+                    const std::string name = capability_argument(capability.name);
+                    use(name);
+                    args.push_back(name);
+                }
                 const std::string code = callable_cpp_name(id) + "(" + join(args, ", ") + ")";
                 if (!has_planned_result(target.result, target.range)) {
                     Value value;
@@ -2996,6 +3019,12 @@ namespace hgl::codegen
                 }
             }
 
+            for (const auto &capability : target.capabilities) {
+                if (!frame.runtime) { fail(Category::Phase, range, "native value helper requires a runtime capability context"); }
+                const std::string name = capability_argument(capability);
+                use(name);
+                args.push_back(name);
+            }
             const std::string code = symbol + "(" + join(args, ", ") + ")";
             if (graph_type(target.result, range).kind == hir::TypeKind::Void) {
                 Value result;
@@ -3170,6 +3199,7 @@ namespace hgl::codegen
         Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
             const std::string &name = callee.name;
             if (name.starts_with("clock.") || name.starts_with("scheduler.")) {
+                if (name.starts_with("clock.")) { use("hgl_cap_clock"); }
                 // ADR 0010: each method is one call on the injected hgraph
                 // selector; typed HIR fixed the arities and argument types.
                 if (!frame.runtime) { fail(Category::Phase, range, "'" + name + "' is only available in runtime hooks"); }
@@ -3193,7 +3223,7 @@ namespace hgl::codegen
                     return make_runtime(std::move(code), scalar_type(*scalar), range);
                 };
                 if (name == "clock.evaluation_time" || name == "clock.now" || name == "clock.next_cycle_evaluation_time") {
-                    return result_of("clock." + method + "()", hir::ScalarType::DateTime);
+                    return result_of("hgl_cap_clock." + method + "()", hir::ScalarType::DateTime);
                 }
                 if (name == "scheduler.schedule" || name == "scheduler.schedule_at") {
                     if (arguments.size() == 2U) {
@@ -3235,6 +3265,7 @@ namespace hgl::codegen
                 return result;
             }
             if (name.starts_with("logger.")) {
+                use("hgl_cap_logger");
                 if (!frame.runtime) { fail(Category::Phase, range, "logger methods are only available in runtime hooks"); }
                 if (name != "logger.info") { unsupported(range, "logger method '" + name.substr(7) + "'"); }
                 if (call.arguments.size() != 1U) {
@@ -3246,7 +3277,7 @@ namespace hgl::codegen
                 }
                 Value result;
                 result.kind  = Value::Kind::Void;
-                result.code  = "logger.log(2, " + message.code + ")";
+                result.code  = "hgl_cap_logger.log(2, " + message.code + ")";
                 result.range = range;
                 return result;
             }
@@ -4622,8 +4653,8 @@ namespace hgl::codegen
                                  ">",
                              "hgl_cache", uses));
             }
-            if (info.logger_binding.valid()) { params.push_back(named_if("hgraph::LoggerView", "logger", uses)); }
-            if (info.clock_binding.valid()) { params.push_back(named_if("hgraph::EvaluationClockView", "clock", uses)); }
+            if (info.logger_binding.valid()) { params.push_back(named_if("hgraph::LoggerView", "hgl_cap_logger", uses)); }
+            if (info.clock_binding.valid()) { params.push_back(named_if("hgraph::EvaluationClockView", "hgl_cap_clock", uses)); }
             if (info.scheduler_binding.valid()) { params.push_back(named_if("hgraph::NodeScheduler", "scheduler", uses)); }
             if (include_output && has_planned_result(fn.result, fn.range)) {
                 params.push_back(named_if("hgraph::Out<" + schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">",
@@ -5158,6 +5189,13 @@ namespace hgl::codegen
                     frame.planned_bindings.emplace(parameter.binding.value, make_runtime(name, type, planned.range));
                     frame.binding_names[parameter.binding.value] = name;
                 }
+                for (const auto &capability : planned.capabilities) {
+                    parameters.emplace_back(capability_type(capability.name), capability_argument(capability.name));
+                    Value value;
+                    value.kind = Value::Kind::Intrinsic;
+                    value.name = capability.name;
+                    frame.planned_bindings.emplace(capability.binding.value, std::move(value));
+                }
                 frame.reachable = planned.concise_body.valid() ? gir::binding_uses(graph_, planned.concise_body)
                                                                : reachable_in(planned.block_body);
                 active_uses_    = &frame.used;
@@ -5177,7 +5215,11 @@ namespace hgl::codegen
                     out.line("return " + value.code + ";");
                 } else {
                     const gir::Block &body = planned_block(planned.block_body, planned.range);
-                    for (gir::StatementId statement : body.statements) { emit_runtime_stmt(statement, frame, out, body.range); }
+                    for (gir::StatementId statement : body.statements) {
+                        if (!std::holds_alternative<gir::Inject>(planned_statement(statement, body.range).node)) {
+                            emit_runtime_stmt(statement, frame, out, body.range);
+                        }
+                    }
                     if (body.tail.valid()) {
                         const Value value = eval_planned_expr(body.tail, frame);
                         out.line("return " + value.code + ";");

@@ -1131,6 +1131,10 @@ namespace hgl::syntax
                 result.throws       = find_child(id, SyntaxKind::ThrowsClause).has_value();
                 result.requirements = project_optional_requires(id);
 
+                for (const auto injection : child_nodes(id, SyntaxKind::InjectDecl)) {
+                    auto capabilities = direct_names(injection, "an injectable name");
+                    result.capabilities.insert(result.capabilities.end(), capabilities.begin(), capabilities.end());
+                }
                 const auto implementation_node = find_child(id, SyntaxKind::CppImplementation);
                 if (!implementation_node) { return ast::Decl{node(id).range, std::move(result)}; }
                 const SyntaxNodeId implementation = *implementation_node;

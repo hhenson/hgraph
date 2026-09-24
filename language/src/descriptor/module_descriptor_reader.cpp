@@ -1008,6 +1008,7 @@ namespace hgl::descriptor
                                     declaration.thread_safety)) {
                         return false;
                     }
+                    if (!required_string_array(fields, "capabilities", item_path, declaration.capabilities)) { return false; }
                     const Element *role = required(fields, "execution_role", item_path);
                     if (role == nullptr) { return false; }
                     {
@@ -1701,6 +1702,12 @@ namespace hgl::descriptor
             }
 
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
+                std::unordered_set<std::string> capability_names;
+                for (const auto &capability : declaration.capabilities) {
+                    if ((capability != "logger" && capability != "clock") || !capability_names.insert(capability).second) {
+                        return fail(member_path(path, "capabilities"), "unknown or duplicate native value capability");
+                    }
+                }
                 if (!signature(declaration.signature, member_path(path, "signature"), true) ||
                     !native_signature(declaration, member_path(path, "signature")) || !unique_native_overload(declaration, path)) {
                     return false;

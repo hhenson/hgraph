@@ -582,6 +582,7 @@ namespace hgl::ir::hir
         std::vector<std::string> imported_targets{};
         std::vector<std::string> runtime_images{};
         std::string              descriptor_fingerprint{};
+        std::vector<std::string> capabilities{};
         NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
         bool                     source_defined{false};
         std::string              cpp_parameters{};
