@@ -40,6 +40,10 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   predicates,
   `last_modified`, and mutable lexical `var`. Tests: none in the file; native
   behaviour in `generated_example_tests.cpp`.
+- [`const-debug.hgl`](const-debug.hgl) connects an HGL constant source to an
+  HGL printing sink. Only integer printing is native; select the C++ or Rust
+  part under `impl/`. Tests: `generated_const_debug_tests.cpp` compiles the
+  C++ binding and checks source ticks, duplicate sink ticks and fresh runs.
 - [`lifecycle-capabilities.hgl`](lifecycle-capabilities.hgl) injects the
   node scheduler and the evaluation clock: a scheduler-driven source with no
   temporal input (`start { scheduler.schedule(0s) }`, `when scheduled()`),

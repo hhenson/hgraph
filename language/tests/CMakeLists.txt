@@ -484,6 +484,14 @@ if(UNIX)
             --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
 endif()
 
+hgl_add_module(hgl_const_debug_fixture STATIC
+    HGL ../examples/const-debug.hgl
+    PARTS ../examples/impl/const-debug-cpp.hgl
+    NATIVE_PROVIDER_HEADER provider.h
+    NATIVE_PROVIDER bootstrap::native)
+target_include_directories(hgl_const_debug_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/codegen/const-debug)
+hgl_apply_warnings(hgl_const_debug_fixture)
+
 hgl_add_module(hgl_native_provider_fixture STATIC
     HGL codegen/native-provider.hgl
     PARTS codegen/native-provider-impl.hgl
@@ -497,6 +505,7 @@ hgl_add_module(hgl_native_provider_consumer_fixture STATIC
 hgl_apply_warnings(hgl_native_provider_consumer_fixture)
 
 set(_hgl_generated_test_sources
+    codegen/generated_const_debug_tests.cpp
     codegen/generated_native_provider_tests.cpp
     codegen/generated_tests.cpp
     codegen/generated_operator_tests.cpp
@@ -519,6 +528,7 @@ set(_hgl_generated_test_sources
     codegen/generated_imported_struct_tests.cpp
 )
 set(_hgl_generated_test_libraries
+    hgl_const_debug_fixture
     hgl_native_provider_consumer_fixture
     hgl_native_provider_fixture
     hgl_codegen_fixture
