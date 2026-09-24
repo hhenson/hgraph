@@ -129,17 +129,21 @@ namespace hgraph::stdlib
                 }
                 const std::string_view name = format.substr(i + 1, close - i - 1);
                 auto child = name.empty() ? bundle.at(positional++) : bundle.at(name);
+                // Callers format only once format_arguments_ready holds.
+                if (!child.valid()) { throw std::logic_error("format argument is not valid"); }
                 // A Str renders WITHOUT quoting (python print semantics).
-                if (child.valid())
-                {
-                    const ValueView value = child.value();
-                    if (const auto *text = value.try_as<Str>(); text != nullptr) { result.append(*text); }
-                    else { result.append(value.to_string()); }
-                }
-                else { result.append("<n/a>"); }
+                const ValueView value = child.value();
+                if (const auto *text = value.try_as<Str>(); text != nullptr) { result.append(*text); }
+                else { result.append(value.to_string()); }
                 i = close;
             }
             return result;
+        }
+
+        bool format_arguments_ready(const TSInputView &packed)
+        {
+            auto bundle = const_cast<TSInputView &>(packed).as_bundle();
+            return bundle.empty() || packed.all_valid();
         }
 
         WiringPortRef pack_format_args(std::vector<WiringPortRef> positional,

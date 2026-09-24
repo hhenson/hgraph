@@ -1252,6 +1252,138 @@ def test_campaign_quarantines_a_reference_that_did_not_run(
     assert report["quarantined"][0]["classification"] == "reference-failure"
 
 
+# The candidate installation on 2026-09-23 could not import hgraph at all
+# (its wheel needed a newer libc than the runner); every recipe was filed as
+# a parity issue. Both the current and the pre-fix spelling must quarantine.
+_CANDIDATE_UNIMPORTABLE = (
+    {"status": "infrastructure-error", "phase": "import"},
+    {"status": "error", "phase": "import", "exception": {"category": "runtime"}},
+    {"status": "harness-error", "phase": "process"},
+)
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_campaign_quarantines_a_candidate_that_did_not_run(
+    monkeypatch, tmp_path, candidate
+):
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        candidate,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_campaign_quarantines_an_unimportable_candidate_beside_a_raising_reference(
+    monkeypatch, tmp_path, candidate
+):
+    # A reference that raises is a comparable outcome, but not against a
+    # candidate that never ran the graph.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        candidate,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
+def test_campaign_quarantines_a_candidate_that_breaks_during_verification(
+    monkeypatch, tmp_path
+):
+    # Codex review on #1624: a real first-run mismatch whose verification
+    # replays meet an unimportable candidate must not become a verified
+    # failure -- three identical environment failures are "stable".
+    outcomes = iter(
+        [{"status": "ok", "phase": "complete", "trace": [2]}]
+        + [{"status": "infrastructure-error", "phase": "import"}] * 10
+    )
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return _CANDIDATE_OK, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            _CANDIDATE_OK if str(interpreter) == "reference" else next(outcomes)
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    report = run_campaign(
+        [_scalar_recipe()],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        cache_path=tmp_path / "cache",
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
+def test_campaign_still_reports_a_candidate_crash(monkeypatch, tmp_path):
+    # A crash or timeout is the candidate's own behaviour on this graph, not
+    # its environment, and stays a verified failure.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        {"status": "crash", "phase": "process", "process_returncode": -11},
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 1
+    assert report["summary"]["quarantined"] == 0
+
+
+def test_runner_reports_an_unimportable_hgraph_as_an_environment_failure(
+    monkeypatch,
+):
+    from tools.parity.process import is_environment_failure
+    from tools.parity.runner import run_recipe as run_in_process
+
+    monkeypatch.setitem(sys.modules, "hgraph", None)
+    result = run_in_process(_scalar_recipe().to_dict())
+    assert result["status"] == "infrastructure-error"
+    assert result["phase"] == "import"
+    assert is_environment_failure(result)
+
+
+def test_campaign_command_refuses_an_unimportable_candidate(monkeypatch):
+    from tools.parity import process
+
+    monkeypatch.setattr(
+        process,
+        "_invoke",
+        lambda *_args, **_kwargs: {
+            "status": "crash",
+            "phase": "process",
+            "diagnostic": "ImportError: GLIBC_ABI_GNU2_TLS not found",
+        },
+    )
+    with pytest.raises(RuntimeError, match="candidate environment cannot import"):
+        process.require_importable("candidate", role="candidate")
+
+
 def test_campaign_quarantines_an_unstable_reference_failure(monkeypatch, tmp_path):
     # Stability is still the gate: a reference that fails only sometimes must
     # not mint a fingerprint that only sometimes reproduces.
@@ -2213,6 +2345,49 @@ def test_failure_origin_is_the_original_case_not_the_seed():
     # A record without the original (older campaign output) falls back to
     # the minimized recipe, which still carries the seed and the template.
     assert failure_origin({"minimized_recipe": minimized}) == "generated-scalar-expression-min000"
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_issue_publisher_never_files_an_environment_failure(monkeypatch, candidate):
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "status",
+            "path": "$.status",
+            "reference": "ok",
+            "candidate": candidate["status"],
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": candidate,
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    calls = []
+    monkeypatch.setattr("tools.parity.issues._existing_issues", lambda _repo: [])
+    monkeypatch.setattr(
+        "tools.parity.issues._gh",
+        lambda arguments, *, repo, capture=False: calls.append(arguments)
+        or SimpleNamespace(stdout=""),
+    )
+    for publish in (False, True):
+        [action] = publish_failures([failure], repo="hhenson/hgraph", publish=publish)
+        assert action["action"] == "environment-failure"
+    assert not any(a[:2] in (["issue", "create"], ["issue", "reopen"]) for a in calls)
+
+
+def test_issue_publisher_finds_existing_issues_by_label(monkeypatch):
+    from tools.parity import issues
+
+    seen = []
+    monkeypatch.setattr(
+        issues,
+        "_gh",
+        lambda arguments, *, repo, capture=False: seen.append(arguments)
+        or SimpleNamespace(stdout="[]"),
+    )
+    issues._existing_issues("hhenson/hgraph")
+    [arguments] = seen
+    assert arguments[arguments.index("--label") + 1] == "parity"
+    assert int(arguments[arguments.index("--limit") + 1]) >= 100000
 
 
 def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
@@ -3709,9 +3884,10 @@ def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
     words = {
         "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
         "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
-        "eighteen": 18,
+        "eighteen": 18, "nineteen": 19, "twenty": 20, "twenty-one": 21,
+        "twenty-two": 22,
     }
-    stated = re.search(r"The (\w+) accepted here are", text)
+    stated = re.search(r"The ([\w-]+) accepted here are", text)
     assert stated is not None, "the matrix no longer states a count"
     assert stated.group(1) in words, f"unhandled number word {stated.group(1)!r}"
 
@@ -3863,3 +4039,256 @@ def test_empty_set_family_accepts_only_the_empty_set_rendering():
 
     # The reverse direction is not the documented deviation either.
     assert not classify(["{}"], ["set()"])
+
+
+def _family_named(name):
+    from tools.parity.known import load_known_divergences
+
+    _, families = load_known_divergences()
+    selected = [family for family in families if family.get("family") == name]
+    assert selected, f"the {name} family must be registered"
+    return selected
+
+
+def _classify(recipe, reference, candidate, families):
+    difference = compare_outcomes(reference, candidate)
+    assert difference is not None, "expected a difference to classify"
+    return is_known_family_failure(
+        recipe, difference.to_dict(), reference, candidate, families
+    )
+
+
+def _floats(*values):
+    from tools.parity.canonical import canonicalize
+
+    return [canonicalize(value) for value in values]
+
+
+def test_ieee_log_domain_family_admits_only_ieee_answers():
+    """Issue #1116: runtime spec OP-10, accepted in parity_matrix.rst but
+    pinned by no family."""
+    families = _family_named("ieee-log-domain")
+    recipe = {
+        "template": "unary_operator",
+        "parameters": {"input_type": "float", "operation": "ln"},
+        "inputs": {"ts": [1.0, 0.0, -1.0]},
+    }
+    raised = {"status": "error", "phase": "runtime", "exception": {"category": "runtime"}}
+
+    def candidate(*values):
+        return {"status": "ok", "trace": _floats(*values)}
+
+    import math
+
+    assert _classify(recipe, raised, candidate(0.0, -math.inf, math.nan), families)
+    # A wrong logarithm, a finite answer for zero, or a missing tick is a defect.
+    assert not _classify(recipe, raised, candidate(0.5, -math.inf, math.nan), families)
+    assert not _classify(recipe, raised, candidate(0.0, 0.0, math.nan), families)
+    assert not _classify(recipe, raised, candidate(0.0, -math.inf), families)
+    # Only a run-time raise is the documented reference outcome.
+    wiring = dict(raised, phase="wiring")
+    assert not _classify(recipe, wiring, candidate(0.0, -math.inf, math.nan), families)
+    # Every input positive: a reference raise is not this deviation.
+    positive = dict(recipe, inputs={"ts": [1.0, 2.0]})
+    assert not _classify(
+        positive, raised, candidate(0.0, math.log(2.0)), families
+    )
+    # Another operation is outside the family.
+    other = dict(recipe, parameters={"input_type": "float", "operation": "abs_"})
+    assert not _classify(other, raised, candidate(0.0, -math.inf, math.nan), families)
+
+
+def test_n_ary_set_fold_family_admits_only_the_fold():
+    """Issues #1428, #1478 and #978: runtime spec OP-7."""
+    families = _family_named("n-ary-set-fold")
+
+    def sets(*ticks):
+        return [
+            None if tick is None else {"$set_delta": {"added": sorted(tick), "removed": []}}
+            for tick in ticks
+        ]
+
+    tss = {
+        "template": "set_operator",
+        "parameters": {"element_type": "int", "operation": "intersection"},
+        "inputs": {"a": sets({1, 2}), "b": sets({2}), "c": sets({2, 3})},
+    }
+    rejected = {"status": "error", "phase": "wiring", "exception": {"category": "wiring"}}
+    assert _classify(tss, rejected, {"status": "ok", "trace": sets({2})}, families)
+    assert not _classify(tss, rejected, {"status": "ok", "trace": sets({2, 3})}, families)
+    symmetric = dict(
+        tss,
+        parameters={"element_type": "int", "operation": "symmetric_difference"},
+        inputs={"a": sets({1}), "b": sets({2}), "c": sets({3})},
+    )
+    assert _classify(symmetric, rejected, {"status": "ok", "trace": sets({1, 2, 3})}, families)
+    # Two operands are not a fold, and union always wires in the reference.
+    pair = dict(tss, inputs={"a": sets({1, 2}), "b": sets({2})})
+    assert not _classify(pair, rejected, {"status": "ok", "trace": sets({2})}, families)
+    union = dict(tss, parameters={"element_type": "int", "operation": "union"})
+    assert not _classify(union, rejected, {"status": "ok", "trace": sets({1, 2, 3})}, families)
+
+    tsd = {
+        "template": "set_operator",
+        "parameters": {"element_type": "int", "operation": "symmetric_difference", "shape": "tsd"},
+        "inputs": {"a": [{"a": -11}], "b": [{"a": -19}], "c": [{"a": -19}]},
+    }
+    silent = {"status": "ok", "trace": None}
+    assert _classify(tsd, silent, {"status": "ok", "trace": [{"$map": [["a", -19]]}]}, families)
+    assert not _classify(tsd, silent, {"status": "ok", "trace": [{"$map": [["a", -11]]}]}, families)
+    # OP-6: an operand that never ticks admits no fold, so publishing is a defect.
+    unadmitted = dict(tsd, inputs={"a": [None, None], "b": [None, None], "c": [None, {"b": -17}]})
+    assert not _classify(
+        unadmitted, silent, {"status": "ok", "trace": [None, {"$map": [["b", -17]]}]}, families
+    )
+    # Codex review on #1625: every admitted cycle is checked, not only the
+    # final value -- a transient wrong member corrected later is a defect.
+    two_ticks = dict(tss, inputs={"a": sets({1, 2}, None), "b": sets({2}, None), "c": sets({2, 3}, None)})
+    assert _classify(two_ticks, rejected, {"status": "ok", "trace": sets({2}, None)}, families)
+    corrected = [
+        {"$set_delta": {"added": [9], "removed": []}},
+        {"$set_delta": {"added": [2], "removed": [9]}},
+    ]
+    assert not _classify(two_ticks, rejected, {"status": "ok", "trace": corrected}, families)
+    # A fold that empties again is still the fold (it published, then removed).
+    emptied = dict(
+        tsd,
+        inputs={"a": [{"x": 1}, {"x": {"$remove": True}}], "b": [{"y": 2}, None], "c": [{"y": 3}, None]},
+    )
+    assert _classify(
+        emptied,
+        silent,
+        {"status": "ok", "trace": [{"$map": [["x", 1]]}, {"$map": [["x", {"$remove": True}]]}]},
+        families,
+    )
+    # Publishing before the last operand's first tick is a defect too.
+    late = dict(tsd, inputs={"a": [{"x": 1}, None], "b": [{"y": 2}, None], "c": [None, {"z": 3}]})
+    assert not _classify(
+        late,
+        silent,
+        {"status": "ok", "trace": [{"$map": [["x", 1], ["y", 2]]}, {"$map": [["z", 3]]}]},
+        families,
+    )
+
+
+def test_key_set_reader_tick_family_admits_only_empty_set_answers():
+    """Issues #1139, #1140, #1160, #1200, #1391, #1393: runtime spec OP-3."""
+    families = _family_named("key-set-reader-tick")
+    recipe = {
+        "template": "tsd_key_set_pipeline",
+        "parameters": {"dedup_size": True, "reference_source": "tsd_getitem"},
+        "inputs": {"probe": [None], "values": [None]},
+    }
+    nan = {"$float": "nan"}
+    reference = {
+        "status": "ok",
+        "trace": [
+            {
+                "$map": [
+                    ["average", nan],
+                    ["empty", True],
+                    ["maximum", 0],
+                    ["minimum", 0],
+                    ["size", 0],
+                    ["total", 0],
+                ]
+            }
+        ],
+    }
+
+    def candidate(*entries):
+        return {"status": "ok", "trace": [{"$map": [list(entry) for entry in entries]}]}
+
+    # As observed today, and once the aggregates stop answering for an invalid set.
+    assert _classify(
+        recipe,
+        reference,
+        candidate(("average", nan), ("empty", True), ("maximum", 0), ("minimum", 0), ("total", 0)),
+        families,
+    )
+    assert _classify(recipe, reference, candidate(("empty", True)), families)
+    # A shared field that disagrees, an extra candidate field, or a
+    # reference-only field that is not an empty-set answer is a defect.
+    assert not _classify(recipe, reference, candidate(("empty", False)), families)
+    assert not _classify(
+        recipe, reference, candidate(("empty", True), ("contains", False)), families
+    )
+    wrong = {
+        "status": "ok",
+        "trace": [{"$map": [["empty", True], ["size", 1]]}],
+    }
+    assert not _classify(recipe, wrong, candidate(("empty", True)), families)
+    # Codex review on #1625: a dictionary that ticked empty has a valid key
+    # set, so its missing aggregates are defects even with no key.
+    ticked_empty = dict(recipe, inputs={"probe": [None], "values": [{}]})
+    assert not _classify(ticked_empty, reference, candidate(("empty", True)), families)
+    # Once the dictionary holds a key, the key set really ticked: a missing
+    # size is a defect.
+    keyed = dict(recipe, inputs={"probe": [None], "values": [{"1": 5}]})
+    assert not _classify(keyed, reference, candidate(("empty", True)), families)
+
+
+def test_unordered_member_text_family_admits_only_a_reordering():
+    """Owner ruling 2026-09-24 (#1082, #1083, #1086): a map's text has no
+    member order."""
+    families = _family_named("unordered-member-text")
+    recipe = {"template": "unary_operator", "parameters": {"input_type": "tsd", "operation": "str_"}}
+
+    def classify(reference_trace, candidate_trace):
+        return _classify(
+            recipe,
+            {"status": "ok", "trace": reference_trace},
+            {"status": "ok", "trace": candidate_trace},
+            families,
+        )
+
+    assert classify(["{'a': 2}", "{'b': -19, 'a': -19}"], ["{'a': 2}", "{'a': -19, 'b': -19}"])
+    assert classify(["({'b': 1, 'a': 2},)"], ["({'a': 2, 'b': 1},)"])
+    assert classify(["{2, 1}"], ["{1, 2}"])
+    # A different member or value, an extra member, or a tuple reordering is a defect.
+    assert not classify(["{'b': -19, 'a': -19}"], ["{'a': -19, 'b': -18}"])
+    assert not classify(["{'b': 1}"], ["{'a': 1, 'b': 1}"])
+    assert not classify(["(1, 2)"], ["(2, 1)"])
+    # Codex review on #1633: type-strict members and no duplicates.
+    assert not classify(["{1}"], ["{True}"])
+    assert not classify(["{1, 2}"], ["{2, 1, 1}"])
+    assert not classify(["{'a': 1}"], ["{'a': 1.0}"])
+    # The set() rendering is the separate empty-set family, not a reordering.
+    assert not classify(["set()"], ["{}"])
+    # Unparseable renderings stay reportable.
+    assert not classify(["{'a': datetime.date(2020, 1, 1)}"], ["{'a': 2020-01-01}"])
+
+
+def test_first_empty_set_result_family_admits_only_the_validating_tick():
+    """Owner ruling 2026-09-24 (#983, #984, #1004, #1008)."""
+    families = _family_named("first-empty-set-result")
+    recipe = {
+        "template": "set_operator",
+        "parameters": {"element_type": "int", "operation": "bit_xor", "shape": "tsd"},
+        "inputs": {"a": [{"c": -9}, {"c": {"$remove": True}}, {"c": -19}],
+                   "b": [{"c": -19}, {"a": -18}, {"c": {"$remove": True}}]},
+    }
+
+    def classify(reference_trace, candidate_trace, source=recipe):
+        return _classify(
+            source,
+            {"status": "ok", "trace": reference_trace},
+            {"status": "ok", "trace": candidate_trace},
+            families,
+        )
+
+    later = [{"$map": [["a", -18], ["c", -19]]}, {"$map": [["c", -19]]}]
+    assert classify([None, *later], [{"$map": []}, *later])
+    assert classify(None, [{"$map": []}, None, None])
+    # Not empty, not the first tick, or a later disagreement: a defect.
+    assert not classify([None, *later], [{"$map": [["c", -9]]}, *later])
+    assert not classify([None, None, None], [None, {"$map": []}, None])
+    assert not classify([None, *later], [{"$map": []}, later[0], None])
+    # Codex review on #1634: released difference and intersection already
+    # publish the empty first result, so they are outside the family.
+    for operation in ("difference", "intersection", "bit_and", "sub_"):
+        other = dict(recipe, parameters=dict(recipe["parameters"], operation=operation))
+        assert not classify([None, *later], [{"$map": []}, *later], source=other)
+    # Before every operand of ^ is valid there is no admitted result.
+    early = dict(recipe, inputs={"a": [{"c": 1}, None], "b": [None, {"c": 1}]})
+    assert not classify([None, None], [{"$map": []}, None], source=early)

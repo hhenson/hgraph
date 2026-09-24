@@ -230,7 +230,7 @@ namespace hgraph::stdlib
 
         static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                           Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
-                          Scalar<"model", Str>, TraitsView traits,
+                          Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
                           State<record_replay_memory_detail::SparseRecordState> state)
         {
             state.set(record_replay_memory_detail::SparseRecordState{
@@ -238,6 +238,15 @@ namespace hgraph::stdlib
                     traits, recordable_id.value(), key.value()),
                 .delta_binding = testing::recording_binding_for(
                     ts.base().schema()->delta_value_schema)});
+            // The recording exists from the recorder's start (runtime spec
+            // OP-11): a series that never ticks leaves an EMPTY recording, not
+            // none (parity #1315). An existing one is kept, so a recovered run
+            // still appends to it.
+            const auto &resolved = state.ref();
+            if (!gs.get(resolved.fq_key).valid())
+            {
+                gs.set(resolved.fq_key, testing::make_sparse_buffer(resolved.delta_binding));
+            }
         }
 
         static void eval(

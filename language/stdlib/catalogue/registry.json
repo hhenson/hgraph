@@ -12376,10 +12376,17 @@
             "type": "~S",
             "default": false,
             "carrier": null
+          },
+          {
+            "name": "_tp",
+            "kind": "type",
+            "type": "type[str]",
+            "default": true,
+            "carrier": "scalar"
           }
         ],
         "variadic": false,
-        "positional_count": 1,
+        "positional_count": 2,
         "positional_cardinality": [
           0,
           null
@@ -12391,7 +12398,7 @@
         ],
         "kwargs_type": null,
         "output": "TS[str]",
-        "id": "json_encode:9c967717b79b"
+        "id": "json_encode:0c64b7495f82"
       },
       {
         "parameters": [
@@ -12401,10 +12408,17 @@
             "type": "~S",
             "default": false,
             "carrier": null
+          },
+          {
+            "name": "_tp",
+            "kind": "type",
+            "type": "type[bytes]",
+            "default": true,
+            "carrier": "scalar"
           }
         ],
         "variadic": false,
-        "positional_count": 1,
+        "positional_count": 2,
         "positional_cardinality": [
           0,
           null
@@ -12416,7 +12430,7 @@
         ],
         "kwargs_type": null,
         "output": "TS[bytes]",
-        "id": "json_encode:b0c628a70a84"
+        "id": "json_encode:312e9e50caa7"
       }
     ],
     "keys_": [
@@ -26951,30 +26965,12 @@
       {
         "parameters": [
           {
-            "name": "op",
-            "kind": "scalar",
-            "type": "fn",
-            "default": false,
-            "carrier": null
-          }
-        ],
-        "variadic": false,
-        "positional_count": 1,
-        "positional_cardinality": [
-          0,
-          null
-        ],
-        "kwargs": false,
-        "keyword_cardinality": [
-          0,
-          null
-        ],
-        "kwargs_type": null,
-        "output": "TS[float]",
-        "id": "zero:1de67e292bc9"
-      },
-      {
-        "parameters": [
+            "name": "tp",
+            "kind": "type",
+            "type": "type[TS[int]]",
+            "default": true,
+            "carrier": "time-series"
+          },
           {
             "name": "op",
             "kind": "scalar",
@@ -26984,57 +26980,7 @@
           }
         ],
         "variadic": false,
-        "positional_count": 1,
-        "positional_cardinality": [
-          0,
-          null
-        ],
-        "kwargs": false,
-        "keyword_cardinality": [
-          0,
-          null
-        ],
-        "kwargs_type": null,
-        "output": "TSD[~K, ~V]",
-        "id": "zero:46acf4879a2c"
-      },
-      {
-        "parameters": [
-          {
-            "name": "op",
-            "kind": "scalar",
-            "type": "fn",
-            "default": false,
-            "carrier": null
-          }
-        ],
-        "variadic": false,
-        "positional_count": 1,
-        "positional_cardinality": [
-          0,
-          null
-        ],
-        "kwargs": false,
-        "keyword_cardinality": [
-          0,
-          null
-        ],
-        "kwargs_type": null,
-        "output": "TS[str]",
-        "id": "zero:8585ff2962b5"
-      },
-      {
-        "parameters": [
-          {
-            "name": "op",
-            "kind": "scalar",
-            "type": "fn",
-            "default": false,
-            "carrier": null
-          }
-        ],
-        "variadic": false,
-        "positional_count": 1,
+        "positional_count": 2,
         "positional_cardinality": [
           0,
           null
@@ -27046,7 +26992,103 @@
         ],
         "kwargs_type": null,
         "output": "TS[int]",
-        "id": "zero:8dc8d93248d8"
+        "id": "zero:28da2f8b2235"
+      },
+      {
+        "parameters": [
+          {
+            "name": "tp",
+            "kind": "type",
+            "type": "type[TS[float]]",
+            "default": true,
+            "carrier": "time-series"
+          },
+          {
+            "name": "op",
+            "kind": "scalar",
+            "type": "fn",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 2,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[float]",
+        "id": "zero:2b226bc5071d"
+      },
+      {
+        "parameters": [
+          {
+            "name": "tp",
+            "kind": "type",
+            "type": "type[TS[str]]",
+            "default": true,
+            "carrier": "time-series"
+          },
+          {
+            "name": "op",
+            "kind": "scalar",
+            "type": "fn",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 2,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TS[str]",
+        "id": "zero:6147f121d145"
+      },
+      {
+        "parameters": [
+          {
+            "name": "tp",
+            "kind": "type",
+            "type": "type[TSD[~K, ~V]]",
+            "default": true,
+            "carrier": "time-series"
+          },
+          {
+            "name": "op",
+            "kind": "scalar",
+            "type": "fn",
+            "default": false,
+            "carrier": null
+          }
+        ],
+        "variadic": false,
+        "positional_count": 2,
+        "positional_cardinality": [
+          0,
+          null
+        ],
+        "kwargs": false,
+        "keyword_cardinality": [
+          0,
+          null
+        ],
+        "kwargs_type": null,
+        "output": "TSD[~K, ~V]",
+        "id": "zero:668745b1c633"
       }
     ]
   }

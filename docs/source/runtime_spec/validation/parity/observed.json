@@ -1,0 +1,6107 @@
+{
+ "cases": {
+  "1002": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-1ae30bd0ebcd",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1003": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-3c03337c09f7",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1004": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -18
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-5bb46a44535c",
+    "inputs": {
+     "a": [
+      {
+       "c": -9
+      },
+      {
+       "c": {
+        "$remove": true
+       }
+      },
+      {
+       "c": -19
+      }
+     ],
+     "b": [
+      {
+       "c": -19
+      },
+      {
+       "a": -18
+      },
+      {
+       "c": {
+        "$remove": true
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -18
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1005": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-1e32a509c15a",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1006": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-1200841aa21a",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1007": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-876d14cfa067",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1008": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-407199984bcb",
+    "inputs": {
+     "a": [
+      {
+       "b": -17
+      },
+      {
+       "a": -19
+      },
+      null,
+      {
+       "a": {
+        "$remove": true
+       }
+      }
+     ],
+     "b": [
+      {
+       "b": -18
+      },
+      {
+       "a": -19
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1009": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-086c9c40977b",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null
+     ],
+     "c": [
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1010": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -5
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-f12dc2c81e6b",
+    "inputs": {
+     "a": [
+      {
+       "a": -5
+      },
+      null
+     ],
+     "b": [
+      null,
+      {
+       "a": -5
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 41,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -5
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -5
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1028": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -19
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     null,
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-0730e889d810",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      {
+       "b": -19
+      },
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      {
+       "c": -19
+      },
+      {
+       "b": -17
+      },
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -19
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        -17
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   }
+  },
+  "1029": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6804101f2c80",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1030": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        2
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-bca3a80dbbb1",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": 2
+      },
+      null,
+      {
+       "a": 2
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        2
+       ]
+      ]
+     },
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        2
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1031": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -7
+       ],
+       [
+        "c",
+        2
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-ba85b32ae729",
+    "inputs": {
+     "a": [
+      {
+       "a": -7
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      {
+       "c": 2
+      },
+      {
+       "a": -19
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -7
+       ],
+       [
+        "c",
+        2
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1032": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -19
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-295cf0903d66",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      {
+       "b": -19
+      }
+     ],
+     "b": [
+      {
+       "b": -19
+      },
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -19
+       ]
+      ]
+     },
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1033": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-936772eb12d7",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   }
+  },
+  "1034": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-7e15690f4ed1",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null
+     ],
+     "c": [
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1035": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-7de3e3e76784",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1036": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-ef7ec003c735",
+    "inputs": {
+     "a": [
+      null,
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1037": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-e5efe3489b77",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1038": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-d2135dccafc9",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1039": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-f1096157fa2d",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1040": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ],
+       [
+        "b",
+        -13
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        {
+         "$remove": true
+        }
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        {
+         "$remove": true
+        }
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-f226a20fbd1f",
+    "inputs": {
+     "a": [
+      {
+       "b": -13
+      },
+      null,
+      {
+       "a": -19
+      },
+      null,
+      {
+       "a": {
+        "$remove": true
+       }
+      }
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      {
+       "b": -18
+      },
+      {
+       "a": -19
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ],
+       [
+        "b",
+        -13
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        {
+         "$remove": true
+        }
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        {
+         "$remove": true
+        }
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1041": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        10
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-3efc82f7f57d",
+    "inputs": {
+     "a": [
+      {
+       "b": 10
+      },
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "b": 10
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        10
+       ]
+      ]
+     },
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        10
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1042": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        6
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-cc20e58cea78",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      {
+       "b": 6
+      },
+      null,
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        6
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1043": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -10
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-754060e6362f",
+    "inputs": {
+     "a": [
+      {
+       "b": -10
+      },
+      {
+       "c": -19
+      }
+     ],
+     "b": [
+      {
+       "c": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -10
+       ],
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1044": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     null,
+     null,
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-04db0c962d19",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   }
+  },
+  "1045": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -11
+       ],
+       [
+        "c",
+        -20
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-d1dd14e89169",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -11
+      },
+      null,
+      null
+     ],
+     "c": [
+      null,
+      {
+       "a": -19
+      },
+      {
+       "c": -20
+      },
+      {
+       "a": -17
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -11
+       ],
+       [
+        "c",
+        -20
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -17
+       ]
+      ]
+     },
+     null
+    ]
+   }
+  },
+  "1046": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -11
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-1d6782736aef",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ],
+     "c": [
+      {
+       "a": -11
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1047": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-ed37722d762d",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null
+     ],
+     "c": [
+      {
+       "a": -19
+      },
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1048": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        -11
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-ee40fb10eaef",
+    "inputs": {
+     "a": [
+      {
+       "c": -11
+      },
+      {
+       "c": -11
+      }
+     ],
+     "b": [
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        -11
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -11
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1049": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6767d097cbc1",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null
+     ],
+     "c": [
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1061": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-2fa0bf4dff19",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1062": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "('\u0087', '\u000b\ud9f2\ude7d')"
+    ]
+   },
+   "note": "Recipe reconstructed: the issue body stores U+0087 as the text \"\\^G\"; the reference trace confirms the character. Replayed on macOS arm64 only.",
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "family:unary",
+     "operator:str_",
+     "shape:TS",
+     "topology:operator-family",
+     "type:tuple_str"
+    ],
+    "id": "generated-unary-operator-a2da762c13ae",
+    "inputs": {
+     "ts": [
+      {
+       "$tuple": [
+        "\u0087",
+        "\u000b\ud9f2\ude7d"
+       ]
+      }
+     ]
+    },
+    "parameters": {
+     "input_type": "tuple_str",
+     "operation": "str_"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "('\\x87', '\\x0b\\U0008ca7d')"
+    ]
+   }
+  },
+  "1063": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-a3c6f34eea0f",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null
+     ],
+     "c": [
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   }
+  },
+  "1064": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-f565ba8bc290",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1065": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -1
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-89bafcfa5acf",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      {
+       "c": -19
+      }
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -1
+      },
+      {
+       "c": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -1
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1066": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-c478ba54049e",
+    "inputs": {
+     "a": [
+      {
+       "a": -19
+      },
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1067": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -20
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-ccd8ad0db097",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "b": -20
+      },
+      null
+     ],
+     "c": [
+      null,
+      {
+       "b": 7
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        -20
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        7
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1068": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "c",
+        -3
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-d088f0a324a4",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      {
+       "c": -3
+      }
+     ],
+     "b": [
+      null,
+      {
+       "c": -3
+      },
+      null
+     ],
+     "c": [
+      null,
+      null,
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "c",
+        -3
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -3
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1069": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -17
+       ]
+      ]
+     },
+     null,
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-750c72fc3a5a",
+    "inputs": {
+     "a": [
+      {
+       "a": -17
+      },
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -13
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -17
+       ]
+      ]
+     },
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -13
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1082": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': 2}",
+     "{'b': -19}",
+     "{'a': -19, 'b': -19}"
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "family:unary",
+     "operator:str_",
+     "shape:TS",
+     "topology:operator-family",
+     "type:tsd"
+    ],
+    "id": "generated-unary-operator-e0dc40ba3da1",
+    "inputs": {
+     "ts": [
+      {
+       "a": 2
+      },
+      {
+       "a": {
+        "$remove": true
+       },
+       "b": -19
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "input_type": "tsd",
+     "operation": "str_"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': 2}",
+     "{'b': -19}",
+     "{'b': -19, 'a': -19}"
+    ]
+   }
+  },
+  "1083": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': -19, 'b': -19}",
+     "{'b': -19}",
+     "{'a': -19, 'b': -19}"
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "family:unary",
+     "operator:str_",
+     "shape:TS",
+     "topology:operator-family",
+     "type:tsd"
+    ],
+    "id": "generated-unary-operator-d40538949100",
+    "inputs": {
+     "ts": [
+      {
+       "a": -19,
+       "b": -19
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "input_type": "tsd",
+     "operation": "str_"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': -19, 'b': -19}",
+     "{'b': -19}",
+     "{'b': -19, 'a': -19}"
+    ]
+   }
+  },
+  "1084": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-150b59516209",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1085": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -17
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-d18419e71fb8",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "c": [
+      null,
+      null,
+      null,
+      {
+       "b": -17
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1086": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': -5}",
+     "{'b': -8}",
+     "{'a': -13, 'b': -8}"
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "family:unary",
+     "operator:str_",
+     "shape:TS",
+     "topology:operator-family",
+     "type:tsd"
+    ],
+    "id": "generated-unary-operator-228f963f5c9b",
+    "inputs": {
+     "ts": [
+      {
+       "a": -5
+      },
+      {
+       "a": {
+        "$remove": true
+       },
+       "b": -8
+      },
+      {
+       "a": -13
+      }
+     ]
+    },
+    "parameters": {
+     "input_type": "tsd",
+     "operation": "str_"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "{'a': -5}",
+     "{'b': -8}",
+     "{'b': -8, 'a': -13}"
+    ]
+   }
+  },
+  "1087": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -18
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-a2996e99f489",
+    "inputs": {
+     "a": [
+      null,
+      null
+     ],
+     "b": [
+      {
+       "a": -18
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1116": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$float": "0x0.0p+0"
+     },
+     {
+      "$float": "-inf"
+     },
+     {
+      "$float": "nan"
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Pin the accepted ln boundary deviation: released hgraph raises on a non-positive argument, hgraph yields the IEEE result. Accepted on issue #810 item 4.6.",
+    "features": [
+     "operation:ln",
+     "type:float",
+     "family:math",
+     "deviation:ieee-boundary"
+    ],
+    "id": "deviation-unary-ln-non-positive",
+    "inputs": {
+     "ts": [
+      1.0,
+      0.0,
+      -1.0
+     ]
+    },
+    "parameters": {
+     "input_type": "float",
+     "operation": "ln"
+    },
+    "schema_version": 1,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "exception": {
+     "category": "runtime",
+     "type": "NodeException"
+    },
+    "phase": "runtime",
+    "status": "error"
+   }
+  },
+  "1122": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       [
+        "v=<n/a>"
+       ]
+      ]
+     ]
+    }
+   },
+   "recipe": {
+    "description": "Issue #819: print_ of an integral float writes 3.0, not 3 -- the captured stdout is where a user actually reads it.",
+    "features": [
+     "observation:stdout",
+     "operation:print_",
+     "topology:sink",
+     "type:float"
+    ],
+    "id": "issue-819-print-float-keeps-the-point",
+    "inputs": {
+     "ts": [
+      null
+     ]
+    },
+    "parameters": {
+     "capture": "stdout",
+     "input_type": "float",
+     "label": "v",
+     "operation": "print_"
+    },
+    "schema_version": 1,
+    "template": "sink_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       []
+      ]
+     ]
+    }
+   }
+  },
+  "1139": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "binding:peered",
+     "lifecycle:keyed",
+     "operator:getitem_",
+     "reference-source:tsd_getitem",
+     "reference:REF",
+     "shape:TSB",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:key-set-projection",
+     "topology:operator-composition",
+     "type:bool",
+     "type:float",
+     "type:int"
+    ],
+    "id": "generated-tsd-key-set-pipeline-9a2a1e6b8e56",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true,
+     "reference_source": "tsd_getitem"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1140": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "binding:peered",
+     "lifecycle:keyed",
+     "operator:getitem_",
+     "operator:map_",
+     "reference-source:map_element",
+     "reference:REF",
+     "shape:TSB",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:key-set-projection",
+     "topology:map",
+     "topology:operator-composition",
+     "type:bool",
+     "type:float",
+     "type:int"
+    ],
+    "id": "generated-tsd-key-set-pipeline-48365afd629a",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true,
+     "reference_source": "map_element"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1160": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "binding:peered",
+     "lifecycle:keyed",
+     "operator:if_",
+     "reference-source:if_true",
+     "reference:REF",
+     "shape:TSB",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:key-set-projection",
+     "topology:operator-composition",
+     "type:bool",
+     "type:float",
+     "type:int"
+    ],
+    "id": "generated-tsd-key-set-pipeline-9568a42a8e87",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true,
+     "reference_source": "if_true"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1181": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     false
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:list-collection",
+     "operator:all_",
+     "shape:TSL",
+     "topology:operator-family",
+     "type:bool"
+    ],
+    "id": "generated-tsl-operator-5cee7a837ec1",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ]
+    },
+    "parameters": {
+     "input_type": "bool",
+     "operation": "all_"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsl_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1200": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "binding:peered",
+     "lifecycle:keyed",
+     "operator:switch_",
+     "reference-source:switch_branch",
+     "reference:REF",
+     "shape:TSB",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:key-set-projection",
+     "topology:operator-composition",
+     "topology:switch",
+     "type:bool",
+     "type:float",
+     "type:int"
+    ],
+    "id": "generated-tsd-key-set-pipeline-7c40dad7c623",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true,
+     "reference_source": "switch_branch"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1246": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     false
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:list-collection",
+     "operator:all_",
+     "shape:TSL",
+     "topology:operator-family",
+     "type:bool"
+    ],
+    "id": "generated-tsl-operator-3b547c9b7ee5",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ],
+     "c": [
+      null
+     ]
+    },
+    "parameters": {
+     "input_type": "bool",
+     "operation": "all_"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsl_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1315": {
+   "candidate": {
+    "exception": {
+     "category": "type",
+     "type": "TypeError"
+    },
+    "phase": "runtime",
+    "status": "error"
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "boundary:python-owned",
+     "lifecycle:leaf-change",
+     "lifecycle:multi-cycle",
+     "polymorphic-operation:record_replay",
+     "shape:TS",
+     "topology:user-pipeline",
+     "type:CompoundScalar",
+     "type:polymorphic",
+     "type:transitive-subclass"
+    ],
+    "id": "generated-polymorphic-event-flow-683756b88a17",
+    "inputs": {
+     "events": [
+      null
+     ],
+     "key": [
+      null
+     ],
+     "trigger": [
+      null
+     ]
+    },
+    "parameters": {
+     "operation": "record_replay"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "polymorphic_event_flow"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "live",
+       null
+      ],
+      [
+       "recorded",
+       []
+      ],
+      [
+       "replayed",
+       null
+      ]
+     ]
+    }
+   }
+  },
+  "1339": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       [
+        "observed=<n/a>"
+       ]
+      ]
+     ]
+    }
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "capture:stdout",
+     "family:sink",
+     "operator:print_",
+     "shape:TS",
+     "topology:sink",
+     "type:int"
+    ],
+    "id": "generated-sink-operator-0254b473bcfb",
+    "inputs": {
+     "ts": [
+      null
+     ]
+    },
+    "parameters": {
+     "capture": "stdout",
+     "input_type": "int",
+     "label": "observed",
+     "operation": "print_"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "sink_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       []
+      ]
+     ]
+    }
+   }
+  },
+  "1355": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     false
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:list-collection",
+     "operator:any_",
+     "shape:TSL",
+     "topology:operator-family",
+     "type:bool"
+    ],
+    "id": "generated-tsl-operator-3ddd58fdddb5",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ],
+     "c": [
+      null
+     ]
+    },
+    "parameters": {
+     "input_type": "bool",
+     "operation": "any_"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsl_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1391": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "A REF-transparent TSD key-set projection drives membership, extrema, and aggregate operators across keyed lifecycle events.",
+    "features": [
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-composition",
+     "topology:key-set-projection",
+     "lifecycle:key-removal",
+     "lifecycle:value-only-update",
+     "reference:REF",
+     "binding:non-peered",
+     "lifecycle:multi-cycle"
+    ],
+    "id": "tsd-key-set-pipeline",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true
+    },
+    "schema_version": 1,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1393": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "binding:non-peered",
+     "lifecycle:keyed",
+     "operator:getitem_",
+     "reference-source:tsl_projection",
+     "reference:REF",
+     "shape:TSB",
+     "shape:TSD",
+     "shape:TSL",
+     "shape:TSS",
+     "topology:key-set-projection",
+     "topology:operator-composition",
+     "type:bool",
+     "type:float",
+     "type:int"
+    ],
+    "id": "generated-tsd-key-set-pipeline-0c73a0ee847e",
+    "inputs": {
+     "probe": [
+      null
+     ],
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "dedup_size": true,
+     "reference_source": "tsl_projection"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsd_key_set_pipeline"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "average",
+        {
+         "$float": "nan"
+        }
+       ],
+       [
+        "empty",
+        true
+       ],
+       [
+        "maximum",
+        0
+       ],
+       [
+        "minimum",
+        0
+       ],
+       [
+        "size",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "1428": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$set_delta": {
+       "added": [
+        2
+       ],
+       "removed": []
+      }
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Pin the accepted three-input set fold deviation for intersection: released hgraph fails at wiring because it has no set zero for the fold, hgraph evaluates the fold. Accepted on issue #810 item 5.6.",
+    "features": [
+     "operation:intersection",
+     "type:int",
+     "shape:TSS",
+     "arity:three",
+     "deviation:set-fold-zero"
+    ],
+    "id": "deviation-set-intersection-three-input-fold",
+    "inputs": {
+     "a": [
+      {
+       "$set_delta": {
+        "added": [
+         1,
+         2
+        ],
+        "removed": []
+       }
+      }
+     ],
+     "b": [
+      {
+       "$set_delta": {
+        "added": [
+         2
+        ],
+        "removed": []
+       }
+      }
+     ],
+     "c": [
+      {
+       "$set_delta": {
+        "added": [
+         2,
+         3
+        ],
+        "removed": []
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "intersection"
+    },
+    "schema_version": 1,
+    "template": "set_operator"
+   },
+   "reference": {
+    "exception": {
+     "category": "wiring",
+     "type": "WiringError"
+    },
+    "phase": "wiring",
+    "status": "error"
+   }
+  },
+  "1476": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     3
+    ]
+   },
+   "recipe": {
+    "description": "RFC 0033 fix shape: type[SIZE] resolved from a TSL input materialises as the Size object with .SIZE.",
+    "features": [
+     "shape:TSL",
+     "type-argument:size",
+     "syntax:bare-subscript",
+     "compatibility:release-0.5"
+    ],
+    "id": "coverage-type-argument-size-auto",
+    "inputs": {
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "mode": "auto",
+     "size": 3
+    },
+    "schema_version": 1,
+    "template": "type_argument_size_pin"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1478": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$set_delta": {
+       "added": [
+        1,
+        2,
+        3
+       ],
+       "removed": []
+      }
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Pin the accepted three-input set fold deviation: released hgraph fails at wiring because it has no set zero for the fold, hgraph evaluates the fold. Accepted on issue #810 item 5.6.",
+    "features": [
+     "operation:symmetric_difference",
+     "type:int",
+     "shape:TSS",
+     "arity:three",
+     "deviation:set-fold-zero"
+    ],
+    "id": "deviation-set-symmetric-difference-three-input-fold",
+    "inputs": {
+     "a": [
+      {
+       "$set_delta": {
+        "added": [
+         1
+        ],
+        "removed": []
+       }
+      }
+     ],
+     "b": [
+      {
+       "$set_delta": {
+        "added": [
+         2
+        ],
+        "removed": []
+       }
+      }
+     ],
+     "c": [
+      {
+       "$set_delta": {
+        "added": [
+         3
+        ],
+        "removed": []
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference"
+    },
+    "schema_version": 1,
+    "template": "set_operator"
+   },
+   "reference": {
+    "exception": {
+     "category": "wiring",
+     "type": "WiringError"
+    },
+    "phase": "wiring",
+    "status": "error"
+   }
+  },
+  "1494": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     false
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:list-collection",
+     "operator:any_",
+     "shape:TSL",
+     "topology:operator-family",
+     "type:bool"
+    ],
+    "id": "generated-tsl-operator-c6e2e5bef0fe",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ]
+    },
+    "parameters": {
+     "input_type": "bool",
+     "operation": "any_"
+    },
+    "schema_version": 1,
+    "seed": 45,
+    "template": "tsl_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1538": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     2
+    ]
+   },
+   "recipe": {
+    "description": "RFC 0033 fix shape: a Size pinned by subscript, g[Size[2]], reaches the body as the same Size object as the auto-resolved form.",
+    "features": [
+     "shape:TSL",
+     "type-argument:size",
+     "syntax:bare-subscript",
+     "compatibility:release-0.5"
+    ],
+    "id": "coverage-type-argument-size-subscript",
+    "inputs": {
+     "values": [
+      null
+     ]
+    },
+    "parameters": {
+     "mode": "subscript",
+     "size": 2
+    },
+    "schema_version": 1,
+    "template": "type_argument_size_pin"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "1564": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       [
+        "v=<n/a>"
+       ]
+      ]
+     ]
+    }
+   },
+   "recipe": {
+    "description": "print_ with its standard output captured into the trace.",
+    "features": [
+     "operation:print_",
+     "topology:sink",
+     "observation:stdout"
+    ],
+    "id": "coverage-sink-print-stdout",
+    "inputs": {
+     "ts": [
+      null
+     ]
+    },
+    "parameters": {
+     "capture": "stdout",
+     "input_type": "int",
+     "label": "v",
+     "operation": "print_"
+    },
+    "schema_version": 1,
+    "template": "sink_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       []
+      ]
+     ]
+    }
+   }
+  },
+  "1613": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       [
+        "v=<n/a>"
+       ]
+      ]
+     ]
+    }
+   },
+   "recipe": {
+    "description": "Issue #819: print_ shares str_'s user-facing rendering, so its captured stdout reads True and False. print_ and format_ once disagreed here because they rendered through different engines.",
+    "features": [
+     "observation:stdout",
+     "operation:print_",
+     "topology:sink",
+     "type:bool"
+    ],
+    "id": "issue-819-print-bool-python-spelling",
+    "inputs": {
+     "ts": [
+      null
+     ]
+    },
+    "parameters": {
+     "capture": "stdout",
+     "input_type": "bool",
+     "label": "v",
+     "operation": "print_"
+    },
+    "schema_version": 1,
+    "template": "sink_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": {
+     "$map": [
+      [
+       "result",
+       null
+      ],
+      [
+       "stdout",
+       []
+      ]
+     ]
+    }
+   }
+  },
+  "959": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-1c8bf1f7561f",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "960": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "('\u00c1\ud94e\udfba\u00de\u00c6',)"
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "family:unary",
+     "operator:str_",
+     "shape:TS",
+     "topology:operator-family",
+     "type:tuple_str"
+    ],
+    "id": "generated-unary-operator-7f5dc116c143",
+    "inputs": {
+     "ts": [
+      {
+       "$tuple": [
+        "\u00c1\ud94e\udfba\u00de\u00c6"
+       ]
+      }
+     ]
+    },
+    "parameters": {
+     "input_type": "tuple_str",
+     "operation": "str_"
+    },
+    "schema_version": 1,
+    "seed": 39,
+    "template": "unary_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     "('\u00c1\\U00063bba\u00de\u00c6',)"
+    ]
+   }
+  },
+  "961": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok"
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-18850ce91f96",
+    "inputs": {
+     "a": [
+      {
+       "c": 2
+      }
+     ],
+     "b": [
+      {
+       "c": -17
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": []
+     }
+    ]
+   }
+  },
+  "962": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -18
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-b6d04e03d070",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      {
+       "b": -18
+      }
+     ],
+     "b": [
+      null,
+      {
+       "b": -18
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 39,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "b",
+        -18
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        -18
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "963": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        {
+         "$map": [
+          [
+           "c",
+           0
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "declaration:nested-collection",
+     "shape:TSD"
+    ],
+    "id": "generated-declaration-shape-0c234dc03d19",
+    "inputs": {
+     "key": [
+      "c"
+     ],
+     "value": [
+      null
+     ]
+    },
+    "parameters": {
+     "declaration_shape": "nested_collection"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "declaration_shape"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        {
+         "$map": []
+        }
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "964": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        {
+         "$map": [
+          [
+           "b",
+           0
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "declaration:nested-collection",
+     "shape:TSD"
+    ],
+    "id": "generated-declaration-shape-790d5f576724",
+    "inputs": {
+     "key": [
+      "b"
+     ],
+     "value": [
+      null
+     ]
+    },
+    "parameters": {
+     "declaration_shape": "nested_collection"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "declaration_shape"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        {
+         "$map": []
+        }
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "965": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        {
+         "$map": [
+          [
+           "a",
+           0
+          ]
+         ]
+        }
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "declaration:nested-collection",
+     "shape:TSD"
+    ],
+    "id": "generated-declaration-shape-502a159cf2da",
+    "inputs": {
+     "key": [
+      "a"
+     ],
+     "value": [
+      null
+     ]
+    },
+    "parameters": {
+     "declaration_shape": "nested_collection"
+    },
+    "schema_version": 1,
+    "seed": 44,
+    "template": "declaration_shape"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        {
+         "$map": []
+        }
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "966": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_xor",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-20418db99efa",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_xor",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 39,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "967": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-c3a89088d7ad",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 42,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "968": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-7b54af4ef8a3",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 39,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "969": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-473434002ebd",
+    "inputs": {
+     "a": [
+      null
+     ],
+     "b": [
+      null
+     ],
+     "c": [
+      {
+       "c": 19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 39,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "978": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:3",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-008d87e9a8e0",
+    "inputs": {
+     "a": [
+      {
+       "a": -11
+      }
+     ],
+     "b": [
+      {
+       "a": -19
+      }
+     ],
+     "c": [
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "979": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        15
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6000896b0013",
+    "inputs": {
+     "a": [
+      {
+       "b": 15
+      },
+      null
+     ],
+     "b": [
+      null,
+      {
+       "b": 15
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "b",
+        15
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "b",
+        15
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "980": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        12
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:bit_or",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-5b7572740675",
+    "inputs": {
+     "a": [
+      {
+       "c": 12
+      },
+      null
+     ],
+     "b": [
+      null,
+      {
+       "c": 12
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "bit_or",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 43,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     {
+      "$map": [
+       [
+        "c",
+        12
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        12
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "981": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-a73e373be0a5",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "a": -19
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok"
+   }
+  },
+  "982": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:union",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6bf999d8fa8c",
+    "inputs": {
+     "a": [
+      null,
+      null,
+      null,
+      {
+       "c": -19
+      }
+     ],
+     "b": [
+      null,
+      null,
+      {
+       "c": -19
+      },
+      null
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "union",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     null,
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "c",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "983": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6eec54bb68b1",
+    "inputs": {
+     "a": [
+      {
+       "a": -15
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      null,
+      {
+       "a": {
+        "$remove": true
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  "984": {
+   "candidate": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ],
+       [
+        "b",
+        -19
+       ]
+      ]
+     },
+     null
+    ]
+   },
+   "recipe": {
+    "description": "Deterministically generated parity exploration case.",
+    "features": [
+     "arity:2",
+     "family:set",
+     "operator:symmetric_difference",
+     "shape:TSD",
+     "shape:TSS",
+     "topology:operator-family",
+     "type:int"
+    ],
+    "id": "generated-set-operator-6ed829f9b84d",
+    "inputs": {
+     "a": [
+      {
+       "a": -7
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      },
+      {
+       "a": -19
+      }
+     ],
+     "b": [
+      {
+       "a": -19
+      },
+      {
+       "b": -19
+      },
+      {
+       "a": {
+        "$remove": true
+       }
+      }
+     ]
+    },
+    "parameters": {
+     "element_type": "int",
+     "operation": "symmetric_difference",
+     "shape": "tsd"
+    },
+    "schema_version": 1,
+    "seed": 40,
+    "template": "set_operator"
+   },
+   "reference": {
+    "phase": "complete",
+    "status": "ok",
+    "trace": [
+     null,
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ],
+       [
+        "b",
+        -19
+       ]
+      ]
+     },
+     {
+      "$map": [
+       [
+        "a",
+        -19
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "date": "2026-09-24",
+ "implementations": {
+  "candidate": {
+   "distribution": "hgraph",
+   "version": "0.0.0 (source_head)"
+  },
+  "reference": {
+   "distribution": "hgraph",
+   "version": "0.5.41"
+  }
+ },
+ "note": "Every recipe ran in fresh processes on both platforms with identical results, except #1062 (macOS only). Candidate wheels were built from source_head by tools.parity setup.",
+ "platforms": [
+  "Linux x86_64 (Python 3.14.4)",
+  "macOS arm64 (Python 3.14.7)"
+ ],
+ "source_head": "a2d0f7dec7a53fe82671661bcd6dec4c964cd8f1"
+}

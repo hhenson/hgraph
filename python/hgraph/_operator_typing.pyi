@@ -3484,29 +3484,32 @@ class _json_encode_Operator(_Protocol):
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
        Dynamic JSON value.
 
+    ``_tp`` : type-argument; ``type[str]``, ``type[bytes]``
+       The encoded scalar type, ``str`` or ``bytes``; a type argument (``json_encode(value, str)`` or ``json_encode[SCALAR: str](value)``), as released hgraph declares it (parity #818 item 2.2). Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
-    Compact JSON string.
+    Compact JSON text of the selected type.
 
     Python example
     ~~~~~~~~~~~~~~
 
     .. code-block:: python
 
-       text = hg.json_encode(json_value)
+       text = hg.json_encode(json_value, str)
 
     Accepted native overloads:
 
-    - ``json_encode(ts: TIME_SERIES_TYPE) -> TS[str]``
-    - ``json_encode(ts: TIME_SERIES_TYPE) -> TS[bytes]``
+    - ``json_encode(ts: TIME_SERIES_TYPE, _tp: type[str] = ...) -> TS[str]``
+    - ``json_encode(ts: TIME_SERIES_TYPE, _tp: type[bytes] = ...) -> TS[bytes]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, _tp: object = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 json_encode: _json_encode_Operator
@@ -8447,6 +8450,9 @@ class _zero_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
+    ``tp`` : type-argument; ``type[TS[int]]``, ``type[TS[float]]``, ``type[TS[str]]``, ``type[TSD[K, V]]``
+       The output time-series type, a type argument in released hgraph's position (``zero(TS[int], add_)``; parity #818 item 2.1). Optional in overloads that show ``= ...``.
+
     ``op`` : scalar; ``fn``
        Operator whose identity is required. This choice is fixed at wiring time.
 
@@ -8460,21 +8466,24 @@ class _zero_Operator(_Protocol):
 
     .. code-block:: python
 
-       additive_identity = hg.zero[TS[int]](hg.add_)
+       additive_identity = hg.zero(TS[int], hg.add_)
 
     Accepted native overloads:
 
-    - ``zero(op: fn) -> TS[int]``
-    - ``zero(op: fn) -> TS[float]``
-    - ``zero(op: fn) -> TS[str]``
-    - ``zero(op: fn) -> TSD[K, V]``
+    - ``zero(tp: type[TS[int]] = ..., op: fn) -> TS[int]``
+    - ``zero(tp: type[TS[float]] = ..., op: fn) -> TS[float]``
+    - ``zero(tp: type[TS[str]] = ..., op: fn) -> TS[str]``
+    - ``zero(tp: type[TSD[K, V]] = ..., op: fn) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, op: _Callable[..., object]) -> _WiringPort: ...
+    @_overload
+    def __call__(self, tp: object, op: _Callable[..., object]) -> _WiringPort: ...
+    @_overload
+    def __call__(self, *, tp: object = ..., op: _Callable[..., object]) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 zero: _zero_Operator
