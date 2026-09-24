@@ -4489,7 +4489,7 @@
             "name": "recordable_id",
             "kind": "scalar",
             "type": "str",
-            "default": false,
+            "default": true,
             "carrier": null
           },
           {
@@ -4513,7 +4513,7 @@
         ],
         "kwargs_type": null,
         "output": null,
-        "id": "compare:833cc527bee3"
+        "id": "compare:ddedcaad07a0"
       }
     ],
     "concat": [

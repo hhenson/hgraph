@@ -723,3 +723,22 @@ def test_keys_is_the_mapping_protocol_on_bundle_and_referenced_bundle_ports():
         return hg.add_(dict(**bundle)["a"], dict(**ref)["a"])
 
     assert eval_node(fields, [1, 2], ["x", "y"]) == [2, 4]
+
+
+def test_compare_takes_released_hgraphs_two_argument_shape():
+    """Issue #818 item 5.4, ruling 2026-09-24: ``compare(lhs, rhs)`` wires on
+    every backend and takes the enclosing recordable id. With neither an id
+    nor a recordable trait it fails at start (released hgraph fails at stop);
+    an explicit ``recordable_id`` is a documented superset."""
+
+    @graph
+    def bare(a: TS[int], b: TS[int]):
+        hg.compare(a, b)
+
+    @graph
+    def named(a: TS[int], b: TS[int]):
+        hg.compare(a, b, recordable_id="desk")
+
+    with pytest.raises(Exception, match="no recordable id provided"):
+        eval_node(bare, [1, 2], [1, 2])
+    eval_node(named, [1, 2], [1, 2])

@@ -943,7 +943,7 @@ are fixed when the graph is built.
    Expected or reference stream.
 
 ``recordable_id`` : scalar; ``str``
-   Optional explicit identity; context supplies it when omitted.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
 ``model`` : scalar; ``str``
    Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
@@ -964,7 +964,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None
 
 .. _python-operator-concat:
 
