@@ -524,9 +524,14 @@ schema instead of registering one from its annotations
 native schema decides storage, so a field Python cannot spell -- a native
 type value -- still has one representation. The binding is validated: the
 field names, in order, equal the native schema's, and each annotation names
-the native field's type, except that Python spells a native type value
-``type``, at any depth (``tuple[type, ...]``). A mismatch is a ``TypeError``
-naming the field. A generic specialisation has its own name
+the native field's type exactly, position by position. Python spells a
+native type value ``type`` (``tuple[type, ...]``): the annotation is
+rewritten with a marker at each ``type`` leaf before its schema is computed,
+because Python maps ``type`` and ``object`` to one scalar and the schema
+alone cannot say which position is which. A field annotated as the class
+itself is the native self edge, ``Owned[<schema>]``. An empty namespace is a
+bare top-level name, as the registry spells it. A mismatch is a
+``TypeError`` naming the field. A generic specialisation has its own name
 (``Name[int]``) and never binds; a class without an explicit namespace never
 does either, and a namespaced class with no native twin registers from its
 annotations as before. The native schema must be registered before its

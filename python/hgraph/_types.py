@@ -1,7 +1,6 @@
 """Time-series type expressions mirroring hgraph's: TS[int], TSS[str],
 TSD[str, TS[int]], TSL[TS[int], Size[3]], TSB[Schema]. Each subscription
 resolves to an interned C++ type handle via the _hgraph registry."""
-import re
 import datetime
 import functools
 
@@ -1303,7 +1302,9 @@ def _native_schema_for(scalar, type_args):
     binds; a class without an explicit namespace never does either."""
     if type_args or not scalar.__dict__.get("__compound_namespace_explicit__"):
         return None
-    qualified = f"{scalar.__dict__['__compound_namespace__']}::{scalar.__name__}"
+    # As the registry spells it: an empty namespace is a bare top-level name.
+    namespace = scalar.__dict__["__compound_namespace__"]
+    qualified = f"{namespace}::{scalar.__name__}" if namespace else scalar.__name__
     try:
         _hgraph.value_type(qualified)
     except ValueError:
@@ -1311,12 +1312,43 @@ def _native_schema_for(scalar, type_args):
     return qualified
 
 
+class _NativeTypeValue:
+    """Stands for a native type value while a Python face is validated
+    against its native schema (RFC 0042); ``_value_type`` maps it to the
+    native ``type`` scalar."""
+
+
+def _with_native_type_values(annotation):
+    """``annotation`` with every ``type`` / ``type[T]`` leaf replaced by
+    ``_NativeTypeValue``, at any depth, so the face's expected schema names a
+    native type value exactly where the annotation spells one. Python maps
+    ``type`` and ``object`` to one scalar, so the schema alone cannot say."""
+    import types
+    import typing
+
+    if annotation is type or typing.get_origin(annotation) is type:
+        return _NativeTypeValue
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is None or not args:
+        return annotation
+    rewritten = tuple(arg if arg is Ellipsis else _with_native_type_values(arg) for arg in args)
+    if rewritten == args:
+        return annotation
+    if isinstance(annotation, types.GenericAlias):
+        return types.GenericAlias(origin, rewritten)
+    if origin is typing.Union or origin is types.UnionType:
+        return typing.Union[rewritten]
+    return annotation.copy_with(rewritten)
+
+
 def _bind_native_schema(scalar, native_schema):
     """Validate that ``scalar`` matches the native schema it binds to: the
     same field names in the same order, and each annotation naming the native
-    field's type. The one relaxation: Python spells a native type value
-    ``type``, which on its own is the Python-object scalar -- at any depth
-    (``tuple[type, ...]``)."""
+    field's type exactly, position by position -- where Python spells a
+    native type value ``type`` (``tuple[type, ...]``), and where a field
+    annotated as the class itself is the native self edge
+    (``Owned[<schema>]``)."""
     where = f"{scalar.__module__}.{scalar.__qualname__}"
     meta = _hgraph.value_type(native_schema)
     native_fields = list(meta.fields)
@@ -1327,17 +1359,17 @@ def _bind_native_schema(scalar, native_schema):
         raise TypeError(
             f"{where}: fields {python_names} do not match native schema "
             f"{native_schema!r} fields {native_names}")
-    python_object = _hgraph.value_type("object").name
-    type_value = re.compile(rf"\b{re.escape(_hgraph.value_type('type').name)}\b")
     for (name, annotation), (_, native_type) in zip(python_fields, native_fields):
-        declared = _compound_field_value_type(annotation, scalar, {})
-        if declared is not None and declared.name in (
-                native_type.name, type_value.sub(python_object, native_type.name)):
+        if _is_self_recursive_annotation(annotation, scalar, {}):
+            declared_name = f"Owned[{native_schema}]"
+        else:
+            declared = _compound_field_value_type(_with_native_type_values(annotation), scalar, {})
+            declared_name = getattr(declared, "name", declared)
+        if declared_name == native_type.name:
             continue
         raise TypeError(
-            f"{where}.{name}: annotation {annotation!r} is "
-            f"{getattr(declared, 'name', declared)!r}, but native schema "
-            f"{native_schema!r} stores {native_type.name!r}")
+            f"{where}.{name}: annotation {annotation!r} is {declared_name!r}, "
+            f"but native schema {native_schema!r} stores {native_type.name!r}")
     return meta
 
 
@@ -1661,6 +1693,8 @@ def _value_type(scalar):
         )
     if isinstance(scalar, _hgraph.ValueType):
         return scalar
+    if scalar is _NativeTypeValue:
+        return _hgraph.value_type("type")
     if isinstance(scalar, _SharedType):
         try:
             return _hgraph.shared_vt(_value_type(scalar.element))

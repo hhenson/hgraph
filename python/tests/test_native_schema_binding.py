@@ -181,3 +181,48 @@ def test_a_generic_specialisation_has_its_own_name_and_never_binds():
         a: T
 
     assert _value_type(Boxed[int]).name == f"{NS}::Boxed[int]"
+
+
+def test_a_type_position_is_checked_where_it_sits_not_by_rewriting_the_name():
+    # Python maps ``type`` and ``object`` to one scalar, so only the
+    # annotation can say which position is a native type value.
+    OBJECT = _vt("object")
+    _hgraph.qualified_bundle_vt(NS, "Swapped", [("pair", _hgraph.fixed_tuple_vt([OBJECT, TYPE]))])
+
+    @dataclasses.dataclass(frozen=True)
+    class Swapped(CompoundScalar, namespace=NS):
+        pair: tuple[type, object]
+
+    with pytest.raises(TypeError, match=r"Swapped\.pair"):
+        _value_type(Swapped)
+
+    _hgraph.qualified_bundle_vt(NS, "Ordered2", [("pair", _hgraph.fixed_tuple_vt([OBJECT, TYPE]))])
+
+    @dataclasses.dataclass(frozen=True)
+    class Ordered2(CompoundScalar, namespace=NS):
+        pair: tuple[object, type]
+
+    assert _value_type(Ordered2).name == f"{NS}::Ordered2"
+
+
+def test_an_empty_namespace_binds_to_a_top_level_native_schema():
+    _hgraph.qualified_bundle_vt("", "RFC0042TopLevel", [("a", _vt("int"))])
+
+    @dataclasses.dataclass(frozen=True)
+    class RFC0042TopLevel(CompoundScalar, namespace=""):
+        a: int
+
+    assert _value_type(RFC0042TopLevel).name == "RFC0042TopLevel"
+
+
+def test_a_self_recursive_native_schema_binds_through_its_owned_edge():
+    _hgraph.recursive_bundle_vt(
+        NS, "RecNode", [("value", _vt("int")), ("next", None)], [], False, "__type__", [], "")
+
+    @dataclasses.dataclass(frozen=True)
+    class RecNode(CompoundScalar, namespace=NS):
+        value: int
+        next: typing.Optional["RecNode"] = None
+
+    fields = [(name, vt.name) for name, vt in _value_type(RecNode).fields]
+    assert fields == [("value", "int"), ("next", f"Owned[{NS}::RecNode]")]
