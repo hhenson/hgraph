@@ -777,7 +777,11 @@ The following are intentional unless separately re-opened:
   subsequent payloads and every other tick must match.
 - Python ``REF`` is an opaque value and does not expose ``.output``.
 - ``None`` in CompoundScalar/Bundle construction means an unset field.
-- TSB deltas are canonically dense; sparse-bundle delta parity is not required.
+- A TSB *value* is dense: every declared field, nil where invalid (runtime
+  spec TS-24, ruling 2026-09-22). A TSB *delta* is sparse: it holds only the
+  fields with news, a collection field included (TS-24; issue #835,
+  2026-09-24). This supersedes the earlier "TSB deltas are canonically dense"
+  entry.
 - CompoundScalar is a C++ Bundle closed union, not an independent Python object
   runtime.  Its diagnostic string representation may therefore differ.
 - Arrow is the table/frame substrate.  Polars interop is through Arrow rather
