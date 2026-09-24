@@ -1040,8 +1040,9 @@ namespace hgraph::stdlib
         }
 
         /** Reconcile the output child at ``key`` with a collection-valued
-            ``source``: in full when the child is new, else only what changed,
-            so an unchanged inner child is never republished. A forwarded tick
+            ``source``, mirroring its membership exactly: in full when the
+            child is new, else only what changed, so an unchanged inner child
+            is never republished. A forwarded tick
             republishes every visited value and publishes the child even when
             only its structure moved, as a reference to ``source`` would tick;
             a derived change of source elides what is already equal. */
@@ -1053,7 +1054,7 @@ namespace hgraph::stdlib
             const bool fresh = !child.data_view().has_current_value();
             const auto scope = fresh || !forwarded ? TSCurrentReconcileScope::Full
                                                    : TSCurrentReconcileScope::Incremental;
-            reconcile_current_state(child, source, TSCurrentReconcileOptions{scope, forwarded});
+            reconcile_current_state(child, source, TSCurrentReconcileOptions{scope, forwarded, true});
             if (forwarded && !child.modified())
             {
                 child.data_view().begin_mutation(out.evaluation_time()).mark_modified();

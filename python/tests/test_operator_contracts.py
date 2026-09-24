@@ -243,3 +243,43 @@ def test_a_nested_entry_keeps_an_invalid_child_invalid():
         return hg.convert[hg.TSD[str, I]](key, value)
 
     assert eval_node(flat, [None, 5, 5], ["c", None, None]) == [{}, {"c": 5}, {"c": 5}]
+
+
+def test_a_converted_entry_mirrors_membership_through_bundles_and_withdrawals():
+    # TS-19 / TS-7, Codex review on #1630.
+    I = TS[int]
+
+    class Holder(hg.TimeSeriesSchema):
+        d: hg.TSD[str, I]
+
+    @hg.compute_node
+    def bundle_members(ts: hg.TSD[str, hg.TSB[Holder]]) -> TS[str]:
+        return ";".join(f"{k}:{sorted((k2, c.valid) for k2, c in b.d.items())}" for k, b in ts.items())
+
+    # A dictionary inside a bundle keeps its invalid inner key (released
+    # hgraph agrees).
+    @graph
+    def through_bundle(value: I, key: TS[str]) -> TS[str]:
+        bundle = hg.combine[hg.TSB[Holder]](d=hg.convert[hg.TSD[str, I]](key, value))
+        return bundle_members(hg.convert[hg.TSD[str, hg.TSB[Holder]]](key, bundle))
+
+    assert eval_node(through_bundle, [None], ["c"]) == ["c:[('c', False)]"]
+
+    # A child withdrawn while its key stays is withdrawn in the entry too.
+    # Accepted TS-7 behaviour (runtime spec validation DV-04): the parent reads
+    # modified; released hgraph's parent does not, so it publishes nothing.
+    @hg.compute_node
+    def withdrawn(trigger: I, _output: hg.TSD_OUT[str, I] = None) -> hg.TSD[str, I]:
+        if trigger.value == 1:
+            return {"x": 1}
+        _output["x"].invalidate()
+
+    @hg.compute_node
+    def nested_members(ts: hg.TSD[str, hg.TSD[str, I]]) -> TS[str]:
+        return ";".join(f"{k}:{sorted((k2, c.valid) for k2, c in inner.items())}" for k, inner in ts.items())
+
+    @graph
+    def withdraw(trigger: I, key: TS[str]) -> TS[str]:
+        return nested_members(hg.convert[hg.TSD[str, hg.TSD[str, I]]](key, withdrawn(trigger)))
+
+    assert eval_node(withdraw, [1, 2], ["c", None]) == ["c:[('x', True)]", "c:[('x', False)]"]

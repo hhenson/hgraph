@@ -72,6 +72,8 @@ namespace
         {
             wire<stdlib::assert_>(w, condition, Str{"failed with {}"}, detail);
             return condition;
+        }
+    };
 
     using InnerDict = TSD<Str, TS<Int>>;
     using NestedDict = TSD<Str, InnerDict>;
@@ -247,6 +249,7 @@ TEST_CASE("operator contracts: public print_ and assert_ wait for their argument
     // A failing condition whose argument is not yet valid raises nothing.
     CHECK_OUTPUT(eval_node<PublicAssertGraph>(values<Bool>(false), values<Int>(none)), values<Bool>(false));
     CHECK_THROWS(eval_node<PublicAssertGraph>(values<Bool>(true, false), values<Int>(none, 3)));
+}
 
 TEST_CASE("operator contracts: a nested entry keeps an invalid child invalid")
 {

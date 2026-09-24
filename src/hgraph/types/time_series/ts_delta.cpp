@@ -964,7 +964,16 @@ namespace hgraph
             }();
             for (auto &&[key, source_child] : modified_items)
             {
-                if (!source_child_live(source_child)) { continue; }
+                if (!source_child_live(source_child))
+                {
+                    // An exact mirror withdraws a child whose source child was
+                    // withdrawn while its key stayed a member.
+                    if (options.membership && target_dict.contains(key))
+                    {
+                        invalidate_target(TSOutputView{target.output(), mutation.at(key), target.evaluation_time()});
+                    }
+                    continue;
+                }
                 auto target_child = mutation.at(key);
                 reconcile_current(
                     TSOutputView{target.output(), target_child, target.evaluation_time()},
@@ -1036,7 +1045,7 @@ namespace hgraph
                     target_child, source_child,
                     TSCurrentReconcileOptions{full ? TSCurrentReconcileScope::Full
                                                    : TSCurrentReconcileScope::Incremental,
-                                              options.sample_all});
+                                              options.sample_all, options.membership});
             }
 
             if (full && !resizable)
