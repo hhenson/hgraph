@@ -317,6 +317,17 @@ namespace hgraph
         if (pattern.kind == TypePattern::Kind::Signal) { return true; }
         if (pattern.kind != TypePattern::Kind::REF && concrete->kind == TSTypeKind::REF)
         {
+            // A variable bound up front states the schema, a top-level REF
+            // included: match the port as supplied before REF transparency
+            // strips the reference (#847).
+            if (pattern.kind == TypePattern::Kind::Var)
+            {
+                if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name);
+                    bound == concrete && ts_allowed_by_constraints(pattern, bound))
+                {
+                    return true;
+                }
+            }
             return input_ts_pattern_match(pattern, concrete->referenced_ts(), map);
         }
 
