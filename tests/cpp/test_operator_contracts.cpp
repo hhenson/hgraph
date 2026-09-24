@@ -107,6 +107,17 @@ namespace
         if (right.has_value()) { builder.set("right", std::move(*right)); }
         return builder.build();
     }
+
+    /** ``zero(TS[int], add_)``: released hgraph's positional type argument. */
+    struct ZeroPositionalGraph
+    {
+        static constexpr auto name = "operator_contracts_zero_positional";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            return wire<stdlib::zero_>(w, ts_type<TS<Int>>(), fn<stdlib::add_>()).as<TS<Int>>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("operator contracts: a TSD union forwards the most recent tick (OP-4, OP-5)")
@@ -364,4 +375,11 @@ TEST_CASE("operator contracts: a TSB delta holds only the fields with news (TS-2
                                           dict_delta<Str, TS<Int>>({{Str{"x"}, 1}})),
                                arms_delta(std::nullopt, dict_delta<Str, TS<Int>>({}, {Str{"x"}}))));
     static_cast<void>(sizeof(Dict));
+}
+
+TEST_CASE("operator contracts: zero takes released hgraph's type argument (#818 item 2.1)")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ZeroPositionalGraph>(), values<Int>(0));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::mul_>()))), values<Int>(1));
 }

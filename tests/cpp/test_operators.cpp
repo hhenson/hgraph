@@ -1932,7 +1932,7 @@ TEST_CASE("operators: explicit output schemas participate in operator resolution
     // zero_int composes const_, so the conversion family supplies both.
     stdlib::register_conversion_operators();
 
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::add_>())), values<Int>(0));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::add_>()))), values<Int>(0));
 }
 
 TEST_CASE("operators: caller-supplied type bindings seed resolution")

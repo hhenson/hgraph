@@ -2967,14 +2967,14 @@ TEST_CASE("std operators: zero_ emits the op-aware zero for standard scalar outp
 {
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::add_>())), values<Int>(0));
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::mul_>())), values<Int>(1));
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::min_>())),
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::add_>()))), values<Int>(0));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::mul_>()))), values<Int>(1));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::min_>()))),
                  values<Int>(std::numeric_limits<Int>::max()));
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Float>>(fn<stdlib::add_>())), values<Float>(Float{0}));
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Float>>(fn<stdlib::max_>())),
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Float>>(arg<"op">(fn<stdlib::add_>()))), values<Float>(Float{0}));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Float>>(arg<"op">(fn<stdlib::max_>()))),
                  values<Float>(-std::numeric_limits<Float>::infinity()));
-    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Str>>(fn<stdlib::add_>())), values<Str>(Str{}));
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Str>>(arg<"op">(fn<stdlib::add_>()))), values<Str>(Str{}));
 }
 
 TEST_CASE("std operators: default_ substitutes the default until ts first ticks")

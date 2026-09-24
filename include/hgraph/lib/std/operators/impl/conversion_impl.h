@@ -260,7 +260,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_int";
 
-        static Port<TS<Int>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Int>> compose(Wiring &w, TypeArg<"tp", TS<Int>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Int            value{};
@@ -277,7 +277,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_float";
 
-        static Port<TS<Float>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Float>> compose(Wiring &w, TypeArg<"tp", TS<Float>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Float          value{};
@@ -297,7 +297,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_str";
 
-        static Port<TS<Str>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Str>> compose(Wiring &w, TypeArg<"tp", TS<Str>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             if (f == fn<add_>() || f == fn<sum_>() || f == fn<mul_>())
@@ -313,7 +313,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_tsd";
 
-        static void eval(Scalar<"op", WiredFn> op,
+        static void eval(TypeArg<"tp", TSD<ScalarVar<"K">, TsVar<"V">>, AutoResolve>, Scalar<"op", WiredFn> op,
                          Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
         {
             static_cast<void>(op);
