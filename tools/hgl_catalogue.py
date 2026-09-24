@@ -148,7 +148,10 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
             form = None
             if match[1].startswith("native") and "cpp(" not in body and "{" in body:
                 kind = "native-implementation"
-                form = "value" if match[1] == "native const fn" else "node" if re.search(r"\bwhen\s*;", body) else "graph"
+                if match[1] == "native const fn":
+                    form = "value"
+                else:
+                    form = "node" if re.search(r"\bwhen\s*;", body) else "graph"
             if kind == "implementation":
                 form = "native-delegation" if re.search(r"=>\s*core::", body) else "hgl-runtime" if "when" in body else "hgl-composition"
             result.append(dict(module=module[1], name=match[2], kind=kind, form=form,

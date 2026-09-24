@@ -1,5 +1,6 @@
 #include "codegen/cpp_emitter.h"
 #include "codegen/native_rust.h"
+#include "descriptor/import_catalog.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/plan.h"
@@ -3690,4 +3691,35 @@ export fn caller(value: i64) -> i64 {
     const auto rust = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
     REQUIRE(rust);
     CHECK(contains(*rust, "hgl_cap_logger: &mut dyn Logger"));
+}
+
+TEST_CASE("imported native graph and node contracts admit graph construction", "[codegen][native][interface][catalog]") {
+    for (const auto body : {"{}", "{ inject out, logger start; when; stop; }"}) {
+        Unit provider{std::string{"module provider\nnative fn filter(value: i64, const limit: i64) -> i64\n"
+                                  "native fn filter(value: i64, const limit: i64) -> i64 "} +
+                      body + "\n"};
+        INFO(provider.diagnostics.render(provider.file));
+        REQUIRE_FALSE(provider.diagnostics.has_errors());
+        hgl::descriptor::DescribeOptions options;
+        options.source_native_symbols.emplace_back(provider.graph.native_functions.front().candidate_identity, "provider::filter");
+        const auto descriptor = hgl::descriptor::describe_module(provider.graph, options);
+        const auto parsed     = hgl::descriptor::read_json(hgl::descriptor::to_json(descriptor));
+        INFO((parsed.error ? parsed.error->message : ""));
+        REQUIRE(parsed.value);
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(hgl::descriptor::add_to_catalog(*parsed.value, catalog));
+        Unit consumer{"module consumer\nuse provider::{filter}\nexport fn caller(value: i64) -> i64 => filter(value, 3)\n",
+                      catalog};
+        INFO(consumer.diagnostics.render(consumer.file));
+        REQUIRE_FALSE(consumer.diagnostics.has_errors());
+        REQUIRE(consumer.graph.native_functions.size() == 1);
+        CHECK(consumer.graph.native_functions.front().implementation_kind ==
+              provider.graph.native_functions.front().implementation_kind);
+        CHECK_FALSE(consumer.emit());
+        CHECK(consumer.has(Category::Backend, "native graph/node construction is not supported"));
+        Unit hook{
+            "module consumer\nuse provider::{filter}\nexport fn caller(value: i64) -> i64 { when { return filter(value, 3) } }\n",
+            catalog};
+        CHECK(hook.has(Category::Type, "a temporal native fn can only be called during graph construction"));
+    }
 }

@@ -1849,6 +1849,7 @@ TEST_CASE("native implementation shape and hooks survive descriptor imports", "[
     REQUIRE_FALSE(descriptor::add_to_catalog(*parsed.value, catalog));
     const auto *fn = catalog.find_function("checks.reader", "blend");
     REQUIRE(fn);
+    CHECK(fn->support_error.empty());
     CHECK(fn->implementation_kind == hgl::NativeImplementationKind::Node);
     CHECK(fn->lifecycle == native.lifecycle);
     const auto fingerprint = source.descriptor_fingerprint;

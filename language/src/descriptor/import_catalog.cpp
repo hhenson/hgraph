@@ -569,11 +569,15 @@ namespace hgl::descriptor
             if (!declaration.effects.empty()) {
                 function.support_error = "native value calls with declared effects are not supported yet";
             }
-            // Node hooks only: a value call may be admitted in start, evaluation
-            // and stop; wiring-time native calls are outside the first interface.
-            if (declaration.phases.empty() || std::ranges::any_of(declaration.phases, [](NativePhase phase) {
-                    return phase != NativePhase::Start && phase != NativePhase::Evaluation && phase != NativePhase::Stop;
-                })) {
+            // Temporal calls construct a graph or node at wiring time; value
+            // helpers run inside node hooks.
+            if (declaration.execution_role == NativeExecutionRole::Temporal) {
+                if (declaration.phases != std::vector{NativePhase::Wiring}) {
+                    function.support_error = "native temporal calls require the wiring phase";
+                }
+            } else if (declaration.phases.empty() || std::ranges::any_of(declaration.phases, [](NativePhase phase) {
+                           return phase != NativePhase::Start && phase != NativePhase::Evaluation && phase != NativePhase::Stop;
+                       })) {
                 function.support_error = "native value calls currently require node hook phases (start, evaluation, stop)";
             }
             if (declaration.thread_safety == NativeThreadSafety::Serialized) {
