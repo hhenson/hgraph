@@ -7166,6 +7166,42 @@ Accepted native overloads
 
    symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT
 
+.. _python-operator-table_schema:
+
+``table_schema``
+----------------
+
+``table_schema`` — the ``TableSchema`` that ``to_table`` produces for ``tp``, under the graph's table configuration (the date and as-of column names). Const-evaluable: the eager kernel answers at wiring time, and the wired form is a constant ``TS[TableSchema]`` whose fields a graph reads with ``getattr_``.
+
+Python entry point: ``table_schema(tp)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tp`` : type-argument; ``type[TIME_SERIES_TYPE]``
+   The time-series type whose table layout is described.
+
+Returns
+~~~~~~~
+
+A constant tick of the layout.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   keys = hg.getattr_(hg.table_schema(hg.TSD[str, hg.TS[int]]), "keys")
+
+Accepted native overloads
+
+.. code-block:: text
+
+   table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph::TableSchema]
+
 .. _python-operator-take:
 
 ``take``

@@ -1,7 +1,7 @@
 RFC 0042: Types as Values
 =========================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-24
 :Target: ``TypeCarrier``, the Python bridge, ``CompoundScalar`` binding,
@@ -88,8 +88,9 @@ size, so copying and comparing a type value is as cheap as a pointer.
 2. A type serialises as its name
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The wire form and the JSON form of a type value are its canonical name, the
-same string as its text. Decoding parses the name and resolves it through the
+The wire form and the JSON form of a type value are its canonical name,
+tagged with its kind (``scalar:int``, ``ts:TS[int]``, ``size:3``; see
+*Differences from the proposal*). Decoding parses the name and resolves it through the
 registry. The parse is a cold-path operation, cached by name, so replaying a
 recording that repeats a type costs one lookup per distinct name.
 
@@ -99,11 +100,16 @@ bundle. Until this lands, the binary codec refuses a type value
 (``BinaryWireFormError``), which is correct: a carrier holds interned
 pointers, which must never reach the wire.
 
-The core has no type-name parser today, and RFC 0022's schema descriptor is
-one-way (identity bytes, no decode). This RFC adds the parser. Its grammar is
-the names the registry prints: scalar names, ``tuple[...]``, ``frozenset[...]``,
-``dict[...]``, the time-series constructors (``TS``, ``TSB``, ``TSD``,
-``TSL``, ``TSS``, ``TSW``, ``REF``) and qualified names.
+The core had no type-name parser, and RFC 0022's schema descriptor is
+one-way (identity bytes, no decode). This RFC adds the parser
+(``types/metadata/type_names.h``). Its grammar is the names the registry
+prints: a registered name (a scalar, a named bundle or enum, a named TSB, an
+alias) resolves by lookup; ``Tuple``, ``VariadicTuple``, ``NullableTuple``,
+``List``, ``MutableList``, ``Set``, ``MutableSet``, ``Map``, ``MutableMap``,
+``CyclicBuffer``, ``Queue``, ``Array``, ``Owned``, ``Shared``, ``frame``,
+``series`` and ``Bundle{...}`` on the value side, and ``TS``, ``TSS``, ``TSD``,
+``TSL``, both ``TSW`` forms, ``REF`` and ``TSB{...}`` on the time-series side,
+are built through the constructor that printed them.
 
 3. A Python class binds to its native schema by name
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -126,8 +132,10 @@ The binding is validated:
 - a generic class specialises under its own name (``TableSchema[int]``) and
   so never binds to the native schema.
 
-One Python class is the face of one native schema; a second is refused by the
-existing class registration. A subclass of a bound class is an ordinary
+One Python class is the face of one native schema: a second class of a
+different reconstruction shape is refused by the existing class registration,
+while an identical redefinition (a module reload) re-registers, as for any
+``CompoundScalar``. A subclass of a bound class is an ordinary
 derived bundle that inherits the native fields. The native schema must be
 registered before its Python face is first used; the core's schemas register
 when ``_hgraph`` is imported, and an extension's when its native module is.
@@ -179,6 +187,33 @@ Python) names a column type in that vocabulary:
 The vocabulary is generated from the leaf list, so a new leaf is named where
 it is added. It is extensible in the way the owner proposed: strings, with
 names for the types Arrow lacks.
+
+Differences from the proposal
+-----------------------------
+
+Recorded on acceptance (PRs #1643, #1644, #1645 and the serialisation PR):
+
+- **The serialised form names the kind.** A named TSB and its value-side
+  bundle share one name, so a bare name cannot say which kind a type value
+  is. The wire and JSON forms are ``scalar:<name>``, ``ts:<name>`` or
+  ``size:<n>``; the text stays the bare name.
+- **The grammar** is the registry's own printed forms, listed in section 2,
+  rather than the Python spellings (``tuple``, ``frozenset``, ``dict``) first
+  written here.
+- **One face per native schema**, refined: a second class of a different
+  reconstruction shape is refused; an identical redefinition (a module
+  reload) re-registers, as for any ``CompoundScalar``.
+- **The ``evaluate_const`` fix** landed with ``table_schema`` (step 3), its
+  first user, rather than with step 1.
+- **The decode cache** is guarded by a counted ``TypeSystemMutex``. Decoding
+  is a boundary operation (restore, transport), not evaluation, so the
+  per-tick registry-free rule is unaffected.
+- **Decoding is bounded** (security review): names of at most 1024
+  characters and 32 levels of nesting, the canonical spelling only, and at
+  most 4096 distinct decoded types per process, so an untrusted peer cannot
+  exhaust the stack or grow the registry without bound.
+- **Python type values are cached by annotation** (review of step 1): a node
+  emitting ``tuple[int, ...]`` every tick resolves it once.
 
 Alternatives considered
 -----------------------

@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 216
    * - Public operator groups
-     - 188
+     - 189
    * - Public submodules
      - 18
 
@@ -746,6 +746,9 @@ whose curated signatures remain authoritative.
    * - :ref:`symmetric_difference <python-operator-symmetric_difference>`
      - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
+   * - :ref:`table_schema <python-operator-table_schema>`
+     - ``table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph::TableSchema]``
+     - 1 native overload; explicit helper
    * - :ref:`take <python-operator-take>`
      - ``5 overloads``
      - 5 native overloads; lazy operator

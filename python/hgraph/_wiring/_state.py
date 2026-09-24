@@ -462,7 +462,14 @@ def set_table_schema_as_of_key(key):
 
 
 def evaluate_const(name, args=(), kwargs=None, output_type=None):
-    return _hgraph._evaluate_const(_active_global_state()._impl, name, args, kwargs or {}, output_type)
+    # A type argument arrives as the type it names, exactly as when wiring
+    # (RFC 0033 role-directed arrival): a TS[...] expression or a class.
+    from ._core import _apply_type_argument_roles, _unwrap
+
+    args, kwargs = _apply_type_argument_roles(name, tuple(args), dict(kwargs or {}))
+    args = tuple(_unwrap(value) for value in args)
+    kwargs = {key: _unwrap(value) for key, value in kwargs.items()}
+    return _hgraph._evaluate_const(_active_global_state()._impl, name, args, kwargs, output_type)
 
 class RecordReplayEnum(_enum.IntFlag):
     """Record/replay modes, combinable as flags.

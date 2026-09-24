@@ -381,6 +381,19 @@ questions (does a subscript name the output? does a scalar kwarg lift to
 ``const``?) are answered by registry introspection
 (``operator_output_is_selective``, resolution retries), never by name.
 
+**A type as a runtime value** (RFC 0042). The same ``TypeCarrier`` is an
+ordinary scalar named ``type``, so a native schema can hold types (a
+``TableSchema``'s ``tp`` and ``types``). Its Python conversion is a hook pair
+installed by ``bind_type_system``, the mechanism ``WiredFn`` uses. To Python
+a type is what a type argument crosses as, below. From Python it accepts
+whatever a type-argument slot accepts (``_carrier_value``: a ``TS[...]``
+expression, a class, a schema or a size). Conversion resolves through
+Python-level caches and takes no type-system locks per tick. A type's text is
+its name (``int``, ``TS[int]``); it serialises as its kind-tagged name
+(``scalar:int``, ``ts:TS[int]``), see *Type values* in the scalar plans page. Python has no annotation of its own for the
+scalar: ``type`` is the Python-object scalar, so a user meets a type value
+through a native schema's field.
+
 A ``TS[...]`` expression passed as an *argument* is a type argument
 (RFC 0033): ``py_wiring.cpp`` mints the core ``TypeCarrier`` scalar for it,
 the registry matches it against a ``TypeArg`` parameter's carried pattern
@@ -503,6 +516,35 @@ extension schemas can explicitly opt into their C++ identity
 with ``TimeSeriesSchema, namespace="extension.name"``, which binds
 ``extension.name::ClassName``. Do not infer a shared native identity from a
 Python class's short name.
+
+**A ``CompoundScalar`` binds to its native schema by name** (RFC 0042). When
+a class declares ``namespace=`` and ``<namespace>::<ClassName>`` is already a
+registered native schema, ``_compound_value_type`` binds the class to that
+schema instead of registering one from its annotations
+(``_native_schema_for`` / ``_bind_native_schema`` in ``_types.py``). The
+native schema decides storage, so a field Python cannot spell -- a native
+type value -- still has one representation. The binding is validated: the
+field names, in order, equal the native schema's, and each annotation names
+the native field's type exactly, position by position. Python spells a
+native type value ``type`` (``tuple[type, ...]``): the annotation is
+rewritten with a marker at each ``type`` leaf before its schema is computed,
+because Python maps ``type`` and ``object`` to one scalar and the schema
+alone cannot say which position is which (aliases are resolved first). The
+rewrite is validation-only: nothing resolved there is recorded as a reverse
+binding. A field naming the class itself or another face is a native owned
+edge, ``Owned[<schema>]``, matched by the name it refers to without
+materialising the target, so faces of mutually recursive native bundles
+bind. An empty namespace is a
+bare top-level name, as the registry spells it. A mismatch is the
+registry's ``ValueError`` (*already registered with a different schema*,
+as before binding existed), now naming the field. A generic specialisation has its own name
+(``Name[int]``) and never binds; a class without an explicit namespace never
+does either, and a namespaced class with no native twin registers from its
+annotations as before. The native schema must be registered before its
+Python face is first used: the core's register when ``_hgraph`` is imported,
+an extension's when its native module is. Every class that bound before
+still binds to the identical schema, because the registry already required
+its annotation-derived fields to equal the native ones exactly.
 
 Python-defined operators register under
 ``__pyop__{module}.{qualname}_{registration_id:x}``. The native bridge allocates

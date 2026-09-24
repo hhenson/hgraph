@@ -67,6 +67,7 @@ namespace hgraph
             CivilDateRange,
             InstantRangeSet,
             CivilDateRangeSet,
+            Type,  ///< a type value (RFC 0042): its serialised name
         };
 
         WriteFn                            write_{nullptr};

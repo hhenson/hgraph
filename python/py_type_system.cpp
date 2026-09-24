@@ -213,6 +213,30 @@ namespace hgraph::python_bridge
 
     void bind_type_system(nb::module_ &m)
     {
+        // A type is a runtime value (RFC 0042). To Python it is what a type
+        // argument crosses as: a TsType, the scalar's Python class, or a
+        // size. From Python it takes whatever a type-argument slot accepts.
+        python_conversion_traits<TypeCarrier>::to_python_hook() = [](const TypeCarrier &carrier) {
+            static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+            return operator_scalar_to_py(Value{carrier}.view());
+        };
+        python_conversion_traits<TypeCarrier>::from_python_hook() = [](nb::handle source) -> TypeCarrier {
+            nb::object value = nb::borrow(source);
+            if (!nb::isinstance<PyTsType>(value) && !nb::isinstance<PyValueType>(value))
+            {
+                value = nb::module_::import_("hgraph._wiring._resolution").attr("_type_value")(value);
+            }
+            if (nb::isinstance<PyTsType>(value)) { return TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
+            if (nb::isinstance<PyValueType>(value))
+            {
+                return TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta);
+            }
+            if (nb::isinstance<nb::int_>(value) && !nb::isinstance<nb::bool_>(value))
+            {
+                return TypeCarrier::of_size(native_size(nb::cast<std::int64_t>(value)));
+            }
+            throw nb::type_error("expected a type: a time-series type, a scalar type or a size");
+        };
     nb::enum_<MonthEndPolicy>(
         m, "MonthEndPolicy",
         "Policy for calendar-period arithmetic when the target month does "
@@ -1137,29 +1161,9 @@ namespace hgraph::python_bridge
         Frame stripped = without_frame_metadata(frame_value.view().checked_as<Frame>());
         return python_bridge::frame_to_py(stripped);
     });
-    m.def("table_schema_info", [](PyTsType ts, const std::string &date_key, const std::string &as_of_key) {
-        // TABLE layout introspection (design record step 6): the C++ layout
-        // is the single source; python's TableSchema maps it declaratively.
-        const auto &layout =
-            hgraph::stdlib::table_ts_detail::ts_table_layout(ts.meta, date_key, as_of_key);
-        nb::dict info;
-        nb::list keys, types, partition_keys, removed_keys;
-        for (std::size_t i = 0; i < layout.keys.size(); ++i)
-        {
-            keys.append(nb::str(layout.keys[i].c_str()));
-            const auto *meta = layout.col_metas[i];
-            types.append(nb::str(meta != nullptr && meta->header.label != nullptr ? meta->header.label : "?"));
-        }
-        for (const auto &name : layout.partition_keys) { partition_keys.append(nb::str(name.c_str())); }
-        for (const auto &name : layout.removed_keys) { removed_keys.append(nb::str(name.c_str())); }
-        info["keys"]           = keys;
-        info["types"]          = types;
-        info["partition_keys"] = partition_keys;
-        info["removed_keys"]   = removed_keys;
-        info["date_key"]       = nb::str(layout.date_key.c_str());
-        info["as_of_key"]      = nb::str(layout.as_of_key.c_str());
-        info["is_multi_row"]   = layout.is_multi_row;
-        return info;
+    m.def("table_column_type_name", [](PyValueType leaf) {
+        // A table column's type in the Arrow vocabulary (RFC 0042).
+        return hgraph::table_column_type_name(leaf.meta);
     });
     m.def("fixed_tuple_vt", [](nb::list elements) {
         std::vector<const ValueTypeMetaData *> metas;

@@ -129,6 +129,34 @@ def _carrier_value(value):
         return None
 
 
+_TYPE_VALUE_CACHE = {}
+_TYPE_VALUE_CACHE_GENERATION = None
+
+
+def _type_value(value):
+    """A type value's carrier form (RFC 0042), cached by annotation: a Python
+    node emitting the same type every tick -- ``tuple[int, ...]`` as readily
+    as ``int`` -- resolves it through the registries once, not per tick. The
+    cache drops itself when the registries are reset; the key carries the
+    value's Python type so ``True`` and ``1`` stay apart."""
+    global _TYPE_VALUE_CACHE_GENERATION
+    generation = _hgraph._registry_generation()
+    if generation != _TYPE_VALUE_CACHE_GENERATION:
+        _TYPE_VALUE_CACHE.clear()
+        _TYPE_VALUE_CACHE_GENERATION = generation
+    try:
+        key = (type(value), value)
+        return _TYPE_VALUE_CACHE[key]
+    except KeyError:
+        pass
+    except TypeError:  # an unhashable annotation: resolve it each time
+        return _carrier_value(value)
+    carrier = _carrier_value(value)
+    if carrier is not None:
+        _TYPE_VALUE_CACHE[key] = carrier
+    return carrier
+
+
 def _carrier_to_python(value):
     """What a Python body receives for a materialised type argument: a
     ``TS[...]`` expression, the annotation of a scalar schema, or a

@@ -382,3 +382,35 @@ an Arrow-aware adaptor.
 
 Buffer access is read-only at the value layer. Mutation continues to
 go through the typed view APIs.
+
+Type values (RFC 0042)
+----------------------
+
+A type is an ordinary scalar: ``TypeCarrier`` (``type_carrier.h``, RFC 0033),
+registered as the standard scalar ``type``. It is one interned schema pointer
+(a time-series or a value schema) or a size, so equality and hashing are by
+the interned schema. Its forms:
+
+- **Text** is its name (``int``, ``TS[int]``, ``Size[3]``).
+- **Serialised** (``types/metadata/type_names.h``), it is its name tagged with
+  its kind -- ``scalar:int``, ``ts:TS[int]``, ``size:3`` -- because a named
+  TSB and its value-side bundle share one name. The binary codec writes that
+  string length-prefixed and hashes it; the JSON codec writes it as a string.
+  An interned pointer never reaches the wire.
+- **Decoding** parses the name back: a registered name (a scalar, a named
+  bundle or enum, a named TSB, an alias) by lookup, and each composite
+  (``Tuple[...]``, ``VariadicTuple[T]``, ``List[T,N]``, ``Map[K,V]``,
+  ``Bundle{...}``, ``TS[...]``, ``TSD[K,V]``, ``TSB{...}``, ``REF[...]``, and the
+  rest the registry prints) through the constructor that printed it, so the
+  result is the interned schema itself. ``parse_type_value`` caches by
+  serialised form behind a counted ``TypeSystemMutex`` and drops the cache when
+  the registry is reset. Decoding is a boundary operation (restore, transport),
+  not evaluation. A named type must be registered in the decoding process
+  first, as for a named bundle.
+- **Decoding is bounded**, because a serialised type may come from an
+  untrusted peer (a ``TableSchema`` in a REST payload): a name longer than
+  1024 characters or nested deeper than 32 levels is refused; only the
+  canonical spelling is accepted, so each type has one cache entry; and the
+  cache is also the admission set -- after 4096 distinct forms a new one is
+  refused before it is parsed, so decoding interns a bounded number of
+  schemas.

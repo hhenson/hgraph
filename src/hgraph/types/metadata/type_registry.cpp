@@ -52,17 +52,19 @@ namespace hgraph
 
     // The carrier's rendering belongs with its scalar binding: ops_for<TypeCarrier>
     // (this library) reaches it through to_string, so it cannot live in the
-    // wiring library above.
+    // wiring library above. A type's text is its name (RFC 0042).
     std::ostream &operator<<(std::ostream &out, const TypeCarrier &carrier)
     {
         switch (carrier.kind())
         {
             case ResolutionKind::TimeSeries:
-                return out << "type[" << (carrier.ts() != nullptr ? carrier.ts()->name() : std::string_view{"<null>"}) << ']';
+                return out << (carrier.ts() != nullptr ? carrier.ts()->name() : std::string_view{"<null>"});
             case ResolutionKind::Scalar:
-                return out << "type[" << (carrier.scalar() != nullptr ? carrier.scalar()->name() : std::string_view{"<null>"})
-                           << ']';
-            default: return out << "type[Size[" << *carrier.size() << "]]";
+                return out << (carrier.scalar() != nullptr ? carrier.scalar()->name() : std::string_view{"<null>"});
+            default:
+                // The unbounded sentinel is written as Python writes it, Size[-1].
+                if (*carrier.size() == unbounded_tsl_size) { return out << "Size[-1]"; }
+                return out << "Size[" << *carrier.size() << ']';
         }
     }
 

@@ -1,4 +1,6 @@
 #include <hgraph/types/value/json_codec.h>
+#include <hgraph/types/metadata/type_names.h>
+#include <hgraph/types/type_carrier.h>
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -1471,6 +1473,10 @@ namespace hgraph
                     json_detail::append_escaped(
                         view.checked_as<ZoneId>().name(), out);
                     return;
+                case AtomicTag::Type:
+                    json_detail::append_escaped(
+                        serialise_type_value(view.checked_as<TypeCarrier>()), out);
+                    return;
                 case AtomicTag::ZonedDateTime:
                     json_detail::append_escaped(
                         format_zoned_datetime(view.checked_as<ZonedDateTime>()),
@@ -1763,6 +1769,9 @@ namespace hgraph
                 case AtomicTag::ZoneId:
                     return read_bound_atomic(
                         self, ZoneId{reader.parse_string()});
+                case AtomicTag::Type:
+                    return read_bound_atomic(
+                        self, parse_type_value(reader.parse_string()));
                 case AtomicTag::ZonedDateTime: {
                     const std::string text = reader.parse_string();
                     const auto bracket = text.find('[');
@@ -2257,6 +2266,10 @@ namespace hgraph
             if (meta == scalar_descriptor<InstantRangeSet>::value_meta())
             {
                 return AtomicTag::InstantRangeSet;
+            }
+            if (meta == scalar_descriptor<TypeCarrier>::value_meta())
+            {
+                return AtomicTag::Type;
             }
             if (meta == scalar_descriptor<CivilDateRangeSet>::value_meta())
             {

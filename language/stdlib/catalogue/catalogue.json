@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "scope": "core library with separate extension source inventory",
-  "source_fingerprint": "67a752eb2e156bba15296b941f95381d5ddfde25f52bb52e3f1d6841626d3680",
+  "source_fingerprint": "4fc829a525e1f51fe96a5c73dbdc4767aa85929c6b325f1ac7ce89e414bbe94d",
   "blockers": {
     "B1": {
       "priority": 1,
@@ -15054,7 +15054,7 @@
           "marker": "from_table",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 54
+          "line": 73
         }
       ],
       "registration_sites": [
@@ -15064,7 +15064,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-          "line": 1695
+          "line": 1752
         }
       ],
       "registry_candidates": [
@@ -15117,7 +15117,7 @@
           "marker": "from_table_const",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 61
+          "line": 80
         }
       ],
       "registration_sites": [
@@ -15127,7 +15127,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-          "line": 1696
+          "line": 1753
         }
       ],
       "registry_candidates": [
@@ -38931,6 +38931,69 @@
       "core_cutover": "deferred"
     },
     {
+      "name": "table_schema",
+      "review": {
+        "status": "blocked",
+        "priority": 3,
+        "reason": "TABLE protocol, row schemas and record/replay ownership; a const-evaluable native operator over the table layout (RFC 0042).",
+        "completed_domains": [],
+        "blockers": [
+          "B5"
+        ],
+        "evidence": [
+          "include/hgraph/lib/std/operators/table.h"
+        ]
+      },
+      "declarations": [
+        {
+          "name": "table_schema",
+          "marker": "table_schema",
+          "scope": "core",
+          "source": "include/hgraph/lib/std/operators/table.h",
+          "line": 101
+        }
+      ],
+      "registration_sites": [
+        {
+          "operator": "table_schema",
+          "implementation": "table_schema_impl",
+          "scope": "core",
+          "kind": "graph",
+          "source": "src/hgraph/lib/std/operators/table_impl.cpp",
+          "line": 1754
+        }
+      ],
+      "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "tp",
+              "kind": "type",
+              "type": "type[~S]",
+              "default": false,
+              "carrier": "time-series"
+            }
+          ],
+          "variadic": false,
+          "positional_count": 1,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[hgraph::TableSchema]",
+          "id": "table_schema:17b035dd910b"
+        }
+      ],
+      "hgl": [],
+      "core_cutover": "deferred"
+    },
+    {
       "name": "take",
       "review": {
         "status": "implemented-slice",
@@ -40179,7 +40242,7 @@
           "marker": "to_table",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 48
+          "line": 67
         }
       ],
       "registration_sites": [
@@ -40189,7 +40252,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-          "line": 1694
+          "line": 1751
         }
       ],
       "registry_candidates": [
@@ -48964,7 +49027,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-      "line": 1694
+      "line": 1751
     },
     {
       "operator": "from_table",
@@ -48972,7 +49035,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-      "line": 1695
+      "line": 1752
     },
     {
       "operator": "from_table_const",
@@ -48980,7 +49043,15 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/table_impl.cpp",
-      "line": 1696
+      "line": 1753
+    },
+    {
+      "operator": "table_schema",
+      "implementation": "table_schema_impl",
+      "scope": "core",
+      "kind": "graph",
+      "source": "src/hgraph/lib/std/operators/table_impl.cpp",
+      "line": 1754
     },
     {
       "operator": "getattr_",

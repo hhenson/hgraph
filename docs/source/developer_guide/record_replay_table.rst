@@ -148,8 +148,8 @@ function; a const source is ``const_``. For the two roles that remain:
   **const-evaluable** — an ``OperatorImpl`` flag plus an eager kernel
   ``Value(std::span<const Value>)``. ``resolve`` works unchanged; a caller
   (C++ wiring code or the Python bridge) may invoke the eager kernel instead
-  of wiring a node. ``from_table_const`` and ``replay_const`` register this
-  way. ``table_schema`` does not: see its entry under the implemented state.
+  of wiring a node. ``table_schema``, ``from_table_const`` and
+  ``replay_const`` register this way.
 - *Python-bridge parity*: the bridge exposes eager evaluation of
   const-evaluable operators — Python's dual-mode behaviour reproduced
   without a node class.
@@ -676,18 +676,19 @@ reachable through ``TS[Frame[...]]`` payloads below). Python-parity rules:
 - **``from_table``** reverses: each row applies as this tick's delta at the
   resolved output (last-write-wins per tick for whole-value ``TS``; removed
   flags map to key removal on TSD outputs).
-- **``table_schema``** is const-evaluable in spirit: the C++ layout is the
-  single source (bridge introspection over the synthesised layout); the
-  Python ``TableSchema``/``make_table_schema`` classes are thin declarative
-  mappings from layout leaf kinds to Python types (C++-first API ruling —
-  no schema derivation logic in Python). Inside a graph ``table_schema(tp)``
-  is released hgraph's constant ``TS[TableSchema]`` (#821): the value
-  assembled from the layout, wired with ``const``, and still readable as
-  ``.value``. It is not a native operator, because ``TableSchema.tp`` and
-  ``.types`` hold types, which have no native runtime value (RFC 0033's
-  ``TypeCarrier`` is wiring-time only). C++ reads the same layout through
-  ``TableLayout``. Whether types should become runtime values is an open
-  question (#1639).
+- **``table_schema``** is a native const-evaluable operator (RFC 0042):
+  ``table_schema(tp) -> TS[TableSchema]``, a compose over
+  ``ts_table_layout`` that wires a constant, with a ``const_eval`` kernel
+  answering ``table_schema(tp).value`` (under a default configuration
+  outside any ``GlobalState``). ``hgraph::TableSchema`` is a native bundle
+  with released hgraph's fields; ``tp`` and ``types`` are type values, so
+  ``types`` holds each column's Python class. Python's ``TableSchema`` is the
+  face of that schema, bound by name (``namespace="hgraph"``);
+  ``make_table_schema`` builds the same type. ``TableSchema.arrow_types`` /
+  ``table_column_type_name`` name each column's type in the Arrow
+  vocabulary of the frame the schema describes: Arrow's name where Arrow has
+  a type of its own for the leaf, the hgraph name where it does not
+  (``zone_id``, ``instant_range``), ``list<element>`` for a sequence.
 - **``Frame``-valued ``TS``** payloads are multi-row: ``to_table`` explodes
   the tick's frame into one row per frame row (shared bitemporal cells);
   ``from_table`` rebuilds the frame. The typed wiring marker

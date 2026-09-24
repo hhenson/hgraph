@@ -2409,6 +2409,18 @@
         "include/hgraph/lib/std/operators/collection.h"
       ]
     },
+    "table_schema": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "TABLE protocol, row schemas and record/replay ownership; a const-evaluable native operator over the table layout (RFC 0042).",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/table.h"
+      ]
+    },
     "take": {
       "status": "implemented-slice",
       "priority": 1,

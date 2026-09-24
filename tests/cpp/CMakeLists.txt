@@ -265,6 +265,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_externally_driven_executor.cpp
     test_worker_graph_checkpoint.cpp
     test_const_eval.cpp
+    test_type_names.cpp
     test_data_frame_operators.cpp
     test_cs_field_projection.cpp
     test_dispatch.cpp
