@@ -66,3 +66,17 @@ def test_tsd_difference_validates_on_admission():
     # OP-5. Parity #961: the first admitted result is empty and still ticks.
     for operator in (hg.sub_, hg.difference):
         assert _binary(operator, [{"c": 2}], [{"c": -17}]) == [{}]
+
+
+def test_a_nested_child_forwards_only_its_own_changes():
+    # OP-4, Codex review on #1627: only the inner key that ticked is forwarded.
+    N = hg.TSD[int, hg.TSD[int, TS[int]]]
+
+    @graph
+    def joined(lhs: N, rhs: N) -> N:
+        return hg.bit_or(lhs, rhs)
+
+    assert eval_node(joined, [{1: {10: 1, 11: 2}}, {1: {10: 5}}], [{2: {20: 3}}, None]) == [
+        {1: {10: 1, 11: 2}, 2: {20: 3}},
+        {1: {10: 5}},
+    ]

@@ -94,3 +94,20 @@ TEST_CASE("operator contracts: a TSD difference validates on admission (OP-5)")
                      values<Value>(dict_delta<Int, TS<Int>>({{3, -17}})))),
                  values<Value>(dict_delta<Int, TS<Int>>({})));
 }
+
+TEST_CASE("operator contracts: a nested child forwards only its own changes (OP-4)")
+{
+    stdlib::register_standard_operators();
+    using Inner = TSD<Int, TS<Int>>;
+    using Nested = TSD<Int, Inner>;
+
+    // Codex review on #1627: forwarding the whole inner value re-ticked the
+    // unchanged sibling 11; only 10 changed.
+    CHECK_OUTPUT((eval_node<stdlib::bit_or, Nested, Nested>(
+                     values<Value>(dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 1}, {11, 2}})}}),
+                                   dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 5}})}})),
+                     values<Value>(dict_delta<Int, Inner>({{2, dict_delta<Int, TS<Int>>({{20, 3}})}}), none))),
+                 values<Value>(dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 1}, {11, 2}})},
+                                                       {2, dict_delta<Int, TS<Int>>({{20, 3}})}}),
+                               dict_delta<Int, Inner>({{1, dict_delta<Int, TS<Int>>({{10, 5}})}})));
+}

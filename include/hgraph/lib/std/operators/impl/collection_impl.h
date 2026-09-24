@@ -27,6 +27,7 @@
 #include <hgraph/types/lift.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/time_series/ts_delta.h>   // reconcile_current_state
 #include <hgraph/types/value/value_hash.h>
 
 #include <ankerl/unordered_dense.h>
@@ -1036,15 +1037,58 @@ namespace hgraph::stdlib
             mutation.set(key, source.value());
         }
 
+        /** Reconcile the output child at ``key`` with a collection-valued
+            ``source``: in full when the child is new, else only what changed,
+            so an unchanged inner child is never republished. A forwarded tick
+            republishes every visited value and publishes the child even when
+            only its structure moved, as a reference to ``source`` would tick;
+            a derived change of source elides what is already equal. */
+        inline void reconcile_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                        const ValueView &key, const TSInputView &source, bool forwarded)
+        {
+            const TSOutputView &out = out_dict.base();
+            TSOutputView child{out.output(), mutation.at(key), out.evaluation_time()};
+            const bool fresh = !child.data_view().has_current_value();
+            const auto scope = fresh || !forwarded ? TSCurrentReconcileScope::Full
+                                                   : TSCurrentReconcileScope::Incremental;
+            reconcile_current_state(child, source, TSCurrentReconcileOptions{scope, forwarded});
+            if (forwarded && !child.modified())
+            {
+                child.data_view().begin_mutation(out.evaluation_time()).mark_modified();
+            }
+        }
+
         /** Forward a source child's tick to the output child (runtime spec
             OP-4): the tick is the news, so an equal value is published again.
-            ``copy_tsd_child_if_changed`` is the DERIVED counterpart, for a
-            child that changes source without its new source ticking. */
-        inline void forward_tsd_child(TSDDataMutationView &mutation, const ValueView &key,
-                                      const TSInputView &source)
+            A collection child forwards its own changes, not a copy of its
+            whole value, which would re-tick every unchanged inner child.
+            ``adopt_tsd_child`` is the DERIVED counterpart, for a child that
+            changes source without its new source ticking. */
+        inline void forward_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                      const ValueView &key, const TSInputView &source)
         {
             if (!source.valid()) { return; }
+            if (source.schema()->is_collection())
+            {
+                reconcile_tsd_child(mutation, out_dict, key, source, true);
+                return;
+            }
             mutation.set(key, source.value());
+        }
+
+        /** A derived change of a set operator's output child: it takes
+            ``source``'s current state, eliding what is already equal, so a
+            collection child publishes only the inner children that differ. */
+        inline void adopt_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                    const ValueView &key, const TSInputView &source)
+        {
+            if (!source.valid()) { return; }
+            if (source.schema()->is_collection())
+            {
+                reconcile_tsd_child(mutation, out_dict, key, source, false);
+                return;
+            }
+            copy_tsd_child_if_changed(mutation, out_dict, key, source);
         }
 
         inline void copy_value_if_changed(TSDDataMutationView &mutation, const TSDOutputView &out,
@@ -1983,13 +2027,13 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
                 // Gated first cycles: lhs keys the output never saw (ticked
@@ -2000,7 +2044,7 @@ namespace hgraph::stdlib
                     {
                         if (!rhs_dict.contains(key) && !out_dict.contains(key))
                         {
-                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                            adopt_tsd_child(mutation, out_dict, key, child);
                         }
                     }
                 }
@@ -2033,13 +2077,13 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
+                    if (rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : rhs.added_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
                 if (first_admission)
@@ -2048,7 +2092,7 @@ namespace hgraph::stdlib
                     {
                         if (rhs_dict.contains(key) && !out_dict.contains(key))
                         {
-                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                            adopt_tsd_child(mutation, out_dict, key, child);
                         }
                     }
                 }
@@ -2081,27 +2125,27 @@ namespace hgraph::stdlib
                 // most recently, lhs on a same-cycle tie (runtime spec OP-5).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    forward_tsd_child(mutation, key, child);
+                    forward_tsd_child(mutation, out_dict, key, child);
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
                     if (!tsd_key_has_modified_valid_child(lhs_dict, key))
                     {
-                        forward_tsd_child(mutation, key, child);
+                        forward_tsd_child(mutation, out_dict, key, child);
                     }
                 }
                 for (const ValueView &key : lhs.removed_keys())
                 {
                     if (rhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, rhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, rhs_dict.at(key));
                     }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
             }
@@ -2131,24 +2175,24 @@ namespace hgraph::stdlib
                 // ticks is forwarded, equal value or not (parity #1040).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
-                    if (!lhs_dict.contains(key)) { forward_tsd_child(mutation, key, child); }
+                    if (!lhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : lhs.removed_keys())
                 {
                     if (rhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, rhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, rhs_dict.at(key));
                     }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
                 // Gated first cycles: keys that ticked while the other operand
@@ -2162,14 +2206,14 @@ namespace hgraph::stdlib
                     {
                         if (!rhs_dict.contains(key) && !out_dict.contains(key))
                         {
-                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                            adopt_tsd_child(mutation, out_dict, key, child);
                         }
                     }
                     for (const auto [key, child] : rhs.items())
                     {
                         if (!lhs_dict.contains(key) && !out_dict.contains(key))
                         {
-                            copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                            adopt_tsd_child(mutation, out_dict, key, child);
                         }
                     }
                     admitted.set(true);
