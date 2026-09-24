@@ -381,6 +381,18 @@ questions (does a subscript name the output? does a scalar kwarg lift to
 ``const``?) are answered by registry introspection
 (``operator_output_is_selective``, resolution retries), never by name.
 
+**A type as a runtime value** (RFC 0042). The same ``TypeCarrier`` is an
+ordinary scalar named ``type``, so a native schema can hold types (a
+``TableSchema``'s ``tp`` and ``types``). Its Python conversion is a hook pair
+installed by ``bind_type_system``, the mechanism ``WiredFn`` uses. To Python
+a type is what a type argument crosses as, below. From Python it accepts
+whatever a type-argument slot accepts (``_carrier_value``: a ``TS[...]``
+expression, a class, a schema or a size). Conversion resolves through
+Python-level caches and takes no type-system locks per tick. A type's text is
+its name (``int``, ``TS[int]``). Python has no annotation of its own for the
+scalar: ``type`` is the Python-object scalar, so a user meets a type value
+through a native schema's field.
+
 A ``TS[...]`` expression passed as an *argument* is a type argument
 (RFC 0033): ``py_wiring.cpp`` mints the core ``TypeCarrier`` scalar for it,
 the registry matches it against a ``TypeArg`` parameter's carried pattern
