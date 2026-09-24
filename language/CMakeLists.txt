@@ -611,9 +611,6 @@ foreach(_part IN LISTS _hgl_core_native_parts)
         DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native${_relative_directory}
         COMPONENT Development)
 endforeach()
-install(FILES stdlib/hgl/hgraph/native/impl/rust_scalar_values_i64.hgl
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native/impl
-    COMPONENT Development)
 install(FILES
     cmake/HglLanguage.cmake
     cmake/hgl_python_module.cpp.in

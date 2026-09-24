@@ -9,6 +9,8 @@ the authored source uses `const_`.
 Only integer formatting and console output are native. Source scheduling,
 admission, publication and composition stay in HGL. Target parts complete the
 same native declaration; the helper returns no value and creates no node.
+`hgraph` supplies the C++ part and provider; `hgl` supplies its own Rust pair.
+Only the shared HGL source is mirrored between them.
 This is an i64 bootstrap, not the full generic, labelled standard-library API.
 
 ## Expected observations
