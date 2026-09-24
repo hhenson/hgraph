@@ -1071,23 +1071,63 @@ def _map_entries(tick: Any) -> dict[str, Any] | None:
     return entries
 
 
-def _literal_members(text: Any) -> Any:
-    """The container a rendering spells, or None when it is not a literal."""
+def _literal_shape(text: Any) -> Any:
+    """A type-strict, order-free shape of a Python literal rendering, or None.
+
+    Parsed from the syntax tree rather than evaluated: evaluation would let
+    ``{1}`` equal ``{True}`` and collapse ``{1, 1}`` to ``{1}``. A set's or a
+    map's members are sorted; a duplicate member is not a valid rendering."""
     import ast
 
     if not isinstance(text, str):
         return None
     try:
-        return ast.literal_eval(text)
-    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        tree = ast.parse(text, mode="eval")
+    except (SyntaxError, ValueError, MemoryError, RecursionError):
         return None
+
+    def shape(node: Any) -> Any:
+        if isinstance(node, ast.Constant):
+            return ("const", type(node.value).__name__, repr(node.value))
+        if (
+            isinstance(node, ast.UnaryOp)
+            and isinstance(node.op, (ast.USub, ast.UAdd))
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, (int, float, complex))
+            and not isinstance(node.operand.value, bool)
+        ):
+            sign = "-" if isinstance(node.op, ast.USub) else "+"
+            return ("const", type(node.operand.value).__name__, sign + repr(node.operand.value))
+        if isinstance(node, (ast.Tuple, ast.List)):
+            members = [shape(item) for item in node.elts]
+            if any(member is None for member in members):
+                return None
+            return (type(node).__name__.lower(), tuple(members))
+        if isinstance(node, ast.Set):
+            members = [shape(item) for item in node.elts]
+            if any(member is None for member in members) or len(set(members)) != len(members):
+                return None
+            return ("set", tuple(sorted(members, key=repr)))
+        if isinstance(node, ast.Dict):
+            if any(key is None for key in node.keys):
+                return None
+            keys = [shape(key) for key in node.keys]
+            values = [shape(value) for value in node.values]
+            if any(item is None for item in keys + values) or len(set(keys)) != len(keys):
+                return None
+            return ("dict", tuple(sorted(zip(keys, values), key=repr)))
+        return None
+
+    return shape(tree.body)
 
 
 def _contains_unordered(value: Any) -> bool:
-    if isinstance(value, (dict, set, frozenset)):
+    if not isinstance(value, tuple) or not value:
+        return False
+    if value[0] in ("set", "dict"):
         return True
-    if isinstance(value, (tuple, list)):
-        return any(_contains_unordered(item) for item in value)
+    if value[0] in ("tuple", "list"):
+        return any(_contains_unordered(member) for member in value[1])
     return False
 
 
@@ -1102,9 +1142,11 @@ def _unordered_member_text_relation(
     unordered map with no ordering guarantee, and a set has no order, so the
     members in their text come in no specified order. Released hgraph writes
     insertion order; this runtime writes storage order. Admitted only when
-    every differing rendering spells, as a Python literal, the SAME value
-    containing a map or a set -- so a wrong member, a changed value or a
-    different spelling (``set()`` against ``{}``) stays reportable."""
+    every differing rendering spells, as a Python literal, the same members
+    -- compared type-strictly, with no duplicate member -- in a map or a set,
+    so a wrong member, a changed value or type (``{1}`` against ``{True}``),
+    a duplicate, or a different spelling (``set()`` against ``{}``) stays
+    reportable."""
     if difference.get("classification") != "value":
         return False
     reference_trace = reference.get("trace")
@@ -1117,13 +1159,11 @@ def _unordered_member_text_relation(
     for expected, actual in zip(reference_trace, candidate_trace):
         if expected == actual:
             continue
-        expected_value = _literal_members(expected)
-        actual_value = _literal_members(actual)
-        if expected_value is None or actual_value is None:
+        expected_shape = _literal_shape(expected)
+        actual_shape = _literal_shape(actual)
+        if expected_shape is None or actual_shape is None or expected_shape != actual_shape:
             return False
-        if type(expected_value) is not type(actual_value) or expected_value != actual_value:
-            return False
-        if not _contains_unordered(expected_value):
+        if not _contains_unordered(expected_shape):
             return False
         reordered = True
     return reordered

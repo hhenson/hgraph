@@ -4249,6 +4249,10 @@ def test_unordered_member_text_family_admits_only_a_reordering():
     assert not classify(["{'b': -19, 'a': -19}"], ["{'a': -19, 'b': -18}"])
     assert not classify(["{'b': 1}"], ["{'a': 1, 'b': 1}"])
     assert not classify(["(1, 2)"], ["(2, 1)"])
+    # Codex review on #1633: type-strict members and no duplicates.
+    assert not classify(["{1}"], ["{True}"])
+    assert not classify(["{1, 2}"], ["{2, 1, 1}"])
+    assert not classify(["{'a': 1}"], ["{'a': 1.0}"])
     # The set() rendering is the separate empty-set family, not a reordering.
     assert not classify(["set()"], ["{}"])
     # Unparseable renderings stay reportable.

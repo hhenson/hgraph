@@ -287,3 +287,20 @@ TEST_CASE("operator contracts: a string in a container renders as Python's repr 
     // Bytes that are not UTF-8 -- here an encoded surrogate -- show as bytes.
     CHECK(quote_string("\xed\xa0\x80") == "'\\xed\\xa0\\x80'");
 }
+
+TEST_CASE("operator contracts: a map's text has its members in no specified order (OP-9)")
+{
+    stdlib::register_standard_operators();
+
+    // Owner ruling 2026-09-24 (parity #1082): after "a" is removed and added
+    // again the rendering may list it first or last; its members are fixed.
+    const auto rendered = eval_node<stdlib::str_, TSD<Str, TS<Int>>>(values<Value>(
+        dict_delta<Str, TS<Int>>({{Str{"a"}, 2}}),
+        dict_delta<Str, TS<Int>>({{Str{"b"}, -19}}, {Str{"a"}}),
+        dict_delta<Str, TS<Int>>({{Str{"a"}, -19}})));
+    REQUIRE(rendered.size() == 3);
+    CHECK(rendered[0]->view().checked_as<Str>() == "{'a': 2}");
+    CHECK(rendered[1]->view().checked_as<Str>() == "{'b': -19}");
+    const Str last = rendered[2]->view().checked_as<Str>();
+    CHECK((last == "{'a': -19, 'b': -19}" || last == "{'b': -19, 'a': -19}"));
+}
