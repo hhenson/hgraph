@@ -208,6 +208,12 @@ Recorded on acceptance (PRs #1643, #1644, #1645 and the serialisation PR):
 - **The decode cache** is guarded by a counted ``TypeSystemMutex``. Decoding
   is a boundary operation (restore, transport), not evaluation, so the
   per-tick registry-free rule is unaffected.
+- **Decoding is bounded** (security review): names of at most 1024
+  characters and 32 levels of nesting, the canonical spelling only, and at
+  most 4096 distinct decoded types per process, so an untrusted peer cannot
+  exhaust the stack or grow the registry without bound.
+- **Python type values are cached by annotation** (review of step 1): a node
+  emitting ``tuple[int, ...]`` every tick resolves it once.
 
 Alternatives considered
 -----------------------

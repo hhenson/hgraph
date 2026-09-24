@@ -407,3 +407,10 @@ the interned schema. Its forms:
   the registry is reset. Decoding is a boundary operation (restore, transport),
   not evaluation. A named type must be registered in the decoding process
   first, as for a named bundle.
+- **Decoding is bounded**, because a serialised type may come from an
+  untrusted peer (a ``TableSchema`` in a REST payload): a name longer than
+  1024 characters or nested deeper than 32 levels is refused; only the
+  canonical spelling is accepted, so each type has one cache entry; and the
+  cache is also the admission set -- after 4096 distinct forms a new one is
+  refused before it is parsed, so decoding interns a bounded number of
+  schemas.

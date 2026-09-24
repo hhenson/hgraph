@@ -109,159 +109,190 @@ namespace hgraph
         }
     }  // namespace
 
-    const ValueTypeMetaData *parse_value_type_name(std::string_view name)
+    namespace
     {
-        auto &registry = TypeRegistry::instance();
-        name           = trim(name);
-        // Every place a named schema lives: the alias table, then the nominal
-        // caches that do not publish an alias, then the Any singleton.
-        if (const auto *meta = registry.value_type(name); meta != nullptr) { return meta; }
-        if (const auto *meta = registry.named_bundle(name); meta != nullptr) { return meta; }
-        if (const auto *meta = registry.named_enum(name); meta != nullptr) { return meta; }
-        if (const auto *meta = registry.named_opaque_python(name); meta != nullptr) { return meta; }
-        if (const auto *any = registry.any(); name == any->name()) { return any; }
+        // Bounds for decoding a name that may come from an untrusted peer
+        // (a type value in a REST payload): a name no longer than
+        // ``max_name_length`` and nested no deeper than ``max_depth`` -- a
+        // registry-printed name is far inside both.
+        constexpr std::size_t max_name_length = 1024;
+        constexpr int         max_depth       = 32;
 
-        std::string_view family;
-        std::string_view args;
-        if (split_family(name, '{', '}', family, args) && family == "Bundle")
+        void enter(std::string_view name, int depth)
         {
-            std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
-            for (const auto field : split_top(args))
+            if (name.size() > max_name_length)
             {
-                const auto [field_name, field_type] = split_field(field, name);
-                fields.emplace_back(std::string{field_name}, parse_value_type_name(field_type));
+                throw std::invalid_argument(fmt::format("type name: longer than {} characters", max_name_length));
             }
-            return registry.un_named_bundle(fields);
-        }
-        if (!split_family(name, '[', ']', family, args)) { unresolved("value type", name); }
-        const auto parts = split_top(args);
-        const auto one   = [&]() {
-            if (parts.size() != 1) { unresolved("value type", name); }
-            return parse_value_type_name(parts[0]);
-        };
-        const auto two = [&]() {
-            if (parts.size() != 2) { unresolved("value type", name); }
-            return std::pair{parse_value_type_name(parts[0]), parse_value_type_name(parts[1])};
-        };
-        const auto sized = [&](auto build) {
-            if (parts.empty() || parts.size() > 2) { unresolved("value type", name); }
-            const auto *element = parse_value_type_name(parts[0]);
-            return build(element, parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
-                                                    : std::size_t{0},
-                         parts.size() == 2);
-        };
-
-        if (family == "Tuple")
-        {
-            std::vector<const ValueTypeMetaData *> elements;
-            for (const auto part : parts) { elements.push_back(parse_value_type_name(part)); }
-            return registry.tuple(elements);
-        }
-        if (family == "VariadicTuple") { return registry.list(one(), 0, true); }
-        if (family == "NullableTuple") { return registry.nullable_tuple(one()); }
-        if (family == "List")
-        {
-            // A shown size is a fixed extent (``List[T,0]`` is the fixed empty list).
-            return sized([&](const ValueTypeMetaData *element, std::size_t size, bool shown) {
-                return shown ? registry.fixed_list(element, size) : registry.list(element);
-            });
-        }
-        if (family == "MutableList") { return registry.mutable_list(one()); }
-        if (family == "Set") { return registry.set(one()); }
-        if (family == "MutableSet") { return registry.mutable_set(one()); }
-        if (family == "Map")
-        {
-            const auto [key, value] = two();
-            return registry.map(key, value);
-        }
-        if (family == "MutableMap")
-        {
-            const auto [key, value] = two();
-            return registry.mutable_map(key, value);
-        }
-        if (family == "CyclicBuffer")
-        {
-            return sized([&](const ValueTypeMetaData *element, std::size_t size, bool) {
-                return registry.cyclic_buffer(element, size);
-            });
-        }
-        if (family == "Queue")
-        {
-            return sized([&](const ValueTypeMetaData *element, std::size_t size, bool) {
-                return registry.queue(element, size);
-            });
-        }
-        if (family == "Array")
-        {
-            if (parts.size() != 2) { unresolved("value type", name); }
-            const auto *element = parse_value_type_name(parts[0]);
-            return registry.array(element, parts[1] == "*" ? std::size_t{0}
-                                                           : static_cast<std::size_t>(parse_count(parts[1], name)));
-        }
-        if (family == "Owned") { return registry.owned(one()); }
-        if (family == "Shared") { return registry.shared(one()); }
-        if (const auto *base = registry.value_type(family); base != nullptr && registry.is_frame(base))
-        {
-            if (parts.size() == 1) { return registry.frame(parse_value_type_name(parts[0])); }
-            const auto [columns, metadata] = two();
-            return registry.frame(columns, metadata);
-        }
-        if (const auto *base = registry.value_type(family); base != nullptr && family == "series")
-        {
-            return registry.series(one());
-        }
-        unresolved("value type", name);
-    }
-
-    const TSValueTypeMetaData *parse_ts_type_name(std::string_view name)
-    {
-        auto &registry = TypeRegistry::instance();
-        name           = trim(name);
-        if (const auto *meta = registry.time_series_type(name); meta != nullptr) { return meta; }
-
-        std::string_view family;
-        std::string_view args;
-        if (split_family(name, '{', '}', family, args) && family == "TSB")
-        {
-            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
-            for (const auto field : split_top(args))
+            if (depth > max_depth)
             {
-                const auto [field_name, field_type] = split_field(field, name);
-                fields.emplace_back(std::string{field_name}, parse_ts_type_name(field_type));
+                throw std::invalid_argument(fmt::format("type name: nested deeper than {} levels", max_depth));
             }
-            return registry.un_named_tsb(fields);
         }
-        if (!split_family(name, '[', ']', family, args)) { unresolved("time-series type", name); }
-        const auto parts = split_top(args);
 
-        if (family == "TS" && parts.size() == 1) { return registry.ts(parse_value_type_name(parts[0])); }
-        if (family == "TSS" && parts.size() == 1) { return registry.tss(parse_value_type_name(parts[0])); }
-        if (family == "TSD" && parts.size() == 2)
+        const TSValueTypeMetaData *parse_ts(std::string_view name, int depth);
+
+        const ValueTypeMetaData *parse_value(std::string_view name, int depth)
         {
-            return registry.tsd(parse_value_type_name(parts[0]), parse_ts_type_name(parts[1]));
-        }
-        if (family == "TSL" && (parts.size() == 1 || parts.size() == 2))
-        {
-            // The registry leaves the extent out only for the unbounded list;
-            // ``TSL[T,0]`` is the fixed empty one.
-            return registry.tsl(parse_ts_type_name(parts[0]),
-                                parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
-                                                  : unbounded_tsl_size);
-        }
-        if (family == "TSW" && parts.size() == 3)
-        {
-            const auto *value = parse_value_type_name(parts[0]);
-            if (parts[1].starts_with("duration="))
+            enter(name, depth);
+            auto &registry = TypeRegistry::instance();
+            name           = trim(name);
+            // Every place a named schema lives: the alias table, then the nominal
+            // caches that do not publish an alias, then the Any singleton.
+            if (const auto *meta = registry.value_type(name); meta != nullptr) { return meta; }
+            if (const auto *meta = registry.named_bundle(name); meta != nullptr) { return meta; }
+            if (const auto *meta = registry.named_enum(name); meta != nullptr) { return meta; }
+            if (const auto *meta = registry.named_opaque_python(name); meta != nullptr) { return meta; }
+            if (const auto *any = registry.any(); name == any->name()) { return any; }
+
+            std::string_view family;
+            std::string_view args;
+            if (split_family(name, '{', '}', family, args) && family == "Bundle")
             {
-                return registry.tsw_duration(value, TimeDelta{parse_labelled(parts[1], "duration", name)},
-                                             TimeDelta{parse_labelled(parts[2], "min", name)});
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+                for (const auto field : split_top(args))
+                {
+                    const auto [field_name, field_type] = split_field(field, name);
+                    fields.emplace_back(std::string{field_name}, parse_value(field_type, depth + 1));
+                }
+                return registry.un_named_bundle(fields);
             }
-            return registry.tsw(value, static_cast<std::size_t>(parse_count(parts[1], name)),
-                                static_cast<std::size_t>(parse_count(parts[2], name)));
+            if (!split_family(name, '[', ']', family, args)) { unresolved("value type", name); }
+            const auto parts = split_top(args);
+            const auto one   = [&]() {
+                if (parts.size() != 1) { unresolved("value type", name); }
+                return parse_value(parts[0], depth + 1);
+            };
+            const auto two = [&]() {
+                if (parts.size() != 2) { unresolved("value type", name); }
+                return std::pair{parse_value(parts[0], depth + 1), parse_value(parts[1], depth + 1)};
+            };
+            const auto sized = [&](auto build) {
+                if (parts.empty() || parts.size() > 2) { unresolved("value type", name); }
+                const auto *element = parse_value(parts[0], depth + 1);
+                return build(element, parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
+                                                        : std::size_t{0},
+                             parts.size() == 2);
+            };
+
+            if (family == "Tuple")
+            {
+                std::vector<const ValueTypeMetaData *> elements;
+                for (const auto part : parts) { elements.push_back(parse_value(part, depth + 1)); }
+                return registry.tuple(elements);
+            }
+            if (family == "VariadicTuple") { return registry.list(one(), 0, true); }
+            if (family == "NullableTuple") { return registry.nullable_tuple(one()); }
+            if (family == "List")
+            {
+                // A shown size is a fixed extent (``List[T,0]`` is the fixed empty list).
+                return sized([&](const ValueTypeMetaData *element, std::size_t size, bool shown) {
+                    return shown ? registry.fixed_list(element, size) : registry.list(element);
+                });
+            }
+            if (family == "MutableList") { return registry.mutable_list(one()); }
+            if (family == "Set") { return registry.set(one()); }
+            if (family == "MutableSet") { return registry.mutable_set(one()); }
+            if (family == "Map")
+            {
+                const auto [key, value] = two();
+                return registry.map(key, value);
+            }
+            if (family == "MutableMap")
+            {
+                const auto [key, value] = two();
+                return registry.mutable_map(key, value);
+            }
+            if (family == "CyclicBuffer")
+            {
+                return sized([&](const ValueTypeMetaData *element, std::size_t size, bool) {
+                    return registry.cyclic_buffer(element, size);
+                });
+            }
+            if (family == "Queue")
+            {
+                return sized([&](const ValueTypeMetaData *element, std::size_t size, bool) {
+                    return registry.queue(element, size);
+                });
+            }
+            if (family == "Array")
+            {
+                if (parts.size() != 2) { unresolved("value type", name); }
+                const auto *element = parse_value(parts[0], depth + 1);
+                return registry.array(element, parts[1] == "*" ? std::size_t{0}
+                                                               : static_cast<std::size_t>(parse_count(parts[1], name)));
+            }
+            if (family == "Owned") { return registry.owned(one()); }
+            if (family == "Shared") { return registry.shared(one()); }
+            if (const auto *base = registry.value_type(family); base != nullptr && registry.is_frame(base))
+            {
+                if (parts.size() == 1) { return registry.frame(parse_value(parts[0], depth + 1)); }
+                const auto [columns, metadata] = two();
+                return registry.frame(columns, metadata);
+            }
+            if (const auto *base = registry.value_type(family); base != nullptr && family == "series")
+            {
+                return registry.series(one());
+            }
+            unresolved("value type", name);
         }
-        if (family == "REF" && parts.size() == 1) { return registry.ref(parse_ts_type_name(parts[0])); }
-        unresolved("time-series type", name);
-    }
+
+        const TSValueTypeMetaData *parse_ts(std::string_view name, int depth)
+        {
+            enter(name, depth);
+            auto &registry = TypeRegistry::instance();
+            name           = trim(name);
+            if (const auto *meta = registry.time_series_type(name); meta != nullptr) { return meta; }
+
+            std::string_view family;
+            std::string_view args;
+            if (split_family(name, '{', '}', family, args) && family == "TSB")
+            {
+                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+                for (const auto field : split_top(args))
+                {
+                    const auto [field_name, field_type] = split_field(field, name);
+                    fields.emplace_back(std::string{field_name}, parse_ts(field_type, depth + 1));
+                }
+                return registry.un_named_tsb(fields);
+            }
+            if (!split_family(name, '[', ']', family, args)) { unresolved("time-series type", name); }
+            const auto parts = split_top(args);
+
+            if (family == "TS" && parts.size() == 1) { return registry.ts(parse_value(parts[0], depth + 1)); }
+            if (family == "TSS" && parts.size() == 1) { return registry.tss(parse_value(parts[0], depth + 1)); }
+            if (family == "TSD" && parts.size() == 2)
+            {
+                return registry.tsd(parse_value(parts[0], depth + 1), parse_ts(parts[1], depth + 1));
+            }
+            if (family == "TSL" && (parts.size() == 1 || parts.size() == 2))
+            {
+                // The registry leaves the extent out only for the unbounded list;
+                // ``TSL[T,0]`` is the fixed empty one.
+                return registry.tsl(parse_ts(parts[0], depth + 1),
+                                    parts.size() == 2 ? static_cast<std::size_t>(parse_count(parts[1], name))
+                                                      : unbounded_tsl_size);
+            }
+            if (family == "TSW" && parts.size() == 3)
+            {
+                const auto *value = parse_value(parts[0], depth + 1);
+                if (parts[1].starts_with("duration="))
+                {
+                    return registry.tsw_duration(value, TimeDelta{parse_labelled(parts[1], "duration", name)},
+                                                 TimeDelta{parse_labelled(parts[2], "min", name)});
+                }
+                return registry.tsw(value, static_cast<std::size_t>(parse_count(parts[1], name)),
+                                    static_cast<std::size_t>(parse_count(parts[2], name)));
+            }
+            if (family == "REF" && parts.size() == 1) { return registry.ref(parse_ts(parts[0], depth + 1)); }
+            unresolved("time-series type", name);
+        }
+
+    }  // namespace
+
+    const ValueTypeMetaData *parse_value_type_name(std::string_view name) { return parse_value(name, 0); }
+
+    const TSValueTypeMetaData *parse_ts_type_name(std::string_view name) { return parse_ts(name, 0); }
 
     std::string serialise_type_value(const TypeCarrier &type)
     {
@@ -284,7 +315,17 @@ namespace hgraph
     {
         // Cold path, cached by form. The cache compares the registry's reset
         // generation and drops itself when it moves: the schemas it points at
-        // are registry-owned.
+        // are registry-owned. A serialised type may come from an untrusted
+        // peer, so decoding is bounded: only the canonical spelling is
+        // accepted (one entry per type), and the cache is also the admission
+        // set -- once it holds ``max_decoded_types`` distinct forms a new form
+        // is refused before it is parsed, so decoding can intern only a
+        // bounded number of schemas.
+        constexpr std::size_t max_decoded_types = 4096;
+        if (serialised.size() > max_name_length + 8)
+        {
+            throw std::invalid_argument(fmt::format("type value: longer than {} characters", max_name_length + 8));
+        }
         struct Cache
         {
             TypeSystemMutex                                       mutex;
@@ -304,6 +345,12 @@ namespace hgraph
             if (const auto found = cache.entries.find(std::string{serialised}); found != cache.entries.end())
             {
                 return found->second;
+            }
+            if (cache.entries.size() >= max_decoded_types)
+            {
+                throw std::invalid_argument(fmt::format(
+                    "type value: '{}' refused: the decoder has admitted its {} distinct types", serialised,
+                    max_decoded_types));
             }
         }
 
@@ -325,6 +372,11 @@ namespace hgraph
                 fmt::format("type value: '{}' is not a serialised type (ts:, scalar: or size:)", serialised));
         }
 
+        if (const auto canonical = serialise_type_value(type); canonical != serialised)
+        {
+            throw std::invalid_argument(fmt::format(
+                "type value: '{}' is not the canonical spelling of its type ('{}')", serialised, canonical));
+        }
         const std::lock_guard lock(cache.mutex);
         if (cache.generation == generation) { cache.entries.emplace(std::string{serialised}, type); }
         return type;

@@ -162,3 +162,20 @@ TEST_CASE("type values: a TableSchema round-trips through the binary and JSON co
     const Value from_json = from_json_string(schema.schema(), json);
     CHECK(from_json.view().equals(schema.view()));
 }
+
+TEST_CASE("type values: decoding an untrusted name is bounded")
+{
+    stdlib::register_standard_operators();
+    // Nesting beyond the depth bound is refused, not recursed into.
+    std::string deep = "int";
+    for (int level = 0; level < 40; ++level) { deep = "Set[" + deep + "]"; }
+    CHECK_THROWS_WITH(parse_value_type_name(deep), Catch::Matchers::ContainsSubstring("nested deeper than"));
+    CHECK_THROWS_WITH(parse_type_value("scalar:" + deep), Catch::Matchers::ContainsSubstring("nested deeper than"));
+    // So is an over-long name.
+    CHECK_THROWS_WITH(parse_type_value("scalar:" + std::string(4096, 'x')),
+                      Catch::Matchers::ContainsSubstring("longer than"));
+    // Only the canonical spelling is accepted: one cache entry per type.
+    CHECK(parse_type_value("scalar:Map[str,int]") == TypeCarrier::of_scalar(parse_value_type_name("Map[str,int]")));
+    CHECK_THROWS_WITH(parse_type_value("scalar:Map[str, int]"),
+                      Catch::Matchers::ContainsSubstring("not the canonical spelling"));
+}
