@@ -545,10 +545,12 @@ share the same structure.
 
 The typed ``TSB`` selectors work for authored nodes and for erased
 replay/record. A ``TSB`` delta is the canonical
-``Bundle{field: delta(field_schema)...}``; unchanged scalar fields remain typed
-null. Build expected test deltas with ``tsb_delta<Schema>(...)`` in schema field
-order. ``std::nullopt`` leaves a field at its canonical default delta: typed-null
-for scalar children, empty delta for collection children.
+``Bundle{field: delta(field_schema)...}`` holding only the fields with news:
+a field that did not tick is unset, whether it is a scalar or a collection.
+Build expected test deltas with ``tsb_delta<Schema>(...)`` in schema field
+order. ``std::nullopt`` leaves a field unset (no news). A collection that ticked
+empty takes an explicit empty delta, such as ``set_delta<T>({}, {})`` or
+``dict_delta<K, V>({})``: "no news" and "ticked empty" are different statements.
 
 Visiting an erased endpoint
 ---------------------------

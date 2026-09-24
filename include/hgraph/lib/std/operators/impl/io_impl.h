@@ -108,6 +108,12 @@ namespace hgraph::stdlib
             structural bundle of arguments (positional entries are the
             leading unnamed fields in call order; kwargs carry names). */
         [[nodiscard]] std::string format_bundle(std::string_view format, const TSInputView &packed);
+
+        /** True when every packed argument is valid, or there are none: the
+            default ``__strict__`` rule of ``format_``, which ``print_``,
+            ``log_`` and the formatting ``assert_`` format through (runtime
+            spec OP-8). There is no placeholder for a missing argument. */
+        [[nodiscard]] bool format_arguments_ready(const TSInputView &packed);
     }  // namespace io_impl_detail
 
     /** ``__print_sink``: the runtime half of ``print_`` — formats the packed
@@ -119,6 +125,7 @@ namespace hgraph::stdlib
         static void eval(In<"fmt", TS<Str>> format, In<"args", TsVar<"A">, InputValidity::Unchecked> args,
                          Scalar<"to_stdout", Bool> to_stdout)
         {
+            if (!io_impl_detail::format_arguments_ready(args.base())) { return; }
             io_write(io_impl_detail::format_bundle(format.value(), args.base()), to_stdout.value());
         }
     };
@@ -132,6 +139,10 @@ namespace hgraph::stdlib
                          In<"args", TsVar<"A">, InputValidity::Unchecked> args)
         {
             if (condition.value()) { return; }
+            // Released hgraph formats the message with format_ and asserts
+            // through a sink that needs that message: with an argument not
+            // yet valid there is no message, and nothing is raised.
+            if (!io_impl_detail::format_arguments_ready(args.base())) { return; }
             throw std::runtime_error(io_impl_detail::format_bundle(format.value(), args.base()));
         }
     };
@@ -157,6 +168,9 @@ namespace hgraph::stdlib
                          Scalar<"level", Int> level, Scalar<"sample_count", Int> sample_count,
                          State<Int> ticks, LoggerView log, EvaluationClockView clock)
         {
+            // Only a formatted message counts toward sample_count, as released
+            // hgraph samples count(msg) over format_'s output.
+            if (!io_impl_detail::format_arguments_ready(args.base())) { return; }
             const Int seen = ticks.get() + 1;
             ticks.set(seen);
             if (sample_count.value() > 1 && seen % sample_count.value() != 0) { return; }

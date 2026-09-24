@@ -211,8 +211,14 @@ def _existing_issues(repo: str) -> list[dict[str, Any]]:
             "list",
             "--state",
             "all",
+            # Every issue this publisher files carries the label, and a
+            # recurrence must find its issue however old it is: a limit over
+            # all issues let the oldest parity issues fall off the end and be
+            # filed again.
+            "--label",
+            "parity",
             "--limit",
-            "1000",
+            "100000",
             "--json",
             "number,state,title,body,url",
         ],
@@ -230,6 +236,7 @@ def publish_failures(
     known_divergences_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     from .known import is_known_family_failure, load_known_divergences
+    from .process import is_environment_failure
 
     failures = list(failures)
     known_fingerprints, known_families = load_known_divergences(
@@ -252,9 +259,27 @@ def publish_failures(
         ):
             return None
         return {"action": "known-divergence", "fingerprint": fingerprint}
+
+    def environment_action(failure: dict[str, Any]) -> dict[str, Any] | None:
+        # An issue records a behavioural difference, so both sides must have
+        # run the graph. A campaign quarantines an environment failure before
+        # it reaches a report; this re-check keeps a report from an older
+        # harness, or any other producer, from filing one.
+        if not any(
+            is_environment_failure(failure.get(side) or {})
+            for side in ("reference", "candidate")
+        ):
+            return None
+        return {
+            "action": "environment-failure",
+            "fingerprint": failure.get("failure_fingerprint")
+            or failure_fingerprint(failure),
+        }
+
     if not publish:
         return [
-            known_action(failure)
+            environment_action(failure)
+            or known_action(failure)
             or {
                 "action": "dry-run",
                 "title": issue_title(failure),
@@ -290,9 +315,9 @@ def publish_failures(
         origin = failure_origin(failure)
         origin_marker = f"<!-- {ORIGIN_PREFIX}{origin} -->" if origin else None
         title = issue_title(failure)
-        known = known_action(failure)
-        if known is not None:
-            actions.append(known)
+        skipped = environment_action(failure) or known_action(failure)
+        if skipped is not None:
+            actions.append(skipped)
             continue
         # One issue per fingerprint per publish, and one per generated origin
         # (the original case's recipe id): every minimized variant of one

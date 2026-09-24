@@ -13,6 +13,7 @@
 #include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/time_series/ts_delta.h>  // reconcile_current_state
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/series.h>
@@ -259,7 +260,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_int";
 
-        static Port<TS<Int>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Int>> compose(Wiring &w, TypeArg<"tp", TS<Int>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Int            value{};
@@ -276,7 +277,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_float";
 
-        static Port<TS<Float>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Float>> compose(Wiring &w, TypeArg<"tp", TS<Float>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Float          value{};
@@ -296,7 +297,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_str";
 
-        static Port<TS<Str>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Str>> compose(Wiring &w, TypeArg<"tp", TS<Str>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             if (f == fn<add_>() || f == fn<sum_>() || f == fn<mul_>())
@@ -312,7 +313,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_tsd";
 
-        static void eval(Scalar<"op", WiredFn> op,
+        static void eval(TypeArg<"tp", TSD<ScalarVar<"K">, TsVar<"V">>, AutoResolve>, Scalar<"op", WiredFn> op,
                          Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
         {
             static_cast<void>(op);
@@ -1431,76 +1432,93 @@ namespace hgraph::stdlib
         {
             const auto &erased  = static_cast<const TSOutputView &>(out);
             auto        dict    = erased.as_dict();
-            auto        mutation = dict.begin_mutation(erased.evaluation_time());
-
-            // The desired key set for THIS cycle.
             std::vector<Value> desired;
-            const auto *key_schema = key.base().schema();
-            if (key_schema->kind == TSTypeKind::TSS)
             {
-                const TSSInputView set_input{key.base().borrowed_ref()};
-                auto data = set_input.data_view();
-                for (const ValueView &element : data.values()) { desired.emplace_back(element); }
-            }
-            else
-            {
-                const auto value = key.base().value();
-                if (value.schema()->value_kind() == ValueTypeKind::Set)
+                auto mutation = dict.begin_mutation(erased.evaluation_time());
+
+                // The desired key set for THIS cycle.
+                const auto *key_schema = key.base().schema();
+                if (key_schema->kind == TSTypeKind::TSS)
                 {
-                    auto items = value.as_indexed_view();
-                    for (std::size_t index = 0; index < items.size(); ++index)
-                    {
-                        desired.emplace_back(items.at(index));
-                    }
+                    const TSSInputView set_input{key.base().borrowed_ref()};
+                    auto data = set_input.data_view();
+                    for (const ValueView &element : data.values()) { desired.emplace_back(element); }
                 }
-                else { desired.emplace_back(value); }
-            }
+                else
+                {
+                    const auto value = key.base().value();
+                    if (value.schema()->value_kind() == ValueTypeKind::Set)
+                    {
+                        auto items = value.as_indexed_view();
+                        for (std::size_t index = 0; index < items.size(); ++index)
+                        {
+                            desired.emplace_back(items.at(index));
+                        }
+                    }
+                    else { desired.emplace_back(value); }
+                }
 
-            // Asked once per existing key; ``desired`` is complete, so its
-            // keys can be borrowed. Searching it per key was quadratic.
-            BorrowedValueSet wanted;
-            wanted.reserve(desired.size());
-            for (const Value &want : desired) { wanted.insert(&want); }
-            std::vector<Value> stale;
-            const auto mutation_view = mutation.view();
-            for (const ValueView &existing : mutation_view.keys())
-            {
-                if (!wanted.contains(existing)) { stale.emplace_back(existing); }
-            }
-            for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
+                // Asked once per existing key; ``desired`` is complete, so its
+                // keys can be borrowed. Searching it per key was quadratic.
+                BorrowedValueSet wanted;
+                wanted.reserve(desired.size());
+                for (const Value &want : desired) { wanted.insert(&want); }
+                std::vector<Value> stale;
+                const auto mutation_view = mutation.view();
+                for (const ValueView &existing : mutation_view.keys())
+                {
+                    if (!wanted.contains(existing)) { stale.emplace_back(existing); }
+                }
+                for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
 
-            // The dictionary's STRUCTURE follows the KEYS: a key appears as soon
-            // as the key input says so, and its entry fills in when the value
-            // arrives. That is why ``ts`` is unchecked -- upstream reaches the
-            // same behaviour by taking the value as a ``REF``, which is valid
-            // before the output it references has ever ticked, so the node runs
-            // on a key tick alone. Requiring the value valid instead made the
-            // key set wait for a value it does not describe, and the whole
-            // dictionary stayed invalid (parity #852 and siblings).
-            if (!ts.base().valid())
-            {
+                // The dictionary's STRUCTURE follows the KEYS: a key appears as soon
+                // as the key input says so, and its entry fills in when the value
+                // arrives. That is why ``ts`` is unchecked -- upstream reaches the
+                // same behaviour by taking the value as a ``REF``, which is valid
+                // before the output it references has ever ticked, so the node runs
+                // on a key tick alone. Requiring the value valid instead made the
+                // key set wait for a value it does not describe, and the whole
+                // dictionary stayed invalid (parity #852 and siblings). So the
+                // structure is settled here, before any entry is written.
                 for (const Value &want : desired) { static_cast<void>(mutation.at(want.view())); }
-                return;
             }
+            if (!ts.base().valid()) { return; }
 
             // Upstream keeps a REF to ``ts`` in every entry, so an entry ticks
             // exactly when the referenced output does -- a re-send of the value
-            // it already holds included. Copying the value reproduces that only
-            // if the copy follows the tick rather than the comparison, so the
-            // equality skip is reserved for the node running on a key change
-            // while ``ts`` stood still (parity #909 and siblings).
-            const auto value     = ts.base().value();
+            // it already holds included (parity #909 and siblings), and it
+            // reads ``ts``'s time-series state, not a value-layer copy of it.
+            // A value copy cannot say that a child is invalid, so a nested
+            // dictionary entry published a default ``0`` for a child that had
+            // never ticked (parity #963-#965). Each entry therefore reconciles
+            // with ``ts`` through the representation's current-state ops, with
+            // exact membership and child validity: in full when the entry has
+            // nothing yet, incrementally -- forwarding every change, equal or
+            // not (runtime spec OP-4) -- when ``ts`` ticked. A key change while
+            // ``ts`` stood still leaves the existing entries alone.
+            // Reconciling copies structure without publishing it, so an entry
+            // whose new state is only membership -- keys whose children have not
+            // ticked -- is then published explicitly: the entry ticks whenever
+            // it is filled or ``ts`` ticks, as a reference to ``ts`` would.
             const bool ts_ticked = ts.modified();
             for (const Value &want : desired)
             {
-                auto element = mutation.at(want.view());
-                if (!ts_ticked && element.has_current_value() &&
-                    element.value().equals(value))
+                TSOutputView entry = dict.at(want.view());
+                if (!entry.data_view().has_current_value())
                 {
-                    continue;
+                    reconcile_current_state(entry, ts.base(),
+                                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, true, true});
                 }
-                auto element_mutation = element.begin_mutation(erased.evaluation_time());
-                static_cast<void>(element_mutation.copy_value_from(value));
+                else if (ts_ticked)
+                {
+                    reconcile_current_state(entry, ts.base(),
+                                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Incremental, true, true});
+                }
+                else { continue; }
+                if (!entry.modified())
+                {
+                    entry.data_view().begin_mutation(erased.evaluation_time()).mark_modified();
+                }
             }
         }
     };
