@@ -326,6 +326,13 @@ namespace hgl::ir
                     }
                     out_ << "]";
                     if (function.throws) { out_ << " throws"; }
+                    if (function.implementation_kind == NativeImplementationKind::Graph ||
+                        function.implementation_kind == NativeImplementationKind::Node ||
+                        function.implementation_kind == NativeImplementationKind::Value) {
+                        out_ << " implementation=" << native_implementation_name(function.implementation_kind);
+                        for (const auto &hook : function.lifecycle) { out_ << " " << hook << ";"; }
+                        for (const auto &capability : function.capabilities) { out_ << " inject=" << capability; }
+                    }
                     out_ << "\n";
                 }
             }

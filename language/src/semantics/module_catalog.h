@@ -134,6 +134,8 @@ namespace hgl::semantics
         bool                     throws{false};
         std::vector<std::string> capabilities{};
         NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
+        std::vector<std::string> lifecycle{};
         std::vector<std::string> public_headers{};
         std::vector<std::string> cmake_packages{};
         std::vector<std::string> imported_targets{};

@@ -2,6 +2,7 @@
 
 #include "syntax/temporal.h"
 
+#include <algorithm>
 #include <format>
 #include <string>
 #include <string_view>
@@ -175,6 +176,13 @@ namespace hgl::syntax
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
                 for (const auto &capability : d.capabilities) {
                     line(depth + 1, "Inject", capability.range, std::string{capability.text});
+                }
+                if (d.has_contract && d.implementation.body.empty()) {
+                    line(depth + 1, "NativeImplementation", range,
+                         d.is_const                                                                               ? "value"
+                         : std::ranges::any_of(d.lifecycle, [](const auto &hook) { return hook.text == "when"; }) ? "node"
+                                                                                                                  : "graph");
+                    for (const auto &hook : d.lifecycle) { line(depth + 2, "Hook", hook.range, std::string{hook.text}); }
                 }
                 line(depth + 1, "CppImplementation", d.implementation.range,
                      "cpp(" + d.implementation.parameters + ") " + d.implementation.body);

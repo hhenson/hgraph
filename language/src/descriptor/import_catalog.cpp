@@ -559,6 +559,8 @@ namespace hgl::descriptor
             function.descriptor_fingerprint = descriptor.descriptor_fingerprint;
             function.throws                 = declaration.exception_policy == NativeExceptionPolicy::Translated;
             function.execution_role         = declaration.execution_role;
+            function.implementation_kind    = declaration.implementation_kind;
+            function.lifecycle              = declaration.lifecycle;
             function.capabilities           = declaration.capabilities;
             if (function.name.empty()) {
                 return ReadError{"$.native.declarations[" + std::to_string(declaration_index) + "].identity",

@@ -3607,6 +3607,9 @@ TEST_CASE("external native interface generates exact source-owned binding checks
 native const fn bit_and(lhs: i64, rhs: i64) -> i64
 native const fn bit_and(lhs: bool, rhs: bool) -> bool
 native const fn checked(value: i64) -> i64 throws
+native const fn bit_and(lhs: i64, rhs: i64) -> i64 {}
+native const fn bit_and(lhs: bool, rhs: bool) -> bool {}
+native const fn checked(value: i64) -> i64 throws {}
 )hgl"};
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE_FALSE(unit.diagnostics.has_errors());
@@ -3627,7 +3630,8 @@ native const fn checked(value: i64) -> i64 throws
 }
 
 TEST_CASE("external native interface requires a selected package provider", "[codegen][native][interface]") {
-    Unit unit{"module t\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\n"};
+    Unit unit{
+        "module t\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64 {}\n"};
     REQUIRE_FALSE(unit.diagnostics.has_errors());
     CHECK_FALSE(unit.emit());
     CHECK(contains(unit.diagnostics.render(unit.file), "package provider header and bound provider object"));
@@ -3635,14 +3639,17 @@ TEST_CASE("external native interface requires a selected package provider", "[co
 
 TEST_CASE("temporal native interfaces cannot use the scalar provider ABI", "[codegen][native][interface]") {
     for (const auto signature : {"value: i64", "const value: i64"}) {
-        Unit unit{std::string{"module t\nnative fn temporal("} + signature + ") -> i64\n"};
-        REQUIRE(unit.diagnostics.has_errors());
-        CHECK(contains(unit.diagnostics.render(unit.file), "native fn is temporal"));
+        Unit unit{std::string{"module t\nnative fn temporal("} + signature + ") -> i64\nnative fn temporal(" + signature +
+                  ") -> i64 {}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"}));
+        CHECK(contains(unit.diagnostics.render(unit.file), "external native interface requires a concrete native const fn"));
     }
 }
 
 TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][native][interface]") {
-    Unit unit{"module hgraph.native\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\n"};
+    Unit unit{"module hgraph.native\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\nnative const fn bit_and(lhs: i64, rhs: "
+              "i64) -> i64 {}\n"};
     REQUIRE_FALSE(unit.diagnostics.has_errors());
     const auto emitted = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
     REQUIRE(emitted);
@@ -3653,7 +3660,7 @@ TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][
 
 TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][native][interface]") {
     for (const auto declaration : {"native const fn f(value: str) -> i64", "native const fn f(value: i64) -> i64 throws",
-                                   "native const fn f(value: i64) -> i64 { inject clock }",
+                                   "native const fn f(value: i64) -> i64\nnative const fn f(value: i64) -> i64 { inject clock }",
                                    "native const fn f(value: i64) -> i64\nnative const fn f(value: bool) -> bool"}) {
         Unit unit{std::string{"module t\n"} + declaration + "\n"};
         REQUIRE_FALSE(unit.diagnostics.has_errors());
@@ -3664,6 +3671,7 @@ TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][nat
 
 TEST_CASE("native capability interfaces explicitly pass borrowed services", "[codegen][native][capabilities]") {
     Unit unit{R"hgl(module services
+native const fn audit(value: i64) -> i64
 native const fn audit(value: i64) -> i64 {
     inject logger
 }

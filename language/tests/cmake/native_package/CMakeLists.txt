@@ -76,6 +76,9 @@ hgl_add_module(rebuilt_native STATIC
         ${HGL_STDLIB_SOURCE}/native/scalar_values.hgl
         ${HGL_STDLIB_SOURCE}/native/scalar_values_i64.hgl
         ${HGL_STDLIB_SOURCE}/native/temporal_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_scalar_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_scalar_values_i64.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_temporal_values.hgl
 )
 target_include_directories(rebuilt_native PRIVATE "${HGL_STDLIB_SOURCE}/../cpp")
 hgl_add_module(rebuilt_standard STATIC

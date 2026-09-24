@@ -21,6 +21,10 @@ namespace hgl::codegen
                 diagnostics.report(syntax::Category::Backend, function.range, std::move(message));
                 valid = false;
             };
+            if (function.implementation_kind == NativeImplementationKind::Declaration) {
+                reject("native declaration requires a selected implementation part");
+                continue;
+            }
             if (function.execution_role != NativeExecutionRole::Value || !function.cpp_body.empty() || !function.generics.empty() ||
                 function.throws) {
                 reject("Rust interface emission requires concrete declaration-only native const fn without throws");

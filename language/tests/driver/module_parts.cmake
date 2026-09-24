@@ -78,10 +78,9 @@ if(_duplicate_part_result EQUAL 0 OR
 endif()
 
 run_hgl(_missing_part_result _missing_part_output
-    check "${_api}" --part "${SOURCE}/driver/module-parts/missing-part.hgl")
-if(_missing_part_result EQUAL 0 OR
-   NOT _missing_part_output MATCHES "every file in a multi-file module declares 'part <name>'")
-    message(FATAL_ERROR "a missing part name was not diagnosed:\n${_missing_part_output}")
+    check "${_api}" --part "${_implementation}" --part "${_zeta}" --part "${SOURCE}/driver/module-parts/missing-part.hgl")
+if(NOT _missing_part_result EQUAL 0)
+    message(FATAL_ERROR "an unnamed interface with a named part was rejected:\n${_missing_part_output}")
 endif()
 
 run_hgl(_duplicate_decl_result _duplicate_decl_output
@@ -90,4 +89,54 @@ if(_duplicate_decl_result EQUAL 0 OR
    NOT _duplicate_decl_output MATCHES "duplicate-declaration\\.hgl:[0-9]+:[0-9]+" OR
    NOT _duplicate_decl_output MATCHES "private_forward")
     message(FATAL_ERROR "a cross-part duplicate declaration was not mapped to its source:\n${_duplicate_decl_output}")
+endif()
+
+# Native requirements complete a shared declaration, never another overload.
+set(_native_api "${SOURCE}/codegen/native-provider.hgl")
+set(_native_impl "${SOURCE}/codegen/native-provider-impl.hgl")
+run_hgl(_native_result _native_output check "${_native_api}" --part "${_native_impl}" --dump-hir)
+if(NOT _native_result EQUAL 0 OR NOT _native_output MATCHES "implementation=value inject=logger")
+    message(FATAL_ERROR "native implementation requirements were not selected:\n${_native_output}")
+endif()
+run_hgl(_native_result _native_output check "${_native_impl}" --part "${_native_api}" --dump-hir)
+if(NOT _native_result EQUAL 0 OR NOT _native_output MATCHES "implementation=value inject=logger")
+    message(FATAL_ERROR "reversing native part order changed selection:\n${_native_output}")
+endif()
+run_hgl(_native_result _native_output check "${_native_api}" --part "${_native_impl}"
+    --part "${SOURCE}/codegen/native-provider-rust-impl.hgl")
+if(_native_result EQUAL 0 OR NOT _native_output MATCHES "more than one selected implementation")
+    message(FATAL_ERROR "selecting two native target implementations was accepted:\n${_native_output}")
+endif()
+file(WRITE "${OUT}/contract.hgl" "module checks.shapes\nnative fn filter(value: i64, const limit: i64) -> i64\n")
+foreach(_shape IN ITEMS graph node)
+    if(_shape STREQUAL "graph")
+        set(_body "{}")
+    else()
+        set(_body "{ inject out, logger\n start; when; stop; }")
+    endif()
+    file(WRITE "${OUT}/impl.hgl" "module checks.shapes part cpp_impl\nnative fn filter(value: i64, const limit: i64) -> i64 ${_body}\n")
+    run_hgl(_shape_result _shape_output check "${OUT}/contract.hgl" --part "${OUT}/impl.hgl" --dump-hgraph-ir)
+    if(NOT _shape_result EQUAL 0 OR NOT _shape_output MATCHES "implementation=${_shape}")
+        message(FATAL_ERROR "native ${_shape} shape was not retained:\n${_shape_output}")
+    endif()
+endforeach()
+
+# Target requirements alter the generated service ABI, never the public signature.
+file(WRITE "${OUT}/value.hgl" "module checks.targets\nnative const fn f(value: i64) -> i64\n")
+file(WRITE "${OUT}/plain.hgl" "module checks.targets part plain\nnative const fn f(value: i64) -> i64 {}\n")
+file(WRITE "${OUT}/logging.hgl" "module checks.targets part logging\nnative const fn f(value: i64) -> i64 { inject logger }\n")
+foreach(_target IN ITEMS plain logging)
+    run_hgl(_result _output emit-native-rust "${OUT}/value.hgl" --part "${OUT}/${_target}.hgl" --out "${OUT}/${_target}.rs")
+    if(NOT _result EQUAL 0)
+        message(FATAL_ERROR "selected native requirements failed emission:\n${_output}")
+    endif()
+endforeach()
+file(READ "${OUT}/plain.rs" _plain)
+file(READ "${OUT}/logging.rs" _logging)
+if(_plain MATCHES "dyn Logger" OR NOT _logging MATCHES "dyn Logger")
+    message(FATAL_ERROR "target-specific capability requests were not reflected in the Rust binding")
+endif()
+run_hgl(_result _output emit-native-rust "${OUT}/value.hgl" --out "${OUT}/missing.rs")
+if(_result EQUAL 0 OR NOT _output MATCHES "requires a selected implementation part")
+    message(FATAL_ERROR "a bare declaration silently acquired an implementation:\n${_output}")
 endif()

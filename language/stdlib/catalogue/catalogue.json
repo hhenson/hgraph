@@ -42849,6 +42849,521 @@
       "declaration": "native fn active(value: signal) -> bool"
     }
   ],
+  "hgl_native_implementations": [
+    {
+      "module": "hgraph.native",
+      "name": "len",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 3,
+      "declaration": "native const fn len(value: str) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "is_empty",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 4,
+      "declaration": "native const fn is_empty(value: str) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "contains",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 5,
+      "declaration": "native const fn contains(value: str, needle: str) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "starts_with",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 6,
+      "declaration": "native const fn starts_with(value: str, prefix: str) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "ends_with",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 7,
+      "declaration": "native const fn ends_with(value: str, suffix: str) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "truthy",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 8,
+      "declaration": "native const fn truthy(value: bool) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "truthy",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 9,
+      "declaration": "native const fn truthy(value: i64) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "truthy",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 10,
+      "declaration": "native const fn truthy(value: f64) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "truthy",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 11,
+      "declaration": "native const fn truthy(value: str) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "absolute",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 12,
+      "declaration": "native const fn absolute(value: i64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "absolute",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 13,
+      "declaration": "native const fn absolute(value: f64) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "logarithm",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 14,
+      "declaration": "native const fn logarithm(value: f64) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "round_decimal",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 15,
+      "declaration": "native const fn round_decimal(value: f64, digits: i64) -> f64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "invert",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 16,
+      "declaration": "native const fn invert(value: bool) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_and",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 17,
+      "declaration": "native const fn bit_and(lhs: bool, rhs: bool) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_or",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 18,
+      "declaration": "native const fn bit_or(lhs: bool, rhs: bool) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_xor",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 19,
+      "declaration": "native const fn bit_xor(lhs: bool, rhs: bool) -> bool"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "invert",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 20,
+      "declaration": "native const fn invert(value: i64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_or",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 21,
+      "declaration": "native const fn bit_or(lhs: i64, rhs: i64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_xor",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 22,
+      "declaration": "native const fn bit_xor(lhs: i64, rhs: i64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "as_int",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 23,
+      "declaration": "native const fn as_int(value: bool) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "require_positive_delay",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 24,
+      "declaration": "native const fn require_positive_delay(delay: duration) throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "power",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 25,
+      "declaration": "native const fn power(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "power",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 26,
+      "declaration": "native const fn power(lhs: f64, rhs: f64) -> f64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "shift_left",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 27,
+      "declaration": "native const fn shift_left(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "shift_right",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 28,
+      "declaration": "native const fn shift_right(lhs: i64, rhs: i64) -> i64 throws"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "slice",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 29,
+      "declaration": "native const fn slice(value: str, begin: i64, end: i64) -> str"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "as_int",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 30,
+      "declaration": "native const fn as_int(value: f64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "as_float",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 31,
+      "declaration": "native const fn as_float(value: bool) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "as_float",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl",
+      "line": 32,
+      "declaration": "native const fn as_float(value: i64) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_and",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_scalar_values_i64.hgl",
+      "line": 3,
+      "declaration": "native const fn bit_and(lhs: i64, rhs: i64) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "year",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 3,
+      "declaration": "native const fn year(value: date) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "month",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 4,
+      "declaration": "native const fn month(value: date) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "day",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 5,
+      "declaration": "native const fn day(value: date) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "weekday",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 6,
+      "declaration": "native const fn weekday(value: date) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "isoweekday",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 7,
+      "declaration": "native const fn isoweekday(value: date) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "year",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 8,
+      "declaration": "native const fn year(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "month",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 9,
+      "declaration": "native const fn month(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "day",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 10,
+      "declaration": "native const fn day(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "weekday",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 11,
+      "declaration": "native const fn weekday(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "isoweekday",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 12,
+      "declaration": "native const fn isoweekday(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "hour",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 13,
+      "declaration": "native const fn hour(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "minute",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 14,
+      "declaration": "native const fn minute(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "second",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 15,
+      "declaration": "native const fn second(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "microsecond",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 16,
+      "declaration": "native const fn microsecond(value: datetime) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "hour",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 17,
+      "declaration": "native const fn hour(value: time) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "minute",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 18,
+      "declaration": "native const fn minute(value: time) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "second",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 19,
+      "declaration": "native const fn second(value: time) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "microsecond",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 20,
+      "declaration": "native const fn microsecond(value: time) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "days",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 21,
+      "declaration": "native const fn days(value: duration) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "seconds",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 22,
+      "declaration": "native const fn seconds(value: duration) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "microseconds",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 23,
+      "declaration": "native const fn microseconds(value: duration) -> i64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "total_seconds",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 24,
+      "declaration": "native const fn total_seconds(value: duration) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "timestamp",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 25,
+      "declaration": "native const fn timestamp(value: datetime) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "datepart",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 26,
+      "declaration": "native const fn datepart(value: datetime) -> datetime"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "calendar_date",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
+      "line": 27,
+      "declaration": "native const fn calendar_date(value: datetime) -> date"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_and",
+      "kind": "native-implementation",
+      "form": "value",
+      "source": "language/stdlib/hgl/hgraph/native/impl/rust_scalar_values_i64.hgl",
+      "line": 3,
+      "declaration": "native const fn bit_and(lhs: i64, rhs: i64) -> i64"
+    }
+  ],
   "hgl_materializations": [
     {
       "source": "language/stdlib/hgl/hgraph/control.hgl",

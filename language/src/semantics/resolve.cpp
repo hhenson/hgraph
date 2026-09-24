@@ -724,15 +724,30 @@ namespace hgl::semantics
                     if (!capabilities.insert(name).second) {
                         report(Category::Injectable, capability.range, "duplicate injectable '" + name + "'");
                     }
-                    if (!fn.is_const || (name != "logger" && name != "clock")) {
+                    if (name != "logger" && name != "clock" && (fn.is_const || (name != "out" && name != "scheduler"))) {
                         report(Category::Injectable, capability.range,
                                "native value capabilities currently admit logger and clock only");
                     }
                 }
-                if (fn.implementation.body.empty() && !fn.is_const) {
-                    report(Category::Type, fn.name.range,
-                           "native fn is temporal; scalar providers require native const fn; "
-                           "external temporal providers are not implemented yet");
+                std::unordered_set<std::string> hooks;
+                for (const auto &hook : fn.lifecycle) {
+                    if (!hooks.insert(std::string{hook.text}).second) {
+                        report(Category::Type, hook.range, "duplicate native lifecycle hook");
+                    }
+                    if (fn.is_const || !fn.implementation.body.empty()) {
+                        report(Category::Type, hook.range, "native lifecycle hooks require a temporal implementation contract");
+                    }
+                }
+                if (!hooks.empty() && !hooks.contains("when")) {
+                    report(Category::Type, fn.name.range, "native start/stop hooks require when;");
+                }
+                if (capabilities.contains("out") && fn.signature.result == ast::no_node) {
+                    report(Category::Injectable, fn.name.range, "inject out requires a declared temporal result");
+                }
+                if (!fn.is_const && !hooks.contains("when") &&
+                    (capabilities.contains("out") || capabilities.contains("scheduler"))) {
+                    report(Category::Injectable, fn.name.range,
+                           "native graph implementations cannot inject node-owned out or scheduler");
                 }
 
                 Context context;

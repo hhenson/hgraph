@@ -853,6 +853,9 @@ namespace hgl::codegen
             std::vector<const gir::NativeFunction *> functions;
             for (const auto &function : graph_.native_functions) {
                 if (function.source_defined && function.cpp_body.empty()) {
+                    if (function.implementation_kind == NativeImplementationKind::Declaration) {
+                        backend(function.range, "native declaration requires a selected implementation part");
+                    }
                     if (function.execution_role != NativeExecutionRole::Value || !function.generics.empty()) {
                         backend(function.range, "external native interface requires a concrete native const fn");
                     }

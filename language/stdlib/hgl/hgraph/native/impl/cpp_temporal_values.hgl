@@ -1,0 +1,27 @@
+module hgraph.native part cpp_temporal_values
+
+native const fn year(value: date) -> i64 {}
+native const fn month(value: date) -> i64 {}
+native const fn day(value: date) -> i64 {}
+native const fn weekday(value: date) -> i64 {}
+native const fn isoweekday(value: date) -> i64 {}
+native const fn year(value: datetime) -> i64 {}
+native const fn month(value: datetime) -> i64 {}
+native const fn day(value: datetime) -> i64 {}
+native const fn weekday(value: datetime) -> i64 {}
+native const fn isoweekday(value: datetime) -> i64 {}
+native const fn hour(value: datetime) -> i64 {}
+native const fn minute(value: datetime) -> i64 {}
+native const fn second(value: datetime) -> i64 {}
+native const fn microsecond(value: datetime) -> i64 {}
+native const fn hour(value: time) -> i64 {}
+native const fn minute(value: time) -> i64 {}
+native const fn second(value: time) -> i64 {}
+native const fn microsecond(value: time) -> i64 {}
+native const fn days(value: duration) -> i64 {}
+native const fn seconds(value: duration) -> i64 {}
+native const fn microseconds(value: duration) -> i64 {}
+native const fn total_seconds(value: duration) -> f64 {}
+native const fn timestamp(value: datetime) -> f64 {}
+native const fn datepart(value: datetime) -> datetime {}
+native const fn calendar_date(value: datetime) -> date {}

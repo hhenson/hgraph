@@ -1131,6 +1131,13 @@ namespace hgl::syntax
                 result.throws       = find_child(id, SyntaxKind::ThrowsClause).has_value();
                 result.requirements = project_optional_requires(id);
 
+                result.has_contract = !child_tokens(id, TokenKind::LBrace).empty();
+                for (const auto kind : {TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop}) {
+                    for (const auto token : child_tokens(id, kind)) {
+                        const auto &source = source_token(token);
+                        result.lifecycle.push_back(ast::Name{source.text, source.range});
+                    }
+                }
                 for (const auto injection : child_nodes(id, SyntaxKind::InjectDecl)) {
                     auto capabilities = direct_names(injection, "an injectable name");
                     result.capabilities.insert(result.capabilities.end(), capabilities.begin(), capabilities.end());

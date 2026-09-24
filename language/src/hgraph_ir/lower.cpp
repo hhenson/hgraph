@@ -901,6 +901,8 @@ namespace hgl::hgraph_ir
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
                     target.capabilities           = source.capabilities;
                     target.execution_role         = source.execution_role;
+                    target.implementation_kind    = source.implementation_kind;
+                    target.lifecycle              = source.lifecycle;
                     target.source_defined         = source.source_defined;
                     target.cpp_parameters         = source.cpp_parameters;
                     target.cpp_body               = source.cpp_body;

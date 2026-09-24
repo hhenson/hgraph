@@ -1009,6 +1009,17 @@ namespace hgl::descriptor
                         return false;
                     }
                     if (!required_string_array(fields, "capabilities", item_path, declaration.capabilities)) { return false; }
+                    if (!required_string_array(fields, "lifecycle", item_path, declaration.lifecycle)) { return false; }
+                    const Element *implementation = required(fields, "implementation_kind", item_path);
+                    if (!implementation || !enum_value(*implementation, member_path(item_path, "implementation_kind"),
+                                                       {{"declaration", NativeImplementationKind::Declaration},
+                                                        {"value", NativeImplementationKind::Value},
+                                                        {"graph", NativeImplementationKind::Graph},
+                                                        {"node", NativeImplementationKind::Node},
+                                                        {"inline_cpp", NativeImplementationKind::InlineCpp}},
+                                                       declaration.implementation_kind)) {
+                        return false;
+                    }
                     const Element *role = required(fields, "execution_role", item_path);
                     if (role == nullptr) { return false; }
                     {
@@ -1704,9 +1715,34 @@ namespace hgl::descriptor
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
                 std::unordered_set<std::string> capability_names;
                 for (const auto &capability : declaration.capabilities) {
-                    if ((capability != "logger" && capability != "clock") || !capability_names.insert(capability).second) {
-                        return fail(member_path(path, "capabilities"), "unknown or duplicate native value capability");
+                    if ((capability != "logger" && capability != "clock" &&
+                         (declaration.implementation_kind != NativeImplementationKind::Node ||
+                          (capability != "out" && capability != "scheduler"))) ||
+                        !capability_names.insert(capability).second) {
+                        return fail(member_path(path, "capabilities"), "unknown or duplicate native capability");
                     }
+                }
+                std::unordered_set<std::string> hooks;
+                for (const auto &hook : declaration.lifecycle) {
+                    if (declaration.implementation_kind != NativeImplementationKind::Node ||
+                        (hook != "start" && hook != "when" && hook != "stop") || !hooks.insert(hook).second) {
+                        return fail(member_path(path, "lifecycle"), "invalid or duplicate native lifecycle hook");
+                    }
+                }
+                const auto kind = declaration.implementation_kind;
+                if ((kind == NativeImplementationKind::Node && !hooks.contains("when")) ||
+                    ((kind == NativeImplementationKind::Node || kind == NativeImplementationKind::Graph) &&
+                     declaration.execution_role != NativeExecutionRole::Temporal) ||
+                    (kind == NativeImplementationKind::Value && declaration.execution_role != NativeExecutionRole::Value)) {
+                    return fail(member_path(path, "implementation_kind"),
+                                "native implementation shape contradicts its execution role or hooks");
+                }
+                if (capability_names.contains("out") && declaration.signature.result == no_schema_id) {
+                    return fail(member_path(path, "capabilities"), "inject out requires a declared temporal result");
+                }
+                if ((kind == NativeImplementationKind::Graph || kind == NativeImplementationKind::Node) &&
+                    declaration.phases != std::vector{NativePhase::Wiring}) {
+                    return fail(member_path(path, "phases"), "native temporal calls require graph construction");
                 }
                 if (!signature(declaration.signature, member_path(path, "signature"), true) ||
                     !native_signature(declaration, member_path(path, "signature")) || !unique_native_overload(declaration, path)) {

@@ -905,7 +905,7 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 8", "\"format_version\": 6");
+        replace_once(json, "\"format_version\": 9", "\"format_version\": 6");
         check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 6");
     }
 }
@@ -1831,4 +1831,39 @@ TEST_CASE("native capabilities are required fingerprinted and imported", "[descr
     descriptor::seal(source);
     CHECK(descriptor::validate(source));
     CHECK_FALSE(descriptor::read_json(descriptor::to_json(source)));
+}
+
+TEST_CASE("native implementation shape and hooks survive descriptor imports", "[descriptor][native][parts]") {
+    auto  source               = scalar_native_descriptor();
+    auto &native               = source.native_declarations.front();
+    native.execution_role      = hgl::NativeExecutionRole::Temporal;
+    native.implementation_kind = hgl::NativeImplementationKind::Node;
+    native.phases              = {descriptor::NativePhase::Wiring};
+    native.lifecycle           = {"start", "when", "stop"};
+    native.capabilities        = {"out", "logger"};
+    descriptor::seal(source);
+    const auto parsed = descriptor::read_json(descriptor::to_json(source));
+    INFO((parsed.error ? parsed.error->message : ""));
+    REQUIRE(parsed.value);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(*parsed.value, catalog));
+    const auto *fn = catalog.find_function("checks.reader", "blend");
+    REQUIRE(fn);
+    CHECK(fn->implementation_kind == hgl::NativeImplementationKind::Node);
+    CHECK(fn->lifecycle == native.lifecycle);
+    const auto fingerprint = source.descriptor_fingerprint;
+    native.lifecycle       = {"when"};
+    descriptor::seal(source);
+    CHECK(source.descriptor_fingerprint != fingerprint);
+    native.lifecycle = {"when", "when"};
+    descriptor::seal(source);
+    CHECK(descriptor::validate(source));
+    native.lifecycle = {"start"};
+    descriptor::seal(source);
+    CHECK_FALSE(descriptor::read_json(descriptor::to_json(source)));
+    native.lifecycle.clear();
+    native.implementation_kind = hgl::NativeImplementationKind::Graph;
+    native.capabilities.clear();
+    descriptor::seal(source);
+    CHECK(descriptor::read_json(descriptor::to_json(source)));
 }

@@ -204,9 +204,13 @@ function_decl   = ( [ "export" | "impl" ], "fn" | "const", "fn" ), identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
 native_function_decl
-                = "native", "fn", identifier, [ generic_parameters ],
+                = "native", [ "const" ], "fn", identifier, [ generic_parameters ],
                   function_signature, [ "throws" ], [ requires_clause ],
-                  "{", [ NL ], cpp_implementation, [ NL ], "}";
+                  [ native_contract_body ];
+native_contract_body
+                = "{", [ NL ], { ( inject_decl, [ ";" ] | native_hook ), [ NL ] },
+                  [ cpp_implementation, [ NL ] ], "}";
+native_hook     = ( "start" | "when" | "stop" ), ";";
 cpp_implementation
                 = "cpp", cpp_parameter_list, cpp_compound_statement;
 
@@ -270,8 +274,8 @@ operator_requirement
                   [ type, { ",", type } ], ")", [ "->", type ];
 ```
 
-When more than one source file is supplied for a compilation, every
-`module_decl` includes a unique part name and every module path is identical.
+In a multi-file compilation, at most one shared interface omits a part name.
+Named parts are unique and every module path is identical.
 The driver independently parses each file, orders the set lexically by part
 name, replaces the redundant module headers in a source-accurate assembled
 view, and runs name resolution and lowering once. The part name does not enter
@@ -2342,3 +2346,6 @@ observation rather than rule, is collected under
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction
   from temporal values.
+
+Native signatures and selected target bodies follow the
+[implementation-part rules](../design/native-implementation-parts.md).

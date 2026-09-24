@@ -524,6 +524,8 @@ namespace hgl::syntax::ast
         ConstraintId                  requirements{no_node};
         CppImplementation             implementation{};
         std::vector<Name>             capabilities{};
+        bool                          has_contract{false};
+        std::vector<Name>             lifecycle{};
     };
 
     struct StructField
