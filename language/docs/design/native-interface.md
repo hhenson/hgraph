@@ -7,6 +7,11 @@ overloaded collection-input-view, and payload-erased input-view evaluation
 calls in AOT modules implemented; opaque state and external scripted dependency
 loading remain
 
+The agreed replacement authoring model is [ADR 0014](decisions/0014-native-implementation-interfaces.md):
+shared declarations, generated C++ adapters/Rust traits and implementations in
+native source. `native` preserves ordinary temporal and `const` typing. The
+inline value/view forms below describe the legacy implementation during migration.
+
 ## Purpose
 
 HGL is intentionally not a general-purpose language. Native C++ is nevertheless

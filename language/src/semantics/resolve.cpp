@@ -718,6 +718,12 @@ namespace hgl::semantics
             }
 
             void resolve_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                if (fn.implementation.body.empty() && !fn.is_const) {
+                    report(Category::Type, fn.name.range,
+                           "native fn is temporal; scalar providers require native const fn; "
+                           "external temporal providers are not implemented yet");
+                }
+
                 Context context;
                 context.fn = id;
                 push_scope();

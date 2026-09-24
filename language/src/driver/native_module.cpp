@@ -708,7 +708,9 @@ namespace hgl::driver
         std::string                          key;
         std::string                          cache_error;
         std::optional<std::filesystem::path> root;
-        if (environment_flag("HGL_DISABLE_CACHE")) {
+        if (!module.cacheable) {
+            trace_cache("external-provider");
+        } else if (environment_flag("HGL_DISABLE_CACHE")) {
             trace_cache("disabled");
         } else if (!context.cache_unavailable_reason.empty()) {
             trace_cache("unavailable: " + context.cache_unavailable_reason);

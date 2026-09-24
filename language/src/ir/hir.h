@@ -581,6 +581,7 @@ namespace hgl::ir::hir
         std::vector<std::string>      imported_targets{};
         std::vector<std::string>      runtime_images{};
         std::string                   descriptor_fingerprint{};
+        bool                          is_const{false};
         bool                          source_defined{false};
         std::string                   cpp_parameters{};
         std::string                   cpp_body{};

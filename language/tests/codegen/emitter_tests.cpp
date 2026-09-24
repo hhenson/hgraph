@@ -1,4 +1,5 @@
 #include "codegen/cpp_emitter.h"
+#include "codegen/native_rust.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/plan.h"
@@ -3596,6 +3597,65 @@ TEST_CASE("split C++ rejects invalid part counts", "[codegen][split]") {
     for (const std::size_t count : {0U, 65U}) {
         Unit unit{"module checks.split\nexport fn first(value: i64) -> i64 => value\n"};
         CHECK_FALSE(unit.emit(EmitOptions{.source_parts = count}));
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("external native interface generates exact source-owned binding checks", "[codegen][native][interface]") {
+    Unit unit{R"hgl(module checks.binding
+native const fn bit_and(lhs: i64, rhs: i64) -> i64
+native const fn bit_and(lhs: bool, rhs: bool) -> bool
+native const fn checked(value: i64) -> i64 throws
+)hgl"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"});
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "concept Implementation = requires"));
+    CHECK(contains(emitted->header, "bit_and(const hgraph::Int & lhs, const hgraph::Int & rhs) noexcept;"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int)>(&T::checked)"));
+    CHECK(contains(emitted->header, "constexpr auto bind() noexcept"));
+    CHECK_FALSE(contains(emitted->header, "#include \"provider.h\""));
+    CHECK(contains(emitted->source, "#include \"provider.h\""));
+    CHECK(contains(emitted->source, "return example::native.bit_and(lhs, rhs);"));
+    CHECK(contains(emitted->source, "static_assert(native_interface::Implementation<std::remove_cvref_t<decltype(example::native)>>)"));
+    CHECK(contains(emitted->descriptor, "checks.binding::bit_and"));
+}
+
+TEST_CASE("external native interface requires a selected package provider", "[codegen][native][interface]") {
+    Unit unit{"module t\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\n"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file), "package provider header and bound provider object"));
+}
+
+TEST_CASE("temporal native interfaces cannot use the scalar provider ABI", "[codegen][native][interface]") {
+    for (const auto signature : {"value: i64", "const value: i64"}) {
+        Unit unit{std::string{"module t\nnative fn temporal("} + signature + ") -> i64\n"};
+        REQUIRE(unit.diagnostics.has_errors());
+        CHECK(contains(unit.diagnostics.render(unit.file), "native fn is temporal"));
+    }
+}
+
+TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][native][interface]") {
+    Unit unit{"module hgraph.native\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\n"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
+    REQUIRE(emitted);
+    CHECK(contains(*emitted, "pub trait Native"));
+    CHECK(contains(*emitted, "fn r#bit_and(r#lhs: i64, r#rhs: i64) -> i64;"));
+    CHECK(contains(*emitted, "hgraph.native::bit_and"));
+}
+
+TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][native][interface]") {
+    for (const auto declaration : {"native const fn f(value: str) -> i64", "native const fn f(value: i64) -> i64 throws",
+                                   "native const fn f(value: i64) -> i64\nnative const fn f(value: bool) -> bool"}) {
+        Unit unit{std::string{"module t\n"} + declaration + "\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics));
         CHECK(unit.diagnostics.has_errors());
     }
 }

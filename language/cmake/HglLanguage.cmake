@@ -117,7 +117,7 @@ endfunction()
 function(hgl_add_module target)
     cmake_parse_arguments(PARSE_ARGV 1 _hgl
         "STATIC;SHARED"
-        "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR;SOURCE_PARTS"
+        "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR;SOURCE_PARTS;NATIVE_PROVIDER_HEADER;NATIVE_PROVIDER"
         "HGL;PARTS;SOURCES;LINK_LIBRARIES")
     if(_hgl_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "hgl_add_module(${target}): unexpected arguments: ${_hgl_UNPARSED_ARGUMENTS}")
@@ -175,6 +175,14 @@ function(hgl_add_module target)
 
     if(_hgl_PYTHON_MODULE AND NOT _hgl_PYTHON_PACKAGE_DIR)
         set(_hgl_PYTHON_PACKAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/python/${_hgl_PYTHON_MODULE}")
+    endif()
+
+    if(_hgl_NATIVE_PROVIDER_HEADER OR _hgl_NATIVE_PROVIDER)
+        if(NOT _hgl_NATIVE_PROVIDER_HEADER OR NOT _hgl_NATIVE_PROVIDER)
+            message(FATAL_ERROR "hgl_add_module: NATIVE_PROVIDER_HEADER and NATIVE_PROVIDER must be supplied together")
+        endif()
+        set(_native_provider_options --native-provider-header "${_hgl_NATIVE_PROVIDER_HEADER}"
+                                     --native-provider "${_hgl_NATIVE_PROVIDER}")
     endif()
 
     _hgl_resolve_compiler(_hgl_compiler)
@@ -251,7 +259,7 @@ function(hgl_add_module target)
         add_custom_command(
             OUTPUT ${_outputs}
             COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_module_part_options}
-                    ${_emit_placement} --source-parts ${_hgl_SOURCE_PARTS} ${_python_options}
+                    ${_emit_placement} ${_native_provider_options} --source-parts ${_hgl_SOURCE_PARTS} ${_python_options}
                     ${_module_descriptor_options}
             DEPENDS "${_hgl_abs}" ${_module_part_dependencies}
                     ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}

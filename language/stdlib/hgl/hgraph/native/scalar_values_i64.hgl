@@ -1,0 +1,12 @@
+module hgraph.native part scalar_values_i64
+
+native const fn bit_and(lhs: i64, rhs: i64) -> i64
+
+test {
+    const fn test_bitwise_value(lhs: i64, rhs: i64) -> i64 => bit_and(lhs, rhs)
+
+    test bitwise_i64_value_contract {
+        assert eval(test_bitwise_value, lhs: [6, _, -1, _, 7, 7], rhs: [_, 3, _, 7, _, _]) ==
+            [_, 2, 3, 7, 7, 7]
+    }
+}

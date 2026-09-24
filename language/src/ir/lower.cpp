@@ -1741,8 +1741,8 @@ namespace hgl::ir
                                                                    kind == ast::TypeKind::Rolling;
                                 function.parameters.push_back(hir::NativeParameter{
                                     std::string{node.signature.parameters[parameter].name.text}, item.type, item.is_const,
-                                    input_view && !item.is_const ? hir::NativeParameterAccess::InputView
-                                                                 : hir::NativeParameterAccess::Value});
+                                    input_view && !item.is_const && !node.is_const ? hir::NativeParameterAccess::InputView
+                                                                                   : hir::NativeParameterAccess::Value});
                             }
                             // A native without `->` returns void, as an imported void native does.
                             function.result = signature.result.valid() ? signature.result : void_type();
@@ -1756,6 +1756,7 @@ namespace hgl::ir
                                                     : std::vector{hir::NativePhase::Start, hir::NativePhase::Evaluation,
                                                                   hir::NativePhase::Stop};
                             function.throws = node.throws;
+                            function.is_const = node.is_const;
                             function.source_defined = true;
                             function.cpp_parameters = node.implementation.parameters;
                             function.cpp_body       = node.implementation.body;

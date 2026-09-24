@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include "codegen/cpp_emitter.h"
+#include "codegen/native_rust.h"
 #include "descriptor/import_catalog.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "driver/cpp_formatter.h"
@@ -59,6 +60,8 @@ namespace hgl::driver
                          "               [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
                          "               [--print-namespace] [--module-descriptor <file>]...\n"
+                         "               [--native-provider-header <header> --native-provider <object>]\n"
+                         "  hgl emit-native-rust <file> [--part <file>]... --out <file>\n"
                          "  hgl repl [--module-descriptor <file>]...\n"
                          "  hgl --help\n"
                          "  hgl --version\n\n"
@@ -67,6 +70,7 @@ namespace hgl::driver
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
                          "  emit-cpp  write the module as a C++ header/source pair and versioned JSON\n"
+                         "  emit-native-rust <file> --out <file>  generate a native value trait\n"
                          "            descriptor, named after the file, in the module's namespace;\n"
                          "            --python also writes the Python wrapper module and\n"
                          "            --print-namespace only prints that C++ namespace\n"
@@ -322,15 +326,16 @@ namespace hgl::driver
         }
 
         std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version,
-                                                                 bool include_test_contexts = false) {
+                                                                 bool                 include_test_contexts = false,
+                                                                 codegen::EmitOptions options               = {}) {
             wiring::ensure_session();
             if (!unit.hgraph) {
                 unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{},
                                         "C++ generation requires completed hgraph IR");
                 return std::nullopt;
             }
-            codegen::EmitOptions options;
-            options.header_name                           = "module.h";
+            options.header_name =
+                options.native_provider.empty() ? "module.h" : std::filesystem::path{unit.file.path()}.stem().string() + ".h";
             options.tool_version                          = std::string{language_version};
             options.include_test_contexts                 = include_test_contexts;
             std::optional<codegen::EmittedModule> emitted = codegen::emit_cpp(unit.file, *unit.hgraph, options, unit.diagnostics);
@@ -349,12 +354,15 @@ namespace hgl::driver
         /// and register its overloads before the direct harness wires tests or
         /// an entry point. Composition-only units retain the fast direct path.
         bool load_native_module(Unit &unit, std::string_view language_version, NativeModule &native_module,
-                                bool include_test_contexts = false) {
+                                bool include_test_contexts = false, const codegen::EmitOptions &options = {}) {
             if (!needs_native_module(unit, include_test_contexts)) { return true; }
-            const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version, include_test_contexts);
+            const std::optional<codegen::EmittedModule> emitted =
+                emit_native_module(unit, language_version, include_test_contexts, options);
             if (!emitted) { return false; }
             std::string                 error;
-            std::optional<NativeModule> loaded = compile_and_load_native_module(*emitted, "module", error);
+            std::optional<NativeModule> loaded = compile_and_load_native_module(
+                *emitted, options.native_provider.empty() ? "module" : std::filesystem::path{unit.file.path()}.stem().string(),
+                error);
             if (!loaded) {
                 unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(error));
                 return false;
@@ -454,8 +462,14 @@ namespace hgl::driver
             std::optional<std::string> path;
             std::vector<std::string>   parts;
             wiring::TestOptions        options;
+            codegen::EmitOptions       binding;
             for (std::size_t index = 0; index < arguments.size(); ++index) {
                 const std::string_view argument = arguments[index];
+                if (argument == "--native-provider" || argument == "--native-provider-header") {
+                    if (++index >= arguments.size()) { return usage_error(std::string{argument} + " needs a value"); }
+                    (argument == "--native-provider" ? binding.native_provider : binding.native_provider_header) = arguments[index];
+                    continue;
+                }
                 if (argument == "--part") {
                     if (++index >= arguments.size()) { return usage_error("--part needs a file"); }
                     parts.emplace_back(arguments[index]);
@@ -485,7 +499,7 @@ namespace hgl::driver
                 if (!known) { return usage_error("no test named '" + name + "'"); }
             }
             NativeModule native_module;
-            if (!load_native_module(*unit, language_version, native_module, true)) {
+            if (!load_native_module(*unit, language_version, native_module, true, binding)) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
@@ -614,6 +628,37 @@ namespace hgl::driver
             return static_cast<bool>(out);
         }
 
+        int emit_native_rust(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
+            std::vector<std::string>   paths;
+            std::optional<std::string> output;
+            for (std::size_t i = 0; i < arguments.size(); ++i) {
+                if (arguments[i] == "--out") {
+                    if (++i == arguments.size()) { return usage_error("--out needs a file"); }
+                    output = arguments[i];
+                } else if (arguments[i] == "--part") {
+                    if (++i == arguments.size()) { return usage_error("--part needs a file"); }
+                    paths.emplace_back(arguments[i]);
+                } else if (arguments[i].starts_with("--") || !paths.empty()) {
+                    return usage_error("emit-native-rust expects a file, optional --part files and --out <file>");
+                } else {
+                    paths.emplace_back(arguments[i]);
+                }
+            }
+            if (paths.empty() || !output) { return usage_error("emit-native-rust needs a file and --out <file>"); }
+            auto unit = load(paths, catalog);
+            if (!unit) { return exit_usage; }
+            if (!unit->ok || !unit->hgraph) {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
+            auto text = codegen::emit_native_rust(*unit->hgraph, unit->diagnostics);
+            if (!text) {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
+            return write_file(*output, *text) ? exit_ok : exit_usage;
+        }
+
         bool remove_stale_cpp_parts(const std::filesystem::path &directory, const std::string &stem, std::size_t source_parts) {
             std::vector<std::filesystem::path> stale;
             if (source_parts == 1) { stale.push_back(directory / (stem + ".h.impl.h")); }
@@ -651,6 +696,8 @@ namespace hgl::driver
             std::optional<std::string> src_dir;
             std::optional<std::string> python_path;
             std::string                python_native;
+            std::string                native_provider_header;
+            std::string                native_provider;
             std::size_t                source_parts    = 1;
             bool                       print           = false;
             bool                       print_namespace = false;
@@ -679,6 +726,10 @@ namespace hgl::driver
                     if (error != std::errc{} || end != count->data() + count->size() || source_parts < 1 || source_parts > 64) {
                         return usage_error("--source-parts needs a count between 1 and 64");
                     }
+                } else if (argument == "--native-provider-header" || argument == "--native-provider") {
+                    const auto name = value();
+                    if (!name) { return usage_error(std::string{argument} + " needs a value"); }
+                    (argument == "--native-provider" ? native_provider : native_provider_header) = std::string{*name};
                 } else if (argument == "--python") {
                     const auto file = value();
                     if (!file) { return usage_error("--python needs a file"); }
@@ -752,6 +803,8 @@ namespace hgl::driver
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             options.source_parts         = source_parts;
+            options.native_provider_header = native_provider_header;
+            options.native_provider        = native_provider;
             std::optional<codegen::EmittedModule> emitted =
                 codegen::emit_cpp(unit->file, *unit->hgraph, options, unit->diagnostics);
             if (!emitted) {
@@ -1060,6 +1113,7 @@ namespace hgl::driver
         if (command == "test") { return test(filtered, tool_version, catalog); }
         if (command == "run") { return run_command(filtered, tool_version, catalog); }
         if (command == "repl") { return repl(filtered, tool_version, catalog); }
+        if (command == "emit-native-rust") { return emit_native_rust(filtered, catalog); }
         if (command == "emit-cpp") { return emit_cpp(filtered, tool_version, catalog); }
         if (command == "build") {
             return usage_error("'build' is not a command; build a package from emit-cpp output with the "

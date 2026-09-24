@@ -168,7 +168,8 @@ namespace hgl::syntax
             }
 
             void decl_node(int depth, SourceRange range, const ast::NativeFunctionDecl &d) {
-                line(depth, "NativeFunctionDecl", range, "native fn " + std::string{d.name.text} + (d.throws ? " throws" : ""));
+                line(depth, "NativeFunctionDecl", range,
+                     (d.is_const ? "native const fn " : "native fn ") + std::string{d.name.text} + (d.throws ? " throws" : ""));
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }

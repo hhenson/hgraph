@@ -831,6 +831,7 @@ namespace hgl::hgraph_ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.is_const               = source.is_const;
                     target.source_defined         = source.source_defined;
                     target.cpp_parameters         = source.cpp_parameters;
                     target.cpp_body               = source.cpp_body;

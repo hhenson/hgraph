@@ -533,6 +533,10 @@ namespace hgl::codegen
             [[nodiscard]] std::string                  native_cpp_symbol(gir::NativeFunctionId id);
             [[nodiscard]] std::string                  native_result_type(const gir::NativeFunction &function);
             void                             emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration);
+            std::string                      native_parameter_type(const gir::NativeParameter &parameter, SourceRange range);
+            std::string                      native_parameters(const gir::NativeFunction &function, bool names, bool exported = false);
+            void                             emit_native_interface(Writer &out);
+
             [[nodiscard]] static std::string operator_registry_name(const gir::OperatorContract &op) {
                 return op.registry_name.empty() ? op.identity : op.registry_name;
             }
@@ -809,6 +813,69 @@ namespace hgl::codegen
             return value_type(planned_type(function.result, function.range), function.range);
         }
 
+        std::string Emitter::native_parameter_type(const gir::NativeParameter &parameter, SourceRange range) {
+            const HType type = planned_type(parameter.type, range);
+            if (parameter.access != hir::NativeParameterAccess::Value || type.kind != HType::Kind::Scalar) {
+                backend(range, "external native value interfaces currently require canonical scalar parameters");
+            }
+            const std::string value = value_type(type, range);
+            return type.is(hir::ScalarType::Bool) || type.numeric() ? value : "const " + value + " &";
+        }
+
+        std::string Emitter::native_parameters(const gir::NativeFunction &function, bool names, bool exported) {
+            std::vector<std::string> parameters;
+            for (const auto &parameter : function.parameters) {
+                std::string type = native_parameter_type(parameter, function.range);
+                if (exported) {
+                    type = "const " + value_type(planned_type(parameter.type, function.range), function.range) + " &";
+                }
+                parameters.push_back(type + (names ? " " + cpp_name(parameter.name) : ""));
+            }
+            return join(parameters, ", ");
+        }
+
+        void Emitter::emit_native_interface(Writer &out) {
+            std::vector<const gir::NativeFunction *> functions;
+            for (const auto &function : graph_.native_functions) {
+                if (function.source_defined && function.cpp_body.empty()) {
+                    if (!function.is_const || !function.generics.empty()) {
+                        backend(function.range, "external native interface requires a concrete native const fn");
+                    }
+                    functions.push_back(&function);
+                }
+            }
+            if (functions.empty()) { return; }
+            out.open("namespace native_interface");
+            out.line("template<class T>");
+            out.open("concept Implementation = requires");
+            for (const auto *function : functions) {
+                const std::string type = native_result_type(*function) + " (*)(" + native_parameters(*function, false) + ")" +
+                                         (function->throws ? "" : " noexcept");
+                const std::string name = cpp_name(std::string_view{function->identity}.substr(function->identity.rfind("::") + 2));
+                out.line("static_cast<" + type + ">(&T::" + name + ");");
+            }
+            out.close(";");
+            out.line("template<Implementation T>");
+            out.open("struct BoundNative");
+            for (const auto *function : functions) {
+                const std::string name = cpp_name(std::string_view{function->identity}.substr(function->identity.rfind("::") + 2));
+                const std::string result = native_result_type(*function);
+                const std::string except = function->throws ? "" : " noexcept";
+                std::vector<std::string> arguments;
+                for (const auto &parameter : function->parameters) { arguments.push_back(cpp_name(parameter.name)); }
+                out.open("static " + result + " " + name + "(" + native_parameters(*function, true) + ")" + except);
+                out.line("return static_cast<" + result + " (*)(" + native_parameters(*function, false) + ")" + except +
+                         ">(&T::" + name + ")(" + join(arguments, ", ") + ");");
+                out.close();
+            }
+            out.close(";");
+            out.line("template<Implementation T>");
+            out.open("constexpr auto bind() noexcept");
+            out.line("return BoundNative<T>{};");
+            out.close();
+            out.close(" // namespace native_interface");
+        }
+
         void Emitter::emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration) {
             const auto found =
                 std::ranges::find_if(graph_.native_functions, [&](const gir::NativeFunction &item) { return &item == &function; });
@@ -819,10 +886,24 @@ namespace hgl::codegen
             const std::string           name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
             // A `throws` native may raise; its exception ends the evaluation
             // under hgraph's node error model. Everything else stays noexcept.
-            const std::string signature = native_result_type(function) + " " + name + "(" + function.cpp_parameters + ")" +
-                                          (function.throws ? "" : " noexcept");
+            const std::string parameters = function.cpp_body.empty() ? native_parameters(function, true, true) : function.cpp_parameters;
+            const std::string signature =
+                native_result_type(function) + " " + name + "(" + parameters + ")" + (function.throws ? "" : " noexcept");
             if (declaration) {
                 out.line(signature + ";");
+                return;
+            }
+            if (function.cpp_body.empty()) {
+                if (!exact_cpp_symbol(options_.native_provider) || options_.native_provider_header.empty()) {
+                    backend(function.range, "native interface needs its package provider header and bound provider object");
+                }
+                std::vector<std::string> arguments;
+                for (const auto &parameter : function.parameters) { arguments.push_back(cpp_name(parameter.name)); }
+                out.open(signature);
+                out.line("return " + options_.native_provider + "." +
+                         cpp_name(std::string_view{function.identity}.substr(function.identity.rfind("::") + 2)) + "(" +
+                         join(arguments, ", ") + ");");
+                out.close();
                 return;
             }
             out.line("// " + where(function.range));
@@ -5382,6 +5463,13 @@ namespace hgl::codegen
             body.line("{");
             if (!source_native_functions.empty()) {
                 body.indent();
+                const bool external = std::ranges::any_of(source_native_functions, [](const auto *function) {
+                    return function->cpp_body.empty();
+                });
+                if (external) {
+                    body.line("static_assert(native_interface::Implementation<std::remove_cvref_t<decltype(" +
+                              options_.native_provider + ")>>);");
+                }
                 body.open("namespace native");
                 for (const gir::NativeFunction *function : source_native_functions) { emit_source_native(*function, body, false); }
                 body.close("  // namespace native");
@@ -5551,6 +5639,7 @@ namespace hgl::codegen
                 header.close("  // namespace native");
                 header.line();
             }
+            emit_native_interface(header);
             emit_struct_declarations(header);
             if (!used_imported_operators_.empty()) {
                 header.line("/// Imported contract aliases; these retain their defining registry identity.");
@@ -5593,11 +5682,17 @@ namespace hgl::codegen
             Writer source;
             source.line(banner);
             source.line("#include \"" + options_.header_name + "\"");
+            if (!options_.native_provider_header.empty()) {
+                const std::string spelling = "\"" + options_.native_provider_header + "\"";
+                if (!is_cpp_include_spelling(spelling)) { backend({}, "invalid native provider header"); }
+                source.line("#include " + spelling);
+            }
             source.line();
             source.line("#include <hgraph/types/operator_dispatch.h>");
             source.line("#include <hgraph/util/scope.h>");
-            if (split) { source.line("#include <type_traits>"); }
+            if (split || !options_.native_provider.empty()) { source.line("#include <type_traits>"); }
             source.line();
+            result.cacheable = options_.native_provider.empty();
             result.header = header.str();
             result.source = source.str() + body.str();
             if (split) {

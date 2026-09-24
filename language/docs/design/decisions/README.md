@@ -18,3 +18,4 @@ syntax unresolved and named as such.
 - [0011: `cache` declarations](0011-cache-declarations.md)
 - [0012: Recursive struct fields](0012-recursive-struct-fields.md)
 - [0013: Struct imports](0013-struct-imports.md)
+- [0014: Native implementation interfaces](0014-native-implementation-interfaces.md)

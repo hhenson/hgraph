@@ -42101,8 +42101,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 8,
-      "declaration": "native fn len(value: str) -> i64"
+      "line": 6,
+      "declaration": "native const fn len(value: str) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42110,8 +42110,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 14,
-      "declaration": "native fn is_empty(value: str) -> bool"
+      "line": 8,
+      "declaration": "native const fn is_empty(value: str) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42119,8 +42119,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 20,
-      "declaration": "native fn contains(value: str, needle: str) -> bool"
+      "line": 10,
+      "declaration": "native const fn contains(value: str, needle: str) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42128,8 +42128,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 26,
-      "declaration": "native fn starts_with(value: str, prefix: str) -> bool"
+      "line": 12,
+      "declaration": "native const fn starts_with(value: str, prefix: str) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42137,8 +42137,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 32,
-      "declaration": "native fn ends_with(value: str, suffix: str) -> bool"
+      "line": 14,
+      "declaration": "native const fn ends_with(value: str, suffix: str) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42146,8 +42146,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 45,
-      "declaration": "native fn truthy(value: bool) -> bool"
+      "line": 19,
+      "declaration": "native const fn truthy(value: bool) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42155,8 +42155,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 51,
-      "declaration": "native fn truthy(value: i64) -> bool"
+      "line": 21,
+      "declaration": "native const fn truthy(value: i64) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42164,8 +42164,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 57,
-      "declaration": "native fn truthy(value: f64) -> bool"
+      "line": 23,
+      "declaration": "native const fn truthy(value: f64) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42173,8 +42173,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 63,
-      "declaration": "native fn truthy(value: str) -> bool"
+      "line": 25,
+      "declaration": "native const fn truthy(value: str) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42182,8 +42182,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 69,
-      "declaration": "native fn absolute(value: i64) -> i64"
+      "line": 27,
+      "declaration": "native const fn absolute(value: i64) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42191,8 +42191,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 75,
-      "declaration": "native fn absolute(value: f64) -> f64"
+      "line": 29,
+      "declaration": "native const fn absolute(value: f64) -> f64"
     },
     {
       "module": "hgraph.native",
@@ -42200,8 +42200,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 81,
-      "declaration": "native fn logarithm(value: f64) -> f64"
+      "line": 31,
+      "declaration": "native const fn logarithm(value: f64) -> f64"
     },
     {
       "module": "hgraph.native",
@@ -42209,8 +42209,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 87,
-      "declaration": "native fn round_decimal(value: f64, digits: i64) -> f64 throws"
+      "line": 33,
+      "declaration": "native const fn round_decimal(value: f64, digits: i64) -> f64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42218,8 +42218,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 93,
-      "declaration": "native fn invert(value: bool) -> i64"
+      "line": 35,
+      "declaration": "native const fn invert(value: bool) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42227,8 +42227,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 99,
-      "declaration": "native fn bit_and(lhs: bool, rhs: bool) -> bool"
+      "line": 37,
+      "declaration": "native const fn bit_and(lhs: bool, rhs: bool) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42236,8 +42236,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 105,
-      "declaration": "native fn bit_or(lhs: bool, rhs: bool) -> bool"
+      "line": 39,
+      "declaration": "native const fn bit_or(lhs: bool, rhs: bool) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42245,8 +42245,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 111,
-      "declaration": "native fn bit_xor(lhs: bool, rhs: bool) -> bool"
+      "line": 41,
+      "declaration": "native const fn bit_xor(lhs: bool, rhs: bool) -> bool"
     },
     {
       "module": "hgraph.native",
@@ -42254,17 +42254,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 117,
-      "declaration": "native fn invert(value: i64) -> i64"
-    },
-    {
-      "module": "hgraph.native",
-      "name": "bit_and",
-      "kind": "native-value",
-      "form": null,
-      "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 123,
-      "declaration": "native fn bit_and(lhs: i64, rhs: i64) -> i64"
+      "line": 43,
+      "declaration": "native const fn invert(value: i64) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42272,8 +42263,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 129,
-      "declaration": "native fn bit_or(lhs: i64, rhs: i64) -> i64"
+      "line": 45,
+      "declaration": "native const fn bit_or(lhs: i64, rhs: i64) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42281,8 +42272,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 135,
-      "declaration": "native fn bit_xor(lhs: i64, rhs: i64) -> i64"
+      "line": 47,
+      "declaration": "native const fn bit_xor(lhs: i64, rhs: i64) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42290,8 +42281,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 193,
-      "declaration": "native fn as_int(value: bool) -> i64"
+      "line": 101,
+      "declaration": "native const fn as_int(value: bool) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42299,8 +42290,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 209,
-      "declaration": "native fn require_positive_delay(delay: duration) throws"
+      "line": 113,
+      "declaration": "native const fn require_positive_delay(delay: duration) throws"
     },
     {
       "module": "hgraph.native",
@@ -42308,8 +42299,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 215,
-      "declaration": "native fn power(lhs: i64, rhs: i64) -> i64 throws"
+      "line": 115,
+      "declaration": "native const fn power(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42317,8 +42308,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 221,
-      "declaration": "native fn power(lhs: f64, rhs: f64) -> f64 throws"
+      "line": 117,
+      "declaration": "native const fn power(lhs: f64, rhs: f64) -> f64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42326,8 +42317,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 227,
-      "declaration": "native fn shift_left(lhs: i64, rhs: i64) -> i64 throws"
+      "line": 119,
+      "declaration": "native const fn shift_left(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42335,8 +42326,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 233,
-      "declaration": "native fn shift_right(lhs: i64, rhs: i64) -> i64 throws"
+      "line": 121,
+      "declaration": "native const fn shift_right(lhs: i64, rhs: i64) -> i64 throws"
     },
     {
       "module": "hgraph.native",
@@ -42344,8 +42335,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 241,
-      "declaration": "native fn slice(value: str, begin: i64, end: i64) -> str"
+      "line": 125,
+      "declaration": "native const fn slice(value: str, begin: i64, end: i64) -> str"
     },
     {
       "module": "hgraph.native",
@@ -42353,8 +42344,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 276,
-      "declaration": "native fn as_int(value: f64) -> i64"
+      "line": 150,
+      "declaration": "native const fn as_int(value: f64) -> i64"
     },
     {
       "module": "hgraph.native",
@@ -42362,8 +42353,8 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 280,
-      "declaration": "native fn as_float(value: bool) -> f64"
+      "line": 152,
+      "declaration": "native const fn as_float(value: bool) -> f64"
     },
     {
       "module": "hgraph.native",
@@ -42371,8 +42362,17 @@
       "kind": "native-value",
       "form": null,
       "source": "language/stdlib/hgl/hgraph/native/scalar_values.hgl",
-      "line": 284,
-      "declaration": "native fn as_float(value: i64) -> f64"
+      "line": 154,
+      "declaration": "native const fn as_float(value: i64) -> f64"
+    },
+    {
+      "module": "hgraph.native",
+      "name": "bit_and",
+      "kind": "native-value",
+      "form": null,
+      "source": "language/stdlib/hgl/hgraph/native/scalar_values_i64.hgl",
+      "line": 3,
+      "declaration": "native const fn bit_and(lhs: i64, rhs: i64) -> i64"
     },
     {
       "module": "hgraph.native",

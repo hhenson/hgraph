@@ -183,10 +183,11 @@ does not automatically register a new implementation of an unrelated nominal
 operator or define an `impl const fn` syntax. Conversely, having a temporal
 operator does not make it callable as scalar work inside a node.
 
-The modifier combinations for operator implementations, native declarations,
-and exports are not settled here. Existing source `native fn` value/view
-helpers remain the implemented interface; their migration or compatibility
-with `const fn` is follow-up work, not an immediate syntax change.
+Native declarations now follow [ADR 0014](0014-native-implementation-interfaces.md):
+`native fn` is temporal and `native const fn` is value-level. Operator
+implementation and export modifier combinations remain separate work. Scalar
+helpers now use `native const fn`; legacy inline view helpers remain until
+the explicit collection-borrow contract is settled.
 
 ## Cache versus recordable state
 
