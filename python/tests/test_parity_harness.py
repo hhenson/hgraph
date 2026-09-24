@@ -1296,6 +1296,50 @@ def test_campaign_quarantines_an_unimportable_candidate_beside_a_raising_referen
     assert report["quarantined"][0]["classification"] == "candidate-environment"
 
 
+def test_campaign_quarantines_a_candidate_that_breaks_during_verification(
+    monkeypatch, tmp_path
+):
+    # Codex review on #1624: a real first-run mismatch whose verification
+    # replays meet an unimportable candidate must not become a verified
+    # failure -- three identical environment failures are "stable".
+    outcomes = iter(
+        [{"status": "ok", "phase": "complete", "trace": [2]}]
+        + [{"status": "infrastructure-error", "phase": "import"}] * 10
+    )
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return _CANDIDATE_OK, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            _CANDIDATE_OK if str(interpreter) == "reference" else next(outcomes)
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    report = run_campaign(
+        [_scalar_recipe()],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        cache_path=tmp_path / "cache",
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
 def test_campaign_still_reports_a_candidate_crash(monkeypatch, tmp_path):
     # A crash or timeout is the candidate's own behaviour on this graph, not
     # its environment, and stays a verified failure.

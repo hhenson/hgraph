@@ -314,6 +314,12 @@ def run_campaign(
                 }
             )
             continue
+        if any(is_environment_failure(result) for result in candidate_replays):
+            # The candidate environment fell over during verification: the
+            # first run's mismatch can no longer be confirmed against a
+            # candidate that ran the graph.
+            quarantined.append(_candidate_environment_quarantine(recipe, candidate_replays))
+            continue
         if not _stable(candidate_replays):
             quarantined.append(
                 {
@@ -363,6 +369,9 @@ def run_campaign(
                     candidate_recipe,
                     timeout=timeout_seconds,
                 )
+                if is_environment_failure(candidate_result):
+                    # A broken environment is not the mismatch being reduced.
+                    return False
                 return (
                     compare_outcomes(
                         reference_result,
@@ -396,6 +405,9 @@ def run_campaign(
             timeout_seconds=timeout_seconds,
             attempts=verify_replays,
         )
+        if any(is_environment_failure(result) for result in final_candidate):
+            quarantined.append(_candidate_environment_quarantine(minimized, final_candidate))
+            continue
         if (
             not _stable(final_reference)
             or not _stable(final_candidate)
