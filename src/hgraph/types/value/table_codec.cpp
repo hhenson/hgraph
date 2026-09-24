@@ -1216,6 +1216,25 @@ namespace hgraph
         return metas;
     }
 
+    std::string table_column_type_name(const ValueTypeMetaData *leaf)
+    {
+        if (leaf == nullptr) { throw std::invalid_argument("table column type: null leaf"); }
+        if ((leaf->value_kind() == ValueTypeKind::List ||
+             (leaf->value_kind() == ValueTypeKind::Tuple && leaf->has(ValueTypeFlags::VariadicTuple))) &&
+            leaf->element_type != nullptr)
+        {
+            return "list<" + table_column_type_name(leaf->element_type) + ">";
+        }
+        const auto arrow_type = leaf_ops_for(leaf).type;
+        if (arrow_type->num_fields() > 0) { return std::string{leaf->name()}; }
+        for (const auto *earlier : table_atomic_leaf_metas())
+        {
+            if (earlier == leaf) { break; }
+            if (leaf_ops_for(earlier).type->Equals(*arrow_type)) { return std::string{leaf->name()}; }
+        }
+        return arrow_type->ToString();
+    }
+
     Frame single_row_frame(const TableConverter &converter, DateTime value_time, DateTime as_of,
                            const ValueView &value)
     {

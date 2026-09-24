@@ -186,6 +186,25 @@ namespace hgraph::stdlib
         }
     };
 
+    /** The ``TableSchema`` value of ``ts``'s table layout under ``config``. */
+    [[nodiscard]] Value table_schema_value(const TSValueTypeMetaData *ts,
+                                           const table::TableConfig &config);
+
+    /**
+     * ``table_schema`` — const-evaluable (RFC 0042): ``const_eval`` answers
+     * ``table_schema(tp).value`` at wiring time, and ``compose`` wires the
+     * same value as a constant tick.
+     */
+    struct table_schema_impl
+    {
+        static constexpr auto name = "table_schema";
+
+        static Value const_eval(const TSValueTypeMetaData *resolved_output,
+                                OperatorCallContext        context);
+
+        static Port<TS<TableSchema>> compose(Wiring &w, TypeArg<"tp", TsVar<"S">> tp);
+    };
+
     /** Register the table operator overloads. */
     void register_table_operators();
 }  // namespace hgraph::stdlib

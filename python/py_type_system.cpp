@@ -1161,29 +1161,9 @@ namespace hgraph::python_bridge
         Frame stripped = without_frame_metadata(frame_value.view().checked_as<Frame>());
         return python_bridge::frame_to_py(stripped);
     });
-    m.def("table_schema_info", [](PyTsType ts, const std::string &date_key, const std::string &as_of_key) {
-        // TABLE layout introspection (design record step 6): the C++ layout
-        // is the single source; python's TableSchema maps it declaratively.
-        const auto &layout =
-            hgraph::stdlib::table_ts_detail::ts_table_layout(ts.meta, date_key, as_of_key);
-        nb::dict info;
-        nb::list keys, types, partition_keys, removed_keys;
-        for (std::size_t i = 0; i < layout.keys.size(); ++i)
-        {
-            keys.append(nb::str(layout.keys[i].c_str()));
-            const auto *meta = layout.col_metas[i];
-            types.append(nb::str(meta != nullptr && meta->header.label != nullptr ? meta->header.label : "?"));
-        }
-        for (const auto &name : layout.partition_keys) { partition_keys.append(nb::str(name.c_str())); }
-        for (const auto &name : layout.removed_keys) { removed_keys.append(nb::str(name.c_str())); }
-        info["keys"]           = keys;
-        info["types"]          = types;
-        info["partition_keys"] = partition_keys;
-        info["removed_keys"]   = removed_keys;
-        info["date_key"]       = nb::str(layout.date_key.c_str());
-        info["as_of_key"]      = nb::str(layout.as_of_key.c_str());
-        info["is_multi_row"]   = layout.is_multi_row;
-        return info;
+    m.def("table_column_type_name", [](PyValueType leaf) {
+        // A table column's type in the Arrow vocabulary (RFC 0042).
+        return hgraph::table_column_type_name(leaf.meta);
     });
     m.def("fixed_tuple_vt", [](nb::list elements) {
         std::vector<const ValueTypeMetaData *> metas;

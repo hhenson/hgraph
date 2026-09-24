@@ -1,10 +1,10 @@
 """The TABLE surface (hgraph parity): TableSchema / make_table_schema /
 table_schema / ToTableMode and the bitemporal column-name helpers.
 
-The row layout is synthesised in C++ (`_hgraph.table_schema_info` over the
-interned TS-table layout — design record *Record/replay, tables and
-const_fn*, step 6); everything here is a thin declarative mapping from the
-C++ layout onto hgraph's python classes (the C++-first API ruling)."""
+``table_schema`` is the native const-evaluable operator (RFC 0042) over the
+interned TS-table layout (design record *Record/replay, tables and
+const_fn*); ``TableSchema`` is the Python face of its native schema, bound by
+name. Nothing here derives a layout (the C++-first API ruling)."""
 import datetime
 from dataclasses import dataclass
 from enum import Enum
@@ -25,9 +25,13 @@ class ToTableMode(Enum):
 
 
 @dataclass(frozen=True)
-class TableSchema(CompoundScalar):
+class TableSchema(CompoundScalar, namespace="hgraph"):
     """Released hgraph's ``TableSchema`` compound scalar: a graph reads it as
-    ``TS[TableSchema]`` and its fields with ``getattr_`` (parity #821)."""
+    ``TS[TableSchema]`` and its fields with ``getattr_`` (parity #821).
+
+    The Python face of the native ``hgraph::TableSchema`` (RFC 0042): ``tp``
+    and ``types`` are type values, so ``types`` holds each column's Python
+    class; ``arrow_types`` names them in the Arrow vocabulary."""
 
     tp: type
     keys: tuple[str, ...]
@@ -53,6 +57,15 @@ class TableSchema(CompoundScalar):
             and self.as_of_key == other.as_of_key
             and self.is_multi_row == other.is_multi_row
         )
+
+
+    @property
+    def arrow_types(self) -> tuple[str, ...]:
+        """Each column's type in the Arrow vocabulary of the frame this
+        schema describes: ``int64``, ``timestamp[us, tz=UTC]``, ``zone_id``."""
+        from ._types import _value_type
+
+        return tuple(_hgraph.table_column_type_name(_value_type(tp)) for tp in self.types)
 
 
 def _tp_key(tp):
@@ -119,20 +132,6 @@ def make_table_schema(
     )
 
 
-# The C++ leaf display-names -> python types (declarative; no derivation).
-_LEAF_TYPES = {
-    "bool": bool,
-    "int": int,
-    "float": float,
-    "str": str,
-    "bytes": bytes,
-    "datetime": datetime.datetime,
-    "date": datetime.date,
-    "time": datetime.time,
-    "timedelta": datetime.timedelta,
-}
-
-
 class _EagerValue:
     """hgraph's const-port shim: ``table_schema(tp).value`` (the operator is
     const-evaluable; outside a graph the eager value is returned)."""
@@ -163,36 +162,36 @@ def _const_value_port_type():
 _CONST_VALUE_PORT = None
 
 
+def _schema_value(tp):
+    """The native kernel's ``TableSchema`` for ``tp``: under the active
+    configuration, or the default one outside any ``GlobalState``, as the
+    column-name accessors above do."""
+    from ._types import _value_type
+    from ._wiring import GlobalState, evaluate_const
+
+    _value_type(TableSchema)  # bind the face, so the value converts to it
+    if GlobalState.has_instance():
+        return evaluate_const("table_schema", (tp,))
+    with GlobalState():
+        return evaluate_const("table_schema", (tp,))
+
+
 def table_schema(tp):
     """The TableSchema the ``to_table`` operator will produce for ``tp``.
 
     Inside a graph this is released hgraph's ``TS[TableSchema]``: a constant
-    tick whose fields ``getattr_`` reads (parity #821); it also carries
-    ``.value``. Outside a graph only ``.value`` is available."""
+    tick of the native ``table_schema`` operator whose fields ``getattr_``
+    reads (parity #821); it also carries ``.value``. Outside a graph only
+    ``.value`` is available."""
     global _CONST_VALUE_PORT
-    info = _hgraph.table_schema_info(
-        _resolve(tp), get_table_schema_date_key(), get_table_schema_as_of_key()
-    )
-    types = tuple(_LEAF_TYPES.get(name, object) for name in info["types"])
-    schema = TableSchema(
-        tp=tp,
-        keys=tuple(info["keys"]),
-        types=types,
-        partition_keys=tuple(info["partition_keys"]),
-        removed_keys=tuple(info["removed_keys"]),
-        date_time_key=info["date_key"],
-        as_of_key=info["as_of_key"],
-        is_multi_row=info["is_multi_row"],
-    )
-    from ._wiring._core import _wiring_stack
+    schema = _schema_value(tp)
+    from ._wiring._core import _wiring_stack, operator_function
 
     if not _wiring_stack:
         return _EagerValue(schema)
-    from hgraph import TS, const
-
     if _CONST_VALUE_PORT is None:
         _CONST_VALUE_PORT = _const_value_port_type()
-    return _CONST_VALUE_PORT(const(schema, tp=TS[TableSchema])._port, schema)
+    return _CONST_VALUE_PORT(operator_function("table_schema")(tp)._port, schema)
 
 
 def table_shape(ts):
