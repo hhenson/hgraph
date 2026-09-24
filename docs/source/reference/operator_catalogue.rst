@@ -3597,24 +3597,27 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Dynamic JSON value.
 
+``_tp`` : type-argument; ``type[str]``, ``type[bytes]``
+   The encoded scalar type, ``str`` or ``bytes``; a type argument (``json_encode(value, str)`` or ``json_encode[SCALAR: str](value)``), as released hgraph declares it (parity #818 item 2.2). Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
-Compact JSON string.
+Compact JSON text of the selected type.
 
 Python example
 ~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   text = hg.json_encode(json_value)
+   text = hg.json_encode(json_value, str)
 
 Accepted native overloads
 
 .. code-block:: text
 
-   json_encode(ts: TIME_SERIES_TYPE) -> TS[str]
-   json_encode(ts: TIME_SERIES_TYPE) -> TS[bytes]
+   json_encode(ts: TIME_SERIES_TYPE, _tp: type[str] = ...) -> TS[str]
+   json_encode(ts: TIME_SERIES_TYPE, _tp: type[bytes] = ...) -> TS[bytes]
 
 .. _python-operator-keys_:
 
@@ -8269,6 +8272,9 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
+``tp`` : type-argument; ``type[TS[int]]``, ``type[TS[float]]``, ``type[TS[str]]``, ``type[TSD[K, V]]``
+   The output time-series type, a type argument in released hgraph's position (``zero(TS[int], add_)``; parity #818 item 2.1). Optional in overloads that show ``= ...``.
+
 ``op`` : scalar; ``fn``
    Operator whose identity is required. This choice is fixed at wiring time.
 
@@ -8282,13 +8288,13 @@ Python example
 
 .. code-block:: python
 
-   additive_identity = hg.zero[TS[int]](hg.add_)
+   additive_identity = hg.zero(TS[int], hg.add_)
 
 Accepted native overloads
 
 .. code-block:: text
 
-   zero(op: fn) -> TS[int]
-   zero(op: fn) -> TS[float]
-   zero(op: fn) -> TS[str]
-   zero(op: fn) -> TSD[K, V]
+   zero(tp: type[TS[int]] = ..., op: fn) -> TS[int]
+   zero(tp: type[TS[float]] = ..., op: fn) -> TS[float]
+   zero(tp: type[TS[str]] = ..., op: fn) -> TS[str]
+   zero(tp: type[TSD[K, V]] = ..., op: fn) -> TSD[K, V]

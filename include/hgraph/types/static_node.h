@@ -553,14 +553,15 @@ namespace hgraph
      * Build the canonical ``TSB`` delta value ``Bundle{field: delta(field_schema)...}``.
      * Pass one argument per field in schema order. A scalar child field takes the bare
      * scalar delta; a container child field takes a child-delta ``Value``. Passing
-     * ``std::nullopt`` leaves the field at its canonical default delta: typed-null for
-     * scalar children, empty delta for collection children.
+     * ``std::nullopt`` leaves the field unset: that field has no news (TS-24). A
+     * collection field that ticked empty takes an explicit empty delta
+     * (``set_delta<T>({}, {})``, ``dict_delta<K, V>({})``); "no news" and "ticked
+     * empty" are different statements (#835).
      */
     template <typename S, typename... Args>
     [[nodiscard]] inline Value tsb_delta(Args &&...args)
     {
         BundleBuilder builder{delta_value_binding<S>()};
-        static_node_detail::tsb_delta_builder<S>::initialize(builder);
         static_node_detail::tsb_delta_builder<S>::fill(builder, std::forward<Args>(args)...);
         return builder.build();
     }

@@ -190,8 +190,8 @@ Clearing it is also the fallback when the host is down, because a job aimed
 at an offline self-hosted runner waits in the queue rather than failing over.
 
 The routed jobs are the Linux legs of ``native-cpp`` and ``language``,
-``native-shared-install``, the docs ``doctest``, the packaging ``container``
-image, and the nightly parity ``build-candidate``. Each selects its runner
+``native-shared-install``, the docs ``doctest`` and the packaging
+``container`` image. Each selects its runner
 with the same expression (the matrix jobs also require
 ``matrix.os == 'ubuntu-24.04'`` and fall back to ``matrix.os``)::
 
@@ -222,6 +222,15 @@ is not routed at all, because a tag publishes the wheels that the push run of
 the same commit built (``reuse-build``). Routing that push build would
 therefore route the release. The parity campaign shards and every job with a
 write scope also stay on hosted runners.
+
+A job whose native artifact another job installs runs where that consumer
+runs. The self-hosted host has a newer libc than ``ubuntu-24.04``, and a
+binary linked there can require symbol versions the hosted image lacks. The
+nightly parity ``build-candidate`` was routed until 2026-09-23, when its wheel
+failed to import on every hosted campaign shard (``GLIBC_ABI_GNU2_TLS`` not
+found) and the publisher filed each recipe as a parity issue. It is no longer
+routed, and the campaign now refuses to start against a candidate that cannot
+import hgraph (:doc:`parity_testing`).
 
 Two independent checks keep fork pull requests off the host. The routing
 expression sends them to a hosted runner, but a ``pull_request`` run uses the

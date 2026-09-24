@@ -178,13 +178,15 @@ namespace hgraph::stdlib
     /** Produce the identity value for an operator and explicitly selected output type.
         For example addition uses zero while multiplication uses one; collection
         overloads choose the corresponding empty or identity value.
+        @param tp The output time-series type, a type argument in released hgraph's
+            position (``zero(TS[int], add_)``; parity #818 item 2.1).
         @param op Operator whose identity is required. This choice is fixed at wiring time.
         @return A constant source of the selected type's identity for ``op``.
         @par Python example
         @code{.py}
-        additive_identity = hg.zero[TS[int]](hg.add_)
+        additive_identity = hg.zero(TS[int], hg.add_)
         @endcode */
-    struct zero_ : Operator<"zero", Scalar<"op", WiredFn>, Out<TsVar<"S">>>
+    struct zero_ : Operator<"zero", TypeArg<"tp", TsVar<"S">, AutoResolve>, Scalar<"op", WiredFn>, Out<TsVar<"S">>>
     {
     };
 

@@ -14,7 +14,7 @@ from .coverage import coverage_report
 from .environments import PARITY_ROOT, ParityEnvironments
 from .issues import failure_fingerprint
 from .model import Recipe
-from .process import ReferenceTraceCache, run_recipe
+from .process import ReferenceTraceCache, is_environment_failure, run_recipe
 from .reduce import reduce_recipe
 
 
@@ -26,6 +26,16 @@ from .known import (
 
 def _stable(results: list[dict[str, Any]]) -> bool:
     return len({semantic_signature(result) for result in results}) == 1
+
+
+def _candidate_environment_quarantine(
+    recipe: Recipe, candidate_results: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "classification": "candidate-environment",
+        "recipe": recipe.to_dict(),
+        "candidate_replays": candidate_results,
+    }
 
 
 def _unreduced_failure(
@@ -180,6 +190,16 @@ def run_campaign(
             # all three disagreed with the run that got us here -- an
             # intermittent failure, which is exactly what this branch exists to
             # quarantine.
+            if any(
+                is_environment_failure(result)
+                for result in (candidate, *candidate_replays)
+            ):
+                quarantined.append(
+                    _candidate_environment_quarantine(
+                        recipe, [candidate, *candidate_replays]
+                    )
+                )
+                continue
             if (
                 not _stable([reference, *reference_replays])
                 or not _stable([candidate, *candidate_replays])
@@ -234,6 +254,15 @@ def run_campaign(
                 failures.append(failure)
             continue
 
+        if is_environment_failure(candidate):
+            # The candidate never ran the graph: its installation could not
+            # import hgraph, or its process could not start. Comparing that
+            # with a reference trace would file the environment as a
+            # behavioural divergence -- 528 issues on 2026-09-23 from one
+            # wheel built against a newer libc than the campaign runner.
+            quarantined.append(_candidate_environment_quarantine(recipe, [candidate]))
+            continue
+
         difference = compare_outcomes(
             reference,
             candidate,
@@ -285,6 +314,12 @@ def run_campaign(
                 }
             )
             continue
+        if any(is_environment_failure(result) for result in candidate_replays):
+            # The candidate environment fell over during verification: the
+            # first run's mismatch can no longer be confirmed against a
+            # candidate that ran the graph.
+            quarantined.append(_candidate_environment_quarantine(recipe, candidate_replays))
+            continue
         if not _stable(candidate_replays):
             quarantined.append(
                 {
@@ -334,6 +369,9 @@ def run_campaign(
                     candidate_recipe,
                     timeout=timeout_seconds,
                 )
+                if is_environment_failure(candidate_result):
+                    # A broken environment is not the mismatch being reduced.
+                    return False
                 return (
                     compare_outcomes(
                         reference_result,
@@ -367,6 +405,9 @@ def run_campaign(
             timeout_seconds=timeout_seconds,
             attempts=verify_replays,
         )
+        if any(is_environment_failure(result) for result in final_candidate):
+            quarantined.append(_candidate_environment_quarantine(minimized, final_candidate))
+            continue
         if (
             not _stable(final_reference)
             or not _stable(final_candidate)

@@ -268,6 +268,27 @@ TEST_CASE("component: C++ recordable state works through eval_node")
                  values<Int>(1, 2, 3, none, 4));
 }
 
+TEST_CASE("component: a recording exists from the recorder's start (runtime spec OP-11)")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
+
+    // Parity #1315: inputs that never tick leave EMPTY recordings, not none.
+    {
+        record_replay::scope mode{Mode::Record};
+        CHECK_OUTPUT(eval_node<RecordingHarness>(values<Int>(none, none), values<Int>(none, none)),
+                     values<Int>(none, none));
+    }
+    const auto state = context.state().view();
+    REQUIRE(state.contains(":memory:calc.lhs"));
+    REQUIRE(state.contains(":memory:calc.rhs"));
+    CHECK(state.get(":memory:calc.lhs").as_list().size() == 0);
+    CHECK(state.get(":memory:calc.rhs").as_list().size() == 0);
+}
+
 TEST_CASE("component: in-memory mode records timestamped values and replays them")
 {
     stdlib::register_standard_operators();

@@ -182,3 +182,55 @@ def test_with_columns_accepts_a_typed_series_column():
     assert eval_node(app, [table], [pa.array([7, 8])])[0].equals(
         pa.table({"a": [1, 2], "c": [7, 8]})
     )
+
+
+@dataclass(frozen=True)
+class _ColumnsRow(CompoundScalar):
+    k: str
+    v: int
+
+
+@dataclass(frozen=True)
+class _ColumnsProjected(CompoundScalar):
+    k: str
+    c: int
+
+
+@dataclass(frozen=True)
+class _ColumnsTpOut(CompoundScalar):
+    k: str
+    _tp_out: int
+
+
+def test_with_columns_keeps_projects_and_accepts_a_column_named_tp_out():
+    """Issue #833: released hgraph's with_columns_default and
+    with_columns_typed are an exclusive pair. Each case asserts the output
+    COLUMNS, not only that the call wires: the prototype that broke the
+    projecting forms still wired."""
+    from hgraph.adaptors.data_frame import with_columns
+
+    frame = pa.table({"k": ["a", "b"], "v": [1, 2]})
+
+    @graph
+    def keep(ts: TS[Frame[_ColumnsRow]], v: TS[int]) -> TS[Frame[_ColumnsRow]]:
+        return with_columns(ts, v=v)
+
+    @graph
+    def project(ts: TS[Frame[_ColumnsRow]], c: TS[int]) -> TS[Frame[_ColumnsProjected]]:
+        return with_columns[_ColumnsProjected](ts, c=c)
+
+    @graph
+    def project_by_keyword(ts: TS[Frame[_ColumnsRow]], c: TS[int]) -> TS[Frame[_ColumnsProjected]]:
+        return with_columns(ts, _tp_out=_ColumnsProjected, c=c)
+
+    @graph
+    def named_tp_out(ts: TS[Frame[_ColumnsTpOut]], x: TS[int]) -> TS[Frame[_ColumnsTpOut]]:
+        return with_columns(ts, _tp_out=x)
+
+    [kept] = eval_node(keep, [frame], [9])
+    assert kept.column_names == ["k", "v"] and kept.to_pylist()[0] == {"k": "a", "v": 9}
+    for graph_fn in (project, project_by_keyword):
+        [projected] = eval_node(graph_fn, [frame], [7])
+        assert projected.column_names == ["k", "c"] and projected.to_pylist()[0] == {"k": "a", "c": 7}
+    [named] = eval_node(named_tp_out, [pa.table({"k": ["a"], "_tp_out": [1]})], [5])
+    assert named.column_names == ["k", "_tp_out"] and named.to_pylist() == [{"k": "a", "_tp_out": 5}]

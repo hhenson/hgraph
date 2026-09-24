@@ -411,6 +411,9 @@ TEST_CASE("type arguments: const and nothing declare their type argument")
     // delay is keyword-only after tp, as in the 0.5 signature.
     auto delayed = wire<stdlib::const_, TS<Int>>(w, Int{3}, arg<"delay">(TimeDelta{}));
     CHECK(delayed.erased().schema == ts_type<TS<Int>>());
+    // A positional non-type passes over a defaulted type argument only onto a
+    // REQUIRED parameter; delay is optional, so the 0.5 positions stand.
+    CHECK_THROWS(wire<stdlib::const_, TS<Int>>(w, Int{3}, TimeDelta{}));
     CHECK(OperatorRegistry::instance().carrier_parameters("const").names == std::vector<std::string>{"tp"});
 }
 

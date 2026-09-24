@@ -863,12 +863,14 @@ TEST_CASE("collections: TSD set operators reselect remaining values after overla
                  values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
                                dict_delta<Int, TS<Int>>({{1, 20}})));
 
+    // The first admitted result is empty and still validates (runtime spec
+    // OP-5, owner ruling 2026-09-24).
     CHECK_OUTPUT((eval_node<stdlib::bit_xor, TSD<Int, TS<Int>>, TSD<Int, TS<Int>>>(
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
                                    dict_delta<Int, TS<Int>>({}, {1})),
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 20}}),
                                    none))),
-                 values<Value>(none,
+                 values<Value>(dict_delta<Int, TS<Int>>({}),
                                dict_delta<Int, TS<Int>>({{1, 20}})));
 }
 

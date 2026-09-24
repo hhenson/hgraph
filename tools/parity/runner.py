@@ -111,8 +111,12 @@ def run_recipe(raw: dict) -> dict:
     try:
         import hgraph as hg
     except BaseException as error:
+        # An environment that cannot import hgraph ran no graph, so this is
+        # not an ``error`` outcome to compare: it says the installation is
+        # broken (a wheel built against a newer libc than the runner has,
+        # say), exactly like a process that could not start.
         result.update(
-            status="error",
+            status="infrastructure-error",
             phase="import",
             exception={
                 "category": _exception_category(error),

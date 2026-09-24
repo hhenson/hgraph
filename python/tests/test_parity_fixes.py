@@ -679,3 +679,47 @@ def test_a_reset_window_aggregate_starts_again():
     assert eval_node(
         window_mean, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
     ) == [1.0, 1.5, 3.0, 3.5]
+
+
+def test_table_schema_is_readable_inside_a_graph():
+    """Issue #821: released hgraph's ``table_schema(tp)`` is a constant
+    ``TS[TableSchema]`` whose fields a graph reads; it stays const-evaluable
+    through ``.value``."""
+
+    @graph
+    def keys_of() -> TS[tuple[str, ...]]:
+        return hg.getattr_(hg.table_schema(TS[int]), "keys")
+
+    @graph
+    def keys_by_attribute() -> TS[tuple[str, ...]]:
+        return hg.table_schema(hg.TSD[str, TS[int]]).keys
+
+    assert eval_node(keys_of) == [("__date_time__", "__as_of__", "value")]
+    assert eval_node(keys_by_attribute) == [
+        ("__date_time__", "__as_of__", "__key_1_removed__", "__key_1__", "value")
+    ]
+    assert hg.table_schema(TS[int]).value.types[-1] is int
+
+
+def test_keys_is_the_mapping_protocol_on_bundle_and_referenced_bundle_ports():
+    """``port.keys`` became field sugar on non-bundle ports for #821; on a TSB
+    port, and on a REF[TSB] port as ``iter`` and ``as_dict`` already treat it,
+    it stays the mapping protocol so ``dict(**bundle)`` works."""
+
+    class AB(hg.TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    @compute_node
+    def as_ref(x: REF[hg.TSB[AB]]) -> REF[hg.TSB[AB]]:
+        return x.value
+
+    @graph
+    def fields(a: TS[int], b: TS[str]) -> TS[int]:
+        bundle = hg.combine[hg.TSB[AB]](a=a, b=b)
+        ref = as_ref(bundle)
+        assert bundle.keys() == ("a", "b")
+        assert ref.keys() == ("a", "b")
+        return hg.add_(dict(**bundle)["a"], dict(**ref)["a"])
+
+    assert eval_node(fields, [1, 2], ["x", "y"]) == [2, 4]
