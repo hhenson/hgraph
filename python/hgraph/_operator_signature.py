@@ -25,6 +25,8 @@ def _split_arguments(value: str) -> list[str]:
 
 
 def _split_field(value: str) -> tuple[str | None, str]:
+    """``name: type`` split at its field colon; a ``::`` scope separator in a
+    qualified name (``hgraph::TableSchema``) is not a field separator."""
     depth = 0
     for index, character in enumerate(value):
         if character == "[":
@@ -32,6 +34,8 @@ def _split_field(value: str) -> tuple[str | None, str]:
         elif character == "]":
             depth -= 1
         elif character == ":" and depth == 0:
+            if value[index + 1:index + 2] == ":" or value[index - 1:index] == ":":
+                continue
             return value[:index].strip(), value[index + 1:].strip()
     return None, value
 

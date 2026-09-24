@@ -7200,7 +7200,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph: :TableSchema]
+   table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph::TableSchema]
 
 .. _python-operator-take:
 

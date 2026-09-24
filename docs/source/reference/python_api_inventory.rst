@@ -747,7 +747,7 @@ whose curated signatures remain authoritative.
      - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`table_schema <python-operator-table_schema>`
-     - ``table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph: :TableSchema]``
+     - ``table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph::TableSchema]``
      - 1 native overload; explicit helper
    * - :ref:`take <python-operator-take>`
      - ``5 overloads``

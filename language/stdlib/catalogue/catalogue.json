@@ -15054,7 +15054,7 @@
           "marker": "from_table",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 54
+          "line": 73
         }
       ],
       "registration_sites": [
@@ -15117,7 +15117,7 @@
           "marker": "from_table_const",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 61
+          "line": 80
         }
       ],
       "registration_sites": [
@@ -38950,7 +38950,7 @@
           "marker": "table_schema",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 94
+          "line": 101
         }
       ],
       "registration_sites": [
@@ -40242,7 +40242,7 @@
           "marker": "to_table",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/table.h",
-          "line": 48
+          "line": 67
         }
       ],
       "registration_sites": [
