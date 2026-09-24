@@ -442,6 +442,7 @@ TEST_CASE("type values: a type's text is its name (RFC 0042)")
     CHECK(Value{TypeCarrier::of_scalar(scalar_descriptor<DateTime>::value_meta())}.to_string() == "datetime");
     CHECK(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.to_string() == ts_type<TS<Int>>()->name());
     CHECK(Value{TypeCarrier::of_size(3)}.to_string() == "Size[3]");
+    CHECK(Value{TypeCarrier::of_size(unbounded_tsl_size)}.to_string() == "Size[-1]");
     // Equal types are equal values: the interned schema is the identity.
     CHECK(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view().equals(
         Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view()));

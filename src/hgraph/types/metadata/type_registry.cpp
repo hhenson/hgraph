@@ -61,7 +61,10 @@ namespace hgraph
                 return out << (carrier.ts() != nullptr ? carrier.ts()->name() : std::string_view{"<null>"});
             case ResolutionKind::Scalar:
                 return out << (carrier.scalar() != nullptr ? carrier.scalar()->name() : std::string_view{"<null>"});
-            default: return out << "Size[" << *carrier.size() << ']';
+            default:
+                // The unbounded sentinel is written as Python writes it, Size[-1].
+                if (*carrier.size() == unbounded_tsl_size) { return out << "Size[-1]"; }
+                return out << "Size[" << *carrier.size() << ']';
         }
     }
 
