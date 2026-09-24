@@ -965,21 +965,22 @@ def _port_reduce(self, fn, zero=_REDUCE_ZERO, is_associative=True):
 
 
 def _port_keys(self):
-    """hgraph's TSB mapping protocol: field names (dict(**tsb) works)."""
-    tp = _unwrap(self).ts_type
-    return tuple(_hgraph.tsb_field_names(tp))
+    """hgraph's TSB mapping protocol: field names (dict(**tsb) works;
+    REF[TSB] names the referenced fields)."""
+    return tuple(_port_bundle_field_names(self))
 
 
 WiringPort.reduce = _port_reduce
 class _KeysAttribute:
-    """``port.keys``: on a TSB port, the mapping protocol's ``keys()`` (so
-    ``dict(**tsb)`` works); on any other port, attribute sugar for a field
-    named ``keys``, such as ``table_schema(tp).keys`` (parity #821)."""
+    """``port.keys``: on a TSB or REF[TSB] port, the mapping protocol's
+    ``keys()`` (so ``dict(**tsb)`` works); on any other port, attribute sugar
+    for a field named ``keys``, such as ``table_schema(tp).keys`` (parity
+    #821)."""
 
     def __get__(self, port, owner=None):
         if port is None:
             return self
-        if _unwrap(port).ts_type.is_tsb:
+        if _port_bundle_field_names(port) is not None:
             return _port_keys.__get__(port, owner)
         return _port_getattr(port, "keys")
 
