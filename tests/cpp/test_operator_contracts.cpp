@@ -284,4 +284,6 @@ TEST_CASE("operator contracts: a string in a container renders as Python's repr 
     CHECK(quote_string("a\tb\nc\\") == "'a\\tb\\nc\\\\'");
     CHECK(quote_string("it's") == "\"it's\"");
     CHECK(quote_string("it's \"x\"\xc2\x87") == "'it\\'s \"x\"\\x87'");
+    // Bytes that are not UTF-8 -- here an encoded surrogate -- show as bytes.
+    CHECK(quote_string("\xed\xa0\x80") == "'\\xed\\xa0\\x80'");
 }

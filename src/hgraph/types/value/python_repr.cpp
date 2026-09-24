@@ -41,7 +41,9 @@ namespace hgraph::value_ops_detail
                 if ((next & 0xC0) != 0x80) { return 0; }
                 value = (value << 6) | (next & 0x3F);
             }
-            if (value < minimum || value > 0x10FFFF) { return 0; }
+            // Overlong forms, code points past U+10FFFF and the surrogates
+            // U+D800-U+DFFF are not UTF-8.
+            if (value < minimum || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) { return 0; }
             code_point = value;
             return length;
         }
