@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/operators/impl/table_impl.h>
+#include <hgraph/lib/std/operators/conversion.h>
 
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -1683,6 +1684,59 @@ namespace hgraph::stdlib
         }
     }  // namespace table_ts_detail
 
+    namespace
+    {
+        template <typename Element, typename Source, typename Convert>
+        [[nodiscard]] Value homogeneous_tuple_value(const std::vector<Source> &items, Convert convert)
+        {
+            auto &factory = ValuePlanFactory::instance();
+            ListBuilder builder{factory.type_for(scalar_descriptor<Element>::value_meta())};
+            for (const Source &item : items)
+            {
+                const Value element{convert(item)};
+                builder.push_back_copy(element.view().data());
+            }
+            ListStorage storage = builder.build_storage();
+            return Value{factory.type_for(scalar_descriptor<HomogeneousTuple<Element>>::value_meta()),
+                         &storage};
+        }
+    }  // namespace
+
+    Value table_schema_value(const TSValueTypeMetaData *ts, const table::TableConfig &config)
+    {
+        if (ts == nullptr) { throw std::invalid_argument("table_schema: tp must be a time-series type"); }
+        const auto &layout = table_ts_detail::ts_table_layout(ts, config.date_key, config.as_of_key);
+        const auto  strings = [](const std::vector<std::string> &names) {
+            return homogeneous_tuple_value<Str>(names, [](const std::string &name) { return Str{name}; });
+        };
+        BundleBuilder builder{
+            ValuePlanFactory::instance().type_for(scalar_descriptor<TableSchema>::value_meta())};
+        builder.set("tp", Value{TypeCarrier::of_ts(ts)});
+        builder.set("keys", strings(layout.keys));
+        builder.set("types", homogeneous_tuple_value<TypeCarrier>(
+                                 layout.col_metas,
+                                 [](const ValueTypeMetaData *meta) { return TypeCarrier::of_scalar(meta); }));
+        builder.set("partition_keys", strings(layout.partition_keys));
+        builder.set("removed_keys", strings(layout.removed_keys));
+        builder.set("date_time_key", Value{Str{layout.date_key}});
+        builder.set("as_of_key", Value{Str{layout.as_of_key}});
+        builder.set("is_multi_row", Value{Bool{layout.is_multi_row}});
+        return builder.build();
+    }
+
+    Value table_schema_impl::const_eval(const TSValueTypeMetaData *, OperatorCallContext context)
+    {
+        const auto *tp = context.scalar_as<TypeCarrier>("tp");
+        if (tp == nullptr) { throw std::invalid_argument("table_schema: tp must be a time-series type"); }
+        return table_schema_value(tp->ts(), table::config(context.global_state));
+    }
+
+    Port<TS<TableSchema>> table_schema_impl::compose(Wiring &w, TypeArg<"tp", TsVar<"S">> tp)
+    {
+        return wire<const_, TS<TableSchema>>(
+            w, table_schema_value(tp.value().ts(), table::config(w.global_state())));
+    }
+
     void register_table_operators()
     {
         // Layouts intern by TS-schema POINTER (the plan-registries rule).
@@ -1694,6 +1748,7 @@ namespace hgraph::stdlib
         register_overload<to_table, to_table_rows_impl>();
         register_overload<from_table, from_table_rows_impl>();
         register_overload<from_table_const, from_table_const_impl>();
+        register_graph_overload<table_schema, table_schema_impl>();
     }
 }  // namespace hgraph::stdlib
 

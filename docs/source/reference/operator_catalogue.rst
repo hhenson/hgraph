@@ -7166,6 +7166,42 @@ Accepted native overloads
 
    symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT
 
+.. _python-operator-table_schema:
+
+``table_schema``
+----------------
+
+SPIKE: const-evaluable ``table_schema(tp) -> TS[TableSchema]``.
+
+Python entry point: ``table_schema(tp)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tp`` : type-argument; ``type[TIME_SERIES_TYPE]``
+   The tp value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[hgraph: :TableSchema]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.table_schema(tp)
+
+Accepted native overloads
+
+.. code-block:: text
+
+   table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph: :TableSchema]
+
 .. _python-operator-take:
 
 ``take``

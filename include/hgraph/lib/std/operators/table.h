@@ -61,6 +61,18 @@ namespace hgraph::stdlib
     struct from_table_const : Operator<"from_table_const", Scalar<"value", Frame>, Out<TsVar<"O">>>
     {
     };
+
+    /** SPIKE: released hgraph's ``TableSchema`` as a native bundle. */
+    using TableSchema =
+        Bundle<"hgraph::TableSchema", Field<"tp", TypeCarrier>, Field<"keys", HomogeneousTuple<Str>>,
+               Field<"types", HomogeneousTuple<TypeCarrier>>, Field<"partition_keys", HomogeneousTuple<Str>>,
+               Field<"removed_keys", HomogeneousTuple<Str>>, Field<"date_time_key", Str>,
+               Field<"as_of_key", Str>, Field<"is_multi_row", Bool>>;
+
+    /** SPIKE: const-evaluable ``table_schema(tp) -> TS[TableSchema]``. */
+    struct table_schema : Operator<"table_schema", TypeArg<"tp", TsVar<"S">>, Out<TS<TableSchema>>>
+    {
+    };
 }  // namespace hgraph::stdlib
 
 namespace hgraph::static_schema_detail

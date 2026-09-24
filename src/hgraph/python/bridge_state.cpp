@@ -1040,6 +1040,7 @@ HGRAPH_DEFINE_PYTHON_CONVERSION_TRAIT(TimeSeriesReference,
                                       "TimeSeriesReference")
 HGRAPH_DEFINE_PYTHON_CONVERSION_TRAIT(ValueCallable, "ValueCallable")
 HGRAPH_DEFINE_PYTHON_CONVERSION_TRAIT(WiredFn, "WiredFn")
+HGRAPH_DEFINE_PYTHON_CONVERSION_TRAIT(TypeCarrier, "TypeCarrier")
 
 #undef HGRAPH_DEFINE_PYTHON_CONVERSION_TRAIT
 } // namespace hgraph

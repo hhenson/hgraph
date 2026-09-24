@@ -1303,6 +1303,15 @@ def _compound_value_type(scalar, type_args=()):
     if cache_key in _COMPOUND_TYPE_CACHE:
         return _COMPOUND_TYPE_CACHE[cache_key]
 
+    # SPIKE: a Python class that is the face of a NATIVE schema binds to it
+    # by name; the native schema, not the Python annotations, decides storage.
+    native_schema = scalar.__dict__.get("__native_schema__")
+    if native_schema is not None:
+        meta = _hgraph.value_type(native_schema)
+        _register_bundle_class(meta, scalar, specialization=None)
+        _COMPOUND_TYPE_CACHE[cache_key] = meta
+        return meta
+
     parameters = tuple(getattr(scalar, "__parameters__", ()))
     if type_args and len(type_args) != len(parameters):
         raise TypeError(

@@ -213,6 +213,27 @@ namespace hgraph::python_bridge
 
     void bind_type_system(nb::module_ &m)
     {
+        // SPIKE: a type as a runtime value. To Python it is what a type
+        // argument crosses as (a TsType, the scalar's Python annotation, or a
+        // size); from Python it takes whatever a type-argument slot accepts.
+        python_conversion_traits<TypeCarrier>::to_python_hook() = [](const TypeCarrier &carrier) {
+            static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+            return operator_scalar_to_py(Value{carrier}.view());
+        };
+        python_conversion_traits<TypeCarrier>::from_python_hook() = [](nb::handle source) -> TypeCarrier {
+            nb::object value = nb::borrow(source);
+            if (!nb::isinstance<PyTsType>(value) && !nb::isinstance<PyValueType>(value))
+            {
+                value = nb::module_::import_("hgraph._wiring._resolution").attr("_carrier_value")(value);
+            }
+            if (nb::isinstance<PyTsType>(value)) { return TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
+            if (nb::isinstance<PyValueType>(value)) { return TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta); }
+            if (nb::isinstance<nb::int_>(value) && !nb::isinstance<nb::bool_>(value))
+            {
+                return TypeCarrier::of_size(nb::cast<std::size_t>(value));
+            }
+            throw nb::type_error("expected a type: a time-series type, a scalar type or a size");
+        };
     nb::enum_<MonthEndPolicy>(
         m, "MonthEndPolicy",
         "Policy for calendar-period arithmetic when the target month does "

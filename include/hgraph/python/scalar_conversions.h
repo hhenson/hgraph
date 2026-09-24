@@ -12,6 +12,7 @@
 #include <hgraph/types/series.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series_reference.h>
+#include <hgraph/types/type_carrier.h>
 #include <hgraph/types/value_callable.h>
 #include <hgraph/types/wired_fn.h>
 
@@ -123,6 +124,7 @@ namespace hgraph
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(TimeSeriesReference);
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(ValueCallable);
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(WiredFn);
+    HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(TypeCarrier);
 
 #undef HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS
 }  // namespace hgraph

@@ -29,6 +29,8 @@ class TableSchema(CompoundScalar):
     """Released hgraph's ``TableSchema`` compound scalar: a graph reads it as
     ``TS[TableSchema]`` and its fields with ``getattr_`` (parity #821)."""
 
+    __native_schema__ = "hgraph::TableSchema"  # SPIKE: the C++ schema is the storage
+
     tp: type
     keys: tuple[str, ...]
     types: tuple[type, ...]
@@ -192,7 +194,9 @@ def table_schema(tp):
 
     if _CONST_VALUE_PORT is None:
         _CONST_VALUE_PORT = _const_value_port_type()
-    return _CONST_VALUE_PORT(const(schema, tp=TS[TableSchema])._port, schema)
+    # SPIKE: the native operator publishes the value.
+    from ._wiring._core import operator_function
+    return _CONST_VALUE_PORT(operator_function("table_schema")(tp)._port, schema)
 
 
 def table_shape(ts):

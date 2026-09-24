@@ -215,6 +215,7 @@ namespace hgraph::python_bridge
             register_python_scalar_conversion<TimeSeriesReference>();
             register_python_scalar_conversion<ValueCallable>();
             register_python_scalar_conversion<WiredFn>();
+            register_python_scalar_conversion<TypeCarrier>();
         }
     }  // namespace
 
