@@ -226,3 +226,54 @@ def test_a_self_recursive_native_schema_binds_through_its_owned_edge():
 
     fields = [(name, vt.name) for name, vt in _value_type(RecNode).fields]
     assert fields == [("value", "int"), ("next", f"Owned[{NS}::RecNode]")]
+
+
+def test_validating_a_face_never_becomes_the_reverse_binding_of_type():
+    # The validation-only rewrite must not register its marker as the Python
+    # face of the native type scalar, or of a composite holding one.
+    from hgraph._types import _NativeTypeValue
+
+    _native("NoLeak", tp=TYPE, types=_hgraph.tuple_vt(TYPE))
+
+    @dataclasses.dataclass(frozen=True)
+    class NoLeak(CompoundScalar, namespace=NS):
+        tp: type
+        types: tuple[type, ...]
+
+    _value_type(NoLeak)
+    assert _hgraph.python_type_for_value(TYPE) is not _NativeTypeValue
+    assert _NativeTypeValue not in typing.get_args(_hgraph.python_type_for_value(_hgraph.tuple_vt(TYPE)))
+
+
+def test_mutually_recursive_native_faces_bind_through_their_owned_edges():
+    # Validating one face must not materialise the other (which would
+    # validate its edge back, without end).
+    _hgraph.recursive_bundles_vt([
+        (NS, "Tree", [("value", _vt("int")), ("forest", 1)], [], False, "__type__", [], ""),
+        (NS, "Forest", [("head", 0)], [], False, "__type__", [], ""),
+    ])
+
+    @dataclasses.dataclass(frozen=True)
+    class Tree(CompoundScalar, namespace=NS):
+        value: int
+        forest: typing.Optional["Forest"] = None
+
+    @dataclasses.dataclass(frozen=True)
+    class Forest(CompoundScalar, namespace=NS):
+        head: typing.Optional["Tree"] = None
+
+    assert [(n, t.name) for n, t in _value_type(Tree).fields] == [
+        ("value", "int"), ("forest", f"Owned[{NS}::Forest]")]
+    assert [(n, t.name) for n, t in _value_type(Forest).fields] == [("head", f"Owned[{NS}::Tree]")]
+
+
+def test_a_type_alias_of_type_stands_for_a_native_type_value():
+    NativeType = typing.TypeAliasType("NativeType", type)
+    _native("Aliased", tp=TYPE, types=_hgraph.tuple_vt(TYPE))
+
+    @dataclasses.dataclass(frozen=True)
+    class Aliased(CompoundScalar, namespace=NS):
+        tp: NativeType
+        types: tuple[NativeType, ...]
+
+    assert _value_type(Aliased).name == f"{NS}::Aliased"

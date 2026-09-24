@@ -1326,6 +1326,7 @@ def _with_native_type_values(annotation):
     import types
     import typing
 
+    annotation = resolve_type_alias(annotation)
     if annotation is type or typing.get_origin(annotation) is type:
         return _NativeTypeValue
     origin = typing.get_origin(annotation)
@@ -1342,13 +1343,65 @@ def _with_native_type_values(annotation):
     return annotation.copy_with(rewritten)
 
 
+def _qualified_face_name(scalar):
+    """The registry's qualified name for a CompoundScalar class."""
+    namespace = scalar.__dict__.get("__compound_namespace__", scalar.__module__)
+    return f"{namespace}::{scalar.__name__}" if namespace else scalar.__name__
+
+
+def _owned_edge_target(annotation, scalar):
+    """What an annotation names as a recursive edge: a class, or the name a
+    forward reference spells; ``None`` for anything else. ``Optional`` of one
+    is the same edge (an owned edge may be unset)."""
+    import types
+    import typing
+
+    annotation = resolve_type_alias(annotation)
+    if annotation is typing.Self:
+        return scalar
+    if isinstance(annotation, typing.ForwardRef):
+        annotation = annotation.__forward_arg__
+    if isinstance(annotation, str):
+        token = annotation.strip().replace(" ", "").replace("'", "").replace('"', "")
+        for wrapper in ("typing.Optional[", "Optional["):
+            if token.startswith(wrapper) and token.endswith("]"):
+                token = token[len(wrapper):-1]
+        for none in ("|None", "None|"):
+            token = token.replace(none, "")
+        return token or None
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union or origin is types.UnionType:
+        members = [arg for arg in typing.get_args(annotation) if arg is not type(None)]
+        return _owned_edge_target(members[0], scalar) if len(members) == 1 else None
+    return annotation if isinstance(annotation, type) else None
+
+
+def _names_owned_edge(annotation, scalar, native_type_name):
+    """True when ``annotation`` names the target of the native owned edge
+    ``Owned[<target>]`` -- the class itself (self recursion) or another face
+    (mutual recursion) -- decided by name, without materialising the target:
+    materialising a mutually recursive face would validate its edge back."""
+    if not (native_type_name.startswith("Owned[") and native_type_name.endswith("]")):
+        return False
+    target = native_type_name[len("Owned["):-1]
+    named = _owned_edge_target(annotation, scalar)
+    if named is None:
+        return False
+    if isinstance(named, type):
+        return _qualified_face_name(named) == target
+    local = target.rsplit("::", 1)[-1]
+    return named in (target, local)
+
+
 def _bind_native_schema(scalar, native_schema):
     """Validate that ``scalar`` matches the native schema it binds to: the
     same field names in the same order, and each annotation naming the native
     field's type exactly, position by position -- where Python spells a
-    native type value ``type`` (``tuple[type, ...]``), and where a field
-    annotated as the class itself is the native self edge
-    (``Owned[<schema>]``)."""
+    native type value ``type`` (``tuple[type, ...]``), and where a field that
+    names the class itself or another face is the native owned edge
+    (``Owned[<schema>]``). The resolutions made here are validation-only and
+    never recorded as reverse bindings."""
+    global _REVERSE_BINDING_SUPPRESSED
     where = f"{scalar.__module__}.{scalar.__qualname__}"
     meta = _hgraph.value_type(native_schema)
     native_fields = list(meta.fields)
@@ -1363,10 +1416,16 @@ def _bind_native_schema(scalar, native_schema):
             f"{where}: named bundle {native_schema!r} is already registered with a different schema: "
             f"fields {python_names} do not match native fields {native_names}")
     for (name, annotation), (_, native_type) in zip(python_fields, native_fields):
+        if _names_owned_edge(annotation, scalar, native_type.name):
+            continue
         if _is_self_recursive_annotation(annotation, scalar, {}):
             declared_name = f"Owned[{native_schema}]"
         else:
-            declared = _compound_field_value_type(_with_native_type_values(annotation), scalar, {})
+            _REVERSE_BINDING_SUPPRESSED += 1
+            try:
+                declared = _compound_field_value_type(_with_native_type_values(annotation), scalar, {})
+            finally:
+                _REVERSE_BINDING_SUPPRESSED -= 1
             declared_name = getattr(declared, "name", declared)
         if declared_name == native_type.name:
             continue
@@ -1671,10 +1730,17 @@ def _records_reverse_binding(produce):
     @functools.wraps(produce)
     def wrapper(scalar):
         value_type = produce(scalar)
-        _bind_python_type(value_type, scalar)
+        if not _REVERSE_BINDING_SUPPRESSED:
+            _bind_python_type(value_type, scalar)
         return value_type
 
     return wrapper
+
+
+# Non-zero while a native face is validated (``_bind_native_schema``): the
+# annotations resolved there are validation-only rewrites and must never
+# become the reverse binding of the schemas they produce.
+_REVERSE_BINDING_SUPPRESSED = 0
 
 
 @_records_reverse_binding

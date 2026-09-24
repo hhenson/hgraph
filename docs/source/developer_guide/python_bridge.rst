@@ -528,8 +528,12 @@ the native field's type exactly, position by position. Python spells a
 native type value ``type`` (``tuple[type, ...]``): the annotation is
 rewritten with a marker at each ``type`` leaf before its schema is computed,
 because Python maps ``type`` and ``object`` to one scalar and the schema
-alone cannot say which position is which. A field annotated as the class
-itself is the native self edge, ``Owned[<schema>]``. An empty namespace is a
+alone cannot say which position is which (aliases are resolved first). The
+rewrite is validation-only: nothing resolved there is recorded as a reverse
+binding. A field naming the class itself or another face is a native owned
+edge, ``Owned[<schema>]``, matched by the name it refers to without
+materialising the target, so faces of mutually recursive native bundles
+bind. An empty namespace is a
 bare top-level name, as the registry spells it. A mismatch is the
 registry's ``ValueError`` (*already registered with a different schema*,
 as before binding existed), now naming the field. A generic specialisation has its own name
