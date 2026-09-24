@@ -20,8 +20,11 @@ env:
 jobs:
   build-candidate:
     name: Build candidate wheel
-    # Opt-in self-hosted routing (build_system.rst, "Self-hosted Linux runner").
-    runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || 'ubuntu-24.04' }}
+    # Never routed to the self-hosted host: the campaign shards install this
+    # wheel on hosted ubuntu-24.04, so it must be linked against that image's
+    # libc. A wheel built on a newer host could not be imported there
+    # (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

@@ -116,6 +116,31 @@ a directory it could not remove is named, the run continues through the rest,
 and the command exits non-zero. A listing run always exits zero -- finding
 caches is not an error.
 
+An environment failure is never a divergence
+--------------------------------------------
+
+A parity issue records that both runtimes ran a graph and did different
+things. A process that could not start, a harness fault, or an installation
+that cannot ``import hgraph`` ran no graph, so it is not an outcome to
+compare. The runner reports an unimportable installation as
+``infrastructure-error`` in the ``import`` phase, and the campaign
+quarantines a candidate environment failure as ``candidate-environment``
+instead of comparing it with the reference trace. The reference side already
+quarantined its own.
+
+Two further checks stop one broken installation from reaching the issue
+tracker. ``campaign`` imports hgraph in the candidate environment before it
+runs any recipe and fails at once if it cannot. ``publish-issues`` refuses a
+failure whose either side is an environment failure, which also covers a
+report written before the runner made the distinction (there the import
+failure is spelled ``error`` in the ``import`` phase).
+
+This is not hypothetical. On 2026-09-23 the nightly candidate wheel was built
+on a host with a newer libc than the campaign runners, every recipe failed to
+import it, and 528 issues were filed from that single run. The publisher also
+finds existing issues by the ``parity`` label rather than among the newest
+thousand issues of any kind, so an old issue is matched, not filed again.
+
 Upstream conformance suite
 --------------------------
 

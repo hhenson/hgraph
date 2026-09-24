@@ -14,7 +14,7 @@ from .coverage import coverage_report
 from .environments import PARITY_ROOT, ParityEnvironments
 from .issues import failure_fingerprint
 from .model import Recipe
-from .process import ReferenceTraceCache, run_recipe
+from .process import ReferenceTraceCache, is_environment_failure, run_recipe
 from .reduce import reduce_recipe
 
 
@@ -26,6 +26,16 @@ from .known import (
 
 def _stable(results: list[dict[str, Any]]) -> bool:
     return len({semantic_signature(result) for result in results}) == 1
+
+
+def _candidate_environment_quarantine(
+    recipe: Recipe, candidate_results: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "classification": "candidate-environment",
+        "recipe": recipe.to_dict(),
+        "candidate_replays": candidate_results,
+    }
 
 
 def _unreduced_failure(
@@ -180,6 +190,16 @@ def run_campaign(
             # all three disagreed with the run that got us here -- an
             # intermittent failure, which is exactly what this branch exists to
             # quarantine.
+            if any(
+                is_environment_failure(result)
+                for result in (candidate, *candidate_replays)
+            ):
+                quarantined.append(
+                    _candidate_environment_quarantine(
+                        recipe, [candidate, *candidate_replays]
+                    )
+                )
+                continue
             if (
                 not _stable([reference, *reference_replays])
                 or not _stable([candidate, *candidate_replays])
@@ -232,6 +252,15 @@ def run_campaign(
                 known_failures.append(failure)
             else:
                 failures.append(failure)
+            continue
+
+        if is_environment_failure(candidate):
+            # The candidate never ran the graph: its installation could not
+            # import hgraph, or its process could not start. Comparing that
+            # with a reference trace would file the environment as a
+            # behavioural divergence -- 528 issues on 2026-09-23 from one
+            # wheel built against a newer libc than the campaign runner.
+            quarantined.append(_candidate_environment_quarantine(recipe, [candidate]))
             continue
 
         difference = compare_outcomes(

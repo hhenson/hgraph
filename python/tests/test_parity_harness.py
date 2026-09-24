@@ -1252,6 +1252,94 @@ def test_campaign_quarantines_a_reference_that_did_not_run(
     assert report["quarantined"][0]["classification"] == "reference-failure"
 
 
+# The candidate installation on 2026-09-23 could not import hgraph at all
+# (its wheel needed a newer libc than the runner); every recipe was filed as
+# a parity issue. Both the current and the pre-fix spelling must quarantine.
+_CANDIDATE_UNIMPORTABLE = (
+    {"status": "infrastructure-error", "phase": "import"},
+    {"status": "error", "phase": "import", "exception": {"category": "runtime"}},
+    {"status": "harness-error", "phase": "process"},
+)
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_campaign_quarantines_a_candidate_that_did_not_run(
+    monkeypatch, tmp_path, candidate
+):
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        candidate,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_campaign_quarantines_an_unimportable_candidate_beside_a_raising_reference(
+    monkeypatch, tmp_path, candidate
+):
+    # A reference that raises is a comparable outcome, but not against a
+    # candidate that never ran the graph.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        candidate,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "candidate-environment"
+
+
+def test_campaign_still_reports_a_candidate_crash(monkeypatch, tmp_path):
+    # A crash or timeout is the candidate's own behaviour on this graph, not
+    # its environment, and stays a verified failure.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        {"status": "crash", "phase": "process", "process_returncode": -11},
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 1
+    assert report["summary"]["quarantined"] == 0
+
+
+def test_runner_reports_an_unimportable_hgraph_as_an_environment_failure(
+    monkeypatch,
+):
+    from tools.parity.process import is_environment_failure
+    from tools.parity.runner import run_recipe as run_in_process
+
+    monkeypatch.setitem(sys.modules, "hgraph", None)
+    result = run_in_process(_scalar_recipe().to_dict())
+    assert result["status"] == "infrastructure-error"
+    assert result["phase"] == "import"
+    assert is_environment_failure(result)
+
+
+def test_campaign_command_refuses_an_unimportable_candidate(monkeypatch):
+    from tools.parity import process
+
+    monkeypatch.setattr(
+        process,
+        "_invoke",
+        lambda *_args, **_kwargs: {
+            "status": "crash",
+            "phase": "process",
+            "diagnostic": "ImportError: GLIBC_ABI_GNU2_TLS not found",
+        },
+    )
+    with pytest.raises(RuntimeError, match="candidate environment cannot import"):
+        process.require_importable("candidate", role="candidate")
+
+
 def test_campaign_quarantines_an_unstable_reference_failure(monkeypatch, tmp_path):
     # Stability is still the gate: a reference that fails only sometimes must
     # not mint a fingerprint that only sometimes reproduces.
@@ -2213,6 +2301,49 @@ def test_failure_origin_is_the_original_case_not_the_seed():
     # A record without the original (older campaign output) falls back to
     # the minimized recipe, which still carries the seed and the template.
     assert failure_origin({"minimized_recipe": minimized}) == "generated-scalar-expression-min000"
+
+
+@pytest.mark.parametrize("candidate", _CANDIDATE_UNIMPORTABLE)
+def test_issue_publisher_never_files_an_environment_failure(monkeypatch, candidate):
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "status",
+            "path": "$.status",
+            "reference": "ok",
+            "candidate": candidate["status"],
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": candidate,
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    calls = []
+    monkeypatch.setattr("tools.parity.issues._existing_issues", lambda _repo: [])
+    monkeypatch.setattr(
+        "tools.parity.issues._gh",
+        lambda arguments, *, repo, capture=False: calls.append(arguments)
+        or SimpleNamespace(stdout=""),
+    )
+    for publish in (False, True):
+        [action] = publish_failures([failure], repo="hhenson/hgraph", publish=publish)
+        assert action["action"] == "environment-failure"
+    assert not any(a[:2] in (["issue", "create"], ["issue", "reopen"]) for a in calls)
+
+
+def test_issue_publisher_finds_existing_issues_by_label(monkeypatch):
+    from tools.parity import issues
+
+    seen = []
+    monkeypatch.setattr(
+        issues,
+        "_gh",
+        lambda arguments, *, repo, capture=False: seen.append(arguments)
+        or SimpleNamespace(stdout="[]"),
+    )
+    issues._existing_issues("hhenson/hgraph")
+    [arguments] = seen
+    assert arguments[arguments.index("--label") + 1] == "parity"
+    assert int(arguments[arguments.index("--limit") + 1]) >= 100000
 
 
 def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
