@@ -283,3 +283,20 @@ def test_a_converted_entry_mirrors_membership_through_bundles_and_withdrawals():
         return nested_members(hg.convert[hg.TSD[str, hg.TSD[str, I]]](key, withdrawn(trigger)))
 
     assert eval_node(withdraw, [1, 2], ["c", None]) == ["c:[('x', True)]", "c:[('x', False)]"]
+
+def test_a_recording_exists_from_the_recorders_start():
+    # OP-11. Parity #1315: a recorded series that never ticks leaves an EMPTY
+    # recording, distinct from none; replaying it publishes nothing.
+    @hg.component
+    def recorded(values: TS[int]) -> TS[int]:
+        return values
+
+    with hg.GlobalState() as state:
+        hg.set_record_replay_model(hg.IN_MEMORY)
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            assert eval_node(recorded, [None, None]) is None
+        recording = state.get(":memory:recorded.values")
+        assert recording is not None
+        assert [value for _, value in recording] == []
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+            assert eval_node(recorded, []) is None

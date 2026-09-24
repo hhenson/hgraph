@@ -133,3 +133,7 @@ unchanged.
   children are invalid, which publication snapshots deliberately omit
   (`TS_DATA_OPS_ABI_VERSION` 23). The three recipes match Python, and so does
   the nested key membership a node reads.
+- **Empty recordings** (OP-11). The in-memory recorder created its
+  recording on the first tick, so a series that never ticked left no
+  recording at all. It is now created when the recorder starts, if absent,
+  so a recovered run still appends to it. The recipe matches Python.
