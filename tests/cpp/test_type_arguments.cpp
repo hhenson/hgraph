@@ -449,3 +449,26 @@ TEST_CASE("type values: a type's text is its name (RFC 0042)")
     CHECK_FALSE(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view().equals(
         Value{TypeCarrier::of_ts(ts_type<TS<Float>>())}.view()));
 }
+
+namespace
+{
+    /** A native node over type values: each tick writes its input type's text. */
+    struct TypeText
+    {
+        static constexpr auto name = "rfc0042_type_text";
+
+        static void eval(In<"t", TS<TypeCarrier>> t, Out<TS<Str>> out)
+        {
+            out.set(Str{Value{t.value()}.to_string()});
+        }
+    };
+}  // namespace
+
+TEST_CASE("type values: a native graph carries them tick by tick (RFC 0042)")
+{
+    registered();
+    CHECK_OUTPUT(eval_node<TypeText>(values<TypeCarrier>(TypeCarrier::of_scalar(scalar_descriptor<Int>::value_meta()),
+                                                         TypeCarrier::of_ts(ts_type<TS<Int>>()),
+                                                         TypeCarrier::of_size(3))),
+                 values<Str>(Str{"int"}, Str{ts_type<TS<Int>>()->name()}, Str{"Size[3]"}));
+}

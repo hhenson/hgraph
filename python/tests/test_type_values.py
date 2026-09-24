@@ -45,3 +45,40 @@ def test_a_types_text_is_its_name():
         return hg.str_(_pick(x))
 
     assert eval_node(g, [0, 1, 2]) == ["int", "date", "TS[float]"]
+
+
+@compute_node
+def _composite(x: TS[int]) -> TS[TYPE]:
+    return tuple[int, ...]
+
+
+@compute_node
+def _plain(x: TS[int]) -> TS[int]:
+    return x.value
+
+
+def _locks_per_extra_ticks(g):
+    """Type-system lock acquisitions over 50 extra ticks: the graph is built
+    for both runs, so only per-tick work differs (the output is dropped, so
+    the harness converts nothing back)."""
+    from hgraph.debug import runtime_registry_snapshot
+
+    eval_node(g, [1])
+    counts = []
+    for ticks in (50, 100):
+        before = runtime_registry_snapshot().type_system_lock_acquisitions
+        eval_node(g, list(range(ticks)))
+        counts.append(runtime_registry_snapshot().type_system_lock_acquisitions - before)
+    return counts[1] - counts[0]
+
+
+def test_emitting_a_composite_type_every_tick_takes_no_type_system_locks():
+    @graph
+    def emits_types(x: TS[int]):
+        hg.null_sink(_composite(x))
+
+    @graph
+    def emits_ints(x: TS[int]):
+        hg.null_sink(_plain(x))
+
+    assert _locks_per_extra_ticks(emits_types) == _locks_per_extra_ticks(emits_ints)

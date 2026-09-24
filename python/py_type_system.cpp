@@ -224,7 +224,7 @@ namespace hgraph::python_bridge
             nb::object value = nb::borrow(source);
             if (!nb::isinstance<PyTsType>(value) && !nb::isinstance<PyValueType>(value))
             {
-                value = nb::module_::import_("hgraph._wiring._resolution").attr("_carrier_value")(value);
+                value = nb::module_::import_("hgraph._wiring._resolution").attr("_type_value")(value);
             }
             if (nb::isinstance<PyTsType>(value)) { return TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
             if (nb::isinstance<PyValueType>(value))
