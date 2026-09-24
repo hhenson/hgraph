@@ -137,3 +137,9 @@ unchanged.
   recording on the first tick, so a series that never ticked left no
   recording at all. It is now created when the recorder starts, if absent,
   so a recovered run still appends to it. The recipe matches Python.
+- **Container `repr`** (OP-9). A string inside a container escaped only the
+  backslash, its quote, tab, newline and carriage return. It now escapes
+  every character Python's `str.isprintable` rejects, from a table generated
+  from Python 3.14's Unicode 16.0.0 database
+  (`tools/generate_unicode_printable.py`). Printable ASCII keeps its inline
+  fast path. Both recipes match Python.

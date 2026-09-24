@@ -449,11 +449,26 @@ namespace hgraph
             }
         }
 
+        /** Python's ``repr`` of UTF-8 text that holds a control character or
+            a non-ASCII character: every character ``str.isprintable`` rejects
+            is escaped as ``\xNN``, ``\uNNNN`` or ``\UNNNNNNNN`` (runtime
+            spec OP-9; printability from ``unicode_printable.h``). */
+        [[nodiscard]] HGRAPH_EXPORT std::string python_repr_string(std::string_view text);
+
         /** Python's ``repr`` of a string: quoted, with the quote chosen the
             way Python chooses it -- single unless the text contains one and no
-            double, which keeps ``it's`` readable as ``"it's"``. */
+            double, which keeps ``it's`` readable as ``"it's"``. Printable
+            ASCII is handled here; anything else is ``python_repr_string``. */
         inline std::string quote_string(std::string_view text)
         {
+            for (const char c : text)
+            {
+                const auto byte = static_cast<unsigned char>(c);
+                if (byte < 0x20 || byte >= 0x7f)
+                {
+                    if (c != '\n' && c != '\r' && c != '\t') { return python_repr_string(text); }
+                }
+            }
             const bool has_single = text.find('\'') != std::string_view::npos;
             const bool has_double = text.find('"') != std::string_view::npos;
             const char quote = (has_single && !has_double) ? '"' : '\'';

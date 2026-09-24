@@ -263,3 +263,25 @@ TEST_CASE("operator contracts: a nested entry keeps an invalid child invalid")
                                dict_delta<Str, InnerDict>(
                                    {{Str{"c"}, dict_delta<Str, TS<Int>>({{Str{"c"}, 5}})}})));
 }
+
+TEST_CASE("operator contracts: a string in a container renders as Python's repr (OP-9)")
+{
+    using value_ops_detail::quote_string;
+
+    // Parity #1062: a C1 control, a vertical tab and an unassigned plane-8
+    // code point are all escaped, each in Python's shortest form.
+    CHECK(quote_string("\xc2\x87") == "'\\x87'");
+    CHECK(quote_string("\x0b\xf2\x8c\xa9\xbd") == "'\\x0b\\U0008ca7d'");
+    // Parity #960: printable letters stay, an unassigned plane-6 code point does not.
+    CHECK(quote_string("\xc3\x81\xf1\xa3\xae\xba\xc3\x9e\xc3\x86") == "'\xc3\x81\\U00063bba\xc3\x9e\xc3\x86'");
+    // Separators, format characters and DEL.
+    CHECK(quote_string("a\xc2\xa0" "b") == "'a\\xa0b'");
+    CHECK(quote_string("\xe2\x80\x8d") == "'\\u200d'");
+    CHECK(quote_string("\xe2\x80\xa8") == "'\\u2028'");
+    CHECK(quote_string("\x7f") == "'\\x7f'");
+    // Printable text, named escapes and Python's choice of quote are unchanged.
+    CHECK(quote_string("caf\xc3\xa9 \xf0\x9f\x98\x80") == "'caf\xc3\xa9 \xf0\x9f\x98\x80'");
+    CHECK(quote_string("a\tb\nc\\") == "'a\\tb\\nc\\\\'");
+    CHECK(quote_string("it's") == "\"it's\"");
+    CHECK(quote_string("it's \"x\"\xc2\x87") == "'it\\'s \"x\"\\x87'");
+}

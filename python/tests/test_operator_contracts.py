@@ -300,3 +300,21 @@ def test_a_recording_exists_from_the_recorders_start():
         assert [value for _, value in recording] == []
         with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
             assert eval_node(recorded, []) is None
+
+
+def test_a_string_in_a_container_renders_as_pythons_repr():
+    # OP-9. Parity #960 and #1062: str_ of a tuple is Python's str, so each
+    # string element is Python's repr, escaping what str.isprintable rejects.
+    # These characters have the same category in Unicode 15 and 16.
+    samples = [
+        ("\x87", "\x0b\U0008ca7d"),
+        ("Á\U00063bbaÞÆ",),
+        ("a b", "‍", " ", "\x7f", "\x00"),
+        ("café \U0001f600", "a\tb\nc\\", "it's", "it's \"x\"\x87"),
+    ]
+
+    @graph
+    def render(ts: TS[tuple[str, ...]]) -> TS[str]:
+        return hg.str_(ts)
+
+    assert eval_node(render, samples) == [str(sample) for sample in samples]
