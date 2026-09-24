@@ -1,6 +1,7 @@
 """Time-series type expressions mirroring hgraph's: TS[int], TSS[str],
 TSD[str, TS[int]], TSL[TS[int], Size[3]], TSB[Schema]. Each subscription
 resolves to an interned C++ type handle via the _hgraph registry."""
+import re
 import datetime
 import functools
 
@@ -1296,12 +1297,67 @@ def _is_covariant_compound_field(annotation, inherited_annotation):
     )
 
 
+def _native_schema_for(scalar, type_args):
+    """The registered native schema a namespaced class is the face of, or
+    None. A generic specialisation has its own name (``Name[int]``) and never
+    binds; a class without an explicit namespace never does either."""
+    if type_args or not scalar.__dict__.get("__compound_namespace_explicit__"):
+        return None
+    qualified = f"{scalar.__dict__['__compound_namespace__']}::{scalar.__name__}"
+    try:
+        _hgraph.value_type(qualified)
+    except ValueError:
+        return None
+    return qualified
+
+
+def _bind_native_schema(scalar, native_schema):
+    """Validate that ``scalar`` matches the native schema it binds to: the
+    same field names in the same order, and each annotation naming the native
+    field's type. The one relaxation: Python spells a native type value
+    ``type``, which on its own is the Python-object scalar -- at any depth
+    (``tuple[type, ...]``)."""
+    where = f"{scalar.__module__}.{scalar.__qualname__}"
+    meta = _hgraph.value_type(native_schema)
+    native_fields = list(meta.fields)
+    python_fields = list(_compound_python_field_types(scalar).items())
+    native_names = [name for name, _ in native_fields]
+    python_names = [name for name, _ in python_fields]
+    if python_names != native_names:
+        raise TypeError(
+            f"{where}: fields {python_names} do not match native schema "
+            f"{native_schema!r} fields {native_names}")
+    python_object = _hgraph.value_type("object").name
+    type_value = re.compile(rf"\b{re.escape(_hgraph.value_type('type').name)}\b")
+    for (name, annotation), (_, native_type) in zip(python_fields, native_fields):
+        declared = _compound_field_value_type(annotation, scalar, {})
+        if declared is not None and declared.name in (
+                native_type.name, type_value.sub(python_object, native_type.name)):
+            continue
+        raise TypeError(
+            f"{where}.{name}: annotation {annotation!r} is "
+            f"{getattr(declared, 'name', declared)!r}, but native schema "
+            f"{native_schema!r} stores {native_type.name!r}")
+    return meta
+
+
 def _compound_value_type(scalar, type_args=()):
     from ._compat import CompoundScalar
 
     cache_key = (_hgraph._registry_generation(), scalar, tuple(type_args))
     if cache_key in _COMPOUND_TYPE_CACHE:
         return _COMPOUND_TYPE_CACHE[cache_key]
+
+    # A class that declares a namespace, and whose qualified name is already
+    # a registered native schema, is that schema's Python face (RFC 0042): it
+    # binds by name, and the native schema, not its annotations, decides
+    # storage. The binding is validated field by field.
+    native_schema = _native_schema_for(scalar, type_args)
+    if native_schema is not None:
+        meta = _bind_native_schema(scalar, native_schema)
+        _register_bundle_class(meta, scalar, specialization=None)
+        _COMPOUND_TYPE_CACHE[cache_key] = meta
+        return meta
 
     parameters = tuple(getattr(scalar, "__parameters__", ()))
     if type_args and len(type_args) != len(parameters):

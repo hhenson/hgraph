@@ -126,8 +126,10 @@ The binding is validated:
 - a generic class specialises under its own name (``TableSchema[int]``) and
   so never binds to the native schema.
 
-One Python class is the face of one native schema; a second is refused by the
-existing class registration. A subclass of a bound class is an ordinary
+One Python class is the face of one native schema: a second class of a
+different reconstruction shape is refused by the existing class registration,
+while an identical redefinition (a module reload) re-registers, as for any
+``CompoundScalar``. A subclass of a bound class is an ordinary
 derived bundle that inherits the native fields. The native schema must be
 registered before its Python face is first used; the core's schemas register
 when ``_hgraph`` is imported, and an extension's when its native module is.

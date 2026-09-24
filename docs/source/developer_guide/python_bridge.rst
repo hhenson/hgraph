@@ -516,6 +516,25 @@ with ``TimeSeriesSchema, namespace="extension.name"``, which binds
 ``extension.name::ClassName``. Do not infer a shared native identity from a
 Python class's short name.
 
+**A ``CompoundScalar`` binds to its native schema by name** (RFC 0042). When
+a class declares ``namespace=`` and ``<namespace>::<ClassName>`` is already a
+registered native schema, ``_compound_value_type`` binds the class to that
+schema instead of registering one from its annotations
+(``_native_schema_for`` / ``_bind_native_schema`` in ``_types.py``). The
+native schema decides storage, so a field Python cannot spell -- a native
+type value -- still has one representation. The binding is validated: the
+field names, in order, equal the native schema's, and each annotation names
+the native field's type, except that Python spells a native type value
+``type``, at any depth (``tuple[type, ...]``). A mismatch is a ``TypeError``
+naming the field. A generic specialisation has its own name
+(``Name[int]``) and never binds; a class without an explicit namespace never
+does either, and a namespaced class with no native twin registers from its
+annotations as before. The native schema must be registered before its
+Python face is first used: the core's register when ``_hgraph`` is imported,
+an extension's when its native module is. Every class that bound before
+still binds to the identical schema, because the registry already required
+its annotation-derived fields to equal the native ones exactly.
+
 Python-defined operators register under
 ``__pyop__{module}.{qualname}_{registration_id:x}``. The native bridge allocates
 each registration ID from a process-lifetime sequence, never an object's
