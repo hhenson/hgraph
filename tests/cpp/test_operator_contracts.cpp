@@ -8,6 +8,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -89,6 +90,23 @@ namespace
             return wire<stdlib::convert, NestedDict>(w, key, inner);
         }
     };
+
+    using Arms = TSB<"OperatorContractsArms", Field<"left", TSD<Str, TS<Int>>>, Field<"right", TSD<Str, TS<Int>>>>;
+
+    struct ArmsPassThrough
+    {
+        static constexpr auto name = "operator_contracts_arms_pass_through";
+        static Port<Arms> compose(Wiring &, Port<Arms> ts) { return ts; }
+    };
+
+    /** A TSB delta with only the named fields set: the fields with news. */
+    Value arms_delta(std::optional<Value> left, std::optional<Value> right)
+    {
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(ts_type<Arms>()->delta_value_schema)};
+        if (left.has_value()) { builder.set("left", std::move(*left)); }
+        if (right.has_value()) { builder.set("right", std::move(*right)); }
+        return builder.build();
+    }
 }  // namespace
 
 TEST_CASE("operator contracts: a TSD union forwards the most recent tick (OP-4, OP-5)")
@@ -324,4 +342,26 @@ TEST_CASE("operator contracts: a set operator's first admitted result validates,
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 1}}), dict_delta<Int, TS<Int>>({{1, 2}})),
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 3}}), none))),
                  values<Value>(dict_delta<Int, TS<Int>>({}), none));
+}
+
+TEST_CASE("operator contracts: a TSB delta holds only the fields with news (TS-24)")
+{
+    stdlib::register_standard_operators();
+    using Dict = TSD<Str, TS<Int>>;
+
+    // Issue #835: a dictionary field with no news is absent from the delta, not
+    // an empty dictionary (which says every key was removed).
+    CHECK_OUTPUT((eval_node<ArmsPassThrough>(values<Value>(
+                     arms_delta(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}}), std::nullopt),
+                     arms_delta(std::nullopt, dict_delta<Str, TS<Int>>({{Str{"x"}, 1}}))))),
+                 values<Value>(arms_delta(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}}), std::nullopt),
+                               arms_delta(std::nullopt, dict_delta<Str, TS<Int>>({{Str{"x"}, 1}}))));
+    // A field whose dictionary really changes still carries its removal.
+    CHECK_OUTPUT((eval_node<ArmsPassThrough>(values<Value>(
+                     arms_delta(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}}), dict_delta<Str, TS<Int>>({{Str{"x"}, 1}})),
+                     arms_delta(std::nullopt, dict_delta<Str, TS<Int>>({}, {Str{"x"}}))))),
+                 values<Value>(arms_delta(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}}),
+                                          dict_delta<Str, TS<Int>>({{Str{"x"}, 1}})),
+                               arms_delta(std::nullopt, dict_delta<Str, TS<Int>>({}, {Str{"x"}}))));
+    static_cast<void>(sizeof(Dict));
 }

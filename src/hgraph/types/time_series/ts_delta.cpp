@@ -1537,9 +1537,14 @@ namespace hgraph
 
         Value capture_delta_tsb(const TSInputView &in)
         {
-            const auto &schema = require_schema(in.schema(), "capture_delta");
+            static_cast<void>(require_schema(in.schema(), "capture_delta"));
+            // Only the fields with news are set (TS-24: a bundle delta holds
+            // its changed valid fields). Seeding every collection field with an
+            // empty surface made "no news" read as "ticked empty" -- and a
+            // replay of it validated a collection that never ticked (#835). A
+            // field whose collection genuinely ticked empty still captures its
+            // own (empty or removal-only) delta below.
             BundleBuilder builder{canonical_delta_binding(in, "capture_delta")};
-            initialize_tsb_delta_defaults(schema, builder);
             auto          bundle = in.as_bundle();
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {

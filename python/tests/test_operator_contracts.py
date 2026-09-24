@@ -349,3 +349,43 @@ def test_a_set_operators_first_admitted_result_validates_even_empty():
         return hg.symmetric_difference(a, b, c)
 
     assert eval_node(three, [{"a": -11}], [{"a": -19}], [{"a": -19}]) == [{"a": -19}]
+
+
+def test_a_bundle_delta_holds_only_the_fields_with_news():
+    # TS-24 and the TSB row of the value/delta table. Issue #835: a dictionary
+    # field with no news is absent from the delta, not an empty dictionary.
+    class Arms(hg.TimeSeriesSchema):
+        true: D
+        false: D
+
+    A = hg.TSB[Arms]
+
+    @graph
+    def routed(condition: TS[bool], ts: D) -> A:
+        branches = hg.if_(condition, ts)
+        return hg.combine[A](true=branches.true, false=branches.false)
+
+    assert eval_node(routed, [True, False], [{"a": 1}, {"b": 2}]) == [
+        {"true": {"a": 1}},
+        {"true": {"a": hg.REMOVE}, "false": {"a": 1, "b": 2}},
+    ]
+
+    @graph
+    def passed(ts: A) -> A:
+        return ts
+
+    assert eval_node(passed, [{"true": {"a": 1}}, {"false": {"x": 1}}, {"true": {"b": 2}}]) == [
+        {"true": {"a": 1}},
+        {"false": {"x": 1}},
+        {"true": {"b": 2}},
+    ]
+
+    # A field whose dictionary really empties still carries its removal.
+    @graph
+    def combined(a: D, b: D) -> A:
+        return hg.combine[A](true=a, false=b)
+
+    assert eval_node(combined, [{"a": 1}, None], [{"x": 1}, {"x": hg.REMOVE}]) == [
+        {"true": {"a": 1}, "false": {"x": 1}},
+        {"false": {"x": hg.REMOVE}},
+    ]

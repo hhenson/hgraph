@@ -157,3 +157,9 @@ unchanged.
   difference drops its admission flag: validity marks admission again. #978,
   #983, #984, #1004 and #1008 now differ from Python only inside the
   `first-empty-set-result` and `n-ary-set-fold` families.
+- **Bundle deltas** (TS-24; hand-written issue #835). A captured TSB delta
+  seeded every collection field with an empty set or map, so a field with no
+  news read as "ticked empty" -- which, for a dictionary, says every key was
+  removed -- and replaying it validated a collection that never ticked. Only
+  the fields with news are set now; a field whose collection genuinely
+  empties still carries its removals. The issue's graphs match Python.
