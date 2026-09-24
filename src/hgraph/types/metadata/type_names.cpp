@@ -92,7 +92,8 @@ namespace hgraph
             return value;
         }
 
-        /** ``key=count`` (the duration window's labelled arguments). */
+        /** ``key=count`` (the duration window's labelled arguments). A
+            duration is signed: the registry accepts and prints a negative one. */
         [[nodiscard]] std::int64_t parse_labelled(std::string_view text, std::string_view key, std::string_view whole)
         {
             text = trim(text);
@@ -100,7 +101,11 @@ namespace hgraph
             {
                 unresolved("time-series type", whole);
             }
-            return static_cast<std::int64_t>(parse_count(text.substr(key.size() + 1), whole));
+            const auto    digits = trim(text.substr(key.size() + 1));
+            std::int64_t  value{};
+            const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+            if (error != std::errc{} || end != digits.data() + digits.size()) { unresolved("time-series type", whole); }
+            return value;
         }
     }  // namespace
 

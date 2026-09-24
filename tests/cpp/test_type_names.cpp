@@ -97,6 +97,7 @@ TEST_CASE("type names: every time-series schema's name parses back to the schema
         registry.tsl(ts_int, unbounded_tsl_size),
         registry.tsw(i, 5, 2),
         registry.tsw_duration(i, std::chrono::seconds{10}, std::chrono::seconds{1}),
+        registry.tsw_duration(i, TimeDelta{-1}, TimeDelta{0}),  // a signed duration round-trips
         registry.ref(ts_int),
         registry.ref(registry.tsd(s, ts_int)),
         registry.un_named_tsb({{"a", ts_int}, {"b", registry.tss(s)}}),
