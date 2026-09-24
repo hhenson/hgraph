@@ -232,9 +232,23 @@ def _apply_wired_fn_roles(name, args, kwargs):
             return _as_wired(value)
         return value
 
+    _, carrier_positions = _hgraph.operator_carrier_parameters(name)
+
+    def fn_position(index, value):
+        # Dispatch passes a non-type over a defaulted type argument onto the
+        # required parameter after it (RFC 0033, amended 2026-09-24), so a
+        # callable in that slot is the next parameter's function:
+        # zero[TS[int]](add_). Where dispatch does not pass it over, a
+        # WiredFn in a type slot is rejected exactly as the callable was.
+        if index in positions:
+            return True
+        return (index in carrier_positions and index + 1 in positions
+                and callable(value) and not _is_type_like(value)
+                and not isinstance(value, (WiringPort, _TsExpr, _hgraph.TsType, _hgraph.Port)))
+
     if positions:
         args = tuple(
-            adapt(value) if index in positions else value
+            adapt(value) if fn_position(index, value) else value
             for index, value in enumerate(args))
     if any(key in kwargs for key in names):
         kwargs = {

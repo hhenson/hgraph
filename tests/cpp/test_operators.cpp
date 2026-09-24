@@ -1934,6 +1934,9 @@ TEST_CASE("operators: explicit output schemas participate in operator resolution
     stdlib::register_conversion_operators();
 
     CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::add_>()))), values<Int>(0));
+    // A positional operation passes over the defaulted type argument onto op
+    // (RFC 0033 call normalisation, amended 2026-09-24).
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::add_>())), values<Int>(0));
 }
 
 TEST_CASE("operators: caller-supplied type bindings seed resolution")

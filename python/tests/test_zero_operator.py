@@ -12,9 +12,12 @@ def test_zero_takes_the_type_then_the_operator():
     assert eval_node(lambda: zero(tp=TS[int], op=add_)) == [0]
     # The type may also come from the requested output, as for nothing.
     assert eval_node(lambda: zero[TS[int]](op=add_)) == [0]
-    # A bare operator where the type belongs is rejected, as released.
+    # A positional operator passes over the defaulted type argument when the
+    # subscript supplies the type (ruling 2026-09-24; 0.5 rejects it).
+    assert eval_node(lambda: zero[TS[int]](add_)) == [0]
+    # Without a type from anywhere it still fails: tp cannot be resolved.
     with pytest.raises(Exception):
-        eval_node(lambda: zero[TS[int]](add_))
+        eval_node(lambda: zero(add_))
 
 
 @dataclass(frozen=True)
