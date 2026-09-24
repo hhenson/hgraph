@@ -337,11 +337,14 @@ namespace hgraph
                 if (pattern.schema_var)
                 {
                     // A schema variable is a generic too: it binds the
-                    // dereferenced schema (see the Var case below).
+                    // dereferenced schema (see the Var case below), and a
+                    // variable bound up front states the schema, so it also
+                    // matches the pack exactly as supplied.
                     const TSValueTypeMetaData *value = TypeRegistry::instance().dereference(concrete);
                     if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                     {
-                        return time_series_schema_equivalent(bound, value);
+                        return time_series_schema_equivalent(bound, concrete) ||
+                               time_series_schema_equivalent(bound, value);
                     }
                     map.bind_ts(pattern.name, value);
                     return true;

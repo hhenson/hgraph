@@ -835,6 +835,40 @@ namespace hgraph
     {
     };
 
+    /**
+     * Unify a REQUESTED output schema (``wire<X, OutSchema>``). The caller
+     * states the schema, so a bare output variable binds it verbatim when it
+     * holds a ``REF`` at any depth -- the produced port must carry it, as
+     * ``output_ts_pattern_match`` does for the runtime matcher (#847). A
+     * structural output pattern unifies as an input does.
+     */
+    template <typename S>
+    struct ts_output_unifier : ts_unifier<S>
+    {
+    };
+
+    template <fixed_string Name, typename... C>
+    struct ts_output_unifier<TsVar<Name, C...>>
+    {
+        static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
+        {
+            if (concrete == nullptr || !TypeRegistry::contains_ref(concrete))
+            {
+                ts_unifier<TsVar<Name, C...>>::unify(concrete, m);
+                return;
+            }
+            if constexpr (sizeof...(C) > 0)
+            {
+                if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
+                {
+                    throw std::logic_error(
+                        fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
+                }
+            }
+            m.bind_ts(Name.sv(), concrete);
+        }
+    };
+
     // -----------------------------------------------------------------
     // Explicit type-argument helpers (source-side resolution): supply a
     // concrete schema for a variable that cannot be inferred from inputs

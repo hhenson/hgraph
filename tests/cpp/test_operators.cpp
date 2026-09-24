@@ -1215,10 +1215,20 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     stated.bind_ts("S", refs);
     CHECK(input_ts_pattern_match(var, refs, stated));
     CHECK(stated.find_ts("S") == refs);
-    // and a requested output keeps a nested REF verbatim.
+    // A TSB schema variable bound up front matches its pack as supplied too.
+    const TSValueTypeMetaData *pack = registry.un_named_tsb({{"a", ts_type<REF<TS<Int>>>()}});
+    ResolutionMap              pinned;
+    pinned.bind_ts("P", pack);
+    CHECK(input_ts_pattern_match(TypePattern::tsb_var("P"), pack, pinned));
+    // And a requested output keeps a nested REF verbatim, on the runtime
+    // matcher and on the static path's explicit output schema alike.
     ResolutionMap requested;
     REQUIRE(output_ts_pattern_match(var, refs, requested));
     CHECK(requested.find_ts("S") == refs);
+    stdlib::register_standard_operators();
+    Wiring wiring;
+    auto   routed = wire<stdlib::replay_impl, TSD<Str, REF<TS<Int>>>>(wiring, std::string{"routed"});
+    CHECK(routed.erased().schema == refs);
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")

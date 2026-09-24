@@ -178,13 +178,16 @@ ways:
   binds the variable under the reference;
 * an explicit schema -- a variable bound up front (an initial resolution,
   ``wire(..., __resolutions__=...)``) is the caller stating the schema, so
-  the matcher accepts the supplied port as it is. The Python node wrapper
+  the matcher accepts the supplied port as it is -- a bare variable and a
+  ``TSB`` schema variable alike. The Python node wrapper
   does this: its native ``args`` is a generic pack, and it pre-binds the
   pack to the node's declared inputs (``_declared_args``), so a Python node
   that declares ``REF[TS[int]]`` receives the reference;
 * a requested output -- ``output_ts_pattern_match`` keeps a requested
   schema that contains a ``REF`` at any depth verbatim
-  (``nothing[TSD[str, REF[TS[int]]]]`` produces what it names);
+  (``nothing[TSD[str, REF[TS[int]]]]`` produces what it names), and so does
+  ``ts_output_unifier`` for the static path's explicit output schema
+  (``wire<replay_impl, TSD<Str, REF<TS<Int>>>>``);
 * a structural projection -- an operator that selects part of a port
   without consuming it takes an erased port (``Port<void>``, or
   ``NamedPort<"ts", void>`` to keep a public parameter name), which
