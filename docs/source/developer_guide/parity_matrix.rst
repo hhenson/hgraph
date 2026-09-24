@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The twenty-one accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The twenty-two accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
@@ -51,7 +51,8 @@ no-change-means-no-tick ruling, as described below. The key-set reader tick
 joined on 2026-09-24, from the parity triage that derived the runtime
 specification's operator contracts (``runtime_spec/operators.md``), and the
 unordered text of a map and the first empty set-operator result the same
-day, by the owner's rulings.
+day, by the owner's rulings, as did ``compare`` outside a component (#818
+item 5.4).
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
