@@ -1259,6 +1259,28 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     ResolutionMap not_a_pack;
     not_a_pack.bind_ts("P", ts_type<TS<Int>>());
     CHECK_THROWS(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(ts_type<TS<Int>>(), not_a_pack));
+
+    // The contract rows (writing_nodes.rst) on the runtime side for a TSB
+    // schema variable, and the strict matcher alongside the input one.
+    const TSValueTypeMetaData *value_pack = registry.un_named_tsb({{"a", ts_type<TS<Int>>()}});
+    ResolutionMap              strict_pack;  // an input-side schema variable dereferences
+    REQUIRE(ts_pattern_match(TypePattern::tsb_var("P"), pack, strict_pack));
+    CHECK(strict_pack.find_ts("P") == value_pack);
+    ResolutionMap strict_ref;  // a pre-bound top-level REF matches as supplied
+    strict_ref.bind_ts("S", ts_type<REF<TS<Int>>>());
+    CHECK(ts_pattern_match(var, ts_type<REF<TS<Int>>>(), strict_ref));
+    ResolutionMap requested_top_pack;  // a top-level requested pack binds verbatim
+    REQUIRE(output_ts_pattern_match(TypePattern::tsb_var("P"), pack, requested_top_pack));
+    CHECK(requested_top_pack.find_ts("P") == pack);
+    // A pack nested in a structural requested output binds dereferenced, on
+    // both sides.
+    const TSValueTypeMetaData *list_of_packs = registry.tsl(pack, 1);
+    ResolutionMap              nested_runtime;
+    REQUIRE(output_ts_pattern_match(to_pattern<TSL<UnNamedTSB<TsVar<"P">>, 1>>(), list_of_packs, nested_runtime));
+    CHECK(nested_runtime.find_ts("P") == value_pack);
+    ResolutionMap nested_static;
+    ts_output_unifier<TSL<UnNamedTSB<TsVar<"P">>, 1>>::unify(list_of_packs, nested_static);
+    CHECK(nested_static.find_ts("P") == value_pack);
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")

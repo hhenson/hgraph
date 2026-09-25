@@ -203,6 +203,41 @@ The ``map_`` / ``switch_`` / ``mesh_`` machinery and ``tsb_itemwise`` route
 references deliberately: they build their schemas from the ports as supplied
 and do not resolve a generic over them.
 
+**The matcher and unifier contract.** A generic is resolved in two places
+that must agree: the runtime matcher (``type_pattern.cpp``: operator
+dispatch, type arguments, Python wiring) and the static unifier
+(``type_resolution.h``: ``wire<X>``). Both implement these rules, and a
+change to one side is made to the other in the same change:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 35 35
+
+   * - Case
+     - Runtime matcher
+     - Static unifier
+   * - A variable (bare or ``TSB`` schema variable, at any depth) binds a
+       supplied input
+     - ``TypeRegistry::dereference`` of the supplied schema
+     - the same (``ts_unifier``)
+   * - The variable is already bound (an initial resolution; statically, an
+       explicit output schema bound first)
+     - matches the schema as supplied, a top-level ``REF`` included, or
+       dereferenced; constraints and the ``TSB`` kind are still checked
+     - the same: only the dereference is skipped
+   * - A requested output whose top-level pattern is a variable (bare or
+       ``TSB`` schema variable)
+     - binds the requested schema verbatim, a ``REF`` at any depth kept; an
+       earlier binding must be schema-equivalent to it
+       (``output_ts_pattern_match``)
+     - the same (``ts_output_unifier``); a conflicting earlier binding throws
+   * - A variable nested in a structural requested output
+     - binds dereferenced, as an input's does
+     - the same (``ts_output_unifier`` falls back to ``ts_unifier``)
+
+``tests/cpp/test_operators.cpp`` ("resolving a generic dereferences
+everything at every depth (#847)") covers each row on both sides.
+
 **The owners.** Binding applies the rule to the argument it binds; an
 operator that reasons about a schema binding never rewrites (a nested graph's
 output, a collection element, the raw ports a ``compose`` receives) does not
