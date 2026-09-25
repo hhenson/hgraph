@@ -103,7 +103,7 @@ if(NOT _native_result EQUAL 0 OR NOT _native_output MATCHES "implementation=valu
     message(FATAL_ERROR "reversing native part order changed selection:\n${_native_output}")
 endif()
 run_hgl(_native_result _native_output check "${_native_api}" --part "${_native_impl}"
-    --part "${SOURCE}/codegen/native-provider-rust-impl.hgl")
+    --part "${SOURCE}/codegen/native-provider-duplicate-impl.hgl")
 if(_native_result EQUAL 0 OR NOT _native_output MATCHES "more than one selected implementation")
     message(FATAL_ERROR "selecting two native target implementations was accepted:\n${_native_output}")
 endif()

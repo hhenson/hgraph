@@ -1,4 +1,4 @@
-module checks.native_provider part rust_impl
+module checks.native_provider part duplicate_impl
 
 native const fn audit(value: i64) -> i64 {
     inject logger

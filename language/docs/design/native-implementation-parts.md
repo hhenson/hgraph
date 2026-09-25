@@ -2,6 +2,9 @@
 
 The shared declaration owns the callable signature. A selected implementation
 part supplies execution shape, injectables and lifecycle requirements.
+Shared HGL contracts cross repositories; implementations belong to their runtime.
+`hgraph` owns C++ parts and providers; `hgl` owns Rust parts and providers.
+A library selects one implementation, never both.
 
 ```hgl
 module std.native

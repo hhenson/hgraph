@@ -43416,15 +43416,6 @@
       "source": "language/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl",
       "line": 27,
       "declaration": "native const fn calendar_date(value: datetime) -> date"
-    },
-    {
-      "module": "hgraph.native",
-      "name": "bit_and",
-      "kind": "native-implementation",
-      "form": "value",
-      "source": "language/stdlib/hgl/hgraph/native/impl/rust_scalar_values_i64.hgl",
-      "line": 3,
-      "declaration": "native const fn bit_and(lhs: i64, rhs: i64) -> i64"
     }
   ],
   "hgl_materializations": [
