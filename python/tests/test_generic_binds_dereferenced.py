@@ -18,6 +18,7 @@ from hgraph import (
     compute_node,
     debug_print,
     dereference,
+    getattr_,
     graph,
     if_,
     nothing,
@@ -81,13 +82,15 @@ def test_a_requested_output_keeps_a_nested_reference():
 
 
 def test_a_bundle_projection_keeps_a_reference_field():
-    # tsb["x"] is structural: it resolves no generic, so a field declared as
-    # a reference stays one, and a consumer still reads the value through it.
+    # tsb["x"], tsb.x and getattr_ are structural: they resolve no generic, so
+    # a field declared as a reference stays one, and a consumer still reads
+    # the value through it.
     @graph
     def g(condition: TS[bool], value: TS[int]) -> TS[int]:
         fields = dereference(if_(condition, value))
         assert fields["true"].output_type == REF[TS[int]]
         assert fields.true.output_type == REF[TS[int]]
+        assert getattr_(fields, "true").output_type == REF[TS[int]]
         return fields["true"]
 
     assert eval_node(g, [True], [1]) == [1]

@@ -1486,7 +1486,9 @@ struct getattr_tsb {
     return container_impl_detail::has_tsb_field<Str>(context, "attr");
   }
 
-  static WiringPortRef compose(Wiring &, NamedPort<"ts", TsVar<"S">> ts,
+  // A structural projection, as getitem_tsb_by_name: it takes the port as
+  // supplied (a named erased port), so a REF field stays a REF (#847).
+  static WiringPortRef compose(Wiring &, NamedPort<"ts", void> ts,
                                Scalar<"attr", Str> attr) {
     const TSValueTypeMetaData *schema = ts.erased().schema;
     std::size_t index =

@@ -191,9 +191,10 @@ ways:
 * a structural projection -- an operator that selects part of a port
   without consuming it takes an erased port (``Port<void>``, or
   ``NamedPort<"ts", void>`` to keep a public parameter name), which
-  resolves no generic and is passed the port as supplied. ``getitem_`` on a
-  ``TSB`` does this, so ``tsb["x"]`` on a field declared ``REF[TS[int]]``
-  returns that reference.
+  resolves no generic and is passed the port as supplied. ``getitem_`` and
+  ``getattr_`` on a ``TSB`` do this, so ``tsb["x"]`` and
+  ``getattr_(tsb, "x")`` on a field declared ``REF[TS[int]]`` return that
+  reference, as Python's ``tsb.x`` fast path does.
 
 The ``map_`` / ``switch_`` / ``mesh_`` machinery and ``tsb_itemwise`` route
 references deliberately: they build their schemas from the ports as supplied
