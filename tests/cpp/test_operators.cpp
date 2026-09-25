@@ -1228,6 +1228,12 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     ResolutionMap requested;
     REQUIRE(output_ts_pattern_match(var, refs, requested));
     CHECK(requested.find_ts("S") == refs);
+    ResolutionMap requested_pinned;  // pinned to the same shape: accepted
+    requested_pinned.bind_ts("S", refs);
+    CHECK(output_ts_pattern_match(var, refs, requested_pinned));
+    ResolutionMap requested_conflict;  // pinned to the values: the REF would be lost
+    requested_conflict.bind_ts("S", values);
+    CHECK_FALSE(output_ts_pattern_match(var, refs, requested_conflict));
     stdlib::register_standard_operators();
     Wiring wiring;
     auto   routed = wire<stdlib::replay_impl, TSD<Str, REF<TS<Int>>>>(wiring, std::string{"routed"});

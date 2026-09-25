@@ -300,7 +300,12 @@ namespace hgraph
             // the dereferenced schema and consumers adapt at input binding.)
             if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
             {
-                return time_series_value_equivalent(bound, concrete);
+                // Bound up front (an initial resolution, the only binding
+                // made before the output is matched), the stated schema must
+                // BE the requested one, references included: a binding that
+                // is merely value-equivalent would resolve an output without
+                // the REF the caller asked for.
+                return time_series_schema_equivalent(bound, concrete);
             }
             if (!ts_allowed_by_constraints(pattern, concrete)) { return false; }
             map.bind_ts(pattern.name, concrete);
