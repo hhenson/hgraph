@@ -3172,7 +3172,7 @@ namespace hgraph
                 // (a) explicit output schema, for a source-side variable (e.g. replay).
                 if constexpr (!std::is_void_v<OutSchema>)
                 {
-                    ts_unifier<typename signature::output_schema_type>::unify(ts_type<OutSchema>(), map);
+                    ts_output_unifier<typename signature::output_schema_type>::unify(ts_type<OutSchema>(), map);
                 }
 
                 // (b) bind from connected input ports + infer scalar variables from values.

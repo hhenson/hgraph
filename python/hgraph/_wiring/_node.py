@@ -1075,10 +1075,20 @@ class _PyNode:
                        else "__py_compute")
             return wire(op_name, packed, output_type=out_tp,
                         __node_label__=self._diagnostic_label(scalar_values),
+                        __resolutions__=self._declared_args(packed),
                         **node_kwargs)
         return wire("__py_sink", packed,
                     __node_label__=self._diagnostic_label(scalar_values),
+                    __resolutions__=self._declared_args(packed),
                     **node_kwargs)
+
+    @staticmethod
+    def _declared_args(packed):
+        """The native wrapper's ``args`` is a generic, and resolving a generic
+        dereferences everything; the pack's schema is this node's declared
+        inputs, REF included where it declares one, so the wrapper states it
+        rather than leaving the generic to resolve it (#847)."""
+        return {"A": _unwrap(packed).ts_type}
 
 
 def _make_py_node(fn, *, has_output, active, valid, all_valid, resolvers,

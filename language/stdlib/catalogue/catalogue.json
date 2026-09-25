@@ -15745,38 +15745,6 @@
             {
               "name": "ts",
               "kind": "temporal",
-              "type": "~S",
-              "default": false,
-              "carrier": null
-            },
-            {
-              "name": "attr",
-              "kind": "scalar",
-              "type": "str",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 2,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "~__out__",
-          "id": "getattr_:16434dd4a7a0"
-        },
-        {
-          "parameters": [
-            {
-              "name": "ts",
-              "kind": "temporal",
               "type": "TS[Frame[~ROW]]",
               "default": false,
               "carrier": null
@@ -16009,6 +15977,38 @@
           "kwargs_type": null,
           "output": "~__out__",
           "id": "getattr_:b20aec08cb97"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~__erased_port_0",
+              "default": false,
+              "carrier": null
+            },
+            {
+              "name": "attr",
+              "kind": "scalar",
+              "type": "str",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "getattr_:c8ace3be7fd9"
         },
         {
           "parameters": [
@@ -16412,38 +16412,6 @@
             {
               "name": "ts",
               "kind": "temporal",
-              "type": "~S",
-              "default": false,
-              "carrier": null
-            },
-            {
-              "name": "key",
-              "kind": "scalar",
-              "type": "int",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 2,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "~__out__",
-          "id": "getitem_:17577c24db61"
-        },
-        {
-          "parameters": [
-            {
-              "name": "ts",
-              "kind": "temporal",
               "type": "REF[~S]",
               "default": false,
               "carrier": null
@@ -16470,6 +16438,38 @@
           "kwargs_type": null,
           "output": "~__out__",
           "id": "getitem_:1c0d495f9f4e"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~__erased_port_0",
+              "default": false,
+              "carrier": null
+            },
+            {
+              "name": "key",
+              "kind": "scalar",
+              "type": "str",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "getitem_:20e7dce8571b"
         },
         {
           "parameters": [
@@ -16764,38 +16764,6 @@
             {
               "name": "ts",
               "kind": "temporal",
-              "type": "~S",
-              "default": false,
-              "carrier": null
-            },
-            {
-              "name": "key",
-              "kind": "scalar",
-              "type": "str",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 2,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "~__out__",
-          "id": "getitem_:9fcc2db44122"
-        },
-        {
-          "parameters": [
-            {
-              "name": "ts",
-              "kind": "temporal",
               "type": "TS[Frame[~ROW]]",
               "default": false,
               "carrier": null
@@ -17014,6 +16982,38 @@
           "kwargs_type": null,
           "output": "~__out__",
           "id": "getitem_:c9221f1300a5"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~__erased_port_0",
+              "default": false,
+              "carrier": null
+            },
+            {
+              "name": "key",
+              "kind": "scalar",
+              "type": "int",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "getitem_:d2726bfd02f0"
         },
         {
           "parameters": [
