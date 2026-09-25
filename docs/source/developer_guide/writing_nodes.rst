@@ -229,14 +229,19 @@ change to one side is made to the other in the same change:
        ``TSB`` schema variable)
      - binds the requested schema verbatim, a ``REF`` at any depth kept; an
        earlier binding must be schema-equivalent to it
-       (``output_ts_pattern_match``)
+       (``output_ts_pattern_match``). A ``REF`` around a whole requested
+       bundle is followed: a bundle pattern cannot produce a reference
      - the same (``ts_output_unifier``); a conflicting earlier binding throws
    * - A variable nested in a structural requested output
      - binds dereferenced, as an input's does
      - the same (``ts_output_unifier`` falls back to ``ts_unifier``)
 
-``tests/cpp/test_operators.cpp`` ("resolving a generic dereferences
-everything at every depth (#847)") covers each row on both sides.
+An earlier binding is compared as the runtime matcher compares it: a bare
+variable by identity, a ``TSB`` schema variable and a requested output
+structurally (``time_series_schema_equivalent``, so a named bundle and the
+same unnamed bundle agree). ``tests/cpp/test_operators.cpp`` ("resolving a
+generic dereferences everything at every depth (#847)") covers each row on
+both sides.
 
 **The owners.** Binding applies the rule to the argument it binds; an
 operator that reasons about a schema binding never rewrites (a nested graph's

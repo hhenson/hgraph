@@ -325,10 +325,14 @@ namespace hgraph
                                  const TSValueTypeMetaData *concrete,
                                  ResolutionMap &map)
     {
+        // A REF around a whole requested bundle is followed: a bundle
+        // pattern cannot produce a reference (the static unifier's
+        // unify_requested_tsb_field_pack does the same).
+        const bool tsb_schema_var = pattern.kind == TypePattern::Kind::TSB && pattern.schema_var;
+        if (tsb_schema_var) { concrete = unify_dereference(concrete); }
         const bool top_level_variable =
             pattern.kind == TypePattern::Kind::Var ||
-            (pattern.kind == TypePattern::Kind::TSB && pattern.schema_var && concrete != nullptr &&
-             concrete->kind == TSTypeKind::TSB);
+            (tsb_schema_var && concrete != nullptr && concrete->kind == TSTypeKind::TSB);
         if (top_level_variable && concrete != nullptr && TypeRegistry::contains_ref(concrete))
         {
             // OUTPUT direction: a requested output is the caller EXPRESSING

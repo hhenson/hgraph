@@ -1281,6 +1281,30 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     ResolutionMap nested_static;
     ts_output_unifier<TSL<UnNamedTSB<TsVar<"P">>, 1>>::unify(list_of_packs, nested_static);
     CHECK(nested_static.find_ts("P") == value_pack);
+    // An earlier pack binding is compared structurally on both sides: a named
+    // bundle agrees with the same unnamed one, as an input and as a request.
+    const TSValueTypeMetaData *named_value_pack = registry.tsb("hgraph.test.g847::Values", {{"a", ts_type<TS<Int>>()}});
+    const TSValueTypeMetaData *named_ref_pack = registry.tsb("hgraph.test.g847::Refs", {{"a", ts_type<REF<TS<Int>>>()}});
+    ResolutionMap named_runtime;
+    named_runtime.bind_ts("P", named_value_pack);
+    CHECK(input_ts_pattern_match(TypePattern::tsb_var("P"), value_pack, named_runtime));
+    ResolutionMap named_static;
+    named_static.bind_ts("P", named_value_pack);
+    CHECK_NOTHROW(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(value_pack, named_static));
+    ResolutionMap named_requested_runtime;
+    named_requested_runtime.bind_ts("P", named_ref_pack);
+    CHECK(output_ts_pattern_match(TypePattern::tsb_var("P"), pack, named_requested_runtime));
+    ResolutionMap named_requested_static;
+    named_requested_static.bind_ts("P", named_ref_pack);
+    CHECK_NOTHROW(ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, named_requested_static));
+    // A REF around a whole requested bundle is followed on both sides; the
+    // bundle's own REF fields are kept.
+    ResolutionMap wrapped_runtime;
+    REQUIRE(output_ts_pattern_match(TypePattern::tsb_var("P"), registry.ref(pack), wrapped_runtime));
+    CHECK(wrapped_runtime.find_ts("P") == pack);
+    ResolutionMap wrapped_static;
+    ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(registry.ref(pack), wrapped_static);
+    CHECK(wrapped_static.find_ts("P") == pack);
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")

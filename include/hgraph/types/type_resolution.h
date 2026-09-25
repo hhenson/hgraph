@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/endpoint_schema.h>  // time_series_schema_equivalent
 #include <hgraph/types/type_carrier.h>   // ResolutionKind, TypeCarrier
 
 #include <fmt/format.h>
@@ -765,24 +766,49 @@ namespace hgraph
 
     namespace type_resolution_detail
     {
+        /** Bind a TSB schema variable to ``pack``, or check an earlier
+            binding against the supplied pack. An earlier binding (bound up
+            front, or by another parameter) matches the pack as supplied or
+            ``also`` -- compared structurally, as the runtime matcher's TSB
+            schema variable does (``tsb_schema_var_match``). */
+        template <fixed_string VarName>
+        void bind_tsb_field_pack(const TSValueTypeMetaData *pack, const TSValueTypeMetaData *also,
+                                 ResolutionMap &m)
+        {
+            if (pack == nullptr || pack->kind != TSTypeKind::TSB)
+            {
+                throw std::logic_error(fmt::format("type variable '{}' requires a TSB", VarName.sv()));
+            }
+            if (const TSValueTypeMetaData *bound = m.find_ts(VarName.sv()))
+            {
+                if (time_series_schema_equivalent(bound, pack) ||
+                    (also != nullptr && time_series_schema_equivalent(bound, also)))
+                {
+                    return;
+                }
+                throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", VarName.sv()));
+            }
+            m.bind_ts(VarName.sv(), pack);
+        }
+
+        /** An input pack: the variable binds the dereferenced pack, and an
+            earlier binding also matches the pack as supplied (see
+            ts_unifier<TsVar>). */
         template <fixed_string VarName>
         void unify_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
-            // The variable binds the dereferenced pack; bound up front to the
-            // pack as supplied, it keeps it (see ts_unifier<TsVar>). Either
-            // way the schema must be a TSB.
-            if (c == nullptr || m.find_ts(VarName.sv()) != c) { c = TypeRegistry::instance().dereference(c); }
-            m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
+            bind_tsb_field_pack<VarName>(TypeRegistry::instance().dereference(c), unify_dereference(c), m);
         }
 
         /** A requested output pack is the caller stating it, so its schema
-            variable binds it as requested -- the runtime matcher's TSB schema
-            variable (``ts_pattern_match``). */
+            variable binds the requested TSB verbatim, REF fields included --
+            the runtime matcher's ``output_ts_pattern_match``. A REF around the
+            whole bundle is followed: a bundle pattern cannot produce a
+            reference. */
         template <fixed_string VarName>
         void unify_requested_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
-            c = unify_dereference(c);
-            m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
+            bind_tsb_field_pack<VarName>(unify_dereference(c), nullptr, m);
         }
 
         template <typename Field>
@@ -885,6 +911,16 @@ namespace hgraph
                     throw std::logic_error(
                         fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
                 }
+            }
+            // An earlier binding must BE the requested schema, references
+            // included -- compared structurally, as output_ts_pattern_match.
+            if (const TSValueTypeMetaData *bound = m.find_ts(Name.sv()))
+            {
+                if (!time_series_schema_equivalent(bound, concrete))
+                {
+                    throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", Name.sv()));
+                }
+                return;
             }
             m.bind_ts(Name.sv(), concrete);
         }
