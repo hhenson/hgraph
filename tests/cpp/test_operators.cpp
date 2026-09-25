@@ -1251,6 +1251,14 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     ResolutionMap pinned_pack;
     pinned_pack.bind_ts("P", pack);
     CHECK_NOTHROW(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, pinned_pack));
+    // The pre-bound shortcut skips only the dereference: constraints and the
+    // pack's TSB kind are still enforced.
+    ResolutionMap constrained;
+    constrained.bind_ts("S", ts_type<TS<Float>>());
+    CHECK_THROWS(ts_unifier<TsVar<"S", TS<Int>>>::unify(ts_type<TS<Float>>(), constrained));
+    ResolutionMap not_a_pack;
+    not_a_pack.bind_ts("P", ts_type<TS<Int>>());
+    CHECK_THROWS(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(ts_type<TS<Int>>(), not_a_pack));
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")

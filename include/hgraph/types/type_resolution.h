@@ -654,14 +654,17 @@ namespace hgraph
     {
         static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
         {
-            // A variable bound up front (an explicit output schema) states
-            // the schema, references included: the port as supplied matches
-            // it, as in the runtime matcher.
-            if (concrete != nullptr && m.find_ts(Name.sv()) == concrete) { return; }
             // Resolving a generic dereferences everything, at every depth
             // (owner ruling 2026-09-24, #847); a REF binds only where the
-            // pattern names one.
-            concrete = TypeRegistry::instance().dereference(concrete);
+            // pattern names one. A variable bound up front (an explicit
+            // output schema) states the schema, references included, so the
+            // port as supplied is kept when it IS that schema -- only the
+            // dereference is skipped; the constraints below still apply, as
+            // in the runtime matcher.
+            if (concrete == nullptr || m.find_ts(Name.sv()) != concrete)
+            {
+                concrete = TypeRegistry::instance().dereference(concrete);
+            }
             if constexpr (sizeof...(C) > 0)
             {
                 if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
@@ -765,10 +768,10 @@ namespace hgraph
         template <fixed_string VarName>
         void unify_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
-            // Bound up front, the pack matches as supplied; otherwise the
-            // variable binds the dereferenced pack (see ts_unifier<TsVar>).
-            if (c != nullptr && m.find_ts(VarName.sv()) == c) { return; }
-            c = TypeRegistry::instance().dereference(c);
+            // The variable binds the dereferenced pack; bound up front to the
+            // pack as supplied, it keeps it (see ts_unifier<TsVar>). Either
+            // way the schema must be a TSB.
+            if (c == nullptr || m.find_ts(VarName.sv()) != c) { c = TypeRegistry::instance().dereference(c); }
             m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
         }
 
