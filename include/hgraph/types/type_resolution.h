@@ -654,6 +654,10 @@ namespace hgraph
     {
         static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
         {
+            // A variable bound up front (an explicit output schema) states
+            // the schema, references included: the port as supplied matches
+            // it, as in the runtime matcher.
+            if (concrete != nullptr && m.find_ts(Name.sv()) == concrete) { return; }
             // Resolving a generic dereferences everything, at every depth
             // (owner ruling 2026-09-24, #847); a REF binds only where the
             // pattern names one.
@@ -761,7 +765,20 @@ namespace hgraph
         template <fixed_string VarName>
         void unify_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
+            // Bound up front, the pack matches as supplied; otherwise the
+            // variable binds the dereferenced pack (see ts_unifier<TsVar>).
+            if (c != nullptr && m.find_ts(VarName.sv()) == c) { return; }
             c = TypeRegistry::instance().dereference(c);
+            m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
+        }
+
+        /** A requested output pack is the caller stating it, so its schema
+            variable binds it as requested -- the runtime matcher's TSB schema
+            variable (``ts_pattern_match``). */
+        template <fixed_string VarName>
+        void unify_requested_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            c = unify_dereference(c);
             m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
         }
 
@@ -837,10 +854,11 @@ namespace hgraph
 
     /**
      * Unify a REQUESTED output schema (``wire<X, OutSchema>``). The caller
-     * states the schema, so a bare output variable binds it verbatim when it
-     * holds a ``REF`` at any depth -- the produced port must carry it, as
-     * ``output_ts_pattern_match`` does for the runtime matcher (#847). A
-     * structural output pattern unifies as an input does.
+     * states the schema, so it binds as requested -- a bare output variable
+     * verbatim when the schema holds a ``REF`` at any depth, and a TSB schema
+     * variable verbatim always -- and the produced port carries it, as the
+     * runtime matcher's ``output_ts_pattern_match`` does (#847). A structural
+     * output pattern unifies as an input does.
      */
     template <typename S>
     struct ts_output_unifier : ts_unifier<S>
@@ -867,6 +885,29 @@ namespace hgraph
             }
             m.bind_ts(Name.sv(), concrete);
         }
+    };
+
+    template <fixed_string VarName, typename... C>
+    struct ts_output_unifier<UnNamedTSB<TsVar<VarName, C...>>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            type_resolution_detail::unify_requested_tsb_field_pack<VarName>(c, m);
+        }
+    };
+
+    template <fixed_string Name, fixed_string VarName, typename... C>
+    struct ts_output_unifier<TSB<Name, TsVar<VarName, C...>>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            type_resolution_detail::unify_requested_tsb_field_pack<VarName>(c, m);
+        }
+    };
+
+    template <>
+    struct ts_output_unifier<Kwargs<>> : ts_output_unifier<UnNamedTSB<TsVar<"kwargs">>>
+    {
     };
 
     // -----------------------------------------------------------------

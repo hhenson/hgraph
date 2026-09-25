@@ -179,14 +179,17 @@ ways:
 * an explicit schema -- a variable bound up front (an initial resolution,
   ``wire(..., __resolutions__=...)``) is the caller stating the schema, so
   the matcher accepts the supplied port as it is -- a bare variable and a
-  ``TSB`` schema variable alike. The Python node wrapper
+  ``TSB`` schema variable alike, a top-level ``REF`` included. The static
+  unifier does the same for a variable an explicit output schema bound
+  first (``wire<passthrough, REF<TS<Int>>>(w, ref_port)``). The Python node wrapper
   does this: its native ``args`` is a generic pack, and it pre-binds the
   pack to the node's declared inputs (``_declared_args``), so a Python node
   that declares ``REF[TS[int]]`` receives the reference;
 * a requested output -- ``output_ts_pattern_match`` keeps a requested
   schema that contains a ``REF`` at any depth verbatim
-  (``nothing[TSD[str, REF[TS[int]]]]`` produces what it names), and so does
-  ``ts_output_unifier`` for the static path's explicit output schema
+  (``nothing[TSD[str, REF[TS[int]]]]`` produces what it names) and binds a
+  ``TSB`` schema variable as requested; ``ts_output_unifier`` does both for
+  the static path's explicit output schema
   (``wire<replay_impl, TSD<Str, REF<TS<Int>>>>``);
 * a structural projection -- an operator that selects part of a port
   without consuming it takes an erased port (``Port<void>``, or

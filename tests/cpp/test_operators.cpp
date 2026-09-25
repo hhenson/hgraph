@@ -1232,6 +1232,19 @@ TEST_CASE("operators: resolving a generic dereferences everything at every depth
     Wiring wiring;
     auto   routed = wire<stdlib::replay_impl, TSD<Str, REF<TS<Int>>>>(wiring, std::string{"routed"});
     CHECK(routed.erased().schema == refs);
+    // The static path mirrors the runtime matcher's pre-bound case: the
+    // explicit output schema binds first, and the input as supplied then
+    // matches it instead of re-binding the dereferenced schema.
+    auto ref_source = wire<stdlib::replay_impl, REF<TS<Int>>>(wiring, std::string{"ref"});
+    auto through    = wire<gated_passthrough, REF<TS<Int>>>(wiring, ref_source);
+    CHECK(through.erased().schema == ts_type<REF<TS<Int>>>());
+    // A requested output pack binds as requested; a pinned one matches as supplied.
+    ResolutionMap requested_pack;
+    ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, requested_pack);
+    CHECK(requested_pack.find_ts("P") == pack);
+    ResolutionMap pinned_pack;
+    pinned_pack.bind_ts("P", pack);
+    CHECK_NOTHROW(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, pinned_pack));
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")
