@@ -153,6 +153,27 @@ a `Foo` and an unnamed input.
 | `_takes_unnamed(Foo)` | wires |
 | `_takes_foo(Bar)` | fails |
 
+## WIRE-OPERATOR-CONTRACT — WIR-21 to WIR-24
+
+Three operators and their candidates. `_declares_generic(ts: T)` has one
+candidate, `(ts: TS[int], scale: int = 2)`, with a parameter the operator
+does not declare. `_refinable(ts: T)` has one candidate accepting only
+`TS[int]`. `_declares_int(ts: TS[int])` gets a candidate accepting any
+`TIME_SERIES_TYPE`.
+
+| Call | Expected |
+|---|---|
+| `_declares_generic(TS[int])` | `extra 2`: the extra parameter's default (WIR-22) |
+| `_declares_generic(TS[int], scale=5)` | `extra 5`: the call supplies it (WIR-22) |
+| `_refinable(TS[int])` | `refined`: a narrower candidate is selected (WIR-23) |
+| Registering the wider candidate for `_declares_int`, and calling it with `TS[float]` | recorded, not asserted: point to settle 6 |
+
+The HGL module [contract_superset.hgl](validation/wiring/contract_superset.hgl)
+declares an implementation with a `const scale` parameter its operator does
+not declare; HGL must accept it (WIR-22, WIR-14).
+[contract_widening.hgl](validation/wiring/contract_widening.hgl) is the
+wider implementation; recorded, not asserted.
+
 ## WIRE-FRONT-END — WIR-14, WIR-7
 
 The HGL module [front_end.hgl](validation/wiring/front_end.hgl) calls a

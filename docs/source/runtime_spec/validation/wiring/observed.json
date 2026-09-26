@@ -55,6 +55,38 @@
         ]
       }
     },
+    "operator_contract": {
+      "cpp": {
+        "refined_selected": [
+          "refined"
+        ],
+        "superset_default_used": [
+          "extra 2"
+        ],
+        "superset_extra_passed": [
+          "extra 5"
+        ],
+        "widening_registers": "registered",
+        "widening_selected_for_float": [
+          "wider"
+        ]
+      },
+      "python": {
+        "refined_selected": [
+          "refined"
+        ],
+        "superset_default_used": [
+          "extra 2"
+        ],
+        "superset_extra_passed": [
+          "extra 5"
+        ],
+        "widening_registers": "registered",
+        "widening_selected_for_float": [
+          "wider"
+        ]
+      }
+    },
     "operator_failures": {
       "cpp": {
         "ambiguous_raises": true,

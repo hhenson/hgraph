@@ -1,0 +1,8 @@
+# WIR-22: an implementation may declare parameters its operator does not.
+module runtime_spec.wiring.contract_superset
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+export fn use_pick(value: f64) -> f64 => pick(value)

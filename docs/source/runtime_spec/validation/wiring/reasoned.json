@@ -249,7 +249,18 @@
         "WIR-7"
       ],
       "derivation": "Likewise at depth: the element references are removed."
-    }
+    },
+    "superset_implementation": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "An implementation may declare a parameter its operator does not (here a const with a default): it is a superset of the operator's signature."
+    },
+    "_recorded": [
+      "widening_implementation"
+    ]
   },
   "bundle_identity": {
     "named_and_unnamed_repeat": {
@@ -298,6 +309,41 @@
         "WIR-4"
       ],
       "derivation": "A parameter declared as one named bundle given another named bundle with the same fields: the names differ, so the call fails."
+    }
+  },
+  "operator_contract": {
+    "recorded": [
+      "widening_registers",
+      "widening_selected_for_float"
+    ],
+    "superset_default_used": {
+      "expected": [
+        "extra 2"
+      ],
+      "rules": [
+        "WIR-22"
+      ],
+      "derivation": "A candidate may declare a parameter the operator does not; a call that omits it uses the candidate's default."
+    },
+    "superset_extra_passed": {
+      "expected": [
+        "extra 5"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-21"
+      ],
+      "derivation": "A call may supply the extra parameter by name: it is matched against the candidate's own signature."
+    },
+    "refined_selected": {
+      "expected": [
+        "refined"
+      ],
+      "rules": [
+        "WIR-23",
+        "WIR-21"
+      ],
+      "derivation": "A candidate may accept a narrower type than the operator declares, and is selected for a call it matches."
     }
   }
 }

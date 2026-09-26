@@ -384,6 +384,68 @@ def bundle_identity():
     }
 
 
+@hg.operator
+def _declares_int(ts: TS[int]) -> TS[str]:
+    """Declares TS[int]; point to settle 6 registers a wider candidate."""
+
+
+@hg.operator
+def _declares_generic(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """Declares a generic; the candidates refine it or add a parameter."""
+
+
+@compute_node(overloads=_declares_generic)
+def _with_extra(ts: TS[int], scale: int = 2) -> TS[str]:
+    return f"extra {scale}"
+
+
+@hg.operator
+def _refinable(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """Declares a generic; its only candidate accepts TS[int]."""
+
+
+@compute_node(overloads=_refinable)
+def _refined(ts: TS[int]) -> TS[str]:
+    return "refined"
+
+
+def operator_contract():
+    """WIR-21 to WIR-23: a candidate may be a superset of its operator and refine it."""
+    seen = {}
+
+    @graph
+    def default_used(v: TS[int]) -> TS[str]:
+        return _declares_generic(v)
+
+    @graph
+    def extra_passed(v: TS[int]) -> TS[str]:
+        return _declares_generic(v, scale=5)
+
+    @graph
+    def refined(v: TS[int]) -> TS[str]:
+        return _refinable(v)
+
+    seen["superset_default_used"] = _values(lambda: eval_node(default_used, [1]))
+    seen["superset_extra_passed"] = _values(lambda: eval_node(extra_passed, [1]))
+    seen["refined_selected"] = _values(lambda: eval_node(refined, [1]))
+
+    try:  # point to settle 6: a candidate wider than its operator
+        @compute_node(overloads=_declares_int)
+        def _wider(ts: TIME_SERIES_TYPE) -> TS[str]:
+            return "wider"
+
+        seen["widening_registers"] = "registered"
+    except Exception as error:  # noqa: BLE001 - recorded as the observation
+        seen["widening_registers"] = f"raised {type(error).__name__}"
+
+    @graph
+    def wider_float(v: TS[float]) -> TS[str]:
+        return _declares_int(v)
+
+    seen["widening_selected_for_float"] = _values(lambda: eval_node(wider_float, [1.0]))
+    return seen
+
+
 CASES = {
     fn.__name__: fn
     for fn in (
@@ -398,6 +460,7 @@ CASES = {
         operator_failures,
         repeated_variable,
         bundle_identity,
+        operator_contract,
     )
 }
 

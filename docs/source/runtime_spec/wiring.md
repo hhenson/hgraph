@@ -257,6 +257,15 @@ variable inside a structure is more specific than a bare one. `TS[int]` is
 more specific than `TS[SCALAR]`, which is more specific than
 `TIME_SERIES_TYPE`; `TSL[TS[int], SIZE]` than `TSL[TIME_SERIES_TYPE, SIZE]`.
 
+**The operator's signature and its candidates.** The operator's own
+signature is the minimum every candidate meets, and a guide to its callers;
+it is not what a call is matched against. A candidate may be a superset of
+it, with parameters the operator does not declare, and may refine it,
+accepting a narrower type than a parameter declares. It still follows the
+constraints the operator lists. The operator's signature can be used to
+validate a candidate when the candidate is registered or compiled (owner
+ruling 2026-09-26).
+
 ### Behaviour
 
 ```mermaid
@@ -290,6 +299,20 @@ flowchart TD
 - **WIR-20** The selected candidate is wired as though it had been called
   directly. A node candidate adds its node; a graph candidate is wired in
   place and adds no node of its own.
+- **WIR-21** A call is matched against each candidate's own signature
+  (WIR-16 to WIR-18), not against the operator's. The operator's signature
+  is the minimum each candidate meets and a guide to callers.
+- **WIR-22** A candidate has every parameter the operator declares, and may
+  declare more: a superset. A call supplies an extra parameter by name or
+  position; a candidate that needs one the call does not supply, and that
+  has no default for it, does not match.
+- **WIR-23** A candidate may refine a declared parameter or output to a
+  narrower type (a concrete type for a variable, a structure for a bare
+  variable). It follows the constraints the operator lists: a variable the
+  operator constrains stays within those constraints.
+- **WIR-24** A front end may check each candidate against the operator's
+  signature when it registers or compiles the candidate, and reject one
+  that does not meet WIR-22 and WIR-23.
 
 
 Deferred
@@ -346,6 +369,14 @@ Points to settle
    the error and keep wiring, and those nodes stay in the description.
    Should a failed call remove what it added, so that a caught failure
    leaves the description as it was?
+6. **A candidate wider than the operator.** An operator declares
+   `ts: TS[int]` and a candidate accepts `TIME_SERIES_TYPE`. Python 0.5.41
+   and the C++ runtime register it and select it for a `TS[float]` call:
+   neither checks a candidate against its operator. HGL rejects it
+   ("does not conform to its operator contract"). WIR-23 allows refining;
+   is widening a violation of the operator's constraints, to be rejected
+   when checked (WIR-24), or allowed because the operator's types are a
+   guide?
 
 
 Evidence and cases
@@ -360,6 +391,7 @@ and C++ observations.
 | WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes and held by `python/tests/test_wiring_contract.py`; the same cases through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)") |
 | WIR-14 | The HGL front end is observed in the validation, where it currently varies |
 | WIR-15 | The bundle-identity case, run on both runtimes |
+| WIR-21 to WIR-24 | The operator-contract case, run on both runtimes and the HGL front end, and through native C++ wiring in `tests/cpp/test_wiring_contract.cpp` |
 | WIR-4, WIR-16 to WIR-18 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
 | WIR-1 to WIR-3, WIR-19, WIR-20 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
 

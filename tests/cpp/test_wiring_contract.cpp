@@ -231,6 +231,46 @@ namespace
         static void eval(In<"ts", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"int"}); }
     };
 
+    // WIRE-OPERATOR-CONTRACT: a candidate may add a parameter (WIR-22) and
+    // refine a declared type (WIR-23).
+    struct declares_generic_ : Operator<"wiring_contract_declares_generic", In<"ts", TsVar<"S">>, Out<TS<Str>>>
+    {
+    };
+    struct WithExtra
+    {
+        static auto defaults() { return std::tuple{arg<"scale">(Int{2})}; }
+        static void eval(In<"ts", TS<Int>>, Scalar<"scale", Int> scale, Out<TS<Str>> out)
+        {
+            out.set(Str{"extra " + std::to_string(scale.value())});
+        }
+    };
+    struct refinable_ : Operator<"wiring_contract_refinable", In<"ts", TsVar<"S">>, Out<TS<Str>>>
+    {
+    };
+    struct Refined
+    {
+        static void eval(In<"ts", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"refined"}); }
+    };
+
+    struct DefaultUsedGraph
+    {
+        static constexpr auto name = "wiring_contract_default_used";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v) { return wire<declares_generic_>(w, v).as<TS<Str>>(); }
+    };
+    struct ExtraPassedGraph
+    {
+        static constexpr auto name = "wiring_contract_extra_passed";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            return wire<declares_generic_>(w, v, arg<"scale">(Int{5})).as<TS<Str>>();
+        }
+    };
+    struct RefinedGraph
+    {
+        static constexpr auto name = "wiring_contract_refined";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v) { return wire<refinable_>(w, v).as<TS<Str>>(); }
+    };
+
     void register_case_operators()
     {
         register_overload<pick_, PickInt>();
@@ -239,6 +279,8 @@ namespace
         register_overload<tied_, TiedA>();
         register_overload<tied_, TiedB>();
         register_overload<only_int_, OnlyInt>();
+        register_overload<declares_generic_, WithExtra>();
+        register_overload<refinable_, Refined>();
     }
 
     struct PickIntGraph
@@ -342,6 +384,15 @@ TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate
     CHECK_OUTPUT(eval_node<PickFloatGraph>(values<Float>(1.0)), values<Str>("generic"s));
     CHECK_OUTPUT(eval_node<PickListGraph>(values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}}))), values<Str>("tsl-generic"s));
     CHECK_OUTPUT(eval_node<PickRefGraph>(values<Int>(1)), values<Str>("int"s));
+}
+
+TEST_CASE("wiring contract: WIRE-OPERATOR-CONTRACT allows a superset and a refinement (WIR-21 to WIR-23)")
+{
+    stdlib::register_standard_operators();
+    register_case_operators();
+    CHECK_OUTPUT(eval_node<DefaultUsedGraph>(values<Int>(1)), values<Str>("extra 2"s));
+    CHECK_OUTPUT(eval_node<ExtraPassedGraph>(values<Int>(1)), values<Str>("extra 5"s));
+    CHECK_OUTPUT(eval_node<RefinedGraph>(values<Int>(1)), values<Str>("refined"s));
 }
 
 TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")

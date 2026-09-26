@@ -38,7 +38,8 @@ def main() -> None:
     reasoned = json.loads((HERE / "reasoned.json").read_text())
     defined = _defined_rules()
     cited = {rule for case, fields in reasoned.items() if not case.startswith("_")
-             for field, spec in fields.items() if field != "recorded" for rule in spec["rules"]}
+             for field, spec in fields.items() if field != "recorded" and not field.startswith("_")
+             for rule in spec["rules"]}
     if undefined := sorted(cited - defined):
         raise SystemExit(f"expectations cite rules no chapter defines: {undefined}")
     observed = json.loads((HERE / "observed.json").read_text())["cases"]
@@ -49,7 +50,11 @@ def main() -> None:
         if case.startswith("_"):
             continue
         if case == "hgl_front_end":
+            for field in fields.get("_recorded", []):
+                assessment["hgl"][field] = {"observed": hgl.get(field), "verdict": "recorded"}
             for field, spec in fields.items():
+                if field.startswith("_"):
+                    continue
                 verdict = "match" if hgl.get(field) == spec["expected"] else "varies"
                 assessment["hgl"][field] = {
                     "expected": spec["expected"], "observed": hgl.get(field), "verdict": verdict, "rules": spec["rules"]}
@@ -80,7 +85,7 @@ def main() -> None:
             if row["verdict"] not in ("both", "recorded"):
                 print(f"  {case}.{field}: {row['verdict']} (python={row['python']!r}, cpp={row['cpp']!r})")
     for field, row in assessment["hgl"].items():
-        if row["verdict"] != "match":
+        if row["verdict"] not in ("match", "recorded"):
             print(f"  hgl.{field}: expected {row['expected']!r}, observed {row['observed']!r}")
 
 

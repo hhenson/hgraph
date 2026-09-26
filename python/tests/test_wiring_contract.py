@@ -68,7 +68,7 @@ def test_every_cited_rule_is_defined():
         for case, fields in REASONED.items()
         if not case.startswith("_")
         for field, spec in fields.items()
-        if field != "recorded"
+        if field != "recorded" and not field.startswith("_")
         for rule in spec["rules"]
     }
     assert cited <= defined, sorted(cited - defined)

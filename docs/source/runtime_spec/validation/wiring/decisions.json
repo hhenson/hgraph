@@ -69,6 +69,19 @@
         "WIR-14"
       ],
       "note": "TSD[K, REF[V]]; HGL's type-extensions.md recorded an outer REF, which is withdrawn."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "How does an operator's declared signature relate to its implementations?",
+      "ruling": "The types describing operators are used to validate minimum requirements of implementations. These can be used to validate the implementation, but implementations can be supersets of the parameters and restrictions to refine the inputs. The typing in the operator is more of a guide than actual requirements per-se. That said the implementations should at least follow the constraints listed.",
+      "rules": [
+        "WIR-21",
+        "WIR-22",
+        "WIR-23",
+        "WIR-24"
+      ],
+      "note": "Whether a candidate wider than its operator violates the constraints is point to settle 6."
     }
   ]
 }

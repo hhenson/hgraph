@@ -5,22 +5,26 @@ and are derived in [wiring cases](../../cases_wiring.md). The runtimes are
 unchanged by this record; the HGL correction it calls for lands separately
 and cites it.
 
-Eleven cases ran three times each, each run in a fresh process, on Python
+Twelve cases ran three times each, each run in a fresh process, on Python
 hgraph 0.5.41 and on the C++ runtime's Python surface at `main` @
 `dea948136`, on macOS arm64 with Python 3.14.7. Every repeat agreed. The HGL
 front end was observed on the same generic calls at the same revision.
 
 | Result | Observations |
 |---|---:|
-| Reasoning matches both runtimes | 28 |
+| Reasoning matches both runtimes | 31 |
 | Reasoning matches C++ only; Python varies | 1 |
 | Reasoning matches Python only; C++ varies | 2 |
 | Reasoning matches neither runtime | 0 |
-| HGL front end varies (WIR-14) | 2 |
+| HGL front end varies (WIR-14, WIR-22) | 3 |
 
-The bundle-identity case was added on 2026-09-26 with the owner's ruling
-that became WIR-15; its expectations were written from that ruling before
-it ran.
+The bundle-identity and operator-contract cases were added on 2026-09-26
+with the owner's rulings that became WIR-15 and WIR-21 to WIR-24; their
+expectations were written from those rulings before they ran.
+
+Recorded, not asserted: a candidate wider than its operator (point to settle
+6). Both runtimes register it and select it for a `TS[float]` call; HGL
+rejects it.
 
 Recorded, not asserted: the printed names of the bundles used as sources.
 They differ between the runtimes and no rule states them.
@@ -66,6 +70,7 @@ rule:
 | WV-1 | projection, `getattr_(bundle, "routed")`; WIR-5, WIR-13 | R + C++: the reference field, `REF[TS[int]]` | Python 0.5.41 has no `getattr_` candidate for a bundle; wiring fails. Its `bundle.routed` is a Python-side projection that never calls the operator, and matches. The C++ candidate is a superset |
 | WV-3 | bundle_identity, `_same(Foo, {a})`; WIR-15, WIR-17 | R + Python: wires, one bundle is unnamed | C++ fails. On the C++ surface Python's unnamed schema carries a generated name (the port's type prints as `...UnNamedTimeSeriesSchema_<hash>`), and a variable already bound compares the type's identity |
 | WV-4 | bundle_identity, `_takes_foo(Bar)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
+| WV-5 | HGL front end, an implementation with a `const scale` parameter its operator does not declare; WIR-22 | R + both runtimes (their candidates may add parameters): accepted | HGL rejects it: "implementation parameter count does not match its operator contract" |
 | WV-2 | HGL front end, `pass(value: ref<f64>)` and `pass(values: list<ref<f64>, 2>)`; WIR-14, WIR-7 | R + both runtimes: `T` binds `f64` and `list<f64>` | HGL binds `ref<f64>` and `list<ref<f64>>`: its generic inference (`GenericSubstitution::unify`) binds a variable to the argument as supplied. The emitted C++ still wires correctly, because the runtime resolves the emitted generic call, but HGL's own checker works from a different type than the graph it builds |
 
 WV-2 is corrected in the HGL compiler, citing WIR-14; the correction's tests

@@ -1,5 +1,14 @@
 {
   "hgl": {
+    "superset_implementation": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
     "through_list": {
       "expected": "list<f64>",
       "observed": "list<ref<f64>>",
@@ -17,6 +26,10 @@
         "WIR-7"
       ],
       "verdict": "varies"
+    },
+    "widening_implementation": {
+      "observed": "rejected",
+      "verdict": "recorded"
     }
   },
   "runtimes": {
@@ -153,6 +166,69 @@
           "TS-17"
         ],
         "verdict": "both"
+      }
+    },
+    "operator_contract": {
+      "refined_selected": {
+        "cpp": [
+          "refined"
+        ],
+        "expected": [
+          "refined"
+        ],
+        "python": [
+          "refined"
+        ],
+        "rules": [
+          "WIR-23",
+          "WIR-21"
+        ],
+        "verdict": "both"
+      },
+      "superset_default_used": {
+        "cpp": [
+          "extra 2"
+        ],
+        "expected": [
+          "extra 2"
+        ],
+        "python": [
+          "extra 2"
+        ],
+        "rules": [
+          "WIR-22"
+        ],
+        "verdict": "both"
+      },
+      "superset_extra_passed": {
+        "cpp": [
+          "extra 5"
+        ],
+        "expected": [
+          "extra 5"
+        ],
+        "python": [
+          "extra 5"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-21"
+        ],
+        "verdict": "both"
+      },
+      "widening_registers": {
+        "cpp": "registered",
+        "python": "registered",
+        "verdict": "recorded"
+      },
+      "widening_selected_for_float": {
+        "cpp": [
+          "wider"
+        ],
+        "python": [
+          "wider"
+        ],
+        "verdict": "recorded"
       }
     },
     "operator_failures": {
@@ -412,9 +488,9 @@
     }
   },
   "totals": {
-    "both": 28,
+    "both": 31,
     "cpp": 1,
-    "hgl:varies": 2,
+    "hgl:varies": 3,
     "python": 2
   }
 }

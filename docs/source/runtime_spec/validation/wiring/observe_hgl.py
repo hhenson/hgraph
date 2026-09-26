@@ -1,4 +1,6 @@
-"""Record the binding the HGL front end makes for each call in front_end.hgl.
+"""Record what the HGL front end decides: the binding it makes for each call
+in front_end.hgl, and whether it accepts the implementations in
+contract_superset.hgl and contract_widening.hgl.
 
     python observe_hgl.py --hgl <path to hgl> --revision <hgraph revision>
 
@@ -51,6 +53,10 @@ def main() -> None:
     types = {int(m.group(1)): (m.group(2), m.group(3)) for m in map(TYPE.match, dump.splitlines()) if m}
     bound = [_render(types, int(m.group(1))) for m in CALL.finditer(dump)]
     observed = {"revision": args.revision, "front_end": "hgl", "through_ref": bound[0], "through_list": bound[1]}
+    for field, module in (("superset_implementation", "contract_superset.hgl"),
+                          ("widening_implementation", "contract_widening.hgl")):
+        checked = subprocess.run([str(hgl), "check", str(HERE / module)], capture_output=True, text=True)
+        observed[field] = "accepted" if checked.returncode == 0 else "rejected"
     (HERE / "observed_hgl.json").write_text(json.dumps(observed, indent=2, sort_keys=True) + "\n")
     print(json.dumps(observed, sort_keys=True))
 

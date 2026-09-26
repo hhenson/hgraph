@@ -1,0 +1,8 @@
+# Point to settle 6: an implementation wider than its operator.
+module runtime_spec.wiring.contract_widening
+
+operator only_f64(value: f64) -> f64
+
+impl fn only_f64<T>(value: T) -> T => value
+
+export fn use_it(value: f64) -> f64 => only_f64(value)
