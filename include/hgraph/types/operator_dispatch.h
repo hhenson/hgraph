@@ -2447,16 +2447,31 @@ namespace hgraph
             using declared = typename Op::param_types;
             // A declared parameter is found in the candidate by name, else at
             // the same position (a call binds positionally), else not at all.
+            // The position never supplies a parameter named after another
+            // declared parameter: one candidate parameter cannot satisfy two.
+            std::vector<std::string_view> declared_names;
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                (
+                    [&] {
+                        using P = std::tuple_element_t<I, declared>;
+                        if constexpr (requires { P::field_name; }) { declared_names.push_back(P::field_name.sv()); }
+                    }(),
+                    ...);
+            }(std::make_index_sequence<std::tuple_size_v<declared>>{});
             std::size_t position = 0;
             const auto find = [&](std::string_view name, ParamPattern::Kind kind) {
                 auto found = std::ranges::find_if(impl.params, [&](const ParamPattern &p) { return p.name == name; });
                 if (found == impl.params.end() && position < impl.params.size() &&
-                    impl.params[position].kind == kind && !(impl.variadic && position + 1 == impl.params.size()))
+                    impl.params[position].kind == kind && !(impl.variadic && position + 1 == impl.params.size()) &&
+                    std::ranges::find(declared_names, std::string_view{impl.params[position].name}) == declared_names.end())
                 {
                     found = impl.params.begin() + static_cast<std::ptrdiff_t>(position);
                 }
                 return found;
             };
+            // What the candidate puts where the operator names a variable; a
+            // repeated variable must get one type throughout (WIR-23).
+            PatternVariableUses uses;
             // A parameter the operator declares optional (a default in the
             // marker's defaults()) may be absent from a candidate (WIR-22).
             std::vector<std::string> optional;
@@ -2502,6 +2517,7 @@ namespace hgraph
                                 const bool packed = impl.variadic && !impl.params.empty() &&
                                                     impl.params.back().kind == ParamPattern::Kind::Input &&
                                                     ts_pattern_covers(pattern, impl.params.back().ts);
+                                if (packed) { ts_pattern_variable_uses(pattern, impl.params.back().ts, uses); }
                                 if (!packed && !is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
                                 return;
                             }
@@ -2519,8 +2535,10 @@ namespace hgraph
                                     out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
                                                   ", candidate scalar " + scalar_pattern_to_string(found->scalar));
                                 }
+                                ts_pattern_variable_uses(pattern, lifted, uses);
                                 return;
                             }
+                            if (found->kind == ParamPattern::Kind::Input) { ts_pattern_variable_uses(pattern, found->ts, uses); }
                             if (of_kind(found, name, ParamPattern::Kind::Input) && !ts_pattern_covers(pattern, found->ts))
                             {
                                 out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
@@ -2539,6 +2557,10 @@ namespace hgraph
                             }
                             const ScalarPattern pattern =
                                 to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
+                            if (found->kind == ParamPattern::Kind::Scalar)
+                            {
+                                scalar_pattern_variable_uses(pattern, found->scalar, uses);
+                            }
                             if (of_kind(found, name, ParamPattern::Kind::Scalar) &&
                                 !scalar_pattern_covers(pattern, found->scalar))
                             {
@@ -2563,6 +2585,14 @@ namespace hgraph
                                 return;
                             }
                             if (!of_kind(found, name, ParamPattern::Kind::TypeArg)) { return; }
+                            if (found->carrier == declared_arg.carrier)
+                            {
+                                if (declared_arg.carrier == ResolutionKind::Scalar)
+                                {
+                                    scalar_pattern_variable_uses(declared_arg.scalar, found->scalar, uses);
+                                }
+                                else { ts_pattern_variable_uses(declared_arg.ts, found->ts, uses); }
+                            }
                             const bool covered =
                                 found->carrier == declared_arg.carrier &&
                                 (declared_arg.carrier == ResolutionKind::Scalar
@@ -2580,12 +2610,38 @@ namespace hgraph
             }(std::make_index_sequence<std::tuple_size_v<declared>>{});
             if constexpr (Op::has_output && !std::is_void_v<typename Op::output_schema_type>)
             {
+                // A candidate without an output (a sink) is selected by calls that
+                // do not use one, as map_ over a sink function is.
                 const TypePattern pattern = to_pattern<typename Op::output_schema_type>();
-                if (impl.has_output && !ts_pattern_covers(pattern, impl.output))
+                if (impl.has_output)
                 {
-                    out.push_back("widens the output: declared " + ts_pattern_to_string(pattern) + ", candidate " +
-                                  ts_pattern_to_string(impl.output));
+                    if (!ts_pattern_covers(pattern, impl.output))
+                    {
+                        out.push_back("widens the output: declared " + ts_pattern_to_string(pattern) + ", candidate " +
+                                      ts_pattern_to_string(impl.output));
+                    }
+                    // An erased output (a bare variable its resolver binds) states
+                    // no type, so it takes no part in a repeated variable.
+                    if (impl.output.kind != TypePattern::Kind::Var) { ts_pattern_variable_uses(pattern, impl.output, uses); }
                 }
+            }
+            // A variable the operator repeats, given two types by the candidate,
+            // accepts combinations the declaration excludes.
+            std::vector<std::pair<std::string_view, std::string_view>> first;
+            std::vector<std::string_view> reported;
+            for (const auto &[variable, what] : uses)
+            {
+                const auto seen = std::ranges::find(first, std::string_view{variable},
+                                                    &std::pair<std::string_view, std::string_view>::first);
+                if (seen == first.end()) { first.emplace_back(variable, what); continue; }
+                if (seen->second == what || std::ranges::find(reported, std::string_view{variable}) != reported.end())
+                {
+                    continue;
+                }
+                reported.push_back(variable);
+                const std::string_view shown = std::string_view{variable}.substr(std::string_view{variable}.find(':') + 1);
+                out.push_back("gives the operator's repeated variable '" + std::string{shown} + "' two types: " +
+                              std::string{seen->second} + " and " + std::string{what});
             }
             return out;
         }
@@ -2616,8 +2672,9 @@ namespace hgraph
             static_assert(Pack == OperatorNodePack::Infer,
                           "a lifted overload does not have a static-node aggregate pack");
             static_assert(Cardinality == OperatorPackCardinality{}, "a lifted overload does not have a variadic operator pack");
-            OperatorRegistry::instance().register_overload(
-                operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name}));
+            OperatorImpl impl = operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name});
+            operator_dispatch_detail::require_candidate_shape<Op>(impl);
+            OperatorRegistry::instance().register_overload(std::move(impl));
         }
         else
         {

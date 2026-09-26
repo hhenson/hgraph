@@ -10,6 +10,7 @@
 #include <fmt/ranges.h>
 
 #include <algorithm>
+#include <ankerl/unordered_dense.h>
 #include <optional>
 
 namespace hgraph
@@ -424,6 +425,13 @@ namespace hgraph
         }
         if (specific.optional_metadata && !general.optional_metadata) { return false; }
         if (general.kind != specific.kind || general.children.size() != specific.children.size()) { return false; }
+        // A nominal bundle constrained to a generic origin covers only bundles of
+        // that origin; a candidate without one accepts any bundle.
+        if (general.kind == ScalarPattern::Kind::Bundle && !general.bundle_origin.empty() &&
+            specific.bundle_origin != general.bundle_origin)
+        {
+            return false;
+        }
         if (general.kind == ScalarPattern::Kind::Array && !array_dimensions_cover(general.dimensions, specific.dimensions))
         {
             return false;
@@ -433,6 +441,153 @@ namespace hgraph
             if (!scalar_pattern_covers(general.children[index], specific.children[index])) { return false; }
         }
         return true;
+    }
+
+    namespace
+    {
+        void collect_scalar_variables(const ScalarPattern &pattern, std::vector<std::string> &scalars,
+                                      std::vector<std::string> &sizes)
+        {
+            if (pattern.kind == ScalarPattern::Kind::Var) { scalars.push_back(pattern.name); }
+            for (const DimensionPattern &dimension : pattern.dimensions)
+            {
+                if (dimension.variable) { sizes.push_back(dimension.name); }
+            }
+            for (const ScalarPattern &child : pattern.children) { collect_scalar_variables(child, scalars, sizes); }
+        }
+
+        void collect_ts_variables(const TypePattern &pattern, std::vector<std::string> &series,
+                                  std::vector<std::string> &scalars, std::vector<std::string> &sizes)
+        {
+            if (pattern.kind == TypePattern::Kind::Var || pattern.schema_var) { series.push_back(pattern.name); }
+            if (pattern.size_var) { sizes.push_back(pattern.size_name); }
+            collect_scalar_variables(pattern.scalar, scalars, sizes);
+            for (const TypePattern &child : pattern.children) { collect_ts_variables(child, series, scalars, sizes); }
+        }
+
+        /** A concrete candidate type: the matcher binds the operator's variables,
+            and each binding is read back. */
+        void uses_from_bindings(const ResolutionMap &map, const std::vector<std::string> &series,
+                                const std::vector<std::string> &scalars, const std::vector<std::string> &sizes,
+                                PatternVariableUses &uses)
+        {
+            for (const std::string &name : series)
+            {
+                if (const auto *bound = map.find_ts(name)) { uses.emplace_back("ts:" + name, std::string{bound->name()}); }
+            }
+            for (const std::string &name : scalars)
+            {
+                if (const auto *bound = map.find_scalar(name))
+                {
+                    uses.emplace_back("scalar:" + name, std::string{bound->name()});
+                }
+            }
+            for (const std::string &name : sizes)
+            {
+                if (const auto bound = map.find_size(name)) { uses.emplace_back("size:" + name, std::to_string(*bound)); }
+            }
+        }
+    }  // namespace
+
+    void scalar_pattern_variable_uses(const ScalarPattern &general, const ScalarPattern &specific,
+                                      PatternVariableUses &uses)
+    {
+        if (specific.kind == ScalarPattern::Kind::Concrete)
+        {
+            std::vector<std::string> series, scalars, sizes;
+            collect_scalar_variables(general, scalars, sizes);
+            ResolutionMap map;
+            if (specific.meta != nullptr && scalar_pattern_match(general, specific.meta, map))
+            {
+                uses_from_bindings(map, series, scalars, sizes, uses);
+            }
+            return;
+        }
+        if (general.kind == ScalarPattern::Kind::Var)
+        {
+            uses.emplace_back("scalar:" + general.name, scalar_pattern_to_string(specific));
+            return;
+        }
+        if (general.kind != specific.kind) { return; }
+        if (general.kind == ScalarPattern::Kind::Array && general.dimensions.size() == specific.dimensions.size())
+        {
+            for (std::size_t index = 0; index < general.dimensions.size(); ++index)
+            {
+                const DimensionPattern &g = general.dimensions[index];
+                const DimensionPattern &c = specific.dimensions[index];
+                if (g.variable) { uses.emplace_back("size:" + g.name, c.variable ? "~" + c.name : std::to_string(c.value)); }
+            }
+        }
+        const std::size_t count = std::min(general.children.size(), specific.children.size());
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            scalar_pattern_variable_uses(general.children[index], specific.children[index], uses);
+        }
+    }
+
+    void ts_pattern_variable_uses(const TypePattern &general, const TypePattern &specific, PatternVariableUses &uses)
+    {
+        if (specific.kind == TypePattern::Kind::Concrete)
+        {
+            std::vector<std::string> series, scalars, sizes;
+            collect_ts_variables(general, series, scalars, sizes);
+            ResolutionMap map;
+            if (specific.meta != nullptr && input_ts_pattern_match(general, specific.meta, map))
+            {
+                uses_from_bindings(map, series, scalars, sizes, uses);
+            }
+            return;
+        }
+        // References are transparent (WIR-6).
+        if (general.kind == TypePattern::Kind::REF) { return ts_pattern_variable_uses(general.children[0], specific, uses); }
+        if (specific.kind == TypePattern::Kind::REF) { return ts_pattern_variable_uses(general, specific.children[0], uses); }
+        if (general.kind == TypePattern::Kind::Var)
+        {
+            uses.emplace_back("ts:" + general.name, ts_pattern_to_string(specific));
+            return;
+        }
+        if (general.kind != specific.kind) { return; }
+        switch (general.kind)
+        {
+            case TypePattern::Kind::TS:
+            case TypePattern::Kind::TSS:
+            case TypePattern::Kind::TSW: scalar_pattern_variable_uses(general.scalar, specific.scalar, uses); return;
+            case TypePattern::Kind::TSL:
+                if (general.size_var)
+                {
+                    uses.emplace_back("size:" + general.size_name, specific.size_var ? "~" + specific.size_name
+                                                                                     : std::to_string(specific.fixed_size));
+                }
+                ts_pattern_variable_uses(general.children[0], specific.children[0], uses);
+                return;
+            case TypePattern::Kind::TSD:
+                scalar_pattern_variable_uses(general.scalar, specific.scalar, uses);
+                ts_pattern_variable_uses(general.children[0], specific.children[0], uses);
+                return;
+            case TypePattern::Kind::TSB:
+            {
+                if (general.schema_var)
+                {
+                    uses.emplace_back("ts:" + general.name, ts_pattern_to_string(specific));
+                    return;
+                }
+                // Fields pair by name (WIR-15), through a name index built once.
+                ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+                for (std::size_t index = 0; index < specific.field_names.size(); ++index)
+                {
+                    by_name.emplace(specific.field_names[index], index);
+                }
+                for (std::size_t index = 0; index < general.field_names.size(); ++index)
+                {
+                    if (const auto found = by_name.find(general.field_names[index]); found != by_name.end())
+                    {
+                        ts_pattern_variable_uses(general.children[index], specific.children[found->second], uses);
+                    }
+                }
+                return;
+            }
+            default: return;
+        }
     }
 
     bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific)
@@ -487,15 +642,33 @@ namespace hgraph
             {
                 if (general.schema_var) { return true; }
                 if (specific.schema_var) { return false; }
-                // A bundle's name counts only when both are named (WIR-15).
-                if (general.named_bundle && specific.named_bundle && general.bundle_name != specific.bundle_name)
+                // WIR-15: a named bundle matches its own name or an unnamed
+                // bundle, so an unnamed candidate (which also takes other named
+                // bundles) is wider than a named declaration. A generic nominal
+                // bundle covers only its own origin.
+                const bool general_generic = general.scalar.kind == ScalarPattern::Kind::Bundle &&
+                                             !general.scalar.bundle_origin.empty();
+                if (general.named_bundle && !specific.named_bundle) { return false; }
+                if (general_generic)
                 {
-                    return false;
+                    if (specific.scalar.bundle_origin != general.scalar.bundle_origin) { return false; }
                 }
-                if (general.field_names != specific.field_names) { return false; }
+                else if (general.named_bundle && general.bundle_name != specific.bundle_name) { return false; }
+                // Fields pair by name, in any order (WIR-15).
+                if (general.field_names.size() != specific.field_names.size()) { return false; }
+                ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+                for (std::size_t index = 0; index < specific.field_names.size(); ++index)
+                {
+                    by_name.emplace(specific.field_names[index], index);
+                }
                 for (std::size_t index = 0; index < general.children.size(); ++index)
                 {
-                    if (!ts_pattern_covers(general.children[index], specific.children[index])) { return false; }
+                    const auto found = by_name.find(general.field_names[index]);
+                    if (found == by_name.end() ||
+                        !ts_pattern_covers(general.children[index], specific.children[found->second]))
+                    {
+                        return false;
+                    }
                 }
                 return true;
             }

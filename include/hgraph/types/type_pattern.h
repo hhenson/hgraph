@@ -396,6 +396,20 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific);
 
+    /**
+     * What a candidate puts where its operator names a type variable: one entry
+     * per occurrence, the variable (``ts:T``, ``scalar:T``, ``size:N``) and the
+     * candidate's type there, written out. A variable the operator repeats must
+     * be given one type throughout (runtime spec WIR-23): two entries for one
+     * variable that differ mean the candidate accepts combinations the
+     * operator's declaration excludes.
+     */
+    using PatternVariableUses = std::vector<std::pair<std::string, std::string>>;
+    HGRAPH_EXPORT void ts_pattern_variable_uses(const TypePattern &general, const TypePattern &specific,
+                                                PatternVariableUses &uses);
+    HGRAPH_EXPORT void scalar_pattern_variable_uses(const ScalarPattern &general, const ScalarPattern &specific,
+                                                    PatternVariableUses &uses);
+
     [[nodiscard]] HGRAPH_EXPORT bool scalar_pattern_match(const ScalarPattern &pattern,
                                                           const ValueTypeMetaData *concrete, ResolutionMap &map);
 

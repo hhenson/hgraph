@@ -47,7 +47,7 @@ namespace hgraph::stdlib
         @code{.py}
         unchanged = current == previous
         @endcode */
-    struct eq_ : Operator<"eq_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct eq_ : Operator<"eq_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -59,7 +59,7 @@ namespace hgraph::stdlib
         @code{.py}
         changed = current != previous
         @endcode */
-    struct ne_ : Operator<"ne_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct ne_ : Operator<"ne_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -71,7 +71,7 @@ namespace hgraph::stdlib
         @code{.py}
         below_limit = value < limit
         @endcode */
-    struct lt_ : Operator<"lt_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct lt_ : Operator<"lt_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -83,7 +83,7 @@ namespace hgraph::stdlib
         @code{.py}
         within_limit = value <= limit
         @endcode */
-    struct le_ : Operator<"le_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct le_ : Operator<"le_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -95,7 +95,7 @@ namespace hgraph::stdlib
         @code{.py}
         above_limit = value > limit
         @endcode */
-    struct gt_ : Operator<"gt_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct gt_ : Operator<"gt_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -107,7 +107,7 @@ namespace hgraph::stdlib
         @code{.py}
         reached_limit = value >= limit
         @endcode */
-    struct ge_ : Operator<"ge_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct ge_ : Operator<"ge_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -120,7 +120,7 @@ namespace hgraph::stdlib
         @code{.py}
         ordering = hg.cmp_(lhs, rhs)
         @endcode */
-    struct cmp_ : Operator<"cmp_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<CmpResult>>>
+    struct cmp_ : Operator<"cmp_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<CmpResult>>>
     {
     };
 

@@ -488,7 +488,9 @@ operator behaves as if its signature ended with ``*args, **kwargs``:
 
 * a candidate has every parameter the marker declares -- found by name,
   else at the same position, else in its own ``VarIn`` pack -- and may
-  declare more, with or without defaults;
+  declare more, with or without defaults. The position never supplies a
+  parameter named after another declared parameter, so one candidate
+  parameter cannot satisfy two declarations;
 * a parameter named in the marker's ``defaults()`` is optional and may be
   absent from a candidate (``min_`` declares ``rhs`` optional so its unary
   candidates are candidates of the operator);
@@ -498,6 +500,16 @@ operator behaves as if its signature ended with ``*args, **kwargs``:
   ``Scalar<"period", ScalarVar<"P", Int, TimeDelta>>``. A frame operator
   whose candidates take frames with and without metadata declares
   ``TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>``;
+* a variable the marker repeats is one type: a candidate gives it the same
+  type (or the same variable) at every occurrence, across parameters and
+  output. Where candidates genuinely take different types, the marker uses
+  independent variables -- the comparisons and ``and_`` / ``or_`` declare
+  ``In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>`` because some candidates
+  compare an ``int`` with a ``float``. An erased candidate output (a bare
+  variable its resolver binds) states no type and takes no part;
+* bundles follow WIR-15: fields pair by name in any order; a named
+  declaration is not covered by an unnamed candidate, which also takes
+  other named bundles; a generic nominal bundle covers only its own origin;
 * the declared kind holds. A scalar argument lifts to a const source, so a
   candidate may take a declared input as a scalar (a refinement: the lifted
   ``TS[scalar]`` must be covered); it never takes a declared scalar as an
@@ -512,10 +524,12 @@ operator behaves as if its signature ended with ``*args, **kwargs``:
   and a constrained ``SIZE`` covers a size variable only within its
   constraints;
 * a graph candidate whose output is always one type returns that typed
-  ``Port`` rather than an erased one, so its output is checkable.
+  ``Port`` rather than an erased one, so its output is checkable. A
+  candidate without an output (a sink) is allowed: a call that does not use
+  the output selects it (``map_`` over a sink function).
 
-``register_overload`` / ``register_graph_overload`` check each candidate
-against the marker (``operator_dispatch_detail::candidate_shape_violations``,
+``register_overload`` / ``register_graph_overload`` check each candidate --
+node, graph or ``lift<...>`` -- against the marker (``operator_dispatch_detail::candidate_shape_violations``,
 built on ``ts_pattern_covers`` / ``scalar_pattern_covers``) and throw
 ``std::invalid_argument`` naming every violation. Python-defined operators
 are not checked (owner decision, 2026-09-26).
