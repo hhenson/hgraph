@@ -10,6 +10,7 @@
 #include <fmt/ranges.h>
 
 #include <algorithm>
+#include <ankerl/unordered_dense.h>
 #include <optional>
 
 namespace hgraph
@@ -136,10 +137,9 @@ namespace hgraph
                 {
                     return false;
                 }
-                return pattern.children.size() == 1
-                           ? concrete->key_type == nullptr
-                           : concrete->key_type != nullptr &&
-                                 scalar_pattern_match(pattern.children[1], concrete->key_type, map);
+                if (pattern.children.size() == 1) { return concrete->key_type == nullptr; }
+                if (concrete->key_type == nullptr) { return pattern.optional_metadata; }
+                return scalar_pattern_match(pattern.children[1], concrete->key_type, map);
             }
             if (pattern.kind == ScalarPattern::Kind::Concrete)
             {
@@ -284,10 +284,9 @@ namespace hgraph
                 {
                     return false;
                 }
-                return pattern.children.size() == 1
-                           ? concrete->key_type == nullptr
-                           : concrete->key_type != nullptr &&
-                                 scalar_pattern_match(pattern.children[1], concrete->key_type, map);
+                if (pattern.children.size() == 1) { return concrete->key_type == nullptr; }
+                if (concrete->key_type == nullptr) { return pattern.optional_metadata; }
+                return scalar_pattern_match(pattern.children[1], concrete->key_type, map);
             case ScalarPattern::Kind::Array:
             {
                 if (!TypeRegistry::is_array(concrete) || pattern.children.empty()) { return false; }
@@ -358,6 +357,324 @@ namespace hgraph
         if (!size_allowed_by_constraints(pattern, concrete_size)) { return false; }
         map.bind_size(pattern.size_name, concrete_size);
         return true;
+    }
+
+    namespace
+    {
+        /**
+         * Whether every shape ``specific`` accepts, ``general`` accepts: the same
+         * rank; a fixed size in ``general`` is matched by the same fixed size; a
+         * dynamic size (0) or a variable accepts any; and a variable ``general``
+         * repeats (a square matrix) is repeated identically in ``specific``.
+         */
+        bool array_dimensions_cover(const std::vector<DimensionPattern> &general,
+                                    const std::vector<DimensionPattern> &specific)
+        {
+            if (general.size() != specific.size()) { return false; }
+            std::vector<std::pair<std::string_view, const DimensionPattern *>> repeated;
+            for (std::size_t index = 0; index < general.size(); ++index)
+            {
+                const DimensionPattern &g = general[index];
+                const DimensionPattern &c = specific[index];
+                if (g.variable)
+                {
+                    const auto seen = std::ranges::find(repeated, std::string_view{g.name},
+                                                        &std::pair<std::string_view, const DimensionPattern *>::first);
+                    if (seen == repeated.end()) { repeated.emplace_back(g.name, &c); continue; }
+                    const DimensionPattern &first = *seen->second;
+                    const bool same = first.variable ? c.variable && c.name == first.name
+                                                     : !c.variable && c.value != 0 && c.value == first.value;
+                    if (!same) { return false; }
+                }
+                else if (g.value != 0 && (c.variable || c.value != g.value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }  // namespace
+
+    bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific)
+    {
+        // A concrete candidate type is covered exactly when the operator's
+        // pattern accepts it as an input would: a nominal subtype refines
+        // its base (value_is_a), as operator matching allows.
+        if (specific.kind == ScalarPattern::Kind::Concrete)
+        {
+            ResolutionMap scratch;
+            return specific.meta != nullptr && input_scalar_pattern_match(general, specific.meta, scratch);
+        }
+        if (general.kind == ScalarPattern::Kind::Var)
+        {
+            if (general.constraints.empty() && general.bound == nullptr) { return true; }
+            // A constrained or bounded variable covers a variable whose every
+            // accepted type it accepts.
+            if (specific.kind != ScalarPattern::Kind::Var || specific.constraints.empty()) { return false; }
+            return std::ranges::all_of(specific.constraints, [&](const ValueTypeMetaData *constraint) {
+                ResolutionMap scratch;
+                return scalar_pattern_match(general, constraint, scratch);
+            });
+        }
+        if (specific.kind == ScalarPattern::Kind::Var) { return false; }  // wider than a structure
+        if (general.kind == ScalarPattern::Kind::Frame && specific.kind == ScalarPattern::Kind::Frame &&
+            general.optional_metadata && !specific.optional_metadata && general.children.size() == 2 &&
+            specific.children.size() == 1)
+        {
+            // A frame whose metadata may be absent covers a frame without it.
+            return scalar_pattern_covers(general.children[0], specific.children[0]);
+        }
+        if (specific.optional_metadata && !general.optional_metadata) { return false; }
+        if (general.kind != specific.kind || general.children.size() != specific.children.size()) { return false; }
+        // A nominal bundle constrained to a generic origin covers only bundles of
+        // that origin; a candidate without one accepts any bundle.
+        if (general.kind == ScalarPattern::Kind::Bundle && !general.bundle_origin.empty() &&
+            specific.bundle_origin != general.bundle_origin)
+        {
+            return false;
+        }
+        if (general.kind == ScalarPattern::Kind::Array && !array_dimensions_cover(general.dimensions, specific.dimensions))
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < general.children.size(); ++index)
+        {
+            if (!scalar_pattern_covers(general.children[index], specific.children[index])) { return false; }
+        }
+        return true;
+    }
+
+    namespace
+    {
+        void collect_scalar_variables(const ScalarPattern &pattern, std::vector<std::string> &scalars,
+                                      std::vector<std::string> &sizes)
+        {
+            if (pattern.kind == ScalarPattern::Kind::Var) { scalars.push_back(pattern.name); }
+            for (const DimensionPattern &dimension : pattern.dimensions)
+            {
+                if (dimension.variable) { sizes.push_back(dimension.name); }
+            }
+            for (const ScalarPattern &child : pattern.children) { collect_scalar_variables(child, scalars, sizes); }
+        }
+
+        void collect_ts_variables(const TypePattern &pattern, std::vector<std::string> &series,
+                                  std::vector<std::string> &scalars, std::vector<std::string> &sizes)
+        {
+            if (pattern.kind == TypePattern::Kind::Var || pattern.schema_var) { series.push_back(pattern.name); }
+            if (pattern.size_var) { sizes.push_back(pattern.size_name); }
+            collect_scalar_variables(pattern.scalar, scalars, sizes);
+            for (const TypePattern &child : pattern.children) { collect_ts_variables(child, series, scalars, sizes); }
+        }
+
+        /** A concrete candidate type: the matcher binds the operator's variables,
+            and each binding is read back. */
+        void uses_from_bindings(const ResolutionMap &map, const std::vector<std::string> &series,
+                                const std::vector<std::string> &scalars, const std::vector<std::string> &sizes,
+                                PatternVariableUses &uses)
+        {
+            for (const std::string &name : series)
+            {
+                if (const auto *bound = map.find_ts(name)) { uses.emplace_back("ts:" + name, std::string{bound->name()}); }
+            }
+            for (const std::string &name : scalars)
+            {
+                if (const auto *bound = map.find_scalar(name))
+                {
+                    uses.emplace_back("scalar:" + name, std::string{bound->name()});
+                }
+            }
+            for (const std::string &name : sizes)
+            {
+                if (const auto bound = map.find_size(name)) { uses.emplace_back("size:" + name, std::to_string(*bound)); }
+            }
+        }
+    }  // namespace
+
+    void scalar_pattern_variable_uses(const ScalarPattern &general, const ScalarPattern &specific,
+                                      PatternVariableUses &uses)
+    {
+        if (specific.kind == ScalarPattern::Kind::Concrete)
+        {
+            std::vector<std::string> series, scalars, sizes;
+            collect_scalar_variables(general, scalars, sizes);
+            ResolutionMap map;
+            if (specific.meta != nullptr && scalar_pattern_match(general, specific.meta, map))
+            {
+                uses_from_bindings(map, series, scalars, sizes, uses);
+            }
+            return;
+        }
+        if (general.kind == ScalarPattern::Kind::Var)
+        {
+            uses.emplace_back("scalar:" + general.name, scalar_pattern_to_string(specific));
+            return;
+        }
+        if (general.kind != specific.kind) { return; }
+        if (general.kind == ScalarPattern::Kind::Array && general.dimensions.size() == specific.dimensions.size())
+        {
+            for (std::size_t index = 0; index < general.dimensions.size(); ++index)
+            {
+                const DimensionPattern &g = general.dimensions[index];
+                const DimensionPattern &c = specific.dimensions[index];
+                if (g.variable) { uses.emplace_back("size:" + g.name, c.variable ? "~" + c.name : std::to_string(c.value)); }
+            }
+        }
+        const std::size_t count = std::min(general.children.size(), specific.children.size());
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            scalar_pattern_variable_uses(general.children[index], specific.children[index], uses);
+        }
+    }
+
+    void ts_pattern_variable_uses(const TypePattern &general, const TypePattern &specific, PatternVariableUses &uses)
+    {
+        if (specific.kind == TypePattern::Kind::Concrete)
+        {
+            std::vector<std::string> series, scalars, sizes;
+            collect_ts_variables(general, series, scalars, sizes);
+            ResolutionMap map;
+            if (specific.meta != nullptr && input_ts_pattern_match(general, specific.meta, map))
+            {
+                uses_from_bindings(map, series, scalars, sizes, uses);
+            }
+            return;
+        }
+        // References are transparent (WIR-6).
+        if (general.kind == TypePattern::Kind::REF) { return ts_pattern_variable_uses(general.children[0], specific, uses); }
+        if (specific.kind == TypePattern::Kind::REF) { return ts_pattern_variable_uses(general, specific.children[0], uses); }
+        if (general.kind == TypePattern::Kind::Var)
+        {
+            uses.emplace_back("ts:" + general.name, ts_pattern_to_string(specific));
+            return;
+        }
+        if (general.kind != specific.kind) { return; }
+        switch (general.kind)
+        {
+            case TypePattern::Kind::TS:
+            case TypePattern::Kind::TSS:
+            case TypePattern::Kind::TSW: scalar_pattern_variable_uses(general.scalar, specific.scalar, uses); return;
+            case TypePattern::Kind::TSL:
+                if (general.size_var)
+                {
+                    uses.emplace_back("size:" + general.size_name, specific.size_var ? "~" + specific.size_name
+                                                                                     : std::to_string(specific.fixed_size));
+                }
+                ts_pattern_variable_uses(general.children[0], specific.children[0], uses);
+                return;
+            case TypePattern::Kind::TSD:
+                scalar_pattern_variable_uses(general.scalar, specific.scalar, uses);
+                ts_pattern_variable_uses(general.children[0], specific.children[0], uses);
+                return;
+            case TypePattern::Kind::TSB:
+            {
+                if (general.schema_var)
+                {
+                    uses.emplace_back("ts:" + general.name, ts_pattern_to_string(specific));
+                    return;
+                }
+                // Fields pair by name (WIR-15), through a name index built once.
+                ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+                for (std::size_t index = 0; index < specific.field_names.size(); ++index)
+                {
+                    by_name.emplace(specific.field_names[index], index);
+                }
+                for (std::size_t index = 0; index < general.field_names.size(); ++index)
+                {
+                    if (const auto found = by_name.find(general.field_names[index]); found != by_name.end())
+                    {
+                        ts_pattern_variable_uses(general.children[index], specific.children[found->second], uses);
+                    }
+                }
+                return;
+            }
+            default: return;
+        }
+    }
+
+    bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific)
+    {
+        if (specific.kind == TypePattern::Kind::Concrete)
+        {
+            ResolutionMap scratch;
+            return specific.meta != nullptr && input_ts_pattern_match(general, specific.meta, scratch);
+        }
+        // References are transparent for coverage (WIR-6).
+        if (general.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general.children[0], specific); }
+        if (specific.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general, specific.children[0]); }
+        if (general.kind == TypePattern::Kind::Signal) { return true; }  // an input observing any series
+        if (general.kind == TypePattern::Kind::Var)
+        {
+            if (general.constraints.empty()) { return true; }
+            if (specific.kind != TypePattern::Kind::Var || specific.constraints.empty()) { return false; }
+            return std::ranges::all_of(specific.constraints, [&](const TSValueTypeMetaData *constraint) {
+                return ts_allowed_by_constraints(general, constraint);
+            });
+        }
+        if (specific.kind == TypePattern::Kind::Var || specific.kind == TypePattern::Kind::Signal) { return false; }
+        if (general.kind != specific.kind) { return false; }
+        switch (general.kind)
+        {
+            case TypePattern::Kind::TS:
+            case TypePattern::Kind::TSS: return scalar_pattern_covers(general.scalar, specific.scalar);
+            case TypePattern::Kind::TSL:
+            {
+                const bool any_size = general.size_var ? general.size_constraints.empty()
+                                                       : general.fixed_size == unbounded_tsl_size;
+                const auto allowed  = [&](std::size_t size) {
+                    return std::ranges::find(general.size_constraints, size) != general.size_constraints.end();
+                };
+                const bool size_ok  = any_size ||
+                                     (!specific.size_var && general.size_var && allowed(specific.fixed_size)) ||
+                                     (specific.size_var && general.size_var && !specific.size_constraints.empty() &&
+                                      std::ranges::all_of(specific.size_constraints, allowed)) ||
+                                     (!general.size_var && !specific.size_var && general.fixed_size == specific.fixed_size);
+                return size_ok && ts_pattern_covers(general.children[0], specific.children[0]);
+            }
+            case TypePattern::Kind::TSD:
+                return scalar_pattern_covers(general.scalar, specific.scalar) &&
+                       ts_pattern_covers(general.children[0], specific.children[0]);
+            case TypePattern::Kind::TSW:
+                return scalar_pattern_covers(general.scalar, specific.scalar) &&
+                       (general.any_window ||
+                        (general.duration_window == specific.duration_window && general.fixed_size == specific.fixed_size &&
+                         general.min_size == specific.min_size && general.duration_micros == specific.duration_micros &&
+                         general.min_duration_micros == specific.min_duration_micros));
+            case TypePattern::Kind::TSB:
+            {
+                if (general.schema_var) { return true; }
+                if (specific.schema_var) { return false; }
+                // WIR-15: a named bundle matches its own name or an unnamed
+                // bundle, so an unnamed candidate (which also takes other named
+                // bundles) is wider than a named declaration. A generic nominal
+                // bundle covers only its own origin.
+                const bool general_generic = general.scalar.kind == ScalarPattern::Kind::Bundle &&
+                                             !general.scalar.bundle_origin.empty();
+                if (general.named_bundle && !specific.named_bundle) { return false; }
+                if (general_generic)
+                {
+                    if (specific.scalar.bundle_origin != general.scalar.bundle_origin) { return false; }
+                }
+                else if (general.named_bundle && general.bundle_name != specific.bundle_name) { return false; }
+                // Fields pair by name, in any order (WIR-15).
+                if (general.field_names.size() != specific.field_names.size()) { return false; }
+                ankerl::unordered_dense::map<std::string_view, std::size_t> by_name;
+                for (std::size_t index = 0; index < specific.field_names.size(); ++index)
+                {
+                    by_name.emplace(specific.field_names[index], index);
+                }
+                for (std::size_t index = 0; index < general.children.size(); ++index)
+                {
+                    const auto found = by_name.find(general.field_names[index]);
+                    if (found == by_name.end() ||
+                        !ts_pattern_covers(general.children[index], specific.children[found->second]))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            default: return false;
+        }
     }
 
     bool output_ts_pattern_match(const TypePattern &pattern,
@@ -652,7 +969,7 @@ namespace hgraph
                 const ValueTypeMetaData *metadata = pattern.children.size() == 2
                                                         ? scalar_pattern_resolve(pattern.children[1], map)
                                                         : nullptr;
-                return schema != nullptr && (pattern.children.size() == 1 || metadata != nullptr)
+                return schema != nullptr && (pattern.children.size() == 1 || metadata != nullptr || pattern.optional_metadata)
                            ? TypeRegistry::instance().frame(schema, metadata)
                            : nullptr;
             }
@@ -871,8 +1188,8 @@ namespace hgraph
                 {
                     return fmt::format("Frame[{}]", scalar_pattern_to_string(pattern.children[0]));
                 }
-                return fmt::format("Frame[{}, {}]", scalar_pattern_to_string(pattern.children[0]),
-                                   scalar_pattern_to_string(pattern.children[1]));
+                return fmt::format("Frame[{}, {}{}]", scalar_pattern_to_string(pattern.children[0]),
+                                   scalar_pattern_to_string(pattern.children[1]), pattern.optional_metadata ? "?" : "");
             case ScalarPattern::Kind::Array:
             {
                 std::vector<std::string> dimensions;

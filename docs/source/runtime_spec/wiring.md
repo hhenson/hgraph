@@ -326,7 +326,12 @@ flowchart TD
   narrower type (a concrete type for a variable, a structure for a bare
   variable). It never widens one: every type a candidate accepts for a
   declared parameter is one the operator's parameter accepts, and a
-  variable the operator constrains stays within those constraints.
+  variable the operator constrains stays within those constraints. A
+  parameter's kind counts as its type does: a scalar argument lifts to a
+  constant source for a time-series input, so a candidate may take as a
+  scalar what the operator declares as an input (a refinement), but never
+  takes as an input what the operator declares as a scalar. A declared type
+  argument stays a type argument.
 - **WIR-24** A front end checks each candidate against the operator's
   signature when it registers or compiles the candidate, and rejects one
   that does not have the operator's shape (WIR-22, WIR-23). The arguments a
@@ -409,7 +414,7 @@ and C++ observations.
 | WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes and held by `python/tests/test_wiring_contract.py`; the same cases through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)") |
 | WIR-14 | The HGL front end was observed to vary (WV-2) and is corrected; `language/tests/ir/lower_tests.cpp` replays the front-end case |
 | WIR-15 | The bundle-identity case, run on both runtimes |
-| WIR-21 to WIR-24 | The operator-contract case, run on both runtimes and the HGL front end, and through native C++ wiring in `tests/cpp/test_wiring_contract.cpp` |
+| WIR-21 to WIR-24 | The operator-contract case, run on both runtimes and the HGL front end, and through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`, which also checks the C++ registration check (WIR-24) and pattern coverage |
 | WIR-4, WIR-16 to WIR-18 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
 | WIR-1 to WIR-3, WIR-19, WIR-20 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
 

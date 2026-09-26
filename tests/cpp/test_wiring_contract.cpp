@@ -4,16 +4,20 @@
 // expectations through the Python surface: a graph records the types wiring
 // decided, and eval_node observes what its nodes see.
 
+#include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/lift.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/type_pattern.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
 
@@ -301,6 +305,93 @@ namespace
         static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v) { return wire<refinable_>(w, v).as<TS<Str>>(); }
     };
 
+    // WIR-24: registration rejects a candidate without the operator's shape.
+    struct declares_int_ : Operator<"wiring_contract_declares_int", In<"ts", TS<Int>>, Out<TS<Str>>>
+    {
+    };
+    struct Wider
+    {
+        static void eval(In<"ts", TsVar<"S">>, Out<TS<Str>> out) { out.set(Str{"wider"}); }
+    };
+    struct declares_pair_ : Operator<"wiring_contract_declares_pair", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>,
+                                     Out<TS<Str>>>
+    {
+    };
+    struct declares_optional_rhs_ : Operator<"wiring_contract_declares_optional_rhs", In<"lhs", TsVar<"L">>,
+                                             In<"rhs", TsVar<"R">>, Out<TS<Str>>>
+    {
+        static auto defaults() { return std::tuple{arg<"rhs">(Value{})}; }
+    };
+    struct UnaryOnly
+    {
+        static void eval(In<"lhs", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"unary"}); }
+    };
+    // A declared type argument is part of the shape, as a parameter is.
+    struct declares_type_arg_ : Operator<"wiring_contract_declares_type_arg",
+                                         TypeArg<"tp", TS<ScalarVar<"T", Int, Float>>>, Out<TS<Str>>>
+    {
+    };
+    struct NoTypeArg
+    {
+        static void eval(Out<TS<Str>> out) { out.set(Str{"none"}); }
+    };
+    struct WiderTypeArg
+    {
+        static void eval(TypeArg<"tp", TsVar<"S">>, Out<TS<Str>> out) { out.set(Str{"wider"}); }
+    };
+    struct NarrowerTypeArg
+    {
+        static void eval(TypeArg<"tp", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"int"}); }
+    };
+    // A scalar refines a declared input (a scalar argument lifts to a const
+    // source); an input for a declared scalar widens it.
+    struct ScalarNamedTs
+    {
+        static void eval(Scalar<"ts", Int>, Out<TS<Str>> out) { out.set(Str{"scalar"}); }
+    };
+    struct StrScalarNamedTs
+    {
+        static void eval(Scalar<"ts", Str>, Out<TS<Str>> out) { out.set(Str{"str"}); }
+    };
+    struct declares_scalar_ : Operator<"wiring_contract_declares_scalar", In<"ts", TS<Int>>, Scalar<"n", Int>,
+                                       Out<TS<Str>>>
+    {
+    };
+    struct InputNamedN
+    {
+        static void eval(In<"ts", TS<Int>>, In<"n", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"input"}); }
+    };
+    // A variable the operator repeats must get one type from a candidate.
+    struct declares_same_ : Operator<"wiring_contract_declares_same", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>,
+                                     Out<TS<Str>>>
+    {
+    };
+    struct SameInts
+    {
+        static void eval(In<"lhs", TS<Int>>, In<"rhs", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"same"}); }
+    };
+    struct IntAndFloat
+    {
+        static void eval(In<"lhs", TS<Int>>, In<"rhs", TS<Float>>, Out<TS<Str>> out) { out.set(Str{"mixed"}); }
+    };
+    struct TwoVariables
+    {
+        static void eval(In<"lhs", TsVar<"A">>, In<"rhs", TsVar<"B">>, Out<TS<Str>> out) { out.set(Str{"any"}); }
+    };
+    // A pack takes declared inputs only up to its maximum cardinality.
+    struct ArgsOnly
+    {
+        static void eval(In<"values", Args<TS<Int>>, InputValidity::Unchecked>, Out<TS<Str>> out)
+        {
+            out.set(Str{"args"});
+        }
+    };
+    // One candidate parameter cannot satisfy two declared ones.
+    struct OnlyRhs
+    {
+        static void eval(In<"rhs", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"rhs"}); }
+    };
+
     void register_case_operators()
     {
         register_overload<pick_, PickInt>();
@@ -428,6 +519,113 @@ TEST_CASE("wiring contract: WIRE-OPERATOR-CONTRACT allows a superset and a refin
     // An extra parameter without a default: no match without it, a match with it.
     CHECK_OUTPUT(eval_node<ExtraMissingGraph>(values<Int>(1)), values<Str>("fallback"s));
     CHECK_OUTPUT(eval_node<ExtraSuppliedGraph>(values<Int>(1)), values<Str>("scaled 3"s));
+}
+
+TEST_CASE("wiring contract: registration rejects a candidate without its operator's shape (WIR-22 to WIR-24)")
+{
+    stdlib::register_standard_operators();
+    // Wider than the declared TS[int].
+    CHECK_THROWS_WITH((register_overload<declares_int_, Wider>()),
+                      Catch::Matchers::ContainsSubstring("widens 'ts'"));
+    // Lacks the required declared 'rhs'.
+    CHECK_THROWS_WITH((register_overload<declares_pair_, UnaryOnly>()),
+                      Catch::Matchers::ContainsSubstring("lacks the declared parameter 'rhs'"));
+    // May omit a declared optional parameter.
+    CHECK_NOTHROW((register_overload<declares_optional_rhs_, UnaryOnly>()));
+    // A declared type argument: required, never widened, and may be refined.
+    CHECK_THROWS_WITH((register_overload<declares_type_arg_, NoTypeArg>()),
+                      Catch::Matchers::ContainsSubstring("lacks the declared parameter 'tp'"));
+    CHECK_THROWS_WITH((register_overload<declares_type_arg_, WiderTypeArg>()),
+                      Catch::Matchers::ContainsSubstring("widens 'tp'"));
+    CHECK_NOTHROW((register_overload<declares_type_arg_, NarrowerTypeArg>()));
+    // A scalar refines a declared input it lifts into, and widens one it does not.
+    CHECK_NOTHROW((register_overload<declares_int_, ScalarNamedTs>()));
+    CHECK_THROWS_WITH((register_overload<declares_int_, StrScalarNamedTs>()),
+                      Catch::Matchers::ContainsSubstring("widens 'ts': declared TS[int], candidate scalar str"));
+    // A repeated variable: one type throughout, never two.
+    CHECK_NOTHROW((register_overload<declares_same_, SameInts>()));
+    CHECK_THROWS_WITH((register_overload<declares_same_, IntAndFloat>()),
+                      Catch::Matchers::ContainsSubstring("repeated variable 'S' two types: TS[int] and TS[float]"));
+    CHECK_THROWS_WITH((register_overload<declares_same_, TwoVariables>()),
+                      Catch::Matchers::ContainsSubstring("repeated variable 'S'"));
+    // A parameter named after another declaration does not fill this one by position.
+    CHECK_THROWS_WITH((register_overload<declares_pair_, OnlyRhs>()),
+                      Catch::Matchers::ContainsSubstring("lacks the declared parameter 'lhs'"));
+    // A pack bounded at one argument cannot take two declared inputs.
+    CHECK_THROWS_WITH((register_overload<declares_pair_, ArgsOnly, OperatorNodePack::Infer, OperatorPackCardinality{0, 1}>()),
+                      Catch::Matchers::ContainsSubstring("takes at most 1 argument(s) but must take 2"));
+    CHECK_NOTHROW((register_overload<declares_pair_, ArgsOnly, OperatorNodePack::Infer, OperatorPackCardinality{0, 2}>()));
+    // A lifted candidate is checked as a node is.
+    CHECK_THROWS_WITH((register_overload<declares_int_, lift<stdlib::scalar_add<Int>>>()),
+                      Catch::Matchers::ContainsSubstring("widens the output"));
+    // An input where the operator declares a scalar is another kind of parameter.
+    CHECK_THROWS_WITH((register_overload<declares_scalar_, InputNamedN>()),
+                      Catch::Matchers::ContainsSubstring("declares 'n' as a time-series input, the operator as a scalar"));
+}
+
+TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23)")
+{
+    stdlib::register_standard_operators();
+    // A constrained variable covers its members and nothing else.
+    const TypePattern date_or_datetime = to_pattern<TS<ScalarVar<"D", Date, DateTime>>>();
+    CHECK(ts_pattern_covers(date_or_datetime, to_pattern<TS<Date>>()));
+    CHECK(ts_pattern_covers(date_or_datetime, to_pattern<TS<DateTime>>()));
+    CHECK_FALSE(ts_pattern_covers(date_or_datetime, to_pattern<TS<Time>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TS<Date>>(), to_pattern<TS<ScalarVar<"T">>>()));
+    // A bare variable covers anything; a structure never covers a bare variable.
+    CHECK(ts_pattern_covers(to_pattern<TsVar<"S">>(), to_pattern<TSL<TS<Int>, 2>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TSL<TsVar<"E">, SIZE<"N">>>(), to_pattern<TsVar<"S">>()));
+    // References are transparent (WIR-6).
+    CHECK(ts_pattern_covers(to_pattern<TS<Int>>(), to_pattern<REF<TS<Int>>>()));
+    // A frame whose metadata may be absent covers both frame forms.
+    const TypePattern any_frame = to_pattern<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>();
+    CHECK(ts_pattern_covers(any_frame, to_pattern<TS<FrameOf<ScalarVar<"R">>>>()));
+    CHECK(ts_pattern_covers(any_frame, to_pattern<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TS<FrameOf<ScalarVar<"R">>>>(),
+                                  to_pattern<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>>()));
+    // Bundle names count only when both are named (WIR-15).
+    using CoverFoo     = TSB<"WiringContractCoverFoo", Field<"a", TS<Int>>>;
+    using CoverBar     = TSB<"WiringContractCoverBar", Field<"a", TS<Int>>>;
+    using CoverUnnamed = UnNamedTSB<Field<"a", TS<Int>>>;
+    CHECK(ts_pattern_covers(to_pattern<CoverUnnamed>(), to_pattern<CoverFoo>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<CoverFoo>(), to_pattern<CoverBar>()));
+    // An unnamed candidate also takes other named bundles: wider than a named one.
+    CHECK_FALSE(ts_pattern_covers(to_pattern<CoverFoo>(), to_pattern<CoverUnnamed>()));
+    // Fields pair by name, in any order.
+    CHECK(ts_pattern_covers(to_pattern<UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<ScalarVar<"T">>>>>(),
+                            to_pattern<UnNamedTSB<Field<"b", TS<Float>>, Field<"a", TS<Int>>>>()));
+    // A nominal subtype refines its base, as input matching accepts it.
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *integer = registry.value_type("int");
+        const auto *base    = registry.bundle("tests.wiring_contract", "CoverBase", {{"a", integer}});
+        const auto *derived = registry.bundle("tests.wiring_contract", "CoverDerived", {{"a", integer}, {"b", integer}}, {base});
+        CHECK(scalar_pattern_covers(ScalarPattern::concrete(base), ScalarPattern::concrete(derived)));
+        CHECK_FALSE(scalar_pattern_covers(ScalarPattern::concrete(derived), ScalarPattern::concrete(base)));
+    }
+    // A generic nominal bundle covers only its own origin.
+    ScalarPattern origin_a = ScalarPattern::bundle();
+    origin_a.bundle_origin = "WiringContractGenericA";
+    ScalarPattern origin_b = origin_a;
+    origin_b.bundle_origin = "WiringContractGenericB";
+    CHECK(scalar_pattern_covers(origin_a, origin_a));
+    CHECK_FALSE(scalar_pattern_covers(origin_a, origin_b));
+    // A constrained list size covers a size variable within its constraints.
+    CHECK(ts_pattern_covers(to_pattern<TSL<TS<Int>, SIZE<"N", 2, 3>>>(), to_pattern<TSL<TS<Int>, SIZE<"M", 2>>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TSL<TS<Int>, SIZE<"N", 2>>>(), to_pattern<TSL<TS<Int>, SIZE<"M">>>()));
+    // Array shapes: rank, fixed extents and repeated variables count.
+    const ScalarPattern matrix = to_scalar_pattern<ArrayOf<ScalarVar<"T">, SIZE<"R">, SIZE<"C">>>();
+    const ScalarPattern square = to_scalar_pattern<ArrayOf<ScalarVar<"T">, SIZE<"N">, SIZE<"N">>>();
+    CHECK(scalar_pattern_covers(matrix, square));
+    CHECK(scalar_pattern_covers(matrix, to_scalar_pattern<ArrayOf<ScalarVar<"U">, 2, 3>>()));
+    CHECK_FALSE(scalar_pattern_covers(square, matrix));
+    CHECK_FALSE(scalar_pattern_covers(square, to_scalar_pattern<ArrayOf<ScalarVar<"U">, 2, 3>>()));
+    CHECK(scalar_pattern_covers(square, to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"M">, SIZE<"M">>>()));
+    CHECK_FALSE(scalar_pattern_covers(to_scalar_pattern<ArrayOf<ScalarVar<"T">, 2>>(),
+                                      to_scalar_pattern<ArrayOf<ScalarVar<"U">, 3>>()));
+    CHECK_FALSE(scalar_pattern_covers(to_scalar_pattern<ArrayOf<ScalarVar<"T">, 2>>(),
+                                      to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"N">>>()));
+    CHECK_FALSE(scalar_pattern_covers(matrix, to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"N">>>()));
 }
 
 TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")

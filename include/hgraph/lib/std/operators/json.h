@@ -58,6 +58,9 @@ namespace hgraph::stdlib
         authoring sugar. */
     struct combine_json : Operator<"combine_json", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
+        /** ``values`` is optional: an object is built from keyword ports
+            alone (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"values">(Value{})}; }
     };
 
     /** Runtime node behind ``combine_json`` (internal). */
@@ -92,7 +95,7 @@ namespace hgraph::stdlib
         @code{.py}
         json_value = hg.json_decode(text)
         @endcode */
-    struct json_decode : Operator<"json_decode", In<"ts", TS<Str>>, Out<TsVar<"O">>>
+    struct json_decode : Operator<"json_decode", In<"ts", TS<ScalarVar<"J", Str, Bytes>>>, Out<TsVar<"O">>>
     {
     };
 

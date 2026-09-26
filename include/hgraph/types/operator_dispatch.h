@@ -47,9 +47,13 @@ namespace hgraph
      */
 
     /**
-     * Operator marker: a name plus a general (documentary) signature. ``Params`` are
-     * the abstract ``In`` / ``Out`` / ``Scalar`` selectors; the marker is **not**
-     * executable (it has no ``eval``). ``wire<add_>(w, …)`` routes to the registry.
+     * Operator marker: a name plus the minimum shape of its candidates (runtime
+     * spec WIR-21 to WIR-24). ``Params`` are the abstract ``In`` / ``Out`` /
+     * ``Scalar`` selectors; an optional ``defaults()`` names the declared
+     * parameters a candidate may omit. ``register_overload`` rejects a
+     * candidate that lacks a required declared parameter or widens a declared
+     * type. The marker is **not** executable (it has no ``eval``);
+     * ``wire<add_>(w, …)`` routes to the registry.
      */
     template <fixed_string Name, typename... Params>
     struct Operator : operator_tag
@@ -2428,6 +2432,251 @@ namespace hgraph
         return impl;
     }
 
+    namespace operator_dispatch_detail
+    {
+        /**
+         * How a candidate departs from its operator's shape (runtime spec
+         * WIR-22, WIR-23): a declared parameter it lacks or declares as
+         * another kind, or a declared parameter, type argument or output it
+         * widens. Empty when it has the shape.
+         */
+        template <typename Op>
+        [[nodiscard]] std::vector<std::string> candidate_shape_violations(const OperatorImpl &impl)
+        {
+            std::vector<std::string> out;
+            using declared = typename Op::param_types;
+            // A declared parameter is found in the candidate by name, else at
+            // the same position (a call binds positionally), else not at all.
+            // The position never supplies a parameter named after another
+            // declared parameter: one candidate parameter cannot satisfy two.
+            std::vector<std::string_view> declared_names;
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                (
+                    [&] {
+                        using P = std::tuple_element_t<I, declared>;
+                        if constexpr (requires { P::field_name; }) { declared_names.push_back(P::field_name.sv()); }
+                    }(),
+                    ...);
+            }(std::make_index_sequence<std::tuple_size_v<declared>>{});
+            std::size_t position = 0;
+            const auto find = [&](std::string_view name, ParamPattern::Kind kind) {
+                auto found = std::ranges::find_if(impl.params, [&](const ParamPattern &p) { return p.name == name; });
+                if (found == impl.params.end() && position < impl.params.size() &&
+                    impl.params[position].kind == kind && !(impl.variadic && position + 1 == impl.params.size()) &&
+                    std::ranges::find(declared_names, std::string_view{impl.params[position].name}) == declared_names.end())
+                {
+                    found = impl.params.begin() + static_cast<std::ptrdiff_t>(position);
+                }
+                return found;
+            };
+            // What the candidate puts where the operator names a variable; a
+            // repeated variable must get one type throughout (WIR-23).
+            PatternVariableUses uses;
+            // Declared inputs the candidate's *args takes, bounded by its
+            // maximum cardinality.
+            std::size_t packed_count = 0;
+            // A parameter the operator declares optional (a default in the
+            // marker's defaults()) may be absent from a candidate (WIR-22).
+            std::vector<std::string> optional;
+            if constexpr (requires { Op::defaults(); })
+            {
+                std::apply([&](const auto &...defaults) { (optional.emplace_back(defaults.name), ...); }, Op::defaults());
+            }
+            const auto is_optional = [&](const std::string &name) {
+                return std::ranges::find(optional, name) != optional.end();
+            };
+            // A parameter found by the declared name but of another kind cannot
+            // take the argument a call supplies under that name (a scalar for a
+            // declared input is the exception: it refines, see below).
+            const auto kind_name = [](ParamPattern::Kind kind) -> std::string {
+                switch (kind)
+                {
+                    case ParamPattern::Kind::Input: return "a time-series input";
+                    case ParamPattern::Kind::Scalar: return "a scalar";
+                    case ParamPattern::Kind::TypeArg: return "a type argument";
+                }
+                return "a parameter";
+            };
+            const auto of_kind = [&](const auto found, const std::string &name, ParamPattern::Kind kind) {
+                if (found->kind == kind) { return true; }
+                out.push_back("declares '" + name + "' as " + kind_name(found->kind) + ", the operator as " +
+                              kind_name(kind));
+                return false;
+            };
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                (
+                    [&] {
+                        using P = std::tuple_element_t<I, declared>;
+                        if constexpr (static_node_detail::is_input_selector<P>::value)
+                        {
+                            const std::string name{P::field_name.sv()};
+                            const auto        found = find(name, ParamPattern::Kind::Input);
+                            ++position;
+                            const TypePattern pattern = to_pattern<typename graph_wiring_detail::in_param_schema<P>::type>();
+                            if (found == impl.params.end())
+                            {
+                                // A candidate's *args accepts a declared input it
+                                // does not name, when its element type covers it.
+                                const bool packed = impl.variadic && !impl.params.empty() &&
+                                                    impl.params.back().kind == ParamPattern::Kind::Input &&
+                                                    ts_pattern_covers(pattern, impl.params.back().ts);
+                                if (packed)
+                                {
+                                    ++packed_count;
+                                    ts_pattern_variable_uses(pattern, impl.params.back().ts, uses);
+                                }
+                                if (!packed && !is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
+                                return;
+                            }
+                            if (found->kind == ParamPattern::Kind::Scalar)
+                            {
+                                // A scalar argument lifts to a const source for a
+                                // time-series input, so a scalar parameter refines
+                                // the declared input when TS[its type] is covered.
+                                const TypePattern lifted =
+                                    found->scalar.kind == ScalarPattern::Kind::Concrete && found->scalar.meta != nullptr
+                                        ? TypePattern::concrete(TypeRegistry::instance().ts(found->scalar.meta))
+                                        : TypePattern::ts(found->scalar);
+                                if (!ts_pattern_covers(pattern, lifted))
+                                {
+                                    out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
+                                                  ", candidate scalar " + scalar_pattern_to_string(found->scalar));
+                                }
+                                ts_pattern_variable_uses(pattern, lifted, uses);
+                                return;
+                            }
+                            if (found->kind == ParamPattern::Kind::Input) { ts_pattern_variable_uses(pattern, found->ts, uses); }
+                            if (of_kind(found, name, ParamPattern::Kind::Input) && !ts_pattern_covers(pattern, found->ts))
+                            {
+                                out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
+                                              ", candidate " + ts_pattern_to_string(found->ts));
+                            }
+                        }
+                        else if constexpr (static_node_detail::is_scalar_selector<P>::value)
+                        {
+                            const std::string name{P::field_name.sv()};
+                            const auto        found = find(name, ParamPattern::Kind::Scalar);
+                            ++position;
+                            if (found == impl.params.end())
+                            {
+                                if (!is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
+                                return;
+                            }
+                            const ScalarPattern pattern =
+                                to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
+                            if (found->kind == ParamPattern::Kind::Scalar)
+                            {
+                                scalar_pattern_variable_uses(pattern, found->scalar, uses);
+                            }
+                            if (of_kind(found, name, ParamPattern::Kind::Scalar) &&
+                                !scalar_pattern_covers(pattern, found->scalar))
+                            {
+                                out.push_back("widens '" + name + "': declared " + scalar_pattern_to_string(pattern) +
+                                              ", candidate " + scalar_pattern_to_string(found->scalar));
+                            }
+                        }
+                        else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+                        {
+                            const std::string  name{P::field_name.sv()};
+                            const auto         found = find(name, ParamPattern::Kind::TypeArg);
+                            ++position;
+                            const ParamPattern declared_arg = type_arg_param_pattern<P>(name);
+                            if (found == impl.params.end())
+                            {
+                                // A type argument with a default is optional, as a
+                                // defaulted scalar is.
+                                if (!is_optional(name) && !declared_arg.has_default())
+                                {
+                                    out.push_back("lacks the declared parameter '" + name + "'");
+                                }
+                                return;
+                            }
+                            if (!of_kind(found, name, ParamPattern::Kind::TypeArg)) { return; }
+                            if (found->carrier == declared_arg.carrier)
+                            {
+                                if (declared_arg.carrier == ResolutionKind::Scalar)
+                                {
+                                    scalar_pattern_variable_uses(declared_arg.scalar, found->scalar, uses);
+                                }
+                                else { ts_pattern_variable_uses(declared_arg.ts, found->ts, uses); }
+                            }
+                            const bool covered =
+                                found->carrier == declared_arg.carrier &&
+                                (declared_arg.carrier == ResolutionKind::Scalar
+                                     ? scalar_pattern_covers(declared_arg.scalar, found->scalar)
+                                     : ts_pattern_covers(declared_arg.ts, found->ts));
+                            if (!covered)
+                            {
+                                out.push_back("widens '" + name + "': declared type[" +
+                                              type_arg_pattern_to_string(declared_arg) + "], candidate type[" +
+                                              type_arg_pattern_to_string(*found) + "]");
+                            }
+                        }
+                    }(),
+                    ...);
+            }(std::make_index_sequence<std::tuple_size_v<declared>>{});
+            if constexpr (Op::has_output && !std::is_void_v<typename Op::output_schema_type>)
+            {
+                // A candidate without an output (a sink) is selected by calls that
+                // do not use one, as map_ over a sink function is.
+                const TypePattern pattern = to_pattern<typename Op::output_schema_type>();
+                if (impl.has_output)
+                {
+                    if (!ts_pattern_covers(pattern, impl.output))
+                    {
+                        out.push_back("widens the output: declared " + ts_pattern_to_string(pattern) + ", candidate " +
+                                      ts_pattern_to_string(impl.output));
+                    }
+                    // An erased output (a bare variable its resolver binds) states
+                    // no type, so it takes no part in a repeated variable.
+                    if (impl.output.kind != TypePattern::Kind::Var) { ts_pattern_variable_uses(pattern, impl.output, uses); }
+                }
+            }
+            if (const auto maximum = impl.positional_pack_cardinality.maximum;
+                maximum != OperatorPackCardinality::unbounded && packed_count > maximum)
+            {
+                out.push_back("its *args takes at most " + std::to_string(maximum) + " argument(s) but must take " +
+                              std::to_string(packed_count) + " declared input(s)");
+            }
+            // A variable the operator repeats, given two types by the candidate,
+            // accepts combinations the declaration excludes.
+            std::vector<std::pair<std::string_view, std::string_view>> first;
+            std::vector<std::string_view> reported;
+            for (const auto &[variable, what] : uses)
+            {
+                const auto seen = std::ranges::find(first, std::string_view{variable},
+                                                    &std::pair<std::string_view, std::string_view>::first);
+                if (seen == first.end()) { first.emplace_back(variable, what); continue; }
+                if (seen->second == what || std::ranges::find(reported, std::string_view{variable}) != reported.end())
+                {
+                    continue;
+                }
+                reported.push_back(variable);
+                const std::string_view shown = std::string_view{variable}.substr(std::string_view{variable}.find(':') + 1);
+                out.push_back("gives the operator's repeated variable '" + std::string{shown} + "' two types: " +
+                              std::string{seen->second} + " and " + std::string{what});
+            }
+            return out;
+        }
+
+        /**
+         * Reject a candidate that does not have its operator's shape when it
+         * is registered (runtime spec WIR-24): it lacks a required declared
+         * parameter, or widens a declared parameter or output (WIR-22, WIR-23).
+         */
+        template <typename Op>
+        void require_candidate_shape(const OperatorImpl &impl)
+        {
+            const std::vector<std::string> violations = candidate_shape_violations<Op>(impl);
+            if (violations.empty()) { return; }
+            std::string message = "operator '" + std::string{Op::name} + "': candidate " +
+                                  (impl.label.empty() ? impl.name : impl.label) +
+                                  " does not have the operator's shape:";
+            for (const std::string &violation : violations) { message += "\n  - " + violation; }
+            throw std::invalid_argument(message);
+        }
+    }  // namespace operator_dispatch_detail
+
     /** Register the C++ implementation ``Impl`` as an overload of operator ``Op``. */
     template <typename Op, typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
     void register_overload() {
@@ -2436,12 +2685,15 @@ namespace hgraph
             static_assert(Pack == OperatorNodePack::Infer,
                           "a lifted overload does not have a static-node aggregate pack");
             static_assert(Cardinality == OperatorPackCardinality{}, "a lifted overload does not have a variadic operator pack");
-            OperatorRegistry::instance().register_overload(
-                operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name}));
+            OperatorImpl impl = operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name});
+            operator_dispatch_detail::require_candidate_shape<Op>(impl);
+            OperatorRegistry::instance().register_overload(std::move(impl));
         }
         else
         {
-            OperatorRegistry::instance().register_overload(make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name}));
+            OperatorImpl impl = make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name});
+            operator_dispatch_detail::require_candidate_shape<Op>(impl);
+            OperatorRegistry::instance().register_overload(std::move(impl));
         }
     }
 
@@ -2449,8 +2701,9 @@ namespace hgraph
     template <typename Op, typename Impl, OperatorPackCardinality PositionalCardinality = {},
               OperatorPackCardinality KeywordCardinality = {}>
     void register_graph_overload() {
-        OperatorRegistry::instance().register_overload(
-            make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name}));
+        OperatorImpl impl = make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name});
+        operator_dispatch_detail::require_candidate_shape<Op>(impl);
+        OperatorRegistry::instance().register_overload(std::move(impl));
     }
 
     /**
