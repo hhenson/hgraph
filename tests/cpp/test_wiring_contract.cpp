@@ -635,3 +635,86 @@ TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candida
     CHECK_THROWS(eval_node<TiedGraph>(values<Int>(1)));
     CHECK_THROWS(eval_node<NoCandidateGraph>(values<Str>("x"s)));
 }
+
+namespace
+{
+    struct requires_ref_carrier_ : Operator<"wiring_contract_ref_carrier", In<"tick", TS<Int>>,
+                                            TypeArg<"tp", REF<TS<Int>>>, Out<TS<Str>>> {};
+    struct ValueCarrierCandidate
+    {
+        static void eval(In<"tick", TS<Int>>, TypeArg<"tp", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"value"}); }
+    };
+    struct RefCarrierCandidate
+    {
+        static void eval(In<"tick", TS<Int>>, TypeArg<"tp", REF<TS<Int>>>, Out<TS<Str>> out) { out.set(Str{"ref"}); }
+    };
+    struct RefCarrierGraph
+    {
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> tick)
+        {
+            return wire<requires_ref_carrier_>(w, tick, TypeCarrier::of_ts(ts_type<REF<TS<Int>>>())).as<TS<Str>>();
+        }
+    };
+    struct accepts_unknown_tuple_ : Operator<"wiring_contract_unknown_tuple", In<"tick", TS<Int>>,
+                                               Scalar<"values", UnknownTuple<ScalarVar<"T">>>, Out<TS<Str>>> {};
+    struct accepts_any_tuple_ : Operator<"wiring_contract_any_tuple", In<"tick", TS<Int>>,
+                                           Scalar<"values", UnknownTuple<>>, Out<TS<Str>>> {};
+    struct HomogeneousTupleCandidate
+    {
+        static void eval(In<"tick", TS<Int>>, Scalar<"values", HomogeneousTuple<ScalarVar<"T">>>, Out<TS<Str>> out)
+        { out.set(Str{"homogeneous"}); }
+    };
+    struct FixedTupleCandidate
+    {
+        static void eval(In<"tick", TS<Int>>, Scalar<"values", Tuple<ScalarVar<"A">, ScalarVar<"B">>>, Out<TS<Str>> out)
+        { out.set(Str{"fixed"}); }
+    };
+
+}
+
+TEST_CASE("wiring contract: type carriers use exact carried-type coverage")
+{
+    stdlib::register_standard_operators();
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *base = registry.bundle("tests.carried_coverage", "Base", {{"value", integer}});
+    const auto *derived = registry.bundle("tests.carried_coverage", "Derived", {{"value", integer}}, {base});
+    const auto base_pattern = ScalarPattern::concrete(base);
+    const auto derived_pattern = ScalarPattern::concrete(derived);
+    CHECK(scalar_pattern_covers(base_pattern, derived_pattern));
+    CHECK_FALSE(scalar_pattern_covers(base_pattern, derived_pattern, PatternCoverageMode::TypeCarrier));
+    CHECK(scalar_pattern_covers(base_pattern, base_pattern, PatternCoverageMode::TypeCarrier));
+    CHECK_FALSE(scalar_pattern_covers(ScalarPattern::unknown_tuple(base_pattern),
+                                     ScalarPattern::homogeneous_tuple(base_pattern)));
+    CHECK_FALSE(scalar_pattern_covers(ScalarPattern::unknown_tuple(base_pattern),
+                                     ScalarPattern::unknown_tuple(derived_pattern)));
+    CHECK(scalar_pattern_covers(ScalarPattern::unknown_tuple(ScalarPattern::var("T")),
+                               ScalarPattern::homogeneous_tuple(base_pattern)));
+    CHECK(scalar_pattern_covers(ScalarPattern::unknown_tuple(base_pattern),
+                               ScalarPattern::homogeneous_tuple(base_pattern), PatternCoverageMode::TypeCarrier));
+    CHECK_FALSE(ts_pattern_covers(TypePattern::ts(base_pattern), TypePattern::concrete(registry.ts(derived)),
+                                 PatternCoverageMode::TypeCarrier));
+    CHECK_THROWS_WITH((register_overload<requires_ref_carrier_, ValueCarrierCandidate>()),
+                      Catch::Matchers::ContainsSubstring("widens 'tp'"));
+    CHECK_NOTHROW((register_overload<requires_ref_carrier_, RefCarrierCandidate>()));
+    CHECK_OUTPUT(eval_node<RefCarrierGraph>(values<Int>(1)), values<Str>(Str{"ref"}));
+}
+
+TEST_CASE("wiring contract: compatible tuple forms refine operator declarations")
+{
+    stdlib::register_standard_operators();
+    const auto unknown = to_scalar_pattern<UnknownTuple<ScalarVar<"T">>>();
+    const auto homogeneous = to_scalar_pattern<HomogeneousTuple<ScalarVar<"U">>>();
+    CHECK(scalar_pattern_covers(unknown, homogeneous));
+    CHECK(scalar_pattern_covers(homogeneous, unknown));
+    CHECK(scalar_pattern_covers(to_scalar_pattern<UnknownTuple<>>(), homogeneous));
+    CHECK(scalar_pattern_covers(to_scalar_pattern<UnknownTuple<>>(), to_scalar_pattern<Tuple<ScalarVar<"A">, ScalarVar<"B">>>()));
+    CHECK(scalar_pattern_covers(unknown, to_scalar_pattern<Tuple<ScalarVar<"U">, ScalarVar<"U">>>()));
+    CHECK_FALSE(scalar_pattern_covers(unknown, to_scalar_pattern<Tuple<ScalarVar<"A">, ScalarVar<"B">>>()));
+    CHECK_FALSE(scalar_pattern_covers(unknown, to_scalar_pattern<UnknownTuple<>>()));
+    CHECK_FALSE(scalar_pattern_covers(unknown, to_scalar_pattern<Tuple<UnknownTuple<>, UnknownTuple<>>>()));
+    CHECK_FALSE(scalar_pattern_covers(to_scalar_pattern<Tuple<ScalarVar<"A">>>(), homogeneous));
+    CHECK_NOTHROW((register_overload<accepts_unknown_tuple_, HomogeneousTupleCandidate>()));
+    CHECK_NOTHROW((register_overload<accepts_any_tuple_, FixedTupleCandidate>()));
+    CHECK_THROWS((register_overload<accepts_unknown_tuple_, FixedTupleCandidate>()));
+}

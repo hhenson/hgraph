@@ -380,21 +380,26 @@ namespace hgraph
                                                              const TSValueTypeMetaData *concrete,
                                                              ResolutionMap &map);
 
-    /** Scalar-layer counterpart of ``ts_pattern_match``. */
+    /** Input edges admit subtype/reference adaptation; carried types use the
+     * exact scalar and output-direction matchers used by TypeArg. */
+    enum class PatternCoverageMode { Input, TypeCarrier };
+
     /**
      * Whether ``general`` accepts every scalar type ``specific`` accepts: a
      * candidate's scalar parameter may refine its operator's, never widen it
      * (runtime spec WIR-23).
      */
-    [[nodiscard]] HGRAPH_EXPORT bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific);
+    [[nodiscard]] HGRAPH_EXPORT bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific,
+                                                            PatternCoverageMode mode = PatternCoverageMode::Input);
 
     /**
      * Whether ``general`` accepts every time-series type ``specific`` accepts:
      * a candidate's parameter or output may refine its operator's, never widen
-     * it (runtime spec WIR-23). A reference is transparent (WIR-6), and bundle
-     * names count only when both bundles are named (WIR-15).
+     * it (runtime spec WIR-23). Input coverage treats references as transparent
+     * (WIR-6); TypeCarrier coverage follows output-direction matching.
      */
-    [[nodiscard]] HGRAPH_EXPORT bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific);
+    [[nodiscard]] HGRAPH_EXPORT bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific,
+                                                        PatternCoverageMode mode = PatternCoverageMode::Input);
 
     /**
      * What a candidate puts where its operator names a type variable: one entry

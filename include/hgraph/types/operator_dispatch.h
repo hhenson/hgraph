@@ -2603,8 +2603,8 @@ namespace hgraph
                             const bool covered =
                                 found->carrier == declared_arg.carrier &&
                                 (declared_arg.carrier == ResolutionKind::Scalar
-                                     ? scalar_pattern_covers(declared_arg.scalar, found->scalar)
-                                     : ts_pattern_covers(declared_arg.ts, found->ts));
+                                     ? scalar_pattern_covers(declared_arg.scalar, found->scalar, PatternCoverageMode::TypeCarrier)
+                                     : ts_pattern_covers(declared_arg.ts, found->ts, PatternCoverageMode::TypeCarrier));
                             if (!covered)
                             {
                                 out.push_back("widens '" + name + "': declared type[" +

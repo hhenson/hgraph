@@ -395,15 +395,17 @@ namespace hgraph
         }
     }  // namespace
 
-    bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific)
+    bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific, PatternCoverageMode mode)
     {
         // A concrete candidate type is covered exactly when the operator's
-        // pattern accepts it as an input would: a nominal subtype refines
-        // its base (value_is_a), as operator matching allows.
+        // matching direction accepts it. Inputs permit nominal subtypes;
+        // carried types use the exact scalar matcher.
         if (specific.kind == ScalarPattern::Kind::Concrete)
         {
             ResolutionMap scratch;
-            return specific.meta != nullptr && input_scalar_pattern_match(general, specific.meta, scratch);
+            return specific.meta != nullptr && (mode == PatternCoverageMode::Input
+                ? input_scalar_pattern_match(general, specific.meta, scratch)
+                : scalar_pattern_match(general, specific.meta, scratch));
         }
         if (general.kind == ScalarPattern::Kind::Var)
         {
@@ -422,7 +424,62 @@ namespace hgraph
             specific.children.size() == 1)
         {
             // A frame whose metadata may be absent covers a frame without it.
-            return scalar_pattern_covers(general.children[0], specific.children[0]);
+            return scalar_pattern_covers(general.children[0], specific.children[0], mode);
+        }
+        const auto tuple_pattern = [](ScalarPattern::Kind kind) {
+            return kind == ScalarPattern::Kind::UnknownTuple || kind == ScalarPattern::Kind::HomogeneousTuple ||
+                   kind == ScalarPattern::Kind::FixedTuple;
+        };
+        if (general.kind == ScalarPattern::Kind::UnknownTuple && general.children.empty())
+        {
+            return tuple_pattern(specific.kind);
+        }
+        // UnknownTuple<T> and HomogeneousTuple<T> both admit homogeneous tuples
+        // and lists. A fixed tuple refines them only if every position must have
+        // the same type; independently bound variables do not guarantee that.
+        if ((general.kind == ScalarPattern::Kind::UnknownTuple ||
+             general.kind == ScalarPattern::Kind::HomogeneousTuple) && tuple_pattern(specific.kind))
+        {
+            if (general.children.empty() || specific.children.empty()) { return false; }
+            if (specific.kind == ScalarPattern::Kind::FixedTuple)
+            {
+                // Repeated variables share a binding; concrete children name a
+                // single type. Repeated structural wildcards can still match
+                // different shapes, so they do not prove homogeneity.
+                const auto kind = specific.children.front().kind;
+                if (kind != ScalarPattern::Kind::Var && kind != ScalarPattern::Kind::Concrete) { return false; }
+                const auto first = scalar_pattern_to_string(specific.children.front());
+                if (!std::ranges::all_of(specific.children, [&](const ScalarPattern &child) {
+                        return scalar_pattern_to_string(child) == first;
+                    })) { return false; }
+            }
+            // UnknownTuple and fixed tuple elements use strict scalar matching.
+            // HomogeneousTuple inputs additionally admit nominal subtypes. Do
+            // not mistake that broader candidate for a strict tuple refinement.
+            const auto &element = general.children[0];
+            if (mode == PatternCoverageMode::Input && general.kind == ScalarPattern::Kind::UnknownTuple &&
+                specific.kind == ScalarPattern::Kind::HomogeneousTuple &&
+                !(element.kind == ScalarPattern::Kind::Var && element.constraints.empty() && element.bound == nullptr))
+            {
+                const auto admits_subtypes = [](const auto &self, const ScalarPattern &pattern) -> bool {
+                    if (pattern.kind == ScalarPattern::Kind::Concrete)
+                    {
+                        return pattern.meta != nullptr && pattern.meta->value_kind() == ValueTypeKind::Bundle;
+                    }
+                    if (pattern.kind == ScalarPattern::Kind::Var)
+                    {
+                        return std::ranges::any_of(pattern.constraints, [](const ValueTypeMetaData *constraint) {
+                            return constraint != nullptr && constraint->value_kind() == ValueTypeKind::Bundle;
+                        });
+                    }
+                    return (pattern.kind == ScalarPattern::Kind::HomogeneousTuple || pattern.kind == ScalarPattern::Kind::Frame) &&
+                           !pattern.children.empty() && self(self, pattern.children[0]);
+                };
+                if (admits_subtypes(admits_subtypes, specific.children[0])) { return false; }
+            }
+            const auto element_mode = general.kind == ScalarPattern::Kind::UnknownTuple
+                                          ? PatternCoverageMode::TypeCarrier : mode;
+            return scalar_pattern_covers(element, specific.children[0], element_mode);
         }
         if (specific.optional_metadata && !general.optional_metadata) { return false; }
         if (general.kind != specific.kind || general.children.size() != specific.children.size()) { return false; }
@@ -439,7 +496,7 @@ namespace hgraph
         }
         for (std::size_t index = 0; index < general.children.size(); ++index)
         {
-            if (!scalar_pattern_covers(general.children[index], specific.children[index])) { return false; }
+            if (!scalar_pattern_covers(general.children[index], specific.children[index], mode)) { return false; }
         }
         return true;
     }
@@ -507,6 +564,14 @@ namespace hgraph
         if (general.kind == ScalarPattern::Kind::Var)
         {
             uses.emplace_back("scalar:" + general.name, scalar_pattern_to_string(specific));
+            return;
+        }
+        if ((general.kind == ScalarPattern::Kind::UnknownTuple || general.kind == ScalarPattern::Kind::HomogeneousTuple) &&
+            !general.children.empty() &&
+            (specific.kind == ScalarPattern::Kind::UnknownTuple || specific.kind == ScalarPattern::Kind::HomogeneousTuple ||
+             specific.kind == ScalarPattern::Kind::FixedTuple))
+        {
+            for (const auto &child : specific.children) { scalar_pattern_variable_uses(general.children[0], child, uses); }
             return;
         }
         if (general.kind != specific.kind) { return; }
@@ -591,17 +656,40 @@ namespace hgraph
         }
     }
 
-    bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific)
+    bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific, PatternCoverageMode mode)
     {
         if (specific.kind == TypePattern::Kind::Concrete)
         {
             ResolutionMap scratch;
-            return specific.meta != nullptr && input_ts_pattern_match(general, specific.meta, scratch);
+            return specific.meta != nullptr && (mode == PatternCoverageMode::Input
+                ? input_ts_pattern_match(general, specific.meta, scratch)
+                : output_ts_pattern_match(general, specific.meta, scratch));
         }
-        // References are transparent for coverage (WIR-6).
-        if (general.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general.children[0], specific); }
-        if (specific.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general, specific.children[0]); }
-        if (general.kind == TypePattern::Kind::Signal) { return true; }  // an input observing any series
+        // References are transparent for inputs (WIR-6). An explicit
+        // carried reference must be matched by a reference.
+        if (general.kind == TypePattern::Kind::REF)
+        {
+            if (mode == PatternCoverageMode::TypeCarrier)
+            {
+                return specific.kind == TypePattern::Kind::REF &&
+                       ts_pattern_covers(general.children[0], specific.children[0], mode);
+            }
+            return ts_pattern_covers(general.children[0], specific, mode);
+        }
+        if (specific.kind == TypePattern::Kind::REF)
+        {
+            // A top-level carrier variable checks its constraints against the
+            // reference as supplied, before ordinary reference transparency.
+            if (mode == PatternCoverageMode::TypeCarrier && general.kind == TypePattern::Kind::Var)
+            {
+                return general.constraints.empty();
+            }
+            return ts_pattern_covers(general, specific.children[0], mode);
+        }
+        if (general.kind == TypePattern::Kind::Signal)
+        {
+            return mode == PatternCoverageMode::Input || specific.kind == TypePattern::Kind::Signal;
+        }
         if (general.kind == TypePattern::Kind::Var)
         {
             if (general.constraints.empty()) { return true; }
@@ -615,7 +703,7 @@ namespace hgraph
         switch (general.kind)
         {
             case TypePattern::Kind::TS:
-            case TypePattern::Kind::TSS: return scalar_pattern_covers(general.scalar, specific.scalar);
+            case TypePattern::Kind::TSS: return scalar_pattern_covers(general.scalar, specific.scalar, mode);
             case TypePattern::Kind::TSL:
             {
                 const bool any_size = general.size_var ? general.size_constraints.empty()
@@ -628,13 +716,13 @@ namespace hgraph
                                      (specific.size_var && general.size_var && !specific.size_constraints.empty() &&
                                       std::ranges::all_of(specific.size_constraints, allowed)) ||
                                      (!general.size_var && !specific.size_var && general.fixed_size == specific.fixed_size);
-                return size_ok && ts_pattern_covers(general.children[0], specific.children[0]);
+                return size_ok && ts_pattern_covers(general.children[0], specific.children[0], mode);
             }
             case TypePattern::Kind::TSD:
-                return scalar_pattern_covers(general.scalar, specific.scalar) &&
-                       ts_pattern_covers(general.children[0], specific.children[0]);
+                return scalar_pattern_covers(general.scalar, specific.scalar, mode) &&
+                       ts_pattern_covers(general.children[0], specific.children[0], mode);
             case TypePattern::Kind::TSW:
-                return scalar_pattern_covers(general.scalar, specific.scalar) &&
+                return scalar_pattern_covers(general.scalar, specific.scalar, mode) &&
                        (general.any_window ||
                         (general.duration_window == specific.duration_window && general.fixed_size == specific.fixed_size &&
                          general.min_size == specific.min_size && general.duration_micros == specific.duration_micros &&
@@ -666,7 +754,7 @@ namespace hgraph
                 {
                     const auto found = by_name.find(general.field_names[index]);
                     if (found == by_name.end() ||
-                        !ts_pattern_covers(general.children[index], specific.children[found->second]))
+                        !ts_pattern_covers(general.children[index], specific.children[found->second], mode))
                     {
                         return false;
                     }
