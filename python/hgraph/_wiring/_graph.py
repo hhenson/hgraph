@@ -271,6 +271,8 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                     call_kwargs[parameter.name] = value
             label = getattr(gfn, "_label", None) or getattr(
                 gfn, "__name__", "<python-graph>")
+            # The result's lift and output check belong to this graph: a
+            # failure there names it on the wiring path (runtime spec WIR-4).
             with _graph_scope(borrowed_wiring, label):
                 if isinstance(gfn, _GraphFn):
                     # The wrapper owns this nested scope. Calling __call__
@@ -280,15 +282,15 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                     out = gfn(*call_args, **call_kwargs)
                 else:
                     out = user_fn(*call_args, **call_kwargs)
-            if out is None:
-                return None
-            if not isinstance(out, WiringPort):
-                # a plain value returned from a @graph lifts to const
-                # (hgraph parity - dispatch branches `return "woof"`).
-                out = wire("const", out)
-            raw = _unwrap(out)
-            _check_declared_output(out_tp, raw, label)
-            return _graph_result_port(raw, out_tp)
+                if out is None:
+                    return None
+                if not isinstance(out, WiringPort):
+                    # a plain value returned from a @graph lifts to const
+                    # (hgraph parity - dispatch branches `return "woof"`).
+                    out = wire("const", out)
+                raw = _unwrap(out)
+                _check_declared_output(out_tp, raw, label)
+                return _graph_result_port(raw, out_tp)
         finally:
             _wiring_stack.pop()
 

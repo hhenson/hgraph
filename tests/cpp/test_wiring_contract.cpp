@@ -463,4 +463,7 @@ TEST_CASE("wiring contract: a failure names the operator, the reasons and the wi
                           Catch::Matchers::ContainsSubstring("does not match TS[int]") &&
                           Catch::Matchers::ContainsSubstring(
                               "wiring path: wiring_contract_failing_outer -> wiring_contract_failing_inner"));
+    // A compiled child graph (nested_, compile_subgraph) names itself too.
+    CHECK_THROWS_WITH(compile_subgraph<FailingInnerGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_failing_inner"));
 }
