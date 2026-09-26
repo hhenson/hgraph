@@ -398,11 +398,12 @@ namespace hgraph
     bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific)
     {
         // A concrete candidate type is covered exactly when the operator's
-        // pattern matches it.
+        // pattern accepts it as an input would: a nominal subtype refines
+        // its base (value_is_a), as operator matching allows.
         if (specific.kind == ScalarPattern::Kind::Concrete)
         {
             ResolutionMap scratch;
-            return specific.meta != nullptr && scalar_pattern_match(general, specific.meta, scratch);
+            return specific.meta != nullptr && input_scalar_pattern_match(general, specific.meta, scratch);
         }
         if (general.kind == ScalarPattern::Kind::Var)
         {

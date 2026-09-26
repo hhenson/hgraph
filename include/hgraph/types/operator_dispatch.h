@@ -2472,6 +2472,9 @@ namespace hgraph
             // What the candidate puts where the operator names a variable; a
             // repeated variable must get one type throughout (WIR-23).
             PatternVariableUses uses;
+            // Declared inputs the candidate's *args takes, bounded by its
+            // maximum cardinality.
+            std::size_t packed_count = 0;
             // A parameter the operator declares optional (a default in the
             // marker's defaults()) may be absent from a candidate (WIR-22).
             std::vector<std::string> optional;
@@ -2517,7 +2520,11 @@ namespace hgraph
                                 const bool packed = impl.variadic && !impl.params.empty() &&
                                                     impl.params.back().kind == ParamPattern::Kind::Input &&
                                                     ts_pattern_covers(pattern, impl.params.back().ts);
-                                if (packed) { ts_pattern_variable_uses(pattern, impl.params.back().ts, uses); }
+                                if (packed)
+                                {
+                                    ++packed_count;
+                                    ts_pattern_variable_uses(pattern, impl.params.back().ts, uses);
+                                }
                                 if (!packed && !is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
                                 return;
                             }
@@ -2624,6 +2631,12 @@ namespace hgraph
                     // no type, so it takes no part in a repeated variable.
                     if (impl.output.kind != TypePattern::Kind::Var) { ts_pattern_variable_uses(pattern, impl.output, uses); }
                 }
+            }
+            if (const auto maximum = impl.positional_pack_cardinality.maximum;
+                maximum != OperatorPackCardinality::unbounded && packed_count > maximum)
+            {
+                out.push_back("its *args takes at most " + std::to_string(maximum) + " argument(s) but must take " +
+                              std::to_string(packed_count) + " declared input(s)");
             }
             // A variable the operator repeats, given two types by the candidate,
             // accepts combinations the declaration excludes.

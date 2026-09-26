@@ -378,6 +378,14 @@ namespace
     {
         static void eval(In<"lhs", TsVar<"A">>, In<"rhs", TsVar<"B">>, Out<TS<Str>> out) { out.set(Str{"any"}); }
     };
+    // A pack takes declared inputs only up to its maximum cardinality.
+    struct ArgsOnly
+    {
+        static void eval(In<"values", Args<TS<Int>>, InputValidity::Unchecked>, Out<TS<Str>> out)
+        {
+            out.set(Str{"args"});
+        }
+    };
     // One candidate parameter cannot satisfy two declared ones.
     struct OnlyRhs
     {
@@ -543,6 +551,10 @@ TEST_CASE("wiring contract: registration rejects a candidate without its operato
     // A parameter named after another declaration does not fill this one by position.
     CHECK_THROWS_WITH((register_overload<declares_pair_, OnlyRhs>()),
                       Catch::Matchers::ContainsSubstring("lacks the declared parameter 'lhs'"));
+    // A pack bounded at one argument cannot take two declared inputs.
+    CHECK_THROWS_WITH((register_overload<declares_pair_, ArgsOnly, OperatorNodePack::Infer, OperatorPackCardinality{0, 1}>()),
+                      Catch::Matchers::ContainsSubstring("takes at most 1 argument(s) but must take 2"));
+    CHECK_NOTHROW((register_overload<declares_pair_, ArgsOnly, OperatorNodePack::Infer, OperatorPackCardinality{0, 2}>()));
     // A lifted candidate is checked as a node is.
     CHECK_THROWS_WITH((register_overload<declares_int_, lift<stdlib::scalar_add<Int>>>()),
                       Catch::Matchers::ContainsSubstring("widens the output"));
@@ -582,6 +594,15 @@ TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23
     // Fields pair by name, in any order.
     CHECK(ts_pattern_covers(to_pattern<UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<ScalarVar<"T">>>>>(),
                             to_pattern<UnNamedTSB<Field<"b", TS<Float>>, Field<"a", TS<Int>>>>()));
+    // A nominal subtype refines its base, as input matching accepts it.
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *integer = registry.value_type("int");
+        const auto *base    = registry.bundle("tests.wiring_contract", "CoverBase", {{"a", integer}});
+        const auto *derived = registry.bundle("tests.wiring_contract", "CoverDerived", {{"a", integer}, {"b", integer}}, {base});
+        CHECK(scalar_pattern_covers(ScalarPattern::concrete(base), ScalarPattern::concrete(derived)));
+        CHECK_FALSE(scalar_pattern_covers(ScalarPattern::concrete(derived), ScalarPattern::concrete(base)));
+    }
     // A generic nominal bundle covers only its own origin.
     ScalarPattern origin_a = ScalarPattern::bundle();
     origin_a.bundle_origin = "WiringContractGenericA";
