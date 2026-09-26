@@ -1,5 +1,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
+#include <hgraph/types/time_series/endpoint_schema.h>
+
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
@@ -137,7 +139,12 @@ namespace hgraph
                                                            const char *fn)
         {
             if (!binding) { throw std::logic_error(fmt::format("{}: layout records no canonical delta binding", fn)); }
-            if (schema != nullptr && binding.schema() != schema->delta_value_schema)
+            // A storage category (Owned, Shared) is a layout detail: an input
+            // declared TS[X] may bind an output laid out as TS[Owned[X]], as
+            // time_series_schema_equivalent allows, and its data then records
+            // the output's canonical binding.
+            if (schema != nullptr && binding.schema() != schema->delta_value_schema &&
+                value_schema_without_storage(binding.schema()) != value_schema_without_storage(schema->delta_value_schema))
             {
                 throw std::logic_error(fmt::format(
                     "{}: the layout's canonical delta binding ({}) is not the delta schema of {} ({})", fn,
@@ -1322,6 +1329,15 @@ namespace hgraph
             {
                 auto binding = canonical_delta_binding(in, "capture_delta");
                 if (value.binding() == binding) { return Value{value}; }
+                // Bound across a storage category (an input declared TS[X] on
+                // an output laid out as TS[Owned[X]]): the delta is the value
+                // in its own owning type, as the consumer declared it, not the
+                // producer's storage (require_canonical_delta).
+                if (const auto *declared = in.schema(); declared != nullptr &&
+                    binding.schema() != declared->delta_value_schema)
+                {
+                    return Value{value};
+                }
                 if (!binding.ops_ref().accepts_source(binding, value.binding()))
                 {
                     const auto realized = value_type_for_active_realization(binding.schema());

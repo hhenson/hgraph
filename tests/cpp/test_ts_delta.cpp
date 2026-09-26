@@ -351,6 +351,34 @@ TEST_CASE(
       {1, none, 3});
 }
 
+TEST_CASE("ts_delta: an input bound to an owned layout captures the output's value") {
+  // A recursive field is laid out behind an owner (TS[Owned[Node]]) while a
+  // consumer declares the logical type (TS[Node]); a storage category is a
+  // layout detail, so the binding is legal and the capture must not refuse it.
+  auto &registry = TypeRegistry::instance();
+  auto &value_factory = ValuePlanFactory::instance();
+  auto &ts_factory = TSDataPlanFactory::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *node = registry.bundle("TsDeltaOwnedNode", {{"value", integer}});
+  const auto *ts_node = registry.ts(node);
+  const auto *ts_owned_node = registry.ts(registry.owned(node));
+
+  TSOutput output{ts_factory.output_type_for(ts_owned_node)};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *ts_node, TSEndpointSchema::peered(ts_node))};
+  input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+
+  Value source{value_factory.type_for(registry.owned(node))};
+  source.as_bundle().begin_mutation().at("value").checked_mutable_as<Int>() = 7;
+  REQUIRE(output.view(MIN_ST).begin_mutation(MIN_ST).copy_value_from(source.view()));
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  CHECK(captured.view().equals(source.view()));
+  // The delta has the consumer's declared type, not the producer's storage:
+  // a recorder typed from the input (List[Node]) accepts it.
+  CHECK(captured.view().schema() == node);
+}
+
 TEST_CASE("ts_delta: atomic capture constructs an immutable canonical owner") {
   auto &registry = TypeRegistry::instance();
   auto &value_factory = ValuePlanFactory::instance();
