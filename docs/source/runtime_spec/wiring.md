@@ -306,7 +306,10 @@ flowchart TD
 - **WIR-22** Every operator accepts arguments beyond those it declares, as
   if its signature ended with `*args, **kwargs`, and a call passes them to
   the candidates. A candidate has every parameter the operator declares and
-  may declare more, with or without defaults. A candidate that requires an
+  may declare more, with or without defaults. A parameter the operator
+  declares optional (with a default) may be absent from a candidate, which
+  then matches only calls that do not supply it: `min_(lhs, rhs = optional)`
+  admits a unary candidate over a collection. A candidate that requires an
   argument the call does not supply does not match; that is not an error.
 - **WIR-23** A candidate may refine a declared parameter or output to a
   narrower type (a concrete type for a variable, a structure for a bare

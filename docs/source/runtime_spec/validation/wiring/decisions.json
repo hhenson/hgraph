@@ -94,6 +94,16 @@
         "WIR-24"
       ],
       "note": "Settles point 6. Both runtimes register a wider candidate (WV-6); expectations follow this ruling."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Operator declarations narrower than their operators: min_/max_ are declared (lhs, rhs) but have unary, variadic and bundle candidates. How should the declaration cover them?",
+      "ruling": "For these scenarios we should declare one of the params optional to allow a unary call.",
+      "rules": [
+        "WIR-22"
+      ],
+      "note": "A declared optional parameter may be absent from a candidate. The C++ declaration cleanup and the registration check follow (WV-6)."
     }
   ]
 }
