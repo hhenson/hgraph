@@ -242,12 +242,14 @@ flowchart TD
   rather than asking the runtime, reaches the bindings the runtime would
   reach for the same call.
 - **WIR-15** Bundles match by their fields: two bundle types match when they
-  have the same fields, in the same order, with matching types. A bundle's
-  name counts only when both are named, and then the names must be equal.
-  So a named bundle and an unnamed bundle with the same fields match, and
-  two named bundles with the same fields but different names do not. This
-  holds wherever two types are compared: an argument against a parameter, a
-  repeated variable, a stated or requested type. (Owner ruling 2026-09-26.)
+  have the same field names, each with a matching type. Fields pair by name;
+  their order does not matter. A bundle's name counts only when both are
+  named, and then the names must be equal. So a named bundle and an unnamed
+  bundle with the same fields match, in any order, and two named bundles
+  with the same fields but different names do not. This holds wherever two
+  types are compared: an argument against a parameter, a repeated variable,
+  a stated or requested type, and a service implementation's output against
+  its interface. (Owner rulings 2026-09-26.)
 
 
 Part 3 — Operator resolution

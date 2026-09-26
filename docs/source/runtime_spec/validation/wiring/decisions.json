@@ -144,6 +144,25 @@
         "WIR-4"
       ],
       "note": "Settles point 5. Case caught_failure."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "main's #1651 lets a service adaptor implementation return a differently named bundle (ImplementationStreamLikeResult) for an interface declaring StreamLikeResult, with the same fields in another order; 0.5.41 rejects it. How is this settled against WIR-15?",
+      "ruling": "Apply WIR-15: wiring refuses differently named bundles everywhere, including service boundaries. The implementation returns the interface's schema, or an unnamed one.",
+      "rules": [
+        "WIR-15"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should field order matter when bundles match?",
+      "ruling": "Order doesn't matter: fields pair by name. A bundle with the same named fields in another order matches, subject to the name rule.",
+      "rules": [
+        "WIR-15"
+      ],
+      "note": "WIR-15 had said 'in the same order', which the first ruling did not state; withdrawn. Case bundle_field_order."
     }
   ]
 }

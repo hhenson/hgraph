@@ -171,6 +171,18 @@ a `Foo` and an unnamed input.
 | `_takes_unnamed(Foo)` | wires |
 | `_takes_foo(Bar)` | fails |
 
+Field order. `Pair` is a named bundle with fields `a: TS[int]` and
+`b: TS[int]`; `Riap` is a named bundle with the same fields declared `b`
+then `a`, and `{b, a}` an unnamed one. The sources publish `a = 1`, `b = 2`;
+`_takes_pair` and `_takes_ba` publish `a * 10 + b`.
+
+| Call | Expected |
+|---|---|
+| `_takes_pair({b, a})` | wires, and publishes `12`: fields pair by name |
+| `_takes_ba(Pair)` | wires, and publishes `12` |
+| `_same(Pair, {b, a})` | wires |
+| `_takes_pair(Riap)` | fails: both named, different names |
+
 ## WIRE-OPERATOR-CONTRACT — WIR-21 to WIR-24
 
 Four operators and their candidates. `_declares_generic(ts: T)` has one

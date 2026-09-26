@@ -5,21 +5,23 @@ and are derived in [wiring cases](../../cases_wiring.md). The runtimes are
 unchanged by this record; the HGL correction it calls for lands separately
 and cites it.
 
-Fourteen cases ran three times each, each run in a fresh process, on Python
+Fifteen cases ran three times each, each run in a fresh process, on Python
 hgraph 0.5.41 and on the C++ runtime's Python surface, on macOS arm64 with
 Python 3.14.7. Every repeat agreed. The C++ runtime was first observed at
 `main` @ `dea948136`, then again at this branch's `96d364e87` when the two
 failure cases were added; no earlier observation changed. After this branch
 was rebased onto `main` @ `640df576e` it was observed a third time, at
 `76b8e22e8`, and two C++ observations changed (see "Observations after the
-rebase"). The HGL front end was observed on the same generic calls at
+rebase"). The bundle_field_order case was added and every case observed
+again at `719a38cc2` (the same runtime code as `76b8e22e8`); nothing else
+changed. The HGL front end was observed on the same generic calls at
 `dea948136`.
 
 | Result | Observations |
 |---|---:|
-| Reasoning matches both runtimes | 37 |
+| Reasoning matches both runtimes | 40 |
 | Reasoning matches C++ only; Python varies | 1 |
-| Reasoning matches Python only; C++ varies | 3 |
+| Reasoning matches Python only; C++ varies | 4 |
 | Reasoning matches neither runtime; the owner's ruling decides | 4 |
 | HGL front end matches | 1 |
 | HGL front end varies (WIR-14, WIR-22) | 5 |
@@ -27,6 +29,12 @@ rebase"). The HGL front end was observed on the same generic calls at
 The bundle-identity and operator-contract cases were added on 2026-09-26
 with the owner's rulings that became WIR-15 and WIR-21 to WIR-24; their
 expectations were written from those rulings before they ran.
+
+The bundle_field_order case was added on 2026-09-26 with the owner's
+rulings that fields pair by name in any order, and that WIR-15 holds at a
+service boundary too; its expectations were written before it ran. Python
+0.5.41 meets all four, including the values (`a * 10 + b` is `12` through a
+reordered bundle).
 
 A candidate wider than its operator was first recorded without an
 expectation (point to settle 6). The owner then ruled that a candidate
@@ -84,7 +92,7 @@ rule:
 |---|---|---|---|
 | WV-1 | projection, `getattr_(bundle, "routed")`; WIR-5, WIR-13 | R + C++: the reference field, `REF[TS[int]]` | Python 0.5.41 has no `getattr_` candidate for a bundle; wiring fails. Its `bundle.routed` is a Python-side projection that never calls the operator, and matches. The C++ candidate is a superset |
 | WV-3 | bundle_identity, `_same(Foo, {a})`; WIR-15, WIR-17 | R + Python: wires, one bundle is unnamed | C++ fails. On the C++ surface Python's unnamed schema carries a generated name (the port's type prints as `...UnNamedTimeSeriesSchema_<hash>`), and a variable already bound compares the type's identity. No longer varies at `76b8e22e8` (below) |
-| WV-4 | bundle_identity, `_takes_foo(Bar)`, and from `76b8e22e8` also `_same(Foo, Bar)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
+| WV-4 | bundle_identity, `_takes_foo(Bar)`, and from `76b8e22e8` also `_same(Foo, Bar)`; bundle_field_order, `_takes_pair(Riap)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
 | WV-5 | HGL front end, an implementation with a `const scale` parameter its operator does not declare, with a default and without one; WIR-22 | R + both runtimes (their candidates may add parameters): accepted | HGL rejects both: "implementation parameter count does not match its operator contract" |
 | WV-6 | operator_contract, a candidate accepting `TIME_SERIES_TYPE` for an operator declaring `TS[int]`; WIR-23, WIR-24 | Owner ruling: rejected when registered, so a `TS[float]` call fails | Both runtimes register it and select it for `TS[float]`: neither checks a candidate against its operator. HGL rejects it |
 | WV-7 | HGL front end, a call passing `scale=5.0`, which the operator does not declare; WIR-22 | R + both runtimes: accepted, the argument goes to the candidates | HGL binds a call's arguments against the operator's signature and rejects the extra one |

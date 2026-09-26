@@ -1,6 +1,28 @@
 {
-  "candidate_revision": "76b8e22e8",
+  "candidate_revision": "719a38cc2",
   "cases": {
+    "bundle_field_order": {
+      "cpp": {
+        "named_and_unnamed_reordered_repeat": "wires",
+        "named_input_from_other_name_reordered": "wires",
+        "named_input_from_unnamed_reordered": [
+          12
+        ],
+        "unnamed_reordered_input_from_named": [
+          12
+        ]
+      },
+      "python": {
+        "named_and_unnamed_reordered_repeat": "wires",
+        "named_input_from_other_name_reordered": "fails",
+        "named_input_from_unnamed_reordered": [
+          12
+        ],
+        "unnamed_reordered_input_from_named": [
+          12
+        ]
+      }
+    },
     "bundle_identity": {
       "cpp": {
         "named_and_unnamed_repeat": "wires",

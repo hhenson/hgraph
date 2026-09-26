@@ -418,6 +418,67 @@ def _wires(build) -> str:
     return "wires"
 
 
+class _Pair(TimeSeriesSchema):
+    a: TS[int]
+    b: TS[int]
+
+
+class _Riap(TimeSeriesSchema):
+    b: TS[int]
+    a: TS[int]
+
+
+_UnnamedBA = hg.ts_schema(b=TS[int], a=TS[int])
+
+
+@compute_node
+def _make_pair(v: TS[int]) -> TSB[_Pair]:
+    return {"a": v.value, "b": v.value + 1}
+
+
+@compute_node
+def _make_riap(v: TS[int]) -> TSB[_Riap]:
+    return {"a": v.value, "b": v.value + 1}
+
+
+@compute_node
+def _make_unnamed_ba(v: TS[int]) -> TSB[_UnnamedBA]:
+    return {"a": v.value, "b": v.value + 1}
+
+
+@compute_node
+def _takes_pair(p: TSB[_Pair]) -> TS[int]:
+    return p.a.value * 10 + p.b.value
+
+
+@compute_node
+def _takes_ba(p: TSB[_UnnamedBA]) -> TS[int]:
+    return p.a.value * 10 + p.b.value
+
+
+def _published(build):
+    """What ``build`` publishes over one int tick of 1, or ``"fails"``."""
+
+    @graph
+    def g(v: TS[int]) -> TS[int]:
+        return build(v)
+
+    try:
+        return eval_node(g, [1])
+    except Exception:  # noqa: BLE001 - the observation is whether wiring failed
+        return "fails"
+
+
+def bundle_field_order():
+    """WIR-15: fields pair by name; order does not matter; names still count."""
+    return {
+        "named_input_from_unnamed_reordered": _published(lambda v: _takes_pair(_make_unnamed_ba(v))),
+        "unnamed_reordered_input_from_named": _published(lambda v: _takes_ba(_make_pair(v))),
+        "named_and_unnamed_reordered_repeat": _wires(lambda v: _same(_make_pair(v), _make_unnamed_ba(v))),
+        "named_input_from_other_name_reordered": _wires(lambda v: _takes_pair(_make_riap(v))),
+    }
+
+
 def bundle_identity():
     """WIR-15: bundle names count only when both bundles are named."""
     return {
@@ -542,6 +603,7 @@ CASES = {
         caught_failure,
         repeated_variable,
         bundle_identity,
+        bundle_field_order,
         operator_contract,
     )
 }

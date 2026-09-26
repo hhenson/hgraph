@@ -57,6 +57,56 @@
     }
   },
   "runtimes": {
+    "bundle_field_order": {
+      "named_and_unnamed_reordered_repeat": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "named_input_from_other_name_reordered": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "python"
+      },
+      "named_input_from_unnamed_reordered": {
+        "cpp": [
+          12
+        ],
+        "expected": [
+          12
+        ],
+        "python": [
+          12
+        ],
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "unnamed_reordered_input_from_named": {
+        "cpp": [
+          12
+        ],
+        "expected": [
+          12
+        ],
+        "python": [
+          12
+        ],
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      }
+    },
     "bundle_identity": {
       "named_and_unnamed_repeat": {
         "cpp": "wires",
@@ -618,11 +668,11 @@
     }
   },
   "totals": {
-    "both": 37,
+    "both": 40,
     "cpp": 1,
     "hgl:match": 1,
     "hgl:varies": 5,
     "neither": 4,
-    "python": 3
+    "python": 4
   }
 }

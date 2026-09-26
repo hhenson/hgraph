@@ -454,5 +454,39 @@
       ],
       "derivation": "The graph's own code catches the failed call's error and wires a fallback; the failure still fails the graph, since the node the failed attempt added cannot be undone."
     }
+  },
+  "bundle_field_order": {
+    "named_input_from_unnamed_reordered": {
+      "expected": [
+        12
+      ],
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "An unnamed bundle declaring b then a, given to a Pair input: one is unnamed, so the fields decide, paired by name; a*10+b is 12."
+    },
+    "unnamed_reordered_input_from_named": {
+      "expected": [
+        12
+      ],
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A Pair given to an unnamed {b, a} input: fields pair by name; a*10+b is 12."
+    },
+    "named_and_unnamed_reordered_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "_same(Pair, {b, a}): one is unnamed, the fields match by name in any order, so the variable binds once."
+    },
+    "named_input_from_other_name_reordered": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "Riap given to a Pair input: both named, different names."
+    }
   }
 }
