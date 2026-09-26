@@ -2,13 +2,22 @@
 
 ## Unreleased
 
+- An operator call may pass arguments its contract does not declare
+  (runtime spec Wiring, WIR-22; the variation WV-7). Every operator behaves
+  as if its signature ended with `*args, **kwargs`. The extra arguments go
+  to the implementations: positional ones in order after the contract's
+  parameters, keywords by name. An implementation without a parameter for
+  one does not match. An extra that no implementation of a module's own
+  operator accepts is an error naming the operator and the argument.
+  Generated C++ passes every argument to the runtime. The compiler used to
+  reject the argument ("unknown parameter", or "too many positional
+  arguments").
 - An operator implementation may extend its contract (runtime spec Wiring,
   WIR-22): after the contract's parameters it may declare more, with or
   without defaults. A call through the contract uses a default; an
   implementation whose extra parameter has no default does not match a call
   that omits it. The compiler used to reject any implementation whose
-  parameter count differed from the contract's. Passing an extra argument
-  explicitly through the operator is not yet supported.
+  parameter count differed from the contract's.
 - Accept `map<K, ref<V>>` as a map containing references, lowered to
   `TSD[K, REF[V]]` with no reference around the map (owner ruling
   2026-09-26). The compiler previously rejected the form pending that

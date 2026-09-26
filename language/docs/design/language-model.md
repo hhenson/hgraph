@@ -378,8 +378,15 @@ them, with or without defaults. One whose extra parameter has no default
 does not match a call that does not supply it; that is not an error. An
 implementation may refine a contract parameter to a narrower type and never
 widens one; the compiler rejects an implementation that does not have the
-contract's shape. Passing an extra argument through the operator's call is
-not yet supported (runtime spec wiring validation, WV-7). Its body
+contract's shape. A call through the operator may pass arguments the
+contract does not declare (WIR-22; formerly the variation WV-7). They bind
+none of the contract's variables and go to the implementations: positional
+extras in order after the contract's parameters, keywords by name. An
+implementation without a parameter for one of them does not match. An extra
+that no implementation of a module's own operator accepts is an error naming
+the operator and the argument. An imported operator's implementations are
+not all known, so the runtime decides there. Generated code passes every
+argument to the runtime, which ranks the candidates with them. Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the

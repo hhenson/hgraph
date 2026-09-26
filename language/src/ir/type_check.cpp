@@ -1739,11 +1739,24 @@ namespace hgl::ir
                 expression.value_kind = value_kind_for_phase(expression.phase);
             }
 
+            /// An argument an operator call passes that its contract does not
+            /// declare (runtime spec WIR-22): a positional one past the
+            /// contract's parameters, or a keyword naming none of them.
+            struct ExtraArgument
+            {
+                std::string         name{};  ///< Empty for a positional argument.
+                ExprId              value{};
+                syntax::SourceRange range{};
+            };
+
             struct BoundArguments
             {
                 std::vector<std::vector<ExprId>>      parameters{};
                 std::vector<std::vector<std::string>> names{};
                 std::vector<ExprId>                   flattened{};
+                /// Operator calls only: arguments the contract does not
+                /// declare, in call order. They go to the candidates.
+                std::vector<ExtraArgument>            extras{};
             };
 
             struct ArgumentCardinality
@@ -1791,8 +1804,12 @@ namespace hgl::ir
                        std::to_string(*parameter.cardinality.maximum) + " argument(s)";
             }
 
+            /// Bind a call's arguments to ``signature``. An operator contract is
+            /// ``open`` (runtime spec WIR-22): it behaves as if it ended with
+            /// ``*args, **kwargs``, so an argument it does not declare is kept
+            /// in ``extras`` for the candidates rather than rejected.
             [[nodiscard]] BoundArguments bind_arguments(const Signature &signature, const std::vector<Argument> &arguments,
-                                                        syntax::SourceRange range) {
+                                                        syntax::SourceRange range, bool open = false) {
                 BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size()),
                                      .names      = std::vector<std::vector<std::string>>(signature.parameters.size())};
                 const auto positional_pack = std::ranges::find(signature.parameters, ParameterPack::Positional, &Parameter::pack);
@@ -1816,6 +1833,8 @@ namespace hgl::ir
                         } else if (positional_pack != signature.parameters.end()) {
                             bound.parameters[positional_index].push_back(argument.value);
                             bound.names[positional_index].emplace_back();
+                        } else if (open) {
+                            bound.extras.push_back(ExtraArgument{{}, argument.value, argument.range});
                         } else {
                             type_error(argument.range, "too many positional arguments");
                         }
@@ -1830,6 +1849,14 @@ namespace hgl::ir
                             if (keyword_pack != signature.parameters.end()) {
                                 bound.parameters[keyword_index].push_back(argument.value);
                                 bound.names[keyword_index].push_back(argument.name);
+                            } else if (open) {
+                                const bool twice = std::ranges::any_of(
+                                    bound.extras, [&](const ExtraArgument &extra) { return extra.name == argument.name; });
+                                if (twice) {
+                                    type_error(argument.range, "parameter '" + argument.name + "' is supplied twice");
+                                } else {
+                                    bound.extras.push_back(ExtraArgument{argument.name, argument.value, argument.range});
+                                }
                             } else {
                                 diagnostics_.report(syntax::Category::Name, argument.range,
                                                     "unknown parameter '" + argument.name + "'");
@@ -1861,6 +1888,7 @@ namespace hgl::ir
                 for (const auto &parameter : bound.parameters) {
                     bound.flattened.insert(bound.flattened.end(), parameter.begin(), parameter.end());
                 }
+                for (const ExtraArgument &extra : bound.extras) { bound.flattened.push_back(extra.value); }
                 return bound;
             }
 
@@ -2215,20 +2243,119 @@ namespace hgl::ir
                 return std::get_if<OperatorDecl>(&module_.declaration(target.owner).node);
             }
 
+            /// The arguments a candidate's parameters past the contract's receive
+            /// from a call's extras (runtime spec WIR-22): positional extras in
+            /// order, keywords by name, a pack taking what is left of its kind.
+            struct CandidateExtras
+            {
+                std::vector<std::vector<ExprId>>      parameters{};
+                std::vector<std::vector<std::string>> names{};
+            };
+
+            /// Route a call's extra arguments to ``candidate``'s extra
+            /// parameters. Empty when the candidate cannot take them: an extra
+            /// it has no parameter for, or an extra parameter the call does not
+            /// supply and that has no default. Neither is an error; the
+            /// candidate does not match (WIR-22).
+            [[nodiscard]] std::optional<CandidateExtras> route_extras(const FunctionDecl   &candidate,
+                                                                      const BoundArguments &arguments) const {
+                const auto       &parameters = candidate.signature.parameters;
+                const std::size_t declared   = arguments.parameters.size();
+                if (!detail::extends_contract(candidate, declared)) { return std::nullopt; }
+                CandidateExtras routed{.parameters = std::vector<std::vector<ExprId>>(parameters.size() - declared),
+                                       .names      = std::vector<std::vector<std::string>>(parameters.size() - declared)};
+                const auto pack_of = [&](ParameterPack pack) {
+                    const auto found = std::find_if(parameters.begin() + static_cast<std::ptrdiff_t>(declared), parameters.end(),
+                                                    [&](const Parameter &parameter) { return parameter.pack == pack; });
+                    return found == parameters.end() ? std::optional<std::size_t>{}
+                                                     : std::optional<std::size_t>{static_cast<std::size_t>(found - parameters.begin())};
+                };
+                std::size_t next = declared;
+                for (const ExtraArgument &extra : arguments.extras) {
+                    if (extra.name.empty()) {
+                        while (next < parameters.size() && parameters[next].pack == ParameterPack::None &&
+                               !routed.parameters[next - declared].empty()) {
+                            ++next;
+                        }
+                        if (next < parameters.size() && parameters[next].pack == ParameterPack::None) {
+                            routed.parameters[next++ - declared].push_back(extra.value);
+                        } else if (const auto pack = pack_of(ParameterPack::Positional)) {
+                            routed.parameters[*pack - declared].push_back(extra.value);
+                            routed.names[*pack - declared].emplace_back();
+                        } else {
+                            return std::nullopt;
+                        }
+                        continue;
+                    }
+                    const auto named = std::find_if(parameters.begin() + static_cast<std::ptrdiff_t>(declared), parameters.end(),
+                                                    [&](const Parameter &parameter) {
+                                                        return parameter.pack == ParameterPack::None &&
+                                                               module_.symbol(parameter.symbol).name == extra.name;
+                                                    });
+                    if (named != parameters.end()) {
+                        auto &slot = routed.parameters[static_cast<std::size_t>(named - parameters.begin()) - declared];
+                        if (!slot.empty()) { return std::nullopt; }
+                        slot.push_back(extra.value);
+                    } else if (const auto pack = pack_of(ParameterPack::Keyword)) {
+                        routed.parameters[*pack - declared].push_back(extra.value);
+                        routed.names[*pack - declared].push_back(extra.name);
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+                for (std::size_t index = declared; index < parameters.size(); ++index) {
+                    const Parameter &parameter = parameters[index];
+                    const auto      &supplied  = routed.parameters[index - declared];
+                    if (parameter.pack != ParameterPack::None) {
+                        if (!cardinality_accepts(parameter, supplied)) { return std::nullopt; }
+                    } else if (supplied.empty() && !parameter.default_value.valid()) {
+                        return std::nullopt;
+                    }
+                }
+                return routed;
+            }
+
+            /// Whether ``candidate`` has a parameter for one extra argument: the
+            /// ``ordinal``-th positional extra, or a keyword by name.
+            [[nodiscard]] bool accepts_extra(const FunctionDecl &candidate, std::size_t declared, const ExtraArgument &extra,
+                                             std::size_t ordinal) const {
+                const auto &parameters = candidate.signature.parameters;
+                for (std::size_t index = declared; index < parameters.size(); ++index) {
+                    const Parameter &parameter = parameters[index];
+                    if (extra.name.empty()) {
+                        if (parameter.pack == ParameterPack::Positional) { return true; }
+                        if (parameter.pack == ParameterPack::None && index - declared == ordinal) { return true; }
+                    } else {
+                        if (parameter.pack == ParameterPack::Keyword) { return true; }
+                        if (parameter.pack == ParameterPack::None && module_.symbol(parameter.symbol).name == extra.name) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
             [[nodiscard]] bool local_candidate_matches(const FunctionDecl &candidate, const BoundArguments &arguments,
                                                        TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
-                // A candidate may extend the contract (WIR-22): its extra
-                // parameters take their defaults, and one without a default
-                // does not match a call that does not supply it.
-                if (!detail::extends_contract(candidate, arguments.parameters.size()) ||
-                    !detail::extras_defaulted(candidate, arguments.parameters.size())) {
-                    return false;
-                }
+                // A candidate may extend the contract (WIR-22): the call's extra
+                // arguments go to its extra parameters, an extra parameter the
+                // call does not supply takes its default, and one without a
+                // default does not match.
+                const std::optional<CandidateExtras> extras = route_extras(candidate, arguments);
+                if (!extras) { return false; }
+                const std::size_t declared  = arguments.parameters.size();
+                const auto        supplied  = [&](std::size_t index) -> const std::vector<ExprId> & {
+                    return index < declared ? arguments.parameters[index] : extras->parameters[index - declared];
+                };
+                const auto        names     = [&](std::size_t index) -> const std::vector<std::string> & {
+                    return index < declared ? arguments.names[index] : extras->names[index - declared];
+                };
+                const std::size_t parameter_count = candidate.signature.parameters.size();
                 detail::GenericSubstitution bindings{module_, canonical_types_};
-                for (std::size_t index = 0; index < arguments.parameters.size(); ++index) {
+                for (std::size_t index = 0; index < parameter_count; ++index) {
                     const Parameter &parameter = candidate.signature.parameters[index];
-                    if (!cardinality_accepts(parameter, arguments.parameters[index])) { return false; }
-                    for (ExprId argument_id : arguments.parameters[index]) {
+                    if (!cardinality_accepts(parameter, supplied(index))) { return false; }
+                    for (ExprId argument_id : supplied(index)) {
                         if (!argument_id.valid()) { continue; }
                         const Expr &argument = module_.expr(argument_id);
                         if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
@@ -2238,7 +2365,7 @@ namespace hgl::ir
                             return false;
                         }
                     }
-                    bind_type_pack(parameter, candidate.generics, arguments.parameters[index], arguments.names[index], bindings);
+                    bind_type_pack(parameter, candidate.generics, supplied(index), names(index), bindings);
                 }
                 if (expected.valid() && !bindings.infer_from_result(candidate.signature.result, expected)) { return false; }
                 const auto premises = active_constraint_premises();
@@ -2252,10 +2379,10 @@ namespace hgl::ir
                         return false;
                     }
                 }
-                for (std::size_t index = 0; index < arguments.parameters.size(); ++index) {
+                for (std::size_t index = 0; index < parameter_count; ++index) {
                     if (is_type_pack(candidate.signature.parameters[index].type, candidate.generics)) { continue; }
                     const TypeId parameter = bindings.apply(candidate.signature.parameters[index].type);
-                    for (ExprId argument : arguments.parameters[index]) {
+                    for (ExprId argument : supplied(index)) {
                         // A parameter matches its argument ignoring references
                         // (runtime spec WIR-6): inference bound it without them.
                         if (argument.valid() && !canonical_types_.same_ignoring_references(parameter, module_.expr(argument).type)) {
@@ -2305,7 +2432,7 @@ namespace hgl::ir
 
             void check_local_operator_call(Expr &expression, const Call &call, SymbolId target, const OperatorDecl &op,
                                            TypeId expected) {
-                const BoundArguments        bound = bind_arguments(op.signature, call.arguments, expression.range);
+                const BoundArguments        bound = bind_arguments(op.signature, call.arguments, expression.range, true);
                 detail::GenericSubstitution contract_bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
                     const Parameter &parameter = op.signature.parameters[index];
@@ -2330,6 +2457,15 @@ namespace hgl::ir
                     }
                     bind_type_pack(parameter, op.generics, bound.parameters[index], bound.names[index], contract_bindings);
                 }
+                // Arguments the contract does not declare go to the candidates
+                // (runtime spec WIR-22); they bind none of its variables.
+                for (const ExtraArgument &extra : bound.extras) {
+                    Expr &argument = check_expr(extra.value);
+                    if (borrowed_schema(argument.type)) {
+                        type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
+                    }
+                }
+                if (module_.symbol(target).kind != SymbolKind::ImportedOperator) { require_extras_accepted(target, bound); }
                 if (expected.valid()) { (void)contract_bindings.infer_from_result(op.signature.result, expected); }
                 const auto premises = active_constraint_premises();
                 (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call", true,
@@ -2348,6 +2484,35 @@ namespace hgl::ir
                                                  .identity      = operator_identity(target),
                                                  .substitutions = contract_bindings.materialize(op.generics),
                                                  .deferred      = !candidate.valid()};
+            }
+
+            /// A local operator's candidates are its module's implementations.
+            /// An extra argument none of them has a parameter for can never
+            /// match, so it is reported, naming the operator and the argument.
+            void require_extras_accepted(SymbolId op, const BoundArguments &bound) {
+                if (bound.extras.empty()) { return; }
+                std::vector<const FunctionDecl *> candidates;
+                for (const Declaration &declaration : module_.declarations) {
+                    const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
+                    if (candidate && candidate->visibility == Visibility::Implementation && candidate->operator_contract == op) {
+                        candidates.push_back(candidate);
+                    }
+                }
+                const std::string operator_name = module_.symbol(op).name;
+                std::size_t       ordinal       = 0;
+                for (const ExtraArgument &extra : bound.extras) {
+                    const std::size_t position = extra.name.empty() ? ordinal++ : 0;
+                    const bool        accepted = std::ranges::any_of(candidates, [&](const FunctionDecl *candidate) {
+                        return accepts_extra(*candidate, bound.parameters.size(), extra, position);
+                    });
+                    if (accepted) { continue; }
+                    const std::string argument =
+                        extra.name.empty() ? "positional argument " + std::to_string(bound.parameters.size() + position + 1)
+                                           : "argument '" + extra.name + "'";
+                    diagnostics_.report(syntax::Category::Operator, extra.range,
+                                        "no implementation of operator '" + operator_name + "' accepts the " + argument +
+                                            ", which the operator does not declare");
+                }
             }
 
             void finish_call_semantics(Expr &expression, const std::vector<ExprId> &arguments) {

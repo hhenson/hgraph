@@ -1606,6 +1606,110 @@ fn use_pick(value: f64) -> f64 => pick(value)
     CHECK(saw_call);
 }
 
+namespace {
+    /// The implementation each nominal operator call in ``lowered`` selected.
+    std::vector<bool> selected_candidates(const Lowered &lowered) {
+        std::vector<bool> selected;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            if (expression.operation.kind != hir::OperationKind::NominalOperator ||
+                expression.operation.identity.find(".pick") == std::string::npos) {
+                continue;
+            }
+            selected.push_back(expression.operation.candidate.valid());
+        }
+        return selected;
+    }
+}  // namespace
+
+TEST_CASE("typed HIR passes an operator call's extra arguments to the implementation (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    // Every operator behaves as if its signature ended with *args, **kwargs:
+    // an argument the contract does not declare goes to the implementations,
+    // by name or by position after the contract's parameters.
+    SECTION("by name") {
+        Lowered lowered{R"(
+module checks.extra_keyword
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+    SECTION("by position") {
+        Lowered lowered{R"(
+module checks.extra_positional
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, 5.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+    SECTION("an extra of the wrong type does not match") {
+        Lowered lowered{R"(
+module checks.extra_mistyped
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: "wide")
+)"};
+        require_clean(lowered);
+        (void)complete(lowered);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{false});
+    }
+    SECTION("a call without the extra takes a defaulted parameter's default") {
+        Lowered lowered{R"(
+module checks.extra_defaulted
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+fn use_scaled(value: f64) -> f64 => pick(value, scale: 3.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true, true});
+    }
+}
+
+TEST_CASE("typed HIR reports an extra argument no implementation accepts (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    Lowered lowered{R"(
+module checks.extra_unaccepted
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+
+fn by_name(value: f64) -> f64 => pick(value, scale: 5.0)
+fn by_position(value: f64) -> f64 => pick(value, 5.0)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    const std::string rendered = lowered.diagnostics.render(lowered.file);
+    CHECK(rendered.find("no implementation of operator 'pick' accepts the argument 'scale'") != std::string::npos);
+    CHECK(rendered.find("no implementation of operator 'pick' accepts the positional argument 2") != std::string::npos);
+}
+
 TEST_CASE("typed HIR requirements admit an implementation that extends its contract (runtime spec WIR-22)",
           "[ir][typed][constraints][operators][contract]") {
     // A requirement supplies the contract's arguments; an implementation whose

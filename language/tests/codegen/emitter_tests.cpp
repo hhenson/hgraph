@@ -357,6 +357,23 @@ struct imported_operators_ { value: i64 }
     }
 }
 
+TEST_CASE("emit-cpp passes an operator call's extra arguments to the runtime (runtime spec WIR-22, WV-7)",
+          "[codegen][operators][contract]") {
+    Unit       unit{R"(
+module checks.extra_arguments
+
+operator pick<T>(value: T) -> T
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+export fn by_keyword(value: f64) -> f64 => pick(value, scale: 5.0)
+export fn by_position(value: f64) -> f64 => pick(value, 5.0)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value, hgraph::arg<\"scale\">(hgraph::Float{5.0}))"));
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value, hgraph::Float{5.0})"));
+}
+
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
     Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
