@@ -317,11 +317,16 @@ struct imported_operators_ { value: i64 }
                   catalog};
         CHECK(unit.has(Category::Type, "implementation signature does not conform"));
     }
-    SECTION("wrong arity") {
+    SECTION("an extra parameter extends the contract (runtime spec WIR-22)") {
         Unit unit{
             "module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64, extra: i64) -> i64 => value",
             catalog};
-        CHECK(unit.has(Category::Type, "implementation parameter count does not match"));
+        CHECK_FALSE(unit.has(Category::Type, "does not conform"));
+        CHECK_FALSE(unit.has(Category::Type, "declares every parameter"));
+    }
+    SECTION("a missing declared parameter does not") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust() -> i64 => 1", catalog};
+        CHECK(unit.has(Category::Type, "an implementation declares every parameter of its operator contract"));
     }
     SECTION("test-only references do not publish imported aliases") {
         Unit unit{
