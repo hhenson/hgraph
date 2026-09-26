@@ -16,6 +16,7 @@ It is incomplete and does not certify an implementation.
    time_series
    scalar_types
    injectables
+   wiring
    operators
    conformance
    cases_atomic
@@ -24,10 +25,12 @@ It is incomplete and does not certify an implementation.
    cases_references
    cases_nested
    cases_fixed
+   cases_wiring
    validation
    validation/README
    validation/fixed/README
    validation/parity/README
+   validation/wiring/README
    representations
    layout_example
    boundaries

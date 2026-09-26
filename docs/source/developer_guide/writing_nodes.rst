@@ -203,8 +203,10 @@ The ``map_`` / ``switch_`` / ``mesh_`` machinery and ``tsb_itemwise`` route
 references deliberately: they build their schemas from the ports as supplied
 and do not resolve a generic over them.
 
-**The matcher and unifier contract.** A generic is resolved in two places
-that must agree: the runtime matcher (``type_pattern.cpp``: operator
+**The matcher and unifier contract.** The rules are the runtime
+specification's :doc:`../runtime_spec/wiring` chapter (WIR-6 to WIR-14);
+this table is how hgraph implements them. A generic is resolved in two
+places that must agree: the runtime matcher (``type_pattern.cpp``: operator
 dispatch, type arguments, Python wiring) and the static unifier
 (``type_resolution.h``: ``wire<X>``). Both implement these rules, and a
 change to one side is made to the other in the same change:

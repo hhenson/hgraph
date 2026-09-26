@@ -1,0 +1,10 @@
+{
+  "extra_argument_call": "rejected",
+  "front_end": "hgl",
+  "required_extra_implementation": "rejected",
+  "revision": "dea948136",
+  "superset_implementation": "rejected",
+  "through_list": "list<ref<f64>, 2>",
+  "through_ref": "ref<f64>",
+  "widening_implementation": "rejected"
+}

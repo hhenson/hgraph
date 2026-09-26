@@ -1,0 +1,678 @@
+{
+  "hgl": {
+    "extra_argument_call": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
+    "required_extra_implementation": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
+    "superset_implementation": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
+    "through_list": {
+      "expected": "list<f64, 2>",
+      "observed": "list<ref<f64>, 2>",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "verdict": "varies"
+    },
+    "through_ref": {
+      "expected": "f64",
+      "observed": "ref<f64>",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "verdict": "varies"
+    },
+    "widening_implementation": {
+      "expected": "rejected",
+      "observed": "rejected",
+      "rules": [
+        "WIR-23",
+        "WIR-24",
+        "WIR-14"
+      ],
+      "verdict": "match"
+    }
+  },
+  "runtimes": {
+    "bundle_field_order": {
+      "named_and_unnamed_reordered_repeat": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "named_input_from_other_name_reordered": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "python"
+      },
+      "named_input_from_unnamed_reordered": {
+        "cpp": [
+          12
+        ],
+        "expected": [
+          12
+        ],
+        "python": [
+          12
+        ],
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "unnamed_reordered_input_from_named": {
+        "cpp": [
+          12
+        ],
+        "expected": [
+          12
+        ],
+        "python": [
+          12
+        ],
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      }
+    },
+    "bundle_identity": {
+      "named_and_unnamed_repeat": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15",
+          "WIR-17"
+        ],
+        "verdict": "both"
+      },
+      "named_input_from_other_name": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15",
+          "WIR-4"
+        ],
+        "verdict": "python"
+      },
+      "named_input_from_unnamed": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "same_name_repeat": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15",
+          "WIR-17"
+        ],
+        "verdict": "both"
+      },
+      "two_names_repeat": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15",
+          "WIR-17",
+          "WIR-4"
+        ],
+        "verdict": "python"
+      },
+      "unnamed_input_from_named": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      }
+    },
+    "caught_failure": {
+      "outcome": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "wires",
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      }
+    },
+    "failure_report": {
+      "fails": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "gives_each_candidate_reason": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "names_the_argument_type": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "names_the_graph_path": {
+        "cpp": false,
+        "expected": true,
+        "python": false,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      },
+      "names_the_operator": {
+        "cpp": false,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "python"
+      }
+    },
+    "generic_depth": {
+      "bound": {
+        "cpp": "TSD[str,TS[int]]",
+        "expected": "TSD[str,TS[int]]",
+        "python": "TSD[str,TS[int]]",
+        "rules": [
+          "WIR-7"
+        ],
+        "verdict": "both"
+      },
+      "source": {
+        "cpp": "TSD[str,REF[TS[int]]]",
+        "expected": "TSD[str,REF[TS[int]]]",
+        "python": "TSD[str,REF[TS[int]]]",
+        "rules": [],
+        "verdict": "both"
+      },
+      "values": {
+        "cpp": [
+          "a=1,b=2,c=3",
+          "a=1,b=30,c=3"
+        ],
+        "expected": [
+          "a=1,b=2,c=3",
+          "a=1,b=30,c=3"
+        ],
+        "python": [
+          "a=1,b=2,c=3",
+          "a=1,b=30,c=3"
+        ],
+        "rules": [
+          "WIR-8",
+          "TS-17"
+        ],
+        "verdict": "both"
+      }
+    },
+    "generic_top": {
+      "bound": {
+        "cpp": "TS[int]",
+        "expected": "TS[int]",
+        "python": "TS[int]",
+        "rules": [
+          "WIR-7"
+        ],
+        "verdict": "both"
+      },
+      "source": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [],
+        "verdict": "both"
+      },
+      "values": {
+        "cpp": [
+          "1",
+          "2"
+        ],
+        "expected": [
+          "1",
+          "2"
+        ],
+        "python": [
+          "1",
+          "2"
+        ],
+        "rules": [
+          "WIR-8",
+          "TS-17"
+        ],
+        "verdict": "both"
+      }
+    },
+    "operator_contract": {
+      "refined_selected": {
+        "cpp": [
+          "refined"
+        ],
+        "expected": [
+          "refined"
+        ],
+        "python": [
+          "refined"
+        ],
+        "rules": [
+          "WIR-23",
+          "WIR-21"
+        ],
+        "verdict": "both"
+      },
+      "required_extra_missing": {
+        "cpp": [
+          "fallback"
+        ],
+        "expected": [
+          "fallback"
+        ],
+        "python": [
+          "fallback"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-16"
+        ],
+        "verdict": "both"
+      },
+      "required_extra_registers": {
+        "cpp": "registered",
+        "expected": "registered",
+        "python": "registered",
+        "rules": [
+          "WIR-22"
+        ],
+        "verdict": "both"
+      },
+      "required_extra_supplied": {
+        "cpp": [
+          "scaled 3"
+        ],
+        "expected": [
+          "scaled 3"
+        ],
+        "python": [
+          "scaled 3"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-18"
+        ],
+        "verdict": "both"
+      },
+      "superset_default_used": {
+        "cpp": [
+          "extra 2"
+        ],
+        "expected": [
+          "extra 2"
+        ],
+        "python": [
+          "extra 2"
+        ],
+        "rules": [
+          "WIR-22"
+        ],
+        "verdict": "both"
+      },
+      "superset_extra_passed": {
+        "cpp": [
+          "extra 5"
+        ],
+        "expected": [
+          "extra 5"
+        ],
+        "python": [
+          "extra 5"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-21"
+        ],
+        "verdict": "both"
+      },
+      "widening_call_for_float": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "wires",
+        "rules": [
+          "WIR-24",
+          "WIR-16",
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      },
+      "widening_registers": {
+        "cpp": "registered",
+        "expected": "rejected",
+        "python": "registered",
+        "rules": [
+          "WIR-23",
+          "WIR-24"
+        ],
+        "verdict": "neither"
+      }
+    },
+    "operator_failures": {
+      "ambiguous_raises": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-16",
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "no_candidate_raises": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-16",
+          "WIR-4"
+        ],
+        "verdict": "both"
+      }
+    },
+    "operator_specificity": {
+      "selected": {
+        "cpp": [
+          "int",
+          "generic",
+          "tsl-generic",
+          "int"
+        ],
+        "expected": [
+          "int",
+          "generic",
+          "tsl-generic",
+          "int"
+        ],
+        "python": [
+          "int",
+          "generic",
+          "tsl-generic",
+          "int"
+        ],
+        "rules": [
+          "WIR-16",
+          "WIR-18",
+          "WIR-6"
+        ],
+        "verdict": "both"
+      }
+    },
+    "projection": {
+      "bundle": {
+        "cpp": "python::tsb::__main__::_RefFields",
+        "python": "TSB[_RefFields]",
+        "verdict": "recorded"
+      },
+      "by_attribute": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [
+          "WIR-5",
+          "WIR-13"
+        ],
+        "verdict": "both"
+      },
+      "by_getattr": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "raised WiringError",
+        "rules": [
+          "WIR-5",
+          "WIR-13"
+        ],
+        "verdict": "cpp"
+      },
+      "by_key": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [
+          "WIR-5",
+          "WIR-13"
+        ],
+        "verdict": "both"
+      },
+      "plain_by_key": {
+        "cpp": "TS[int]",
+        "expected": "TS[int]",
+        "python": "TS[int]",
+        "rules": [
+          "WIR-5"
+        ],
+        "verdict": "both"
+      },
+      "values": {
+        "cpp": [
+          1,
+          2
+        ],
+        "expected": [
+          1,
+          2
+        ],
+        "python": [
+          1,
+          2
+        ],
+        "rules": [
+          "WIR-8",
+          "TS-17"
+        ],
+        "verdict": "both"
+      }
+    },
+    "projection_through_ref": {
+      "bundle": {
+        "cpp": "TSB{true:REF[TS[int]],false:REF[TS[int]]}",
+        "python": "TSB[BoolResult[hgraph._types._ts_type.TimeSeriesValueInput[int]]]",
+        "verdict": "recorded"
+      },
+      "field": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [
+          "WIR-5"
+        ],
+        "verdict": "both"
+      },
+      "values": {
+        "cpp": [
+          1,
+          null
+        ],
+        "expected": [
+          1,
+          null
+        ],
+        "python": [
+          1,
+          null
+        ],
+        "rules": [
+          "TS-15",
+          "TS-17"
+        ],
+        "verdict": "both"
+      }
+    },
+    "ref_pattern": {
+      "bound_below_ref": {
+        "cpp": "REF[TSD[str,TS[int]]]",
+        "expected": "REF[TSD[str,TS[int]]]",
+        "python": "REF[TSD[str,TS[int]]]",
+        "rules": [
+          "WIR-10",
+          "WIR-7"
+        ],
+        "verdict": "both"
+      },
+      "receives_reference": {
+        "cpp": [
+          true
+        ],
+        "expected": [
+          true
+        ],
+        "python": [
+          true
+        ],
+        "rules": [
+          "WIR-10",
+          "WIR-6"
+        ],
+        "verdict": "both"
+      }
+    },
+    "repeated_variable": {
+      "different_types_raise": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-17",
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "ref_and_value_values": {
+        "cpp": [
+          true
+        ],
+        "expected": [
+          true
+        ],
+        "python": [
+          true
+        ],
+        "rules": [
+          "WIR-7",
+          "WIR-17"
+        ],
+        "verdict": "both"
+      }
+    },
+    "requested_output": {
+      "nested": {
+        "cpp": "TSD[str,REF[TS[int]]]",
+        "expected": "TSD[str,REF[TS[int]]]",
+        "python": "TSD[str,REF[TS[int]]]",
+        "rules": [
+          "WIR-12"
+        ],
+        "verdict": "both"
+      },
+      "plain": {
+        "cpp": "TSD[str,TS[int]]",
+        "expected": "TSD[str,TS[int]]",
+        "python": "TSD[str,TS[int]]",
+        "rules": [
+          "WIR-12"
+        ],
+        "verdict": "both"
+      },
+      "top": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [
+          "WIR-12"
+        ],
+        "verdict": "both"
+      }
+    },
+    "stated_resolution": {
+      "stated_nested": {
+        "cpp": "TSD[str,REF[TS[int]]]",
+        "expected": "TSD[str,REF[TS[int]]]",
+        "python": "TSD[str,REF[TS[int]]]",
+        "rules": [
+          "WIR-11"
+        ],
+        "verdict": "both"
+      },
+      "stated_top": {
+        "cpp": "REF[TS[int]]",
+        "expected": "REF[TS[int]]",
+        "python": "REF[TS[int]]",
+        "rules": [
+          "WIR-11"
+        ],
+        "verdict": "both"
+      }
+    }
+  },
+  "totals": {
+    "both": 40,
+    "cpp": 1,
+    "hgl:match": 1,
+    "hgl:varies": 5,
+    "neither": 4,
+    "python": 4
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "candidate_revision": "96d364e87",
+  "cases": {
+    "bundle_identity": {
+      "cpp": {
+        "named_and_unnamed_repeat": "fails",
+        "named_input_from_other_name": "wires",
+        "named_input_from_unnamed": "wires",
+        "same_name_repeat": "wires",
+        "two_names_repeat": "fails",
+        "unnamed_input_from_named": "wires"
+      },
+      "python": {
+        "named_and_unnamed_repeat": "wires",
+        "named_input_from_other_name": "fails",
+        "named_input_from_unnamed": "wires",
+        "same_name_repeat": "wires",
+        "two_names_repeat": "fails",
+        "unnamed_input_from_named": "wires"
+      }
+    },
+    "caught_failure": {
+      "cpp": {
+        "outcome": "wires"
+      },
+      "python": {
+        "outcome": "wires"
+      }
+    },
+    "failure_report": {
+      "cpp": {
+        "fails": true,
+        "gives_each_candidate_reason": true,
+        "names_the_argument_type": true,
+        "names_the_graph_path": false,
+        "names_the_operator": false
+      },
+      "python": {
+        "fails": true,
+        "gives_each_candidate_reason": true,
+        "names_the_argument_type": true,
+        "names_the_graph_path": false,
+        "names_the_operator": true
+      }
+    },
+    "generic_depth": {
+      "cpp": {
+        "bound": "TSD[str,TS[int]]",
+        "source": "TSD[str,REF[TS[int]]]",
+        "values": [
+          "a=1,b=2,c=3",
+          "a=1,b=30,c=3"
+        ]
+      },
+      "python": {
+        "bound": "TSD[str,TS[int]]",
+        "source": "TSD[str,REF[TS[int]]]",
+        "values": [
+          "a=1,b=2,c=3",
+          "a=1,b=30,c=3"
+        ]
+      }
+    },
+    "generic_top": {
+      "cpp": {
+        "bound": "TS[int]",
+        "source": "REF[TS[int]]",
+        "values": [
+          "1",
+          "2"
+        ]
+      },
+      "python": {
+        "bound": "TS[int]",
+        "source": "REF[TS[int]]",
+        "values": [
+          "1",
+          "2"
+        ]
+      }
+    },
+    "operator_contract": {
+      "cpp": {
+        "refined_selected": [
+          "refined"
+        ],
+        "required_extra_missing": [
+          "fallback"
+        ],
+        "required_extra_registers": "registered",
+        "required_extra_supplied": [
+          "scaled 3"
+        ],
+        "superset_default_used": [
+          "extra 2"
+        ],
+        "superset_extra_passed": [
+          "extra 5"
+        ],
+        "widening_call_for_float": "wires",
+        "widening_registers": "registered"
+      },
+      "python": {
+        "refined_selected": [
+          "refined"
+        ],
+        "required_extra_missing": [
+          "fallback"
+        ],
+        "required_extra_registers": "registered",
+        "required_extra_supplied": [
+          "scaled 3"
+        ],
+        "superset_default_used": [
+          "extra 2"
+        ],
+        "superset_extra_passed": [
+          "extra 5"
+        ],
+        "widening_call_for_float": "wires",
+        "widening_registers": "registered"
+      }
+    },
+    "operator_failures": {
+      "cpp": {
+        "ambiguous_raises": true,
+        "no_candidate_raises": true
+      },
+      "python": {
+        "ambiguous_raises": true,
+        "no_candidate_raises": true
+      }
+    },
+    "operator_specificity": {
+      "cpp": {
+        "selected": [
+          "int",
+          "generic",
+          "tsl-generic",
+          "int"
+        ]
+      },
+      "python": {
+        "selected": [
+          "int",
+          "generic",
+          "tsl-generic",
+          "int"
+        ]
+      }
+    },
+    "projection": {
+      "cpp": {
+        "bundle": "python::tsb::__main__::_RefFields",
+        "by_attribute": "REF[TS[int]]",
+        "by_getattr": "REF[TS[int]]",
+        "by_key": "REF[TS[int]]",
+        "plain_by_key": "TS[int]",
+        "values": [
+          1,
+          2
+        ]
+      },
+      "python": {
+        "bundle": "TSB[_RefFields]",
+        "by_attribute": "REF[TS[int]]",
+        "by_getattr": "raised WiringError",
+        "by_key": "REF[TS[int]]",
+        "plain_by_key": "TS[int]",
+        "values": [
+          1,
+          2
+        ]
+      }
+    },
+    "projection_through_ref": {
+      "cpp": {
+        "bundle": "TSB{true:REF[TS[int]],false:REF[TS[int]]}",
+        "field": "REF[TS[int]]",
+        "values": [
+          1,
+          null
+        ]
+      },
+      "python": {
+        "bundle": "TSB[BoolResult[hgraph._types._ts_type.TimeSeriesValueInput[int]]]",
+        "field": "REF[TS[int]]",
+        "values": [
+          1,
+          null
+        ]
+      }
+    },
+    "ref_pattern": {
+      "cpp": {
+        "bound_below_ref": "REF[TSD[str,TS[int]]]",
+        "receives_reference": [
+          true
+        ]
+      },
+      "python": {
+        "bound_below_ref": "REF[TSD[str,TS[int]]]",
+        "receives_reference": [
+          true
+        ]
+      }
+    },
+    "repeated_variable": {
+      "cpp": {
+        "different_types_raise": true,
+        "ref_and_value_values": [
+          true
+        ]
+      },
+      "python": {
+        "different_types_raise": true,
+        "ref_and_value_values": [
+          true
+        ]
+      }
+    },
+    "requested_output": {
+      "cpp": {
+        "nested": "TSD[str,REF[TS[int]]]",
+        "plain": "TSD[str,TS[int]]",
+        "top": "REF[TS[int]]"
+      },
+      "python": {
+        "nested": "TSD[str,REF[TS[int]]]",
+        "plain": "TSD[str,TS[int]]",
+        "top": "REF[TS[int]]"
+      }
+    },
+    "stated_resolution": {
+      "cpp": {
+        "stated_nested": "TSD[str,REF[TS[int]]]",
+        "stated_top": "REF[TS[int]]"
+      },
+      "python": {
+        "stated_nested": "TSD[str,REF[TS[int]]]",
+        "stated_top": "REF[TS[int]]"
+      }
+    }
+  },
+  "platform": "Darwin arm64",
+  "repeats": 3,
+  "runtimes": {
+    "cpp": {
+      "hgraph": "0.0.0",
+      "native": true,
+      "python": "3.14.7"
+    },
+    "python": {
+      "hgraph": "0.5.41",
+      "native": false,
+      "python": "3.14.7"
+    }
+  }
+}

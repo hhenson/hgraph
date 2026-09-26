@@ -6,8 +6,8 @@ implemented. The lowercase `signal` input marker is also implemented through
 parsing, semantic checking, descriptor validation, direct-wiring type
 materialization, generated C++, and scripted runtime behavior tests.
 Wiring-time access through a reference and imported native types remain
-compiler work. The collection-reference mapping noted below still needs
-clarification. This record introduces no native declaration syntax.
+compiler work. A map of references, `map<K, ref<V>>`, is settled and
+implemented (below). This record introduces no native declaration syntax.
 
 ## Enum types
 
@@ -302,6 +302,32 @@ map<ref<i64>, str> -> error
 
 Ignoring REF for compatibility does not make an invalid type formation legal.
 
+## Generic inference through references
+
+HGL resolves a generic call by the runtime specification's
+[Wiring](../../../docs/source/runtime_spec/wiring.md) rules, which every front
+end shares (WIR-14): the bindings HGL infers are the bindings the runtime
+reaches for the same call.
+
+- A type parameter inferred from an **argument** binds the argument's type
+  with every `ref` removed, at every depth (WIR-7). `fn pass<T>(value: T) -> T`
+  called with a `ref<f64>` binds `T` to `f64`; with a `list<ref<f64>, 2>`, to
+  `list<f64, 2>`. The generic's input then observes values.
+- A `ref` written in the parameter's own type binds the type parameter beneath
+  it (WIR-10): `fn wrap<T>(value: T) -> ref<T>` given a `ref<f64>` binds `T` to
+  `f64`, so no nested reference is formed.
+- A type **stated** through a type application or `instantiate` keeps its
+  references (WIR-11).
+- A call's **expected result** binds a type parameter that is the whole result
+  and that no argument bound, as given (WIR-12); a type parameter nested in
+  the result binds as from an argument.
+- An implementation's conformance to its operator contract compares the two
+  declared signatures exactly; it infers nothing.
+
+A generic therefore sees a reference only where its signature writes `ref`.
+The compiler's inference is `GenericSubstitution::infer_from_argument` and
+`infer_from_result`; exact comparison is `unify`.
+
 ## Node access and ticks
 
 Inside node evaluation, including a `when` handler, a reference is an opaque
@@ -410,23 +436,23 @@ operations can control evaluation. Graph functions may also accept `signal`
 inputs and pass them to components with compatible inputs. This does not make
 the graph body execute on ticks or expose a runtime value during wiring.
 
-## Collection-reference mapping to clarify
+## A map of references
 
-The second mapping supplied during the discussion was:
+A map whose values are references is a map containing reference values
+(owner ruling 2026-09-26; runtime spec Wiring, point to settle 4):
 
 ```text
-map<i64, ref<str>> -> REF[TSD[int, REF[TS[str]]]]
+map<i64, ref<str>> -> TSD[int, REF[TS[str]]]
 ```
 
-This includes an outer REF without an explicit outer `ref` in the source.
-Whether that outer REF is intentional, and the rule that would add it, are
-awaiting clarification. Do not infer a general reference-propagation rule or
-silently remove the outer REF from this example.
+There is no reference around the map itself. The mapping first recorded
+during the discussion, `REF[TSD[int, REF[TS[str]]]]`, is withdrawn. As with
+`list<ref<T>, S>`, the map is outside the reference boundary and each value
+is an opaque reference.
 
-The current compiler therefore rejects `map<K, ref<V>>`. It also rejects a
-nested `ref<ref<T>>` boundary instead of relying on native REF normalization;
-that is a fail-closed implementation boundary, not an additional source-level
-decision.
+The compiler still rejects a nested `ref<ref<T>>` boundary instead of
+relying on native REF normalization; that is a fail-closed implementation
+boundary, not a source-level decision.
 
 ## Scope of this agreement
 

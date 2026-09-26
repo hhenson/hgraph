@@ -1,0 +1,168 @@
+{
+  "_about": "Owner rulings behind the Wiring chapter. A ruling keeps the question it answered.",
+  "rulings": [
+    {
+      "date": "2026-09-24",
+      "issue": "#847",
+      "question": "debug_print over a map_-shaped TSD[str, REF[TS[int]]] printed reference tokens and missed value ticks. Should a generic parameter ever bind a reference?",
+      "ruling": "WHENEVER resolving a generic, we de-reference everything. If the code depends on REF it must express that.",
+      "rules": [
+        "WIR-7",
+        "WIR-8",
+        "WIR-9"
+      ]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "#847",
+      "question": "Should getitem_ work on references rather than values?",
+      "ruling": "Be explicit and always deal with ref.",
+      "rules": [
+        "WIR-13"
+      ],
+      "note": "Applied to the structural projections (TSB getitem_ / getattr_). Selection by a key known only at run time was settled 2026-09-26 (below)."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Where do the wiring rules live, so that HGL and the runtime keep in line?",
+      "ruling": "Extend the runtime specification with the wiring rules, following the same pattern as the rest of the runtime.",
+      "rules": [
+        "WIR-1",
+        "WIR-14"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Does a bundle's name take part in matching?",
+      "ruling": "Bundle names are only considered if both items are named, otherwise it is a property name and type match only; this supports named and unnamed bundles matching. If both are named, then the name is relevant.",
+      "rules": [
+        "WIR-15"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should requesting REF[X] for an output whose pattern is a bundle fail?",
+      "ruling": "REF[output_type] is perfectly reasonable as an output type.",
+      "rules": [
+        "WIR-12"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should getitem_ with a key known only at run time take references explicitly?",
+      "ruling": "It must still have a typed output once wired. The input is not specified as REF, so the value is dereferenced before wiring in; if the output is REF[...], the node requests a reference for the value and returns that. A mismatch against the expected output is a runtime error.",
+      "rules": [
+        "WIR-7",
+        "WIR-12"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Does HGL's map<K, ref<V>> carry an outer reference?",
+      "ruling": "map<K, ref<V>> gets a map containing ref values.",
+      "rules": [
+        "WIR-14"
+      ],
+      "note": "TSD[K, REF[V]]; HGL's type-extensions.md recorded an outer REF, which is withdrawn."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "How does an operator's declared signature relate to its implementations?",
+      "ruling": "The types describing operators are used to validate minimum requirements of implementations. These can be used to validate the implementation, but implementations can be supersets of the parameters and restrictions to refine the inputs. The typing in the operator is more of a guide than actual requirements per-se. That said the implementations should at least follow the constraints listed.",
+      "rules": [
+        "WIR-21",
+        "WIR-22",
+        "WIR-23",
+        "WIR-24"
+      ],
+      "note": "Whether a candidate wider than its operator violates the constraints is point to settle 6."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "May a candidate be wider than its operator, and must a candidate's extra parameters have defaults?",
+      "ruling": "The implementation can't widen the operator it implements. Think of an operator as having an automatic *args, **kwargs present: an implementation can accept, via an operator call, additional arguments or parameters. Defaults are not required; the implementation just does not match if the additional arguments or kwargs are not supplied. The operator provides a minimum requirement; the implementations provide the potential set of matches. The impl can be validated to make sure it at least looks like the shape of the operator; after that the caller provides the actual args and kwargs to do the matching with.",
+      "rules": [
+        "WIR-22",
+        "WIR-23",
+        "WIR-24"
+      ],
+      "note": "Settles point 6. Both runtimes register a wider candidate (WV-6); expectations follow this ruling."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Operator declarations narrower than their operators: min_/max_ are declared (lhs, rhs) but have unary, variadic and bundle candidates. How should the declaration cover them?",
+      "ruling": "For these scenarios we should declare one of the params optional to allow a unary call.",
+      "rules": [
+        "WIR-22"
+      ],
+      "note": "A declared optional parameter may be absent from a candidate. The C++ declaration cleanup and the registration check follow (WV-6)."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "If a call fails part-way through wiring (a graph function whose later call fails), what happens?",
+      "ruling": "If a graph function fails whilst wiring a graph, the graph fails to wire.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "A failure that author code catches (a fallback) remains point to settle 5."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Does a graph that fails to wire produce anything?",
+      "ruling": "It fails; that does not mean there should not be a good description of where and why.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Where: the call and the path of graph calls that led to it. Why: the arguments' types and each candidate's reason. Case failure_report."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "May a graph's own wiring code catch a wiring failure and wire something else instead?",
+      "ruling": "The idea feels like: test -> can this be done, yes do it, no don't do it. To support the kind of behaviour we should instead follow something along the lines of Swift, where it allows for tests to be performed to optionally include blocks based on things such as OS level etc.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Recorded under Deferred as conditional wiring; it needs an RFC."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should a caught wiring failure still fail the graph?",
+      "ruling": "We should always fail when the graph fails to wire, because it is not possible to easily clean up partial consequences of wiring.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Settles point 5. Case caught_failure."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "main's #1651 lets a service adaptor implementation return a differently named bundle (ImplementationStreamLikeResult) for an interface declaring StreamLikeResult, with the same fields in another order; 0.5.41 rejects it. How is this settled against WIR-15?",
+      "ruling": "Apply WIR-15: wiring refuses differently named bundles everywhere, including service boundaries. The implementation returns the interface's schema, or an unnamed one.",
+      "rules": [
+        "WIR-15"
+      ]
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should field order matter when bundles match?",
+      "ruling": "Order doesn't matter: fields pair by name. A bundle with the same named fields in another order matches, subject to the name rule.",
+      "rules": [
+        "WIR-15"
+      ],
+      "note": "WIR-15 had said 'in the same order', which the first ruling did not state; withdrawn. Case bundle_field_order."
+    }
+  ]
+}

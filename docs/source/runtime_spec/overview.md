@@ -15,6 +15,8 @@ The runtime covers:
 4. TimeSeries Types
 5. Scalar Types
 6. Injectables, system API types such as "Clock", "logger", etc.
+7. Wiring: the interface a graph is described through, and the type and
+   operator resolution it performs
 
 The runtime provides these structures and nothing above them. It does **not**
 specify special nodes such as map, switch, reduce or mesh; it specifies the
@@ -317,11 +319,13 @@ Chapters
 | 4 | Time-series types | [time_series.md](time_series.md) | first draft |
 | 5 | Scalar types | [scalar_types.md](scalar_types.md) | first draft |
 | 6 | Injectables | [injectables.md](injectables.md) | first draft |
+| 7 | Wiring | [wiring.md](wiring.md) | first draft; type resolution validated |
 
 Cases and supporting notes:
 
 - [Conformance](conformance.md) and cases for [atomic series](cases_atomic.md),
-  [collections](cases_collections.md), and [lifecycle](cases_lifecycle.md).
+  [collections](cases_collections.md), [lifecycle](cases_lifecycle.md), and
+  [wiring](cases_wiring.md).
 - [Representations](representations.md) and the bounded [layout example](layout_example.md).
 - [Boundary contracts](boundaries.md), [evidence](evidence.md), and the
   [PR extraction and model review](extraction.md).
@@ -341,10 +345,11 @@ the others:
 | State and recordable state | Node |
 | The node scheduler | Node, which contains it; a node reaches it as an injectable, and its effect on the schedule is in Graph |
 | Value, delta, valid, modified, notification; binding, peered and non-peered, active and passive, references | Time-series types |
+| Calls and ports; type resolution, including what a generic binds when references are involved; operator resolution | Wiring |
 
-Outside this specification: *how* a description comes to be written —
-operator and type resolution, and the interface a compiler or an author
-calls; the language and its compiler; special nodes (map, switch, reduce, mesh, feedback, try/except)
+Outside this specification: the language and its compiler (HGL's source
+semantics are in its own documentation; where they resolve a call they
+follow Wiring, WIR-14); special nodes (map, switch, reduce, mesh, feedback, try/except)
 and the rest of the operator library; services, adaptors and contexts;
 language bridges; checkpointing; distribution.
 
@@ -371,7 +376,8 @@ its chapter's Deferred section and specified when an implementation needs it.
 4. **Behaviour** — what it does and in response to what; flow or sequence
    diagrams.
 5. **Rules** — numbered statements a test could check (`ENG-1`, `GRF-1`,
-   `NOD-1`, `TS-1`, `VAL-1`, `INJ-1`). A test names the rule it checks.
+   `NOD-1`, `TS-1`, `VAL-1`, `INJ-1`, `WIR-1`). A test names the rule it
+   checks.
 6. **Deferred**, and **Points to settle**.
 7. **Evidence and cases** — what supports a rule, and what a test should see.
    See [Evidence](evidence.md) and [Conformance](conformance.md).
@@ -431,7 +437,10 @@ Points to settle
    process-local function pointers, which is why its RFC 0022 manifest can
    *identify* a wired program but not rebuild one.
 2. **How much of the wiring phase is specified depends on how HGL is
-   compiled**, and that is not yet decided.
+   compiled.** Settled 2026-09-26 (owner): the first route below is kept,
+   and [Wiring](wiring.md) specifies the wiring interface, type resolution
+   and operator resolution. The description stays complete and
+   self-contained, so the second route remains possible.
    - *The compiler emits code that does the wiring when run* — what has been
      done so far. The runtime must then provide everything that code calls:
      the wiring interface, type resolution, operator resolution. All of it

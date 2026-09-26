@@ -34,6 +34,7 @@ licence for arbitrary behaviour.
 - [Lifecycle](cases_lifecycle.md): activation, construction failure and teardown.
 - [References](cases_references.md): sampling, dictionary withdrawal and expiry.
 - [Nested graphs](cases_nested.md): keyed routing, state, deadlines and failure.
+- [Wiring](cases_wiring.md): what a generic binds, projections, and operator selection.
 - [Representations](representations.md) and [layout](layout_example.md): physical contracts.
 
 Each case names its rules, limits, initial state, actions and observation

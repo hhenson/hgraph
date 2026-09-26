@@ -35,7 +35,17 @@ namespace hgl::ir::detail
       public:
         GenericSubstitution(hir::Module &module, CanonicalTypes &types);
 
+        /// Exact structural unification: a type parameter binds the type as
+        /// given. For comparing declared signatures (contract conformance).
         [[nodiscard]] bool unify(hir::TypeId pattern, hir::TypeId actual);
+        /// Inference from an argument (runtime spec WIR-7, WIR-11): a type
+        /// parameter binds the argument's type with every `ref<>` removed; one
+        /// already bound (stated up front) also matches the argument as supplied.
+        [[nodiscard]] bool infer_from_argument(hir::TypeId pattern, hir::TypeId actual);
+        /// Inference from a requested result (WIR-12): a type parameter that is
+        /// the whole result binds the requested type as given; one nested in a
+        /// structure binds as from an argument.
+        [[nodiscard]] bool infer_from_result(hir::TypeId pattern, hir::TypeId actual);
         [[nodiscard]] bool unify_value(hir::ExprId pattern, hir::ExprId actual);
 
         [[nodiscard]] bool                       bind_type(hir::SymbolId parameter, hir::TypeId value);
@@ -55,6 +65,10 @@ namespace hgl::ir::detail
         [[nodiscard]] std::vector<hir::Substitution> materialize(const std::vector<hir::GenericParameter> &generics) const;
 
       private:
+        enum class Inference { Exact, Argument };
+        [[nodiscard]] bool unify_as(hir::TypeId pattern, hir::TypeId actual, Inference inference);
+        [[nodiscard]] bool type_parameter(hir::TypeId id) const;
+
         hir::Module                                     &module_;
         CanonicalTypes                                  &types_;
         std::unordered_map<std::uint32_t, hir::TypeId>   type_bindings_{};

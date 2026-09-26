@@ -597,6 +597,16 @@ if(UNIX)
         NAME hgraph_language_test_system_operators
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl
     )
+    # An operator call's extra arguments reach its implementations at run time
+    # (runtime spec WIR-22, WV-7). Source `impl fn` candidates take the
+    # scripted native loader, which is Unix-only.
+    add_test(
+        NAME hgraph_language_test_operator_extra_arguments
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/wiring/operator-extra-arguments.hgl
+    )
+    set_tests_properties(hgraph_language_test_operator_extra_arguments PROPERTIES
+        PASS_REGULAR_EXPRESSION "3 tests, 0 failed"
+    )
 endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "13 tests, 0 failed"

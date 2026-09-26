@@ -1,0 +1,14 @@
+# WIR-14: HGL resolves the same generic calls the runtime cases wire.
+module runtime_spec.wiring.front_end
+
+fn pass<T>(value: T) -> T {
+    when modified(value) {
+        return value
+    }
+}
+
+export fn through_ref(value: ref<f64>) -> f64 =>
+    pass(value)
+
+export fn through_list(values: list<ref<f64>, 2>) -> list<f64, 2> =>
+    pass(values)

@@ -375,11 +375,13 @@ fn invalid(value: map<ref<i64>, str>) => value
 )"};
     CHECK(key.has(Category::Type, "'ref' is a temporal shape, not a canonical value type"));
 
+    // A map of references is a map containing reference values (owner
+    // ruling 2026-09-26, runtime spec Wiring point 4): TSD[K, REF[V]].
     const Resolved mapped{R"(
 module checks.reference_value
-fn invalid(value: map<i64, ref<str>>) => value
+fn valid(value: map<i64, ref<str>>) -> map<i64, ref<str>> => value
 )"};
-    CHECK(mapped.has(Category::Type, "map values wrapped in 'ref' require the collection-reference mapping to be resolved"));
+    CHECK_FALSE(mapped.diagnostics.has_errors());
 
     const Resolved nested{R"(
 module checks.nested_reference

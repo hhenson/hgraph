@@ -1,0 +1,492 @@
+{
+  "_about": "Expectations for the wiring cases, derived from the Wiring chapter's rules before either runtime was run. Types are normalised (whitespace removed). An observation listed under 'recorded' is kept as context, not asserted.",
+  "generic_depth": {
+    "source": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [],
+      "derivation": "Premise: tsl_to_tsd publishes a reference per key (a map_-shaped output)."
+    },
+    "bound": {
+      "expected": "TSD[str,TS[int]]",
+      "rules": [
+        "WIR-7"
+      ],
+      "derivation": "A variable bound from an argument binds its type with every reference removed, at every depth."
+    },
+    "values": {
+      "expected": [
+        "a=1,b=2,c=3",
+        "a=1,b=30,c=3"
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The generic input observes values: it follows each element's reference and ticks when a referenced value ticks (b becomes 30 at the second cycle)."
+    }
+  },
+  "generic_top": {
+    "source": {
+      "expected": "REF[TS[int]]",
+      "rules": [],
+      "derivation": "Premise: _to_ref publishes REF[TS[int]]."
+    },
+    "bound": {
+      "expected": "TS[int]",
+      "rules": [
+        "WIR-7"
+      ],
+      "derivation": "The top-level reference is removed like any other."
+    },
+    "values": {
+      "expected": [
+        "1",
+        "2"
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The generic input follows the reference and sees each value tick."
+    }
+  },
+  "ref_pattern": {
+    "bound_below_ref": {
+      "expected": "REF[TSD[str,TS[int]]]",
+      "rules": [
+        "WIR-10",
+        "WIR-7"
+      ],
+      "derivation": "The variable binds beneath the declared REF; below it, references are removed (the element REFs go)."
+    },
+    "receives_reference": {
+      "expected": [
+        true
+      ],
+      "rules": [
+        "WIR-10",
+        "WIR-6"
+      ],
+      "derivation": "A REF input bound to a value output receives a reference to that output (Time-series types: interchangeable at a binding)."
+    }
+  },
+  "stated_resolution": {
+    "stated_nested": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [
+        "WIR-11"
+      ],
+      "derivation": "A stated resolution keeps its references; the supplied port is that type as supplied."
+    },
+    "stated_top": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-11"
+      ],
+      "derivation": "Likewise for a top-level reference."
+    }
+  },
+  "requested_output": {
+    "nested": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "A bare output variable binds the requested type as requested, a REF at any depth kept."
+    },
+    "top": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "Likewise for a top-level reference."
+    },
+    "plain": {
+      "expected": "TSD[str,TS[int]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "A request without references is produced as requested."
+    }
+  },
+  "projection": {
+    "recorded": [
+      "bundle"
+    ],
+    "by_key": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "Selecting a declared field is a structural projection: it resolves no variable and keeps the field's type as supplied."
+    },
+    "by_attribute": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "The attribute spelling is the same projection."
+    },
+    "by_getattr": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "getattr_ with a name known at wiring is the same projection."
+    },
+    "plain_by_key": {
+      "expected": "TS[int]",
+      "rules": [
+        "WIR-5"
+      ],
+      "derivation": "A field without a reference projects as declared."
+    },
+    "values": {
+      "expected": [
+        1,
+        2
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The TS[int] graph output follows the projected reference and sees each value tick."
+    }
+  },
+  "projection_through_ref": {
+    "recorded": [
+      "bundle"
+    ],
+    "field": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5"
+      ],
+      "derivation": "A field beneath a reference is only known at run time: a node publishes a reference to it."
+    },
+    "values": {
+      "expected": [
+        1,
+        null
+      ],
+      "rules": [
+        "TS-15",
+        "TS-17"
+      ],
+      "derivation": "When the condition turns false the true field's reference becomes empty: the follower unbinds, which does not tick."
+    }
+  },
+  "operator_specificity": {
+    "selected": {
+      "expected": [
+        "int",
+        "generic",
+        "tsl-generic",
+        "int"
+      ],
+      "rules": [
+        "WIR-16",
+        "WIR-18",
+        "WIR-6"
+      ],
+      "derivation": "Concrete beats a variable; a variable inside a structure beats a bare one; a reference adds no specificity, so REF[TS[int]] selects the TS[int] candidate."
+    }
+  },
+  "operator_failures": {
+    "ambiguous_raises": {
+      "expected": true,
+      "rules": [
+        "WIR-16",
+        "WIR-4"
+      ],
+      "derivation": "Two equally specific candidates: the call fails as ambiguous."
+    },
+    "no_candidate_raises": {
+      "expected": true,
+      "rules": [
+        "WIR-16",
+        "WIR-4"
+      ],
+      "derivation": "No candidate matches: the call fails."
+    }
+  },
+  "repeated_variable": {
+    "ref_and_value_values": {
+      "expected": [
+        true
+      ],
+      "rules": [
+        "WIR-7",
+        "WIR-17"
+      ],
+      "derivation": "REF[TS[int]] and TS[int] both bind the variable to TS[int]: one binding."
+    },
+    "different_types_raise": {
+      "expected": true,
+      "rules": [
+        "WIR-17",
+        "WIR-4"
+      ],
+      "derivation": "TS[int] then TS[float] cannot bind one variable: the call fails."
+    }
+  },
+  "hgl_front_end": {
+    "through_ref": {
+      "expected": "f64",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "derivation": "The same call wired by the runtime binds the variable to the argument's type with the reference removed; HGL must reach that binding."
+    },
+    "through_list": {
+      "expected": "list<f64, 2>",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "derivation": "Likewise at depth: the element references are removed; the fixed extent is kept."
+    },
+    "superset_implementation": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "An implementation may declare a parameter its operator does not (here a const with a default): it is a superset of the operator's signature."
+    },
+    "_recorded": [],
+    "required_extra_implementation": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "An implementation may declare a parameter its operator does not, without a default."
+    },
+    "extra_argument_call": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "A call may pass an argument the operator does not declare; it goes to the candidates."
+    },
+    "widening_implementation": {
+      "expected": "rejected",
+      "rules": [
+        "WIR-23",
+        "WIR-24",
+        "WIR-14"
+      ],
+      "derivation": "An implementation cannot widen its operator."
+    }
+  },
+  "bundle_identity": {
+    "named_and_unnamed_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15",
+        "WIR-17"
+      ],
+      "derivation": "A repeated variable given a named bundle and an unnamed bundle with the same fields: one of the two is unnamed, so fields alone decide, and they match."
+    },
+    "same_name_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15",
+        "WIR-17"
+      ],
+      "derivation": "Both named, with the same name and fields: they match."
+    },
+    "two_names_repeat": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15",
+        "WIR-17",
+        "WIR-4"
+      ],
+      "derivation": "Both named, same fields, different names: the names count and differ, so the variable cannot bind both and the call fails."
+    },
+    "named_input_from_unnamed": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A parameter declared as the named bundle given the unnamed bundle with the same fields: fields alone decide."
+    },
+    "unnamed_input_from_named": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A parameter declared as the unnamed bundle given the named bundle with the same fields: fields alone decide."
+    },
+    "named_input_from_other_name": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15",
+        "WIR-4"
+      ],
+      "derivation": "A parameter declared as one named bundle given another named bundle with the same fields: the names differ, so the call fails."
+    }
+  },
+  "operator_contract": {
+    "superset_default_used": {
+      "expected": [
+        "extra 2"
+      ],
+      "rules": [
+        "WIR-22"
+      ],
+      "derivation": "A candidate may declare a parameter the operator does not; a call that omits it uses the candidate's default."
+    },
+    "superset_extra_passed": {
+      "expected": [
+        "extra 5"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-21"
+      ],
+      "derivation": "A call may supply the extra parameter by name: it is matched against the candidate's own signature."
+    },
+    "refined_selected": {
+      "expected": [
+        "refined"
+      ],
+      "rules": [
+        "WIR-23",
+        "WIR-21"
+      ],
+      "derivation": "A candidate may accept a narrower type than the operator declares, and is selected for a call it matches."
+    },
+    "required_extra_registers": {
+      "expected": "registered",
+      "rules": [
+        "WIR-22"
+      ],
+      "derivation": "A candidate may declare a parameter the operator does not, with or without a default."
+    },
+    "required_extra_missing": {
+      "expected": [
+        "fallback"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-16"
+      ],
+      "derivation": "A candidate that requires an argument the call does not supply does not match; the other candidate is selected."
+    },
+    "required_extra_supplied": {
+      "expected": [
+        "scaled 3"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-18"
+      ],
+      "derivation": "The call supplies the extra argument by name (the operator's implicit **kwargs); both candidates match and the TS[int] one is more specific."
+    },
+    "widening_registers": {
+      "expected": "rejected",
+      "rules": [
+        "WIR-23",
+        "WIR-24"
+      ],
+      "derivation": "A candidate cannot widen its operator (TIME_SERIES_TYPE for a declared TS[int]); the check at registration rejects it."
+    },
+    "widening_call_for_float": {
+      "expected": "fails",
+      "rules": [
+        "WIR-24",
+        "WIR-16",
+        "WIR-4"
+      ],
+      "derivation": "With the wider candidate rejected, no candidate accepts TS[float]: the call fails."
+    }
+  },
+  "failure_report": {
+    "fails": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "A call inside a graph inside a graph fails: the graph fails to wire."
+    },
+    "names_the_operator": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Where: the call, named as its author declared it (_only_int), not an internal name."
+    },
+    "names_the_argument_type": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Why: the argument's type, TS[str]."
+    },
+    "gives_each_candidate_reason": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Why: each candidate's reason for not matching, which names its parameter type TS[int]."
+    },
+    "names_the_graph_path": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Where: the path of graph calls that led to the call, failing_outer then _failing_inner."
+    }
+  },
+  "caught_failure": {
+    "outcome": {
+      "expected": "fails",
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "The graph's own code catches the failed call's error and wires a fallback; the failure still fails the graph, since the node the failed attempt added cannot be undone."
+    }
+  },
+  "bundle_field_order": {
+    "named_input_from_unnamed_reordered": {
+      "expected": [
+        12
+      ],
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "An unnamed bundle declaring b then a, given to a Pair input: one is unnamed, so the fields decide, paired by name; a*10+b is 12."
+    },
+    "unnamed_reordered_input_from_named": {
+      "expected": [
+        12
+      ],
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A Pair given to an unnamed {b, a} input: fields pair by name; a*10+b is 12."
+    },
+    "named_and_unnamed_reordered_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "_same(Pair, {b, a}): one is unnamed, the fields match by name in any order, so the variable binds once."
+    },
+    "named_input_from_other_name_reordered": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "Riap given to a Pair input: both named, different names."
+    }
+  }
+}
