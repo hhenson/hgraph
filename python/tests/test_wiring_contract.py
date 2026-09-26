@@ -30,8 +30,6 @@ KNOWN_VARIATIONS = {
     ("bundle_field_order", "named_input_from_other_name_reordered"): ("WV-4", "wires"),
     ("operator_contract", "widening_registers"): ("WV-6", "registered"),
     ("operator_contract", "widening_call_for_float"): ("WV-6", "wires"),
-    ("failure_report", "names_the_graph_path"): ("WV-8", False),
-    ("failure_report", "names_the_operator"): ("WV-9", False),
     ("caught_failure", "outcome"): ("WV-10", "wires"),
 }
 

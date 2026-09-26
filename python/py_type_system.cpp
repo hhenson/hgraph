@@ -1757,7 +1757,7 @@ namespace hgraph::python_bridge
            nb::object resolver_fn, nb::object requires_fn, bool variadic, bool has_kwargs,
            std::optional<std::size_t> positional_params, nb::object kwargs_pattern,
            nb::list callable_params, nb::object callable_adapter,
-           bool compose_resolves_output) {
+           bool compose_resolves_output, const std::string &label_name) {
             OperatorImpl impl;
             impl.name       = name;
             impl.source     = OperatorImpl::Source::Python;
@@ -1837,8 +1837,10 @@ namespace hgraph::python_bridge
             }
             if (positional_params.has_value()) { impl.positional_params = *positional_params; }
             impl.rank  = operator_dispatch_detail::operator_rank(impl.params);
+            // A candidate is labelled with its implementation's name, as a C++
+            // candidate is with its struct's (runtime spec WIR-4).
             impl.label = [&] {
-                std::string out = name + "(";
+                std::string out = (label_name.empty() ? name : label_name) + "(";
                 for (std::size_t i = 0; i < impl.params.size(); ++i)
                 {
                     if (i != 0) { out += ", "; }
@@ -2009,6 +2011,7 @@ namespace hgraph::python_bridge
         nb::arg("kwargs_pattern").none() = nb::none(),
         nb::arg("callable_params") = nb::list(),
         nb::arg("callable_adapter").none() = nb::none(),
-        nb::arg("compose_resolves_output") = false);
+        nb::arg("compose_resolves_output") = false,
+        nb::arg("label_name") = std::string{});
     }
 }  // namespace hgraph::python_bridge

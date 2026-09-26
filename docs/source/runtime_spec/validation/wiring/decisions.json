@@ -163,6 +163,16 @@
         "WIR-15"
       ],
       "note": "WIR-15 had said 'in the same order', which the first ruling did not state; withdrawn. Case bundle_field_order."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should the runtimes be corrected for WV-10, a caught wiring failure that lets the graph wire?",
+      "ruling": "For WV-10 we will ignore that in C++ since it is largely out of our control for now, but will open a design session to work out how to handle that in HGL, where we can work out how to do conditional wiring (i.e. based on things that would otherwise potentially have used exception handling). The only examples are hypotheticals, so the point is academic for now.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "WV-10 stays a recorded, pinned variation; conditional wiring is deferred to an HGL design session."
     }
   ]
 }

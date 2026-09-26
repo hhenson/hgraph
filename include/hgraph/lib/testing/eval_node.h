@@ -573,7 +573,10 @@ namespace hgraph::testing
                     bound_payload_or_default_at<I, params>(all, default_args, "eval_node<G>"));
             };
 
+            // The graph under test holds its label on the wiring path, as
+            // build_graph's does, so a failure names it (runtime spec WIR-4).
             auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+                const WiringPathScope path{w, static_node_detail::diagnostic_name<GraphT>()};
                 return GraphT::compose(w, wire_arg.template operator()<I>()...);
             }(std::make_index_sequence<sig::param_count()>{});
 
@@ -634,7 +637,10 @@ namespace hgraph::testing
                 }
             };
 
+            // The graph under test holds its label on the wiring path, as
+            // build_graph's does, so a failure names it (runtime spec WIR-4).
             auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+                const WiringPathScope path{w, static_node_detail::diagnostic_name<GraphT>()};
                 return GraphT::compose(w, wire_arg.template operator()<I>()...);
             }(std::make_index_sequence<sig::param_count()>{});
 

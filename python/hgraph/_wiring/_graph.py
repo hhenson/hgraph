@@ -10,8 +10,8 @@ from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
 from ._core import (IncorrectTypeBinding, ParseError,
                     RequirementsNotMetWiringError, WiringError, WiringPort,
-                    _current_wiring, _resolve_context, _unwrap, _wiring_stack,
-                    wire)
+                    _current_wiring, _graph_scope, _resolve_context, _unwrap,
+                    _wiring_stack, wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _annotation_ts_kind, _is_object_vt)
 from ._node import (_PyNode, _is_time_series_annotation,
@@ -271,7 +271,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                     call_kwargs[parameter.name] = value
             label = getattr(gfn, "_label", None) or getattr(
                 gfn, "__name__", "<python-graph>")
-            with borrowed_wiring._graph_wiring_scope(label):
+            with _graph_scope(borrowed_wiring, label):
                 if isinstance(gfn, _GraphFn):
                     # The wrapper owns this nested scope. Calling __call__
                     # would emit the same graph scope a second time.
@@ -782,15 +782,7 @@ class _GraphFn:
         return resolved
 
     def __call__(self, *args, **kwargs):
-        from contextlib import nullcontext
-
-        wiring = _current_wiring()
-        scope_factory = getattr(wiring, "_graph_wiring_scope", None)
-        scope = (
-            scope_factory(self._label or self.__name__)
-            if scope_factory is not None else nullcontext()
-        )
-        with scope:
+        with _graph_scope(_current_wiring(), self._label or self.__name__):
             return self._call(*args, **kwargs)
 
     def _call(self, *args, **kwargs):

@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
 
@@ -436,4 +437,30 @@ TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candida
     register_case_operators();
     CHECK_THROWS(eval_node<TiedGraph>(values<Int>(1)));
     CHECK_THROWS(eval_node<NoCandidateGraph>(values<Str>("x"s)));
+}
+
+namespace
+{
+    // WIR-4: the error says where: the call, and the graphs that led to it.
+    struct FailingInnerGraph
+    {
+        static constexpr auto name = "wiring_contract_failing_inner";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> v) { return wire<only_int_>(w, v).as<TS<Str>>(); }
+    };
+    struct FailingOuterGraph
+    {
+        static constexpr auto name = "wiring_contract_failing_outer";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Str>> v) { return wire<FailingInnerGraph>(w, v); }
+    };
+}  // namespace
+
+TEST_CASE("wiring contract: a failure names the operator, the reasons and the wiring path (WIR-4)")
+{
+    stdlib::register_standard_operators();
+    register_case_operators();
+    CHECK_THROWS_WITH(eval_node<FailingOuterGraph>(values<Str>("x"s)),
+                      Catch::Matchers::ContainsSubstring("no matching overload for operator 'wiring_contract_only_int'") &&
+                          Catch::Matchers::ContainsSubstring("does not match TS[int]") &&
+                          Catch::Matchers::ContainsSubstring(
+                              "wiring path: wiring_contract_failing_outer -> wiring_contract_failing_inner"));
 }
