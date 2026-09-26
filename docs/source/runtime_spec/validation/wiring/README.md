@@ -123,6 +123,28 @@ varies" to "both", the other the other way. The correction for WV-4
 (#1655) makes the bundle comparison count names when both bundles are
 named, which covers both observations.
 
+## C++ correction for WIR-15
+
+WV-3 and WV-4 are corrected in the C++ runtime. (WV-3 had already stopped
+varying after the rebase onto `main`, through #1651; the bridge change below
+removes its cause, the generated name.)
+
+- `time_series_schema_equivalent` compares two bundles' names when both are
+  named (WV-4: `_takes_foo(Bar)`, and `_same(Foo, Bar)` since the rebase).
+- A variable already bound compares a supplied type as types are compared,
+  not by identity, in the runtime matcher (`ts_pattern_match`,
+  `prebound_as_supplied`) and the static unifier (`ts_unifier<TsVar>`); the
+  first binding stays.
+- The Python bridge registers `ts_schema(...)` as an unnamed native bundle
+  (`un_named_tsb`) instead of under a generated name (WV-3).
+
+Regression coverage: `tests/cpp/test_wiring_contract.cpp`
+("WIRE-BUNDLE-IDENTITY") and `python/tests/test_wiring_contract.py`, which
+now holds all six observations. Three reference-alternative tests in
+`tests/cpp/test_time_series_reference.cpp` bound two differently named
+bundles with the same fields; they now request an unnamed bundle, which
+WIR-15 lets match the named source. The archived observations are kept.
+
 ## The C++ correction behind WIR-7
 
 Before `main` @ `dea948136` (PR #1650, issue #847) the C++ matcher removed
