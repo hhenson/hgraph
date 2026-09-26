@@ -676,6 +676,7 @@ namespace hgraph
             }
             if constexpr (sizeof...(C) > 0)
             {
+                // Compared as types are (WIR-15), not by identity.
                 if (!((time_series_value_equivalent(concrete, schema_descriptor<C>::ts_meta())) || ...))
                 {
                     throw std::logic_error(
@@ -922,7 +923,8 @@ namespace hgraph
             }
             if constexpr (sizeof...(C) > 0)
             {
-                if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
+                // Compared as types are (WIR-15), not by identity.
+                if (!(time_series_schema_equivalent(concrete, schema_descriptor<C>::ts_meta()) || ...))
                 {
                     throw std::logic_error(
                         fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));

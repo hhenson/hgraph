@@ -216,6 +216,41 @@ namespace
         static void eval(In<"b", Bundle> b, Out<TS<Int>> out) { out.set(b.template field<"a">().value()); }
     };
 
+    // A generic named bundle pattern (dispatched through the runtime matcher)
+    // and a constrained variable (static unifier) apply WIR-15 too.
+    using FooOf = TSB<"WiringContractFoo", Field<"a", TS<ScalarVar<"T">>>>;
+    struct takes_foo_ : Operator<"wiring_contract_takes_foo", In<"b", TsVar<"S">>, Out<TS<Bool>>>
+    {
+    };
+    struct TakesFooOf
+    {
+        static void eval(In<"b", FooOf>, Out<TS<Bool>> out) { out.set(true); }
+    };
+    struct TakesUnnamedConstrained
+    {
+        static constexpr auto name = "wiring_contract_takes_unnamed_constrained";
+        static void eval(In<"b", TsVar<"S", Unnamed>>, Out<TS<Bool>> out) { out.set(true); }
+    };
+
+    template <typename Supplied>
+    struct TakesFooOfGraph
+    {
+        static constexpr auto name = "wiring_contract_takes_foo_of";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            return wire<takes_foo_>(w, wire<MakeBundle<Supplied>>(w, v)).template as<TS<Bool>>();
+        }
+    };
+
+    struct ConstrainedGraph
+    {
+        static constexpr auto name = "wiring_contract_constrained";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            return wire<TakesUnnamedConstrained>(w, wire<MakeBundle<Foo>>(w, v)).as<TS<Bool>>();
+        }
+    };
+
     template <typename Left, typename Right>
     struct SameBundlesGraph
     {
@@ -360,6 +395,7 @@ namespace
         register_overload<refinable_, Refined>();
         register_overload<needs_extra_, NeedsExtraFallback>();
         register_overload<needs_extra_, NeedsExtraScaled>();
+        register_overload<takes_foo_, TakesFooOf>();
     }
 
     struct PickIntGraph
@@ -464,6 +500,12 @@ TEST_CASE("wiring contract: WIRE-BUNDLE-IDENTITY counts names only when both bun
     CHECK_OUTPUT((eval_node<TakesBundleGraph<Foo, Unnamed>>(values<Int>(1))), values<Int>(1));
     CHECK_OUTPUT((eval_node<TakesBundleGraph<Unnamed, Foo>>(values<Int>(1))), values<Int>(1));
     CHECK_THROWS((eval_node<TakesBundleGraph<Foo, Bar>>(values<Int>(1))));
+    // Through a generic named pattern and a constrained variable too.
+    register_case_operators();
+    CHECK_OUTPUT((eval_node<TakesFooOfGraph<Unnamed>>(values<Int>(1))), values<Bool>(true));
+    CHECK_OUTPUT((eval_node<TakesFooOfGraph<Foo>>(values<Int>(1))), values<Bool>(true));
+    CHECK_THROWS((eval_node<TakesFooOfGraph<Bar>>(values<Int>(1))));
+    CHECK_OUTPUT(eval_node<ConstrainedGraph>(values<Int>(1)), values<Bool>(true));
 }
 
 TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate (WIR-16, WIR-18)")

@@ -172,7 +172,10 @@ namespace hgraph
                                                    ResolutionMap &map)
         {
             if (!pattern.named_bundle) { return true; }
-            if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return false; }
+            // An unnamed bundle is compared by its fields alone, which the
+            // caller checks next: a bundle's name counts only when both are
+            // named (runtime spec WIR-15).
+            if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return true; }
             if (pattern.scalar.kind == ScalarPattern::Kind::Bundle && !pattern.scalar.bundle_origin.empty())
             {
                 return scalar_pattern_match(pattern.scalar, concrete->value_type, map);
