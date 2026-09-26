@@ -1805,6 +1805,20 @@ std::vector<std::string> Wiring::current_wiring_path() const {
   return impl_->wiring_path;
 }
 
+WiringPathScope::WiringPathScope(Wiring &wiring, std::string label)
+    : wiring_(&wiring) {
+  wiring.impl_->wiring_path.push_back(label.empty() ? std::string{"<unnamed>"}
+                                                    : std::move(label));
+}
+
+WiringPathScope::~WiringPathScope() noexcept {
+  // The wiring may have been moved (finish / finish_subgraph) while the
+  // scope was open; a moved-from wiring has no path left to pop.
+  if (wiring_->impl_ != nullptr && !wiring_->impl_->wiring_path.empty()) {
+    wiring_->impl_->wiring_path.pop_back();
+  }
+}
+
 WiringScopeEvent Wiring::begin_observation(WiringScopeEvent event) {
   impl_->wiring_path.push_back(event.label.empty() ? "<unnamed>" : event.label);
   event.path = impl_->wiring_path;

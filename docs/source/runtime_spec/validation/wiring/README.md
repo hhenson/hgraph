@@ -196,6 +196,39 @@ rejects the corrected module with "unknown parameter 'scale'": the binding
 failure WV-7 records. The variation therefore stands as recorded, and this
 correction removes it.
 
+## The corrections for WV-8 and WV-9
+
+Corrected in the runtime (C++ and its Python bridge), citing WIR-4; the
+observations above are kept as recorded. Replaying failure_report on the
+correction gives `names_the_graph_path` and `names_the_operator` true. The
+error for `_failing_inner`'s call now reads:
+
+```text
+no matching overload for operator '_only_int' with 1 argument(s)
+rejected candidates:
+  _only_int_impl(TS[int]) [py] -> TS[str] [rank 0]: argument 0 (a TS[str]) does not match TS[int]
+wiring path: failing_outer -> _failing_inner
+```
+
+- WV-8: the wiring path is kept for every graph call, observed or not, and
+  an operator-resolution error ends with it. Any other wiring error leaving
+  a Python graph gains the same line from the innermost graph.
+- WV-9: a Python-defined operator's declared name is recorded beside its
+  registry identity and shown in errors; a Python candidate is labelled
+  with its implementation's name.
+
+`tests/cpp/test_wiring_contract.cpp` checks the same report through native
+C++ wiring.
+
+## WV-10 is not corrected in the runtimes
+
+Owner decision, 2026-09-26: a failure that the graph's own code catches is
+largely outside the runtime's control, and the only examples are
+hypothetical, so the runtimes are not changed. WIR-4 stands as the rule. How
+a graph chooses between two ways of wiring without catching a failure
+(conditional wiring, under the chapter's Deferred) is taken up in an HGL
+design session. The contract test keeps WV-10 pinned.
+
 ## The C++ correction behind WIR-7
 
 Before `main` @ `dea948136` (PR #1650, issue #847) the C++ matcher removed

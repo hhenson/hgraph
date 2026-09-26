@@ -435,6 +435,22 @@ The observer and event interfaces are C++ APIs. Python may configure the bound
 native ``WiringTracer``, but cannot implement an observer or receive the event
 records through Python callbacks.
 
+Failure reports
+~~~~~~~~~~~~~~~
+
+A call that cannot be wired fails the graph, and its error says where and why
+(runtime spec WIR-4). *Why* is the resolver's: the argument types and each
+candidate's reason for not matching. *Where* is the call, named as declared,
+and the **wiring path**: the labels of the graphs whose calls led to it.
+
+The path is kept for every graph call, observed or not. A C++ graph or graph
+candidate that wires without observers still holds its label on the path
+(``Wiring::path_scope``); a Python ``@graph`` always wires in an observation
+scope; a child wiring copies the path (above). An operator-resolution error
+(no operator, no matching candidate, a tie) ends with
+``wiring path: outer -> inner``. Any other wiring error that leaves a Python
+graph gains the same line once, from the innermost graph it passes through.
+
 
 Status and roadmap
 ------------------
