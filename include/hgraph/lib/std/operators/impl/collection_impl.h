@@ -2030,7 +2030,11 @@ namespace hgraph::stdlib
                         TSOutputView members = member_dict.at(outer_key);
                         if (members.valid())
                         {
-                            for (const ValueView &inner_key : members.data_view().as_set().values())
+                            // Held in locals: the range must not outlive its views
+                            // (GCC 14 -Wdangling-reference).
+                            const auto member_data = members.data_view();
+                            const auto member_set  = member_data.as_set();
+                            for (const ValueView &inner_key : member_set.values())
                             {
                                 removed.emplace_back(inner_key);
                             }
