@@ -752,6 +752,13 @@ namespace hgl::ir::detail
         if (contract == nullptr || contract->signature.parameters.size() != arguments.size()) { return Truth::False; }
 
         GenericSubstitution contract_substitution{module_, types_};
+        // The requested result is matched before the arguments (runtime spec
+        // WIR-17): a result type holding a reference binds as requested, and
+        // an argument then matches that binding as supplied (WIR-11, WIR-12).
+        if (query.expected_result.valid() &&
+            !contract_substitution.infer_from_result(contract->signature.result, query.expected_result)) {
+            return Truth::False;
+        }
         for (std::size_t index = 0; index < arguments.size(); ++index) {
             const Parameter &parameter = contract->signature.parameters[index];
             const Operand   &argument  = arguments[index];
@@ -763,10 +770,6 @@ namespace hgl::ir::detail
                 return Truth::False;
             }
             if (!contract_substitution.infer_from_argument(parameter.type, query.arguments[index].type)) { return Truth::False; }
-        }
-        if (query.expected_result.valid() &&
-            !contract_substitution.infer_from_result(contract->signature.result, query.expected_result)) {
-            return Truth::False;
         }
         if (!solve(contract->requirements, contract_substitution, range, "operator contract", false, premises)) {
             return Truth::False;
@@ -789,6 +792,9 @@ namespace hgl::ir::detail
             }
             GenericSubstitution candidate_substitution{module_, types_};
             bool                matches = true;
+            if (query.expected_result.valid()) {  // requested result first (WIR-17)
+                matches = candidate_substitution.infer_from_result(candidate->signature.result, query.expected_result);
+            }
             for (std::size_t index = 0; index < query.arguments.size(); ++index) {
                 const Parameter &parameter = candidate->signature.parameters[index];
                 const Operand   &argument  = arguments[index];
@@ -801,9 +807,6 @@ namespace hgl::ir::detail
                 matches = candidate_substitution.infer_from_argument(candidate->signature.parameters[index].type,
                                                                      query.arguments[index].type) &&
                           matches;
-            }
-            if (query.expected_result.valid()) {
-                matches = candidate_substitution.infer_from_result(candidate->signature.result, query.expected_result) && matches;
             }
             for (std::size_t index = 0; matches && index < query.arguments.size(); ++index) {
                 matches = types_.same_ignoring_references(

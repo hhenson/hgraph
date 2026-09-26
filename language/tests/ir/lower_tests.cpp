@@ -1404,7 +1404,13 @@ namespace
         switch (type.kind) {
             case hir::TypeKind::Scalar: return type.scalar == hir::ScalarType::F64 ? "f64" : "scalar";
             case hir::TypeKind::Reference: return "ref<" + spell(module, type.children.front()) + ">";
-            case hir::TypeKind::List: return "list<" + spell(module, type.children.front()) + ">";
+            case hir::TypeKind::List: {
+                std::string extent;
+                if (type.size.valid() && module.expr(type.size).constant) {
+                    extent = ", " + std::to_string(std::get<std::int64_t>(*module.expr(type.size).constant));
+                }
+                return "list<" + spell(module, type.children.front()) + extent + ">";
+            }
             default: return "?";
         }
     }
@@ -1443,7 +1449,7 @@ export fn through_list(values: list<ref<f64>, 2>) -> list<f64, 2> =>
     const bool completed = complete(lowered);
     INFO(lowered.diagnostics.render(lowered.file));
     REQUIRE(completed);
-    CHECK(bindings_of(lowered, "checks.wiring_front_end.pass") == std::vector<std::string>{"f64", "list<f64>"});
+    CHECK(bindings_of(lowered, "checks.wiring_front_end.pass") == std::vector<std::string>{"f64", "list<f64, 2>"});
 }
 
 TEST_CASE("typed HIR binds a generic beneath a reference pattern (runtime spec WIR-10)",
@@ -1509,6 +1515,32 @@ fn apply(value: f64) -> f64 => keep(value)
     require_clean(lowered);
     CHECK_FALSE(complete(lowered));
     CHECK(lowered.diagnostics.render(lowered.file).find("operator requirement has no implementation") != std::string::npos);
+}
+
+TEST_CASE("typed HIR requirements match the requested result before the arguments (runtime spec WIR-17)",
+          "[ir][typed][constraints][operators][ref]") {
+    // Instantiating id<ref<f64>> solves its requirement probe(T) -> T as
+    // probe(ref<f64>) -> ref<f64>: the requested result binds T to ref<f64>
+    // first, and the reference argument then matches it as supplied, as the
+    // runtime matcher does. Arguments first bound f64 and then rejected the
+    // requested ref<f64>.
+    Lowered lowered{R"(
+module checks.requested_result_first
+
+operator probe<T>(value: T) -> T
+impl fn probe(value: ref<f64>) -> ref<f64> => value
+
+operator id<T>(value: T) -> T
+requires probe(T) -> T
+
+impl fn id<T>(value: T) -> T => value
+
+instantiate id<ref<f64>>
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
 }
 
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {

@@ -114,9 +114,9 @@ through references".
 Regression coverage: `language/tests/ir/lower_tests.cpp`, "typed HIR binds a
 generic with every reference removed (runtime spec WIR-7, WIR-14)", compiles
 [front_end.hgl](front_end.hgl)'s module and checks the bindings `f64` and
-`list<f64>`; "typed HIR binds a generic beneath a reference pattern
+`list<f64, 2>`; "typed HIR binds a generic beneath a reference pattern
 (runtime spec WIR-10)" covers `wrap<T>(value: T) -> ref<T>`. Replaying
-`observe_hgl.py` against the corrected compiler gives `f64` and `list<f64>`.
+`observe_hgl.py` against the corrected compiler gives `f64` and `list<f64, 2>`.
 The archived [observed_hgl.json](observed_hgl.json) keeps the original
 measurement.
 
