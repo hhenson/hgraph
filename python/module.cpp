@@ -189,6 +189,11 @@ NB_MODULE(_hgraph, m)
         }
         return next_python_operator_id++;
     });
+    // A Python-defined operator's declared name, shown in errors in place of
+    // its registry identity (runtime spec WIR-4; python_bridge.rst).
+    m.def("_set_operator_display_name", [](std::string name, std::string display) {
+        OperatorRegistry::instance().set_display_name(std::move(name), std::move(display));
+    });
     // Rebuild the process logger (and its sinks) on demand: spdlog's Windows
     // stdout sinks cache the raw OS handle at construction, so tests that
     // redirect fds per-test (pytest capfd) must reset before logging.

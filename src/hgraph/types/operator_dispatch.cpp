@@ -1692,6 +1692,17 @@ namespace hgraph
         return names;
     }
 
+    void OperatorRegistry::set_display_name(std::string name, std::string display)
+    {
+        display_names_.insert_or_assign(std::move(name), std::move(display));
+    }
+
+    std::string_view OperatorRegistry::display_name(std::string_view name) const noexcept
+    {
+        const auto found = display_names_.find(std::string{name});
+        return found != display_names_.end() ? std::string_view{found->second} : name;
+    }
+
     void OperatorRegistry::reset() noexcept
     {
         overloads_.clear();
@@ -1821,10 +1832,19 @@ namespace hgraph
                        : WiringCandidateSource::Python;
         };
 
+        // Where a failure happened (runtime spec WIR-4): the operator as
+        // declared, and the graphs whose calls led to this one.
+        const std::string_view shown_name = display_name(name);
+        const auto wiring_path = [&]() -> std::string {
+            if (wiring == nullptr) { return {}; }
+            const std::vector<std::string> path = wiring->current_wiring_path();
+            return path.empty() ? std::string{} : fmt::format("\nwiring path: {}", fmt::join(path, " -> "));
+        };
+
         auto it = overloads_.find(std::string{name});
         if (it == overloads_.end() || it->second.empty())
         {
-            std::string message = fmt::format("no operator '{}' is registered", name);
+            std::string message = fmt::format("no operator '{}' is registered{}", shown_name, wiring_path());
             if (diagnostics_enabled)
             {
                 diagnostic.error = message;
@@ -1939,8 +1959,8 @@ namespace hgraph
                 }
             }
             std::string message =
-                fmt::format("no matching overload for operator '{}' with {} argument(s)\nrejected candidates:\n{}", name,
-                            args.size(), fmt::join(rejected, "\n"));
+                fmt::format("no matching overload for operator '{}' with {} argument(s)\nrejected candidates:\n{}{}",
+                            shown_name, args.size(), fmt::join(rejected, "\n"), wiring_path());
             if (diagnostics_enabled)
             {
                 diagnostic.error = message;
@@ -1975,8 +1995,8 @@ namespace hgraph
                 }
             }
             std::string message = fmt::format(
-                "ambiguous overloads for operator '{}':\n{}", name,
-                fmt::join(tied, "\n"));
+                "ambiguous overloads for operator '{}':\n{}{}", shown_name,
+                fmt::join(tied, "\n"), wiring_path());
             if (diagnostics_enabled)
             {
                 diagnostic.error = message;

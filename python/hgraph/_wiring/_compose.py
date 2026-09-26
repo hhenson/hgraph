@@ -4,7 +4,7 @@ import inspect
 
 import _hgraph
 
-from ._core import (_OperatorFunction, WiringError, WiringPort, _current_wiring, _unwrap,
+from ._core import (_OperatorFunction, WiringError, WiringPort, _current_wiring, _graph_scope, _unwrap,
                     operator_function, wire)
 from ._graph import _as_wired, _prepare_higher_order_call
 from ._markers import _unbounded_tuple_kind
@@ -43,7 +43,7 @@ def map_(func, *args, __label__=None, __keys__=None, __key_arg__=None, **kwargs)
     wired, args, kwargs = _prepare_higher_order_call(
         func, args, kwargs, default_key_arg="key")
     if label:
-        with _current_wiring()._graph_wiring_scope(str(label)):
+        with _graph_scope(_current_wiring(), str(label)):
             return wire("map_", wired, *args, **kwargs)
     return wire("map_", wired, *args, **kwargs)
 
