@@ -2465,7 +2465,9 @@ namespace hgl::ir
                         type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
                     }
                 }
-                if (module_.symbol(target).kind != SymbolKind::ImportedOperator) { require_extras_accepted(target, bound); }
+                if (module_.symbol(target).kind != SymbolKind::ImportedOperator) {
+                    require_extras_accepted(target, bound, test_scope(expression.owner));
+                }
                 if (expected.valid()) { (void)contract_bindings.infer_from_result(op.signature.result, expected); }
                 const auto premises = active_constraint_premises();
                 (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call", true,
@@ -2486,17 +2488,30 @@ namespace hgl::ir
                                                  .deferred      = !candidate.valid()};
             }
 
-            /// A local operator's candidates are its module's implementations.
-            /// An extra argument none of them has a parameter for can never
-            /// match, so it is reported, naming the operator and the argument.
-            void require_extras_accepted(SymbolId op, const BoundArguments &bound) {
+            /// Whether code owned by ``owner`` is test code: a declaration in a
+            /// ``test`` block, or a test itself (as name resolution scopes it).
+            [[nodiscard]] bool test_scope(DeclarationId owner) const {
+                if (!owner.valid()) { return false; }
+                const Declaration &declaration = module_.declaration(owner);
+                return declaration.test_only || std::holds_alternative<TestDecl>(declaration.node);
+            }
+
+            /// A local operator's candidates are its module's implementations
+            /// present where the call is built: production code sees only
+            /// production implementations, test code sees those and the
+            /// test-only ones. An extra argument none of them has a parameter
+            /// for can never match, so it is reported, naming the operator and
+            /// the argument.
+            void require_extras_accepted(SymbolId op, const BoundArguments &bound, bool in_test) {
                 if (bound.extras.empty()) { return; }
                 std::vector<const FunctionDecl *> candidates;
                 for (const Declaration &declaration : module_.declarations) {
                     const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
-                    if (candidate && candidate->visibility == Visibility::Implementation && candidate->operator_contract == op) {
-                        candidates.push_back(candidate);
+                    if (!candidate || candidate->visibility != Visibility::Implementation || candidate->operator_contract != op) {
+                        continue;
                     }
+                    if (declaration.test_only && !in_test) { continue; }
+                    candidates.push_back(candidate);
                 }
                 const std::string operator_name = module_.symbol(op).name;
                 std::size_t       ordinal       = 0;

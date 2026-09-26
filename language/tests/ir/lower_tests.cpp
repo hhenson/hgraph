@@ -1710,6 +1710,50 @@ fn by_position(value: f64) -> f64 => pick(value, 5.0)
     CHECK(rendered.find("no implementation of operator 'pick' accepts the positional argument 2") != std::string::npos);
 }
 
+TEST_CASE("typed HIR checks an extra argument against the implementations of the caller's build (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    // A production call sees only production implementations. A test-only
+    // implementation cannot be written today: a test block holds only private
+    // helper functions, so an `impl fn` there is rejected before type
+    // checking, and never accepts a production call's extra argument.
+    SECTION("an implementation in a test block is rejected") {
+        const hgl::syntax::SourceFile file{"test.hgl", R"(
+module checks.extra_test_only
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+
+test {
+    impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+}
+)"};
+        hgl::syntax::DiagnosticSink diagnostics;
+        (void)hgl::syntax::parse(file, diagnostics);
+        CHECK(diagnostics.render(file).find("test helpers must be private fn declarations") != std::string::npos);
+    }
+    SECTION("test code sees the production implementations") {
+        Lowered lowered{R"(
+module checks.extra_in_test
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+test {
+    fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+}
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+}
+
 TEST_CASE("typed HIR requirements admit an implementation that extends its contract (runtime spec WIR-22)",
           "[ir][typed][constraints][operators][contract]") {
     // A requirement supplies the contract's arguments; an implementation whose
