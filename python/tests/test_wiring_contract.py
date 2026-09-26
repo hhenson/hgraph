@@ -27,8 +27,6 @@ RUNTIME_CASES = sorted(case for case in REASONED if not case.startswith("_") and
 KNOWN_VARIATIONS = {
     ("operator_contract", "widening_registers"): ("WV-6", "registered"),
     ("operator_contract", "widening_call_for_float"): ("WV-6", "wires"),
-    ("failure_report", "names_the_graph_path"): ("WV-8", False),
-    ("failure_report", "names_the_operator"): ("WV-9", False),
     ("caught_failure", "outcome"): ("WV-10", "wires"),
 }
 

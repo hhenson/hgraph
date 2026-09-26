@@ -692,6 +692,16 @@ namespace hgraph
         void reset() noexcept;
 
         /**
+         * The name errors show for operator ``name``: the declared name of an
+         * operator registered under an internal one (a Python-defined
+         * operator's ``__pyop__…`` identity), else ``name`` (runtime spec
+         * WIR-4). Display names are identity, as installers are: ``reset()``
+         * keeps them.
+         */
+        void set_display_name(std::string name, std::string display);
+        [[nodiscard]] std::string_view display_name(std::string_view name) const noexcept;
+
+        /**
          * Mesh wiring scope — the enclosing mesh that a ``mesh_(func)[k]`` in the body
          * resolves to. ``wire_mesh`` pushes ``(element type, optional name)`` around the
          * child compile and pops after. The child compiles in a *fresh* ``Wiring``, so
@@ -765,6 +775,7 @@ namespace hgraph
         std::vector<ContextScopeEntry>                             context_scopes_{};
         std::vector<Installer>                                     installers_{};
         std::shared_ptr<operator_dispatch_detail::OperatorProviderState> active_provider_{};
+        std::unordered_map<std::string, std::string>               display_names_{};
     };
 
     namespace operator_dispatch_detail
@@ -2414,9 +2425,12 @@ namespace hgraph
                 }(std::make_index_sequence<lay::prefix_count>{},
                   std::make_index_sequence<lay::kwonly_count>{});
             };
-            if (!w.has_wiring_observers()) { return compose(); }
-
             const std::string label = static_node_detail::diagnostic_name<Impl>();
+            if (!w.has_wiring_observers())
+            {
+                const WiringPathScope path{w, label};
+                return compose();
+            }
             return w.observe(
                 WiringScopeEvent{
                     .kind = WiringScopeKind::NestedGraph,

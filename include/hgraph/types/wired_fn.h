@@ -399,7 +399,13 @@ namespace hgraph
                 return std::move(child).finish_subgraph(
                     std::nullopt, std::move(schemas));
             };
-            if (!child.has_wiring_observers()) { return compile(); }
+            if (!child.has_wiring_observers())
+            {
+                // The callable's child graph names itself on the wiring path
+                // (runtime spec WIR-4), observed or not.
+                const WiringPathScope path{child, std::string{diagnostic_label()}};
+                return compile();
+            }
 
             const std::string label{diagnostic_label()};
             return child.observe(
@@ -674,11 +680,16 @@ namespace hgraph
                 };
                 if constexpr (graph_wiring_detail::is_graph_def<X>)
                 {
+                    // wire<X> of a graph holds its label on the path itself.
                     return compile();
                 }
                 else
                 {
-                    if (!w.has_wiring_observers()) { return compile(); }
+                    if (!w.has_wiring_observers())
+                    {
+                        const WiringPathScope path{w, static_node_detail::diagnostic_name<X>()};
+                        return compile();
+                    }
                     const std::string label = static_node_detail::diagnostic_name<X>();
                     return w.observe(
                         WiringScopeEvent{
@@ -718,11 +729,16 @@ namespace hgraph
             };
             if constexpr (graph_wiring_detail::is_graph_def<X>)
             {
+                // wire<X> of a graph holds its label on the path itself.
                 return compile();
             }
             else
             {
-                if (!w.has_wiring_observers()) { return compile(); }
+                if (!w.has_wiring_observers())
+                {
+                    const WiringPathScope path{w, static_node_detail::diagnostic_name<X>()};
+                    return compile();
+                }
                 const std::string label = static_node_detail::diagnostic_name<X>();
                 return w.observe(
                     WiringScopeEvent{

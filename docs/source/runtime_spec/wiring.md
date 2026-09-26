@@ -360,7 +360,9 @@ rules and cases here as type resolution has.
   wired?) that includes a block of wiring only when it passes, as Swift's
   `#if` and `canImport` conditions include code (owner direction
   2026-09-26). Since a failure cannot be caught (WIR-4), this is how a graph
-  chooses between two ways of wiring. It needs an RFC.
+  chooses between two ways of wiring. It is to be designed for HGL first
+  (owner, 2026-09-26), and needs an RFC. Until then the runtimes do not
+  enforce WIR-4 against a caught failure (WV-10, not corrected).
 - **Nested graphs**: `map_`, `switch_`, `reduce` and `mesh_` build their
   child graphs from the ports as supplied; they are library, not runtime
   (see [Overview](overview.md)).

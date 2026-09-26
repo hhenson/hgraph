@@ -7,6 +7,7 @@ executors may run concurrently. ``_wiring_stack`` is THE single list object:
 tests and C++ re-entry mutate it in place; nothing may rebind it."""
 import re
 import threading
+from contextlib import contextmanager
 
 import _hgraph
 
@@ -1016,6 +1017,34 @@ class IncorrectTypeBinding(WiringError):
 
 class RequirementsNotMetWiringError(WiringError):
     """An overload's requires= predicate rejected the call."""
+
+
+_WIRING_PATH_LINE = "\nwiring path: "
+
+
+def _note_wiring_path(error, path):
+    """Add the wiring path to a wiring error that does not name one yet."""
+    message = error.args[0] if error.args else None
+    if not path or not isinstance(message, str) or _WIRING_PATH_LINE in message:
+        return
+    error.args = (message + _WIRING_PATH_LINE + " -> ".join(path),) + tuple(error.args[1:])
+
+
+@contextmanager
+def _graph_scope(wiring, label):
+    """A graph's wiring scope. A wiring error leaving it names the wiring
+    path once, from the innermost graph it passes (runtime spec WIR-4;
+    graph_wiring.rst, "Failure reports")."""
+    factory = getattr(wiring, "_graph_wiring_scope", None)
+    if factory is None:
+        yield
+        return
+    with factory(label) as scope:
+        try:
+            yield
+        except WiringError as error:
+            _note_wiring_path(error, scope.path)
+            raise
 
 _published_contexts = []   # [(port, ts_type_handle, frame, owning_wiring)] newest last
 
