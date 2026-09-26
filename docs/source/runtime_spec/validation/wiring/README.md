@@ -95,14 +95,30 @@ rule:
 | WV-4 | bundle_identity, `_takes_foo(Bar)`, and from `76b8e22e8` also `_same(Foo, Bar)`; bundle_field_order, `_takes_pair(Riap)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
 | WV-5 | HGL front end, an implementation with a `const scale` parameter its operator does not declare, with a default and without one; WIR-22 | R + both runtimes (their candidates may add parameters): accepted | HGL rejects both: "implementation parameter count does not match its operator contract" |
 | WV-6 | operator_contract, a candidate accepting `TIME_SERIES_TYPE` for an operator declaring `TS[int]`; WIR-23, WIR-24 | Owner ruling: rejected when registered, so a `TS[float]` call fails | Both runtimes register it and select it for `TS[float]`: neither checks a candidate against its operator. HGL rejects it |
-| WV-7 | HGL front end, a call passing `scale=5.0`, which the operator does not declare; WIR-22 | R + both runtimes: accepted, the argument goes to the candidates | HGL binds a call's arguments against the operator's signature and rejects the extra one |
+| WV-7 | HGL front end, a call passing `scale: 5.0`, which the operator does not declare; WIR-22 | R + both runtimes: accepted, the argument goes to the candidates | HGL binds a call's arguments against the operator's signature and rejects the extra one |
 | WV-8 | failure_report, the graph path; WIR-4 | Owner ruling: the error names the path of graph calls that led to the failed call, `failing_outer` then `_failing_inner` | Neither runtime names it. Both name the call, the argument's type and each candidate's reason. The C++ `Wiring` keeps the path (`current_wiring_path`) but passes it only to wiring observers |
 | WV-9 | failure_report, the operator's name; WIR-4 | R + Python: the error names `_only_int` | C++ names the operator by its registry name, `__pyop____main__._only_int_1` |
 | WV-10 | caught_failure; WIR-4 | Owner ruling: the graph fails to wire | Both runtimes let the graph's code catch the error and wire its fallback; the node the failed attempt added stays in the graph and runs. The Python port's own wiring layer relies on catching in three places: `hgraph.arrow`'s argument-shape retries, port attribute sugar (`port.year`) and `convert`'s target handlers |
 | WV-2 | HGL front end, `pass(value: ref<f64>)` and `pass(values: list<ref<f64>, 2>)`; WIR-14, WIR-7 | R + both runtimes: `T` binds `f64` and `list<f64, 2>` | HGL binds `ref<f64>` and `list<ref<f64>, 2>`: its generic inference (`GenericSubstitution::unify`) binds a variable to the argument as supplied. The emitted C++ still wires correctly, because the runtime resolves the emitted generic call, but HGL's own checker works from a different type than the graph it builds |
 
-WV-2 is corrected in the HGL compiler, citing WIR-14; the correction's tests
-replay `front_end.hgl`.
+## HGL correction
+
+WV-2 is corrected in the HGL compiler. `GenericSubstitution` infers a type
+parameter from an argument with every `ref` removed (`infer_from_argument`,
+WIR-7, WIR-11) and from a call's expected result as WIR-12 says
+(`infer_from_result`); contract conformance keeps the exact `unify`. The
+checks after a match compare types ignoring references (WIR-6). HGL's design
+record is `language/docs/design/type-extensions.md`, "Generic inference
+through references".
+
+Regression coverage: `language/tests/ir/lower_tests.cpp`, "typed HIR binds a
+generic with every reference removed (runtime spec WIR-7, WIR-14)", compiles
+[front_end.hgl](front_end.hgl)'s module and checks the bindings `f64` and
+`list<f64, 2>`; "typed HIR binds a generic beneath a reference pattern
+(runtime spec WIR-10)" covers `wrap<T>(value: T) -> ref<T>`. Replaying
+`observe_hgl.py` against the corrected compiler gives `f64` and `list<f64, 2>`.
+The archived [observed_hgl.json](observed_hgl.json) keeps the original
+measurement.
 
 ## Observations after the rebase
 
@@ -122,6 +138,63 @@ The result counts above are unchanged: one observation moved from "C++
 varies" to "both", the other the other way. The correction for WV-4
 (#1655) makes the bundle comparison count names when both bundles are
 named, which covers both observations.
+
+## HGL correction for WV-5
+
+An HGL implementation may extend its operator contract (WIR-22): the
+contract's parameters come first, and extra ones follow, with or without
+defaults. Conformance and `instantiate` materialization accept it; local
+candidate selection selects it for a call that supplies only the contract's
+parameters when every extra parameter has a default, and otherwise does not
+match (`TypeChecker::extends_contract`, `extras_defaulted`). Regression
+coverage: `language/tests/ir/lower_tests.cpp` ("accepts an implementation
+that extends its operator contract", "does not select an implementation
+whose extra parameter the call does not supply", and the rejection of a
+dropped contract parameter). Replaying `observe_hgl.py` against the
+corrected compiler accepts `contract_superset.hgl` and
+`contract_required_extra.hgl`.
+
+## HGL correction for WV-7
+
+An HGL operator call may pass arguments its contract does not declare
+(WIR-22). The type checker binds a call against the contract as an open
+signature: a positional argument past the contract's parameters, or a
+keyword naming none of them, is kept as an extra rather than rejected
+(`bind_arguments`, `BoundArguments::extras`). The extras bind none of the
+contract's variables. They go to the implementations, positional ones in
+order after the contract's parameters and keywords by name
+(`route_extras`). An implementation without a parameter for an extra, or
+with an extra parameter that the call does not supply and that has no
+default, does not match. An extra that no implementation of a module's own
+operator has a parameter for is an error naming the operator and the
+argument. Generated C++ passes every argument to the runtime, which ranks
+the candidates with them. HGL's design record is
+`language/docs/design/language-model.md`, on operator contracts.
+
+Regression coverage:
+- `language/tests/ir/lower_tests.cpp`: "passes an operator call's extra
+  arguments to the implementation" (by name, by position, mistyped, and
+  defaulted) and "reports an extra argument no implementation accepts";
+- `language/tests/codegen/emitter_tests.cpp`: "passes an operator call's
+  extra arguments to the runtime";
+- `language/tests/wiring/operator-extra-arguments.hgl`, run by `hgl test`:
+  two implementations, where the keyword and positional extras reach the one
+  that takes them, and a call without the extra selects the other.
+
+Replaying `observe_hgl.py` against the corrected compiler accepts
+`contract_extra_argument.hgl`. It also meets every other HGL expectation
+(`f64`, `list<f64, 2>`, both superset implementations accepted, the widening
+one rejected). The archived [observed_hgl.json](observed_hgl.json) keeps
+the original measurement.
+
+**A harness correction.** The first recording of
+`contract_extra_argument.hgl` wrote the keyword argument as `scale=5.0`,
+which is not HGL. HGL writes named arguments as `name: value`. So that
+`rejected` was a parse error, not the binding WV-7 describes. The module now
+reads `scale: 5.0`. The compiler without this correction (`96a2ee8c2`)
+rejects the corrected module with "unknown parameter 'scale'": the binding
+failure WV-7 records. The variation therefore stands as recorded, and this
+correction removes it.
 
 ## C++ correction for WIR-15
 

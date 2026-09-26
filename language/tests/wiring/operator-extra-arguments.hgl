@@ -1,0 +1,29 @@
+# Runtime spec Wiring, WIR-22 (WV-7): every operator behaves as if its
+# signature ended with *args, **kwargs. An argument the contract does not
+# declare goes to the implementations, which the runtime ranks with it; a call
+# without it does not reach an implementation that requires it.
+module tests.operator_extra_arguments
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+
+impl fn pick(value: i64, const scale: i64) -> i64 => value * scale
+
+fn by_keyword(value: i64) -> i64 => pick(value, scale: 3)
+
+fn by_position(value: i64) -> i64 => pick(value, 4)
+
+fn without_extra(value: f64) -> f64 => pick(value)
+
+test an_extra_keyword_reaches_the_implementation {
+    assert eval(by_keyword, value: [1, 2]) == [3, 6]
+}
+
+test an_extra_positional_reaches_the_implementation {
+    assert eval(by_position, value: [1, 2]) == [4, 8]
+}
+
+test a_call_without_the_extra_selects_the_other_implementation {
+    assert eval(without_extra, value: [1.5]) == [1.5]
+}

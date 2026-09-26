@@ -1395,17 +1395,385 @@ fn select_plain(values: list<f64, 3>) -> ref<f64> => route3(values, 0)
     CHECK_FALSE(lowered.diagnostics.has_errors());
 }
 
-TEST_CASE("typed HIR rejects nested references formed by generic substitution", "[ir][typed][generics][ref]") {
+namespace
+{
+    // The binding of the single type parameter of each call to `callee`,
+    // in HGL spelling: `f64`, `ref<f64>`, `list<f64>`.
+    std::string spell(const hir::Module &module, hir::TypeId id) {
+        const hir::Type &type = module.type(id);
+        switch (type.kind) {
+            case hir::TypeKind::Scalar: return type.scalar == hir::ScalarType::F64 ? "f64" : "scalar";
+            case hir::TypeKind::Reference: return "ref<" + spell(module, type.children.front()) + ">";
+            case hir::TypeKind::List: {
+                std::string extent;
+                if (type.size.valid() && module.expr(type.size).constant) {
+                    extent = ", " + std::to_string(std::get<std::int64_t>(*module.expr(type.size).constant));
+                }
+                return "list<" + spell(module, type.children.front()) + extent + ">";
+            }
+            default: return "?";
+        }
+    }
+
+    std::vector<std::string> bindings_of(const Lowered &lowered, std::string_view callee) {
+        std::vector<std::string> result;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            if (expression.operation.identity != callee) { continue; }
+            REQUIRE(expression.operation.substitutions.size() == 1U);
+            result.push_back(spell(lowered.hir, expression.operation.substitutions.front().type));
+        }
+        return result;
+    }
+}  // namespace
+
+TEST_CASE("typed HIR binds a generic with every reference removed (runtime spec WIR-7, WIR-14)",
+          "[ir][typed][generics][ref]") {
+    // docs/source/runtime_spec/validation/wiring/front_end.hgl: the runtime
+    // binds T to the argument's type without its references, and so must HGL.
     Lowered lowered{R"(
-module checks.nested_reference_substitution
+module checks.wiring_front_end
+
+fn pass<T>(value: T) -> T {
+    when modified(value) {
+        return value
+    }
+}
+
+export fn through_ref(value: ref<f64>) -> f64 =>
+    pass(value)
+
+export fn through_list(values: list<ref<f64>, 2>) -> list<f64, 2> =>
+    pass(values)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(bindings_of(lowered, "checks.wiring_front_end.pass") == std::vector<std::string>{"f64", "list<f64, 2>"});
+}
+
+TEST_CASE("typed HIR binds a generic beneath a reference pattern (runtime spec WIR-10)",
+          "[ir][typed][generics][ref]") {
+    // Inference removes the argument's reference, so wrap's T is f64 and its
+    // ref<T> result is ref<f64>: no nested reference is formed.
+    Lowered lowered{R"(
+module checks.reference_pattern
 
 fn wrap<T>(value: T) -> ref<T> => value
-fn invalid(value: ref<f64>) -> ref<f64> => wrap(value)
+fn forwarded(value: ref<f64>) -> ref<f64> => wrap(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(bindings_of(lowered, "checks.reference_pattern.wrap") == std::vector<std::string>{"f64"});
+}
+
+TEST_CASE("typed HIR selects a materialized local candidate for a reference argument (runtime spec WIR-6, WIR-7)",
+          "[ir][typed][generics][operators][ref]") {
+    // T binds f64 from ref<f64>; the candidate's f64 parameter then matches
+    // the argument ignoring references, so the call is not left deferred.
+    Lowered lowered{R"(
+module checks.local_reference_candidate
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<f64>
+
+fn choose_ref(value: ref<f64>) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (std::holds_alternative<hir::Call>(expression.node) && expression.operation.identity.find("choose") != std::string::npos) {
+            CHECK_FALSE(expression.operation.deferred);
+        }
+    }
+}
+
+TEST_CASE("typed HIR requirements reject a candidate that adds a reference to the requested result (runtime spec WIR-12)",
+          "[ir][typed][constraints][operators][ref]") {
+    // The request is a plain T; an implementation producing ref<f64> cannot
+    // produce it, as the runtime's directional output matching decides.
+    Lowered lowered{R"(
+module checks.requested_result_reference
+
+operator wrap<T>(value: T) -> ref<T>
+impl fn wrap(value: f64) -> ref<f64> => value
+
+fn keep<T>(value: T) -> T
+requires wrap(T) -> T
+=> value
+
+fn apply(value: f64) -> f64 => keep(value)
 )"};
     require_clean(lowered);
     CHECK_FALSE(complete(lowered));
-    CHECK(lowered.diagnostics.render(lowered.file).find("generic substitution produces an unsupported reference shape") !=
+    CHECK(lowered.diagnostics.render(lowered.file).find("operator requirement has no implementation") != std::string::npos);
+}
+
+TEST_CASE("typed HIR requirements match the requested result before the arguments (runtime spec WIR-17)",
+          "[ir][typed][constraints][operators][ref]") {
+    // Instantiating id<ref<f64>> solves its requirement probe(T) -> T as
+    // probe(ref<f64>) -> ref<f64>: the requested result binds T to ref<f64>
+    // first, and the reference argument then matches it as supplied, as the
+    // runtime matcher does. Arguments first bound f64 and then rejected the
+    // requested ref<f64>.
+    Lowered lowered{R"(
+module checks.requested_result_first
+
+operator probe<T>(value: T) -> T
+impl fn probe(value: ref<f64>) -> ref<f64> => value
+
+operator id<T>(value: T) -> T
+requires probe(T) -> T
+
+impl fn id<T>(value: T) -> T => value
+
+instantiate id<ref<f64>>
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
+TEST_CASE("typed HIR accepts an implementation that extends its operator contract (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    // An operator's signature is the minimum an implementation meets: it may
+    // declare more parameters, each with a default a call through the
+    // contract uses (owner ruling 2026-09-26).
+    Lowered lowered{R"(
+module checks.contract_superset
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
+TEST_CASE("typed HIR rejects an implementation that drops a contract parameter (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    Lowered dropped{R"(
+module checks.contract_dropped
+
+operator combine<T>(lhs: T, rhs: T) -> T
+
+impl fn combine(lhs: f64) -> f64 => lhs
+
+fn use_combine(value: f64) -> f64 => combine(value, value)
+)"};
+    require_clean(dropped);
+    CHECK_FALSE(complete(dropped));
+    CHECK(dropped.diagnostics.render(dropped.file).find("declares every parameter of its operator contract") !=
           std::string::npos);
+}
+
+TEST_CASE("typed HIR does not select an implementation whose extra parameter the call does not supply (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    // No default is needed (owner ruling 2026-09-26): the implementation is
+    // valid, and simply does not match a call that omits the argument.
+    Lowered lowered{R"(
+module checks.contract_required_extra
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+)"};
+    require_clean(lowered);
+    (void)complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK(lowered.diagnostics.render(lowered.file).find("declares every parameter") == std::string::npos);
+    bool saw_call = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator) { continue; }
+        saw_call = true;
+        CHECK_FALSE(expression.operation.candidate.valid());
+    }
+    CHECK(saw_call);
+}
+
+namespace {
+    /// The implementation each nominal operator call in ``lowered`` selected.
+    std::vector<bool> selected_candidates(const Lowered &lowered) {
+        std::vector<bool> selected;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            if (expression.operation.kind != hir::OperationKind::NominalOperator ||
+                expression.operation.identity.find(".pick") == std::string::npos) {
+                continue;
+            }
+            selected.push_back(expression.operation.candidate.valid());
+        }
+        return selected;
+    }
+}  // namespace
+
+TEST_CASE("typed HIR passes an operator call's extra arguments to the implementation (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    // Every operator behaves as if its signature ended with *args, **kwargs:
+    // an argument the contract does not declare goes to the implementations,
+    // by name or by position after the contract's parameters.
+    SECTION("by name") {
+        Lowered lowered{R"(
+module checks.extra_keyword
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+    SECTION("by position") {
+        Lowered lowered{R"(
+module checks.extra_positional
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, 5.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+    SECTION("an extra of the wrong type does not match") {
+        Lowered lowered{R"(
+module checks.extra_mistyped
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: "wide")
+)"};
+        require_clean(lowered);
+        (void)complete(lowered);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{false});
+    }
+    SECTION("a call without the extra takes a defaulted parameter's default") {
+        Lowered lowered{R"(
+module checks.extra_defaulted
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+fn use_scaled(value: f64) -> f64 => pick(value, scale: 3.0)
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true, true});
+    }
+}
+
+TEST_CASE("typed HIR reports an extra argument no implementation accepts (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    Lowered lowered{R"(
+module checks.extra_unaccepted
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+
+fn by_name(value: f64) -> f64 => pick(value, scale: 5.0)
+fn by_position(value: f64) -> f64 => pick(value, 5.0)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    const std::string rendered = lowered.diagnostics.render(lowered.file);
+    CHECK(rendered.find("no implementation of operator 'pick' accepts the argument 'scale'") != std::string::npos);
+    CHECK(rendered.find("no implementation of operator 'pick' accepts the positional argument 2") != std::string::npos);
+}
+
+TEST_CASE("typed HIR checks an extra argument against the implementations of the caller's build (runtime spec WIR-22, WV-7)",
+          "[ir][typed][operators][contract]") {
+    // A production call sees only production implementations. A test-only
+    // implementation cannot be written today: a test block holds only private
+    // helper functions, so an `impl fn` there is rejected before type
+    // checking, and never accepts a production call's extra argument.
+    SECTION("an implementation in a test block is rejected") {
+        const hgl::syntax::SourceFile file{"test.hgl", R"(
+module checks.extra_test_only
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+
+fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+
+test {
+    impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+}
+)"};
+        hgl::syntax::DiagnosticSink diagnostics;
+        (void)hgl::syntax::parse(file, diagnostics);
+        CHECK(diagnostics.render(file).find("test helpers must be private fn declarations") != std::string::npos);
+    }
+    SECTION("test code sees the production implementations") {
+        Lowered lowered{R"(
+module checks.extra_in_test
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+test {
+    fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)
+}
+)"};
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        CHECK(selected_candidates(lowered) == std::vector<bool>{true});
+    }
+}
+
+TEST_CASE("typed HIR requirements admit an implementation that extends its contract (runtime spec WIR-22)",
+          "[ir][typed][constraints][operators][contract]") {
+    // A requirement supplies the contract's arguments; an implementation whose
+    // extra parameter has a default satisfies it.
+    Lowered lowered{R"(
+module checks.requirement_superset
+
+operator pick<T>(value: T) -> T
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn scaled<T>(value: T) -> T
+requires pick(T) -> T
+=> pick(value)
+
+fn apply(value: f64) -> f64 => scaled(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
 }
 
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
