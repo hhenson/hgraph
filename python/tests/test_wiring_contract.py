@@ -20,6 +20,15 @@ VALIDATION = Path(__file__).resolve().parents[2] / "docs" / "source" / "runtime_
 REASONED = json.loads((VALIDATION / "reasoned.json").read_text())
 RUNTIME_CASES = sorted(case for case in REASONED if not case.startswith("_") and case != "hgl_front_end")
 
+# Accepted expectations this runtime does not meet yet, by variation ID
+# (validation/wiring/README.md), with the observation recorded for it. Each
+# must still vary exactly as recorded: the correction that fixes one removes
+# it from here.
+KNOWN_VARIATIONS = {
+    ("bundle_identity", "named_and_unnamed_repeat"): ("WV-3", "fails"),
+    ("bundle_identity", "named_input_from_other_name"): ("WV-4", "wires"),
+}
+
 
 def _observe(case: str) -> dict:
     completed = subprocess.run(
@@ -36,6 +45,13 @@ def test_the_wiring_case_holds(case):
     assert "harness_error" not in observed, observed["harness_error"]
     for field, spec in REASONED[case].items():
         if field == "recorded":
+            continue
+        if (case, field) in KNOWN_VARIATIONS:
+            variation, recorded = KNOWN_VARIATIONS[(case, field)]
+            assert observed[field] == recorded, (
+                f"{case}.{field} ({variation}) no longer varies as recorded: observed {observed[field]!r}. "
+                f"If it now meets the expectation {spec['expected']!r}, remove it from KNOWN_VARIATIONS."
+            )
             continue
         assert observed[field] == spec["expected"], f"{case}.{field} ({', '.join(spec['rules'])}): {spec['derivation']}"
 

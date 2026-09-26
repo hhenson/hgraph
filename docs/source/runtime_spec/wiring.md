@@ -2,7 +2,7 @@ Wiring
 ======
 
 Status: draft, 2026-09-26. Type resolution (Part 2), projections (WIR-5) and
-candidate selection (WIR-15 to WIR-17) are validated against Python hgraph
+candidate selection (WIR-16 to WIR-18) are validated against Python hgraph
 0.5.41 and the C++ runtime ([wiring validation](validation/wiring/README.md)).
 The other rules are a first draft from the C++ implementation and its
 developer guide; the Evidence table says which.
@@ -220,17 +220,25 @@ flowchart TD
   variable's constraints, and a schema variable's bundle kind, still apply.
 - **WIR-12** A requested output. A variable that is the whole output pattern,
   bare or a bundle's schema variable, binds the requested type as requested,
-  references at any depth kept. A reference around a whole requested bundle,
-  for a bundle pattern, is followed: a bundle pattern cannot produce a
-  reference. A variable nested inside a structural output pattern binds as
-  WIR-7 says. A variable already stated must be the requested type,
+  references at any depth kept. A request for a reference to a bundle,
+  `REF[X]`, where the output pattern is a bundle, binds the pattern to `X`:
+  the output is the bundle, and a reference and its target are
+  interchangeable at a binding. A variable nested inside a structural output
+  pattern binds as WIR-7 says. A variable already stated must be the requested type,
   references included, or the candidate does not match.
 - **WIR-13** A structural projection (WIR-5) resolves no variable. A field
   or element declared as a reference stays a reference.
 - **WIR-14** Resolution is one set of rules. Every front end resolves a call
-  by WIR-6 to WIR-13. A front end that resolves a call itself, rather than
-  asking the runtime, reaches the bindings the runtime would reach for the
-  same call.
+  by WIR-6 to WIR-13 and WIR-15. A front end that resolves a call itself,
+  rather than asking the runtime, reaches the bindings the runtime would
+  reach for the same call.
+- **WIR-15** Bundles match by their fields: two bundle types match when they
+  have the same fields, in the same order, with matching types. A bundle's
+  name counts only when both are named, and then the names must be equal.
+  So a named bundle and an unnamed bundle with the same fields match, and
+  two named bundles with the same fields but different names do not. This
+  holds wherever two types are compared: an argument against a parameter, a
+  repeated variable, a stated or requested type. (Owner ruling 2026-09-26.)
 
 
 Part 3 — Operator resolution
@@ -259,27 +267,27 @@ flowchart TD
     P --> Z{"how many most specific?"}
     Z -- "none" --> F1(["fail: name every candidate and why it was rejected"])
     Z -- "two or more" --> F2(["fail: ambiguous, name the tied candidates"])
-    Z -- "one" --> W["wire it as though called directly (WIR-19)"]
+    Z -- "one" --> W["wire it as though called directly (WIR-20)"]
 ```
 
 ### Rules
 
-- **WIR-15** An operator call selects exactly one candidate: the most
+- **WIR-16** An operator call selects exactly one candidate: the most
   specific of the candidates that match the call and whose conditions admit
   it. If none match, the call fails, and the error names each candidate and
   why it was rejected. If two or more are most specific, the call fails as
   ambiguous, naming them.
-- **WIR-16** A candidate matches in this order: the requested output first,
+- **WIR-17** A candidate matches in this order: the requested output first,
   then the parameters in the order declared. A variable bound earlier
   constrains every later appearance; a repeated variable binds once.
-- **WIR-17** Specificity: a concrete type is more specific than a variable;
+- **WIR-18** Specificity: a concrete type is more specific than a variable;
   a variable inside a structure is more specific than a bare variable;
   structures compare part by part; a reference adds nothing (WIR-6); a
   repeated variable counts once. Scalar parameters separate only candidates
   that are equally specific in their time-series parameters.
-- **WIR-18** Selection depends only on the call and the candidates, never on
+- **WIR-19** Selection depends only on the call and the candidates, never on
   the order in which the candidates were registered.
-- **WIR-19** The selected candidate is wired as though it had been called
+- **WIR-20** The selected candidate is wired as though it had been called
   directly. A node candidate adds its node; a graph candidate is wired in
   place and adds no node of its own.
 
@@ -287,8 +295,10 @@ flowchart TD
 Deferred
 --------
 
-Specified in hgraph's developer guide (`operators.rst`, `graph_wiring.rst`)
-and not yet needed by a concept here:
+Specified in hgraph's developer guide (`operators.rst`, `graph_wiring.rst`),
+as a description of the C++ implementation, and not yet here. The first four
+are next: code HGL generates calls operators that rely on them, so they need
+rules and cases here as type resolution has.
 
 - **Defaults and default resolvers**, and **conditions** on candidates
   (`requires`): what a condition may read, and when defaults are applied
@@ -313,31 +323,29 @@ and not yet needed by a concept here:
 Points to settle
 ----------------
 
-1. **Does a bundle's name take part in matching?** A bundle schema variable
-   and a requested output compare bundles by their fields, so a named bundle
-   matches the same unnamed one. A bare variable already bound compares the
-   type itself. The two should agree.
-2. **A request the pattern cannot produce.** WIR-12 follows a reference
-   around a requested bundle for a bundle pattern. Should such a request
-   fail instead?
-3. **Selecting an element by a key known only at run time.** `getitem_` on a
-   TSL by a `TS[int]` index, or on a TSD by a `TS[K]` key, publishes a
-   reference to the selected element. Its input is a generic that resolves
-   with references removed (WIR-7), so it observes element values it never
-   reads. The owner has suggested it deal in references explicitly
-   (`TSL[REF[E]]`, `TSD[K, REF[V]]`).
-4. **HGL's collection of references.** A mapping recorded in HGL's
-   `type-extensions.md` gives `map<K, ref<V>>` an outer reference,
-   `REF[TSD[K, REF[V]]]`. Whether that outer reference is intended is open
-   there, and HGL rejects the form meanwhile.
-5. **How much of Part 3 belongs here.** The Deferred items are specified in
-   the developer guide. They move here when a front end other than hgraph's
-   own needs them.
-6. **What a failed call leaves behind.** A caller may catch a failed call
-   and go on wiring: the C++ session stays usable. An operator call that
-   fails adds nothing, but a graph call that fails part-way keeps what its
-   earlier calls added. Should a failed call add nothing, or a caught failure
-   close the session?
+1. **Does a bundle's name take part in matching?** Settled 2026-09-26
+   (owner): only when both bundles are named; otherwise fields alone decide.
+   This is WIR-15.
+2. **A requested reference for a bundle pattern.** Settled 2026-09-26
+   (owner): requesting `REF[X]` is a reasonable output type; WIR-12 satisfies
+   it with the bundle `X`, since a reference and its target are
+   interchangeable at a binding.
+3. **Selecting an element by a key known only at run time.** Settled
+   2026-09-26 (owner): the call is still fully typed once wired. `getitem_`
+   on a TSL by a `TS[int]` index, or on a TSD by a `TS[K]` key, declares its
+   input as a value, so the input resolves with references removed (WIR-7),
+   and declares its output as `REF[E]` (or `REF[V]`): it publishes a
+   reference to the selected element's value. A selected element whose type
+   does not match that output is a run-time error.
+4. **HGL's map of references.** Settled 2026-09-26 (owner): HGL's
+   `map<K, ref<V>>` is a map containing references, `TSD[K, REF[V]]`. There
+   is no reference around the map itself.
+5. **What a failed call leaves behind.** A call can fail after part of its
+   work is done: a graph that makes three calls, the third of which fails,
+   has already added the first two calls' nodes. In C++ the caller can catch
+   the error and keep wiring, and those nodes stay in the description.
+   Should a failed call remove what it added, so that a caught failure
+   leaves the description as it was?
 
 
 Evidence and cases
@@ -351,8 +359,9 @@ and C++ observations.
 |---|---|
 | WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes and held by `python/tests/test_wiring_contract.py`; the same cases through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)") |
 | WIR-14 | The HGL front end is observed in the validation, where it currently varies |
-| WIR-4, WIR-15 to WIR-17 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
-| WIR-1 to WIR-3, WIR-18, WIR-19 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
+| WIR-15 | The bundle-identity case, run on both runtimes |
+| WIR-4, WIR-16 to WIR-18 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
+| WIR-1 to WIR-3, WIR-19, WIR-20 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
 
 The owner's ruling of 2026-09-24 (issue #847) states WIR-7 and WIR-9:
 "whenever resolving a generic, we de-reference everything. If the code

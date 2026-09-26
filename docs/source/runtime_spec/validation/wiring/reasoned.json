@@ -188,8 +188,8 @@
         "int"
       ],
       "rules": [
-        "WIR-15",
-        "WIR-17",
+        "WIR-16",
+        "WIR-18",
         "WIR-6"
       ],
       "derivation": "Concrete beats a variable; a variable inside a structure beats a bare one; a reference adds no specificity, so REF[TS[int]] selects the TS[int] candidate."
@@ -199,7 +199,7 @@
     "ambiguous_raises": {
       "expected": true,
       "rules": [
-        "WIR-15",
+        "WIR-16",
         "WIR-4"
       ],
       "derivation": "Two equally specific candidates: the call fails as ambiguous."
@@ -207,7 +207,7 @@
     "no_candidate_raises": {
       "expected": true,
       "rules": [
-        "WIR-15",
+        "WIR-16",
         "WIR-4"
       ],
       "derivation": "No candidate matches: the call fails."
@@ -220,14 +220,14 @@
       ],
       "rules": [
         "WIR-7",
-        "WIR-16"
+        "WIR-17"
       ],
       "derivation": "REF[TS[int]] and TS[int] both bind the variable to TS[int]: one binding."
     },
     "different_types_raise": {
       "expected": true,
       "rules": [
-        "WIR-16",
+        "WIR-17",
         "WIR-4"
       ],
       "derivation": "TS[int] then TS[float] cannot bind one variable: the call fails."
@@ -249,6 +249,55 @@
         "WIR-7"
       ],
       "derivation": "Likewise at depth: the element references are removed."
+    }
+  },
+  "bundle_identity": {
+    "named_and_unnamed_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15",
+        "WIR-17"
+      ],
+      "derivation": "A repeated variable given a named bundle and an unnamed bundle with the same fields: one of the two is unnamed, so fields alone decide, and they match."
+    },
+    "same_name_repeat": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15",
+        "WIR-17"
+      ],
+      "derivation": "Both named, with the same name and fields: they match."
+    },
+    "two_names_repeat": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15",
+        "WIR-17",
+        "WIR-4"
+      ],
+      "derivation": "Both named, same fields, different names: the names count and differ, so the variable cannot bind both and the call fails."
+    },
+    "named_input_from_unnamed": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A parameter declared as the named bundle given the unnamed bundle with the same fields: fields alone decide."
+    },
+    "unnamed_input_from_named": {
+      "expected": "wires",
+      "rules": [
+        "WIR-15"
+      ],
+      "derivation": "A parameter declared as the unnamed bundle given the named bundle with the same fields: fields alone decide."
+    },
+    "named_input_from_other_name": {
+      "expected": "fails",
+      "rules": [
+        "WIR-15",
+        "WIR-4"
+      ],
+      "derivation": "A parameter declared as one named bundle given another named bundle with the same fields: the names differ, so the call fails."
     }
   }
 }

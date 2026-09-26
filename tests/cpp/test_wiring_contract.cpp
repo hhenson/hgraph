@@ -327,14 +327,14 @@ TEST_CASE("wiring contract: WIRE-PROJECTION-THROUGH-REF publishes a reference to
     CHECK(seen.source == ts_type<REF<TS<Int>>>());
 }
 
-TEST_CASE("wiring contract: WIRE-REPEATED binds a repeated variable once, dereferenced (WIR-7, WIR-16)")
+TEST_CASE("wiring contract: WIRE-REPEATED binds a repeated variable once, dereferenced (WIR-7, WIR-17)")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<RepeatedGraph>(values<Int>(1)), values<Bool>(true));
     CHECK_THROWS(eval_node<RepeatedMismatchGraph>(values<Int>(1), values<Float>(1.0)));
 }
 
-TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate (WIR-15, WIR-17)")
+TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate (WIR-16, WIR-18)")
 {
     stdlib::register_standard_operators();
     register_case_operators();
@@ -344,7 +344,7 @@ TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate
     CHECK_OUTPUT(eval_node<PickRefGraph>(values<Int>(1)), values<Str>("int"s));
 }
 
-TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-15)")
+TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")
 {
     stdlib::register_standard_operators();
     register_case_operators();

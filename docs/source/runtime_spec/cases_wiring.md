@@ -105,7 +105,7 @@ publishes a reference to it. When the condition turns false the field's
 reference becomes empty: the follower unbinds, which does not tick (TS-15,
 TS-17).
 
-## WIRE-SPECIFICITY — WIR-15, WIR-17
+## WIRE-SPECIFICITY — WIR-16, WIR-18
 
 An operator `_pick` has three candidates: `TS[int]` returning `"int"`,
 `TIME_SERIES_TYPE` returning `"generic"`, and `TSL[TIME_SERIES_TYPE, SIZE]`
@@ -121,14 +121,14 @@ returning `"tsl-generic"`.
 A concrete candidate beats a variable, a variable inside a list beats a bare
 one, and a reference adds no specificity.
 
-## WIRE-FAILURES — WIR-4, WIR-15
+## WIRE-FAILURES — WIR-4, WIR-16
 
 | Call | Expected |
 |---|---|
 | An operator with two `TS[int]` candidates, called with `TS[int]` | fails (ambiguous) |
 | An operator with only a `TS[int]` candidate, called with `TS[str]` | fails (no candidate) |
 
-## WIRE-REPEATED — WIR-7, WIR-16
+## WIRE-REPEATED — WIR-7, WIR-17
 
 A node `_same(a: TIME_SERIES_TYPE, b: TIME_SERIES_TYPE)`.
 
@@ -136,6 +136,22 @@ A node `_same(a: TIME_SERIES_TYPE, b: TIME_SERIES_TYPE)`.
 |---|---|
 | `_same(REF[TS[int]], TS[int])` | wires; the variable binds `TS[int]` once |
 | `_same(TS[int], TS[float])` | fails |
+
+## WIRE-BUNDLE-IDENTITY — WIR-15, WIR-17
+
+`Foo` and `Bar` are named bundles with the same single field `a: TS[int]`;
+`{a: TS[int]}` is an unnamed bundle with that field. `_same(a: T, b: T)` is
+the repeated-variable node above; `_takes_foo` and `_takes_unnamed` declare
+a `Foo` and an unnamed input.
+
+| Call | Expected |
+|---|---|
+| `_same(Foo, {a})` | wires: one is unnamed, so fields decide |
+| `_same(Foo, Foo)` | wires |
+| `_same(Foo, Bar)` | fails: both named, different names |
+| `_takes_foo({a})` | wires |
+| `_takes_unnamed(Foo)` | wires |
+| `_takes_foo(Bar)` | fails |
 
 ## WIRE-FRONT-END — WIR-14, WIR-7
 

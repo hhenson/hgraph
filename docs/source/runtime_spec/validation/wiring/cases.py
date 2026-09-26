@@ -240,7 +240,7 @@ def _pick_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TS[str]:
 
 
 def operator_specificity():
-    """WIR-15, WIR-17: the most specific candidate is selected; a REF adds none."""
+    """WIR-16, WIR-18: the most specific candidate is selected; a REF adds none."""
 
     @graph
     def g(i: TS[int], f: TS[float], l: TSL[TS[int], Size[2]]) -> TSL[TS[str], Size[4]]:
@@ -284,7 +284,7 @@ def _raises(fn) -> bool:
 
 
 def operator_failures():
-    """WIR-4, WIR-15: no candidate, or a tie, fails the call."""
+    """WIR-4, WIR-16: no candidate, or a tie, fails the call."""
 
     @graph
     def tie(i: TS[int]) -> TS[str]:
@@ -306,7 +306,7 @@ def _same(a: TIME_SERIES_TYPE, b: TIME_SERIES_TYPE) -> TS[bool]:
 
 
 def repeated_variable():
-    """WIR-7, WIR-16: a repeated variable binds once, dereferenced."""
+    """WIR-7, WIR-17: a repeated variable binds once, dereferenced."""
 
     @graph
     def matched(i: TS[int]) -> TS[bool]:
@@ -319,6 +319,68 @@ def repeated_variable():
     return {
         "ref_and_value_values": eval_node(matched, [1]),
         "different_types_raise": _raises(lambda: eval_node(mismatched, [1], [1.0])),
+    }
+
+
+class _Foo(TimeSeriesSchema):
+    a: TS[int]
+
+
+class _Bar(TimeSeriesSchema):
+    a: TS[int]
+
+
+_Unnamed = hg.ts_schema(a=TS[int])
+
+
+@compute_node
+def _make_foo(v: TS[int]) -> TSB[_Foo]:
+    return {"a": v.value}
+
+
+@compute_node
+def _make_bar(v: TS[int]) -> TSB[_Bar]:
+    return {"a": v.value}
+
+
+@compute_node
+def _make_unnamed(v: TS[int]) -> TSB[_Unnamed]:
+    return {"a": v.value}
+
+
+@compute_node
+def _takes_foo(b: TSB[_Foo]) -> TS[int]:
+    return b.a.value
+
+
+@compute_node
+def _takes_unnamed(b: TSB[_Unnamed]) -> TS[int]:
+    return b.a.value
+
+
+def _wires(build) -> str:
+    """Whether wiring and running ``build`` over one int tick succeeds."""
+
+    @graph
+    def g(v: TS[int]):
+        hg.null_sink(build(v))
+
+    try:
+        eval_node(g, [1])
+    except Exception:  # noqa: BLE001 - the observation is only whether wiring failed
+        return "fails"
+    return "wires"
+
+
+def bundle_identity():
+    """WIR-15: bundle names count only when both bundles are named."""
+    return {
+        "named_and_unnamed_repeat": _wires(lambda v: _same(_make_foo(v), _make_unnamed(v))),
+        "same_name_repeat": _wires(lambda v: _same(_make_foo(v), _make_foo(v))),
+        "two_names_repeat": _wires(lambda v: _same(_make_foo(v), _make_bar(v))),
+        "named_input_from_unnamed": _wires(lambda v: _takes_foo(_make_unnamed(v))),
+        "unnamed_input_from_named": _wires(lambda v: _takes_unnamed(_make_foo(v))),
+        "named_input_from_other_name": _wires(lambda v: _takes_foo(_make_bar(v))),
     }
 
 
@@ -335,6 +397,7 @@ CASES = {
         operator_specificity,
         operator_failures,
         repeated_variable,
+        bundle_identity,
     )
 }
 

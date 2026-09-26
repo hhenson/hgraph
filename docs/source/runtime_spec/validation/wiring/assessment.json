@@ -20,6 +20,67 @@
     }
   },
   "runtimes": {
+    "bundle_identity": {
+      "named_and_unnamed_repeat": {
+        "cpp": "fails",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15",
+          "WIR-17"
+        ],
+        "verdict": "python"
+      },
+      "named_input_from_other_name": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15",
+          "WIR-4"
+        ],
+        "verdict": "python"
+      },
+      "named_input_from_unnamed": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      },
+      "same_name_repeat": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15",
+          "WIR-17"
+        ],
+        "verdict": "both"
+      },
+      "two_names_repeat": {
+        "cpp": "fails",
+        "expected": "fails",
+        "python": "fails",
+        "rules": [
+          "WIR-15",
+          "WIR-17",
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "unnamed_input_from_named": {
+        "cpp": "wires",
+        "expected": "wires",
+        "python": "wires",
+        "rules": [
+          "WIR-15"
+        ],
+        "verdict": "both"
+      }
+    },
     "generic_depth": {
       "bound": {
         "cpp": "TSD[str,TS[int]]",
@@ -100,7 +161,7 @@
         "expected": true,
         "python": true,
         "rules": [
-          "WIR-15",
+          "WIR-16",
           "WIR-4"
         ],
         "verdict": "both"
@@ -110,7 +171,7 @@
         "expected": true,
         "python": true,
         "rules": [
-          "WIR-15",
+          "WIR-16",
           "WIR-4"
         ],
         "verdict": "both"
@@ -137,8 +198,8 @@
           "int"
         ],
         "rules": [
-          "WIR-15",
-          "WIR-17",
+          "WIR-16",
+          "WIR-18",
           "WIR-6"
         ],
         "verdict": "both"
@@ -278,7 +339,7 @@
         "expected": true,
         "python": true,
         "rules": [
-          "WIR-16",
+          "WIR-17",
           "WIR-4"
         ],
         "verdict": "both"
@@ -295,7 +356,7 @@
         ],
         "rules": [
           "WIR-7",
-          "WIR-16"
+          "WIR-17"
         ],
         "verdict": "both"
       }
@@ -351,8 +412,9 @@
     }
   },
   "totals": {
-    "both": 24,
+    "both": 28,
     "cpp": 1,
-    "hgl:varies": 2
+    "hgl:varies": 2,
+    "python": 2
   }
 }

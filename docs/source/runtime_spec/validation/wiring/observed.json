@@ -1,6 +1,24 @@
 {
   "candidate_revision": "dea948136",
   "cases": {
+    "bundle_identity": {
+      "cpp": {
+        "named_and_unnamed_repeat": "fails",
+        "named_input_from_other_name": "wires",
+        "named_input_from_unnamed": "wires",
+        "same_name_repeat": "wires",
+        "two_names_repeat": "fails",
+        "unnamed_input_from_named": "wires"
+      },
+      "python": {
+        "named_and_unnamed_repeat": "wires",
+        "named_input_from_other_name": "fails",
+        "named_input_from_unnamed": "wires",
+        "same_name_repeat": "wires",
+        "two_names_repeat": "fails",
+        "unnamed_input_from_named": "wires"
+      }
+    },
     "generic_depth": {
       "cpp": {
         "bound": "TSD[str,TS[int]]",
