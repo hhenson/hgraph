@@ -5,6 +5,7 @@ import pyarrow as pa
 import inspect
 import json
 import pytest
+import sys
 import threading
 import time
 import tornado.web
@@ -120,6 +121,24 @@ def test_publish_table_operates_against_the_supported_perspective_client():
     finally:
         view.delete()
         manager.close()
+
+
+def test_publish_table_clamps_history_to_perspective_limit_range():
+    client = _Client()
+    manager = PerspectiveTablesManager(client)
+
+    @hg.graph
+    def app(rows: hg.TSD[int, hg.TS[int]]):
+        register_perspective_adaptors()
+        publish_table("bounded", rows, index_col_name="id", history=sys.maxsize)
+        publish_table("unlimited", rows, index_col_name="id", history=0)
+
+    with hg.GlobalContext(hg.GlobalState()):
+        PerspectiveTablesManager.set_current(manager)
+        hg.eval_node(app, [{1: 10}])
+
+    assert client.tables["bounded_history"][1]["limit"] == 4294967295
+    assert client.tables["unlimited_history"][1]["limit"] is None
 
 
 def test_manager_edit_callbacks_do_not_require_perspective_to_be_installed():
@@ -388,7 +407,8 @@ def test_publish_multitable_combines_multiple_clients_without_a_reply_channel():
     ]
 
 
-def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
+@pytest.mark.parametrize("empty_row", [False, True])
+def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop(empty_row):
     client = _Client()
     manager = PerspectiveTablesManager(client)
     received = []
@@ -404,9 +424,12 @@ def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
                 time.sleep(0.01)
             time.sleep(0.05)
             sender({1: _Row("initial", 1)})
+            edit = {"id": 1, "name": "edited", "value": 2}
+            if empty_row:
+                edit["_id"] = 1
             manager.publish_edits(
                 "editable",
-                [{"id": 1, "name": "edited", "value": 2}],
+                [edit],
                 [3],
             )
 
@@ -428,7 +451,7 @@ def test_editable_table_emits_typed_feedback_and_unsubscribes_on_stop():
     def app():
         register_perspective_adaptors()
         capture(publish_table_editable(
-            "editable", rows(), index_col_name="id"))
+            "editable", rows(), index_col_name="id", empty_row=empty_row))
 
     with hg.GlobalContext(hg.GlobalState()):
         PerspectiveTablesManager.set_current(manager)

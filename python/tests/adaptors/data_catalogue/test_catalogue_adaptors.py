@@ -111,6 +111,22 @@ def test_subscribe_packs_heterogeneous_live_options():
     ]
 
 
+def test_subscribe_waits_for_all_live_options():
+    from hgraph.adaptors.data_catalogue.subscribe import _options_port
+
+    @hg.graph
+    def app(
+        start: hg.TS[datetime], poll: hg.TS[bool],
+    ) -> hg.TS[dict[str, object]]:
+        return _options_port(None, {"start": start, "poll": poll})
+
+    start = datetime(2026, 9, 4)
+    assert hg.eval_node(app, [start, None], [None, True]) == [
+        None,
+        {"start": start, "poll": True},
+    ]
+
+
 def test_subscriber_handler_requires_concrete_source_annotation():
     from hgraph.adaptors.data_catalogue.subscribe import subscriber_impl_to_graph
 

@@ -575,10 +575,10 @@ class _GetContext:
             ts_type = expected if isinstance(expected, _TsExpr) else TS[expected]
             published = _resolve_context(_ContextExpr(ts_type), name)
         else:
-            from ._core import _context_name_of, _published_contexts
+            from ._core import _context_has_name, _published_contexts
 
             for port, _, frame, _ in reversed(_published_contexts):
-                if _context_name_of(port, frame) == name:
+                if _context_has_name(port, frame, name):
                     published = port
                     break
         if published is None:
@@ -2056,7 +2056,14 @@ def _bind_registered_impl(implementation, path, config):
         from contextlib import ExitStack
         wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
         contexts = _SERVICE_BUILD_CONTEXTS.get(wiring, ())
-        existing_context_count = len(_published_contexts)
+        existing_contexts = tuple(_published_contexts)
+        # Implementations materialize on the root wiring. Lazy specialization
+        # may be triggered inside a mapped child, whose contexts cannot become
+        # inputs of that root graph.
+        _published_contexts[:] = (
+            context for context in existing_contexts
+            if _hgraph.same_wiring(context[3], wiring)
+        )
         implementation_paths = {
             _service_implementation_path_key(
                 candidate,
@@ -2065,7 +2072,10 @@ def _bind_registered_impl(implementation, path, config):
             for candidate in implementation.interfaces
         }
         _SERVICE_IMPLEMENTATION_PATH_STACK.append(implementation_paths)
-        _published_contexts.extend(registration_contexts)
+        _published_contexts.extend(
+            context for context in registration_contexts
+            if _hgraph.same_wiring(context[3], wiring)
+        )
         try:
             if not contexts:
                 return impl_fn(**arguments)
@@ -2083,7 +2093,7 @@ def _bind_registered_impl(implementation, path, config):
         finally:
             popped_paths = _SERVICE_IMPLEMENTATION_PATH_STACK.pop()
             assert popped_paths is implementation_paths
-            del _published_contexts[existing_context_count:]
+            _published_contexts[:] = existing_contexts
 
     bound.__name__ = implementation.__name__
     bound.__signature__ = inspect.Signature(

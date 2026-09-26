@@ -4,6 +4,7 @@ import operator as operators
 from typing import TypeVar
 
 import _hgraph
+import polars as pl
 import pyarrow.compute as pc
 
 from hgraph._frame import as_arrow_table
@@ -19,7 +20,8 @@ from hgraph import (
     Frame,
     KEYABLE_SCALAR,
     add_,
-    and_,
+    bit_and,
+    bit_or,
     compute_node,
     div_,
     eq_,
@@ -32,7 +34,6 @@ from hgraph import (
     lt_,
     mul_,
     operator_function,
-    or_,
     sub_,
 )
 
@@ -55,9 +56,8 @@ ROW = TypeVar("ROW")
 ROW_1 = TypeVar("ROW_1")
 ROW_2 = TypeVar("ROW_2")
 
-# hgraph parity: the join-key type variable. Upstream constrains the
-# expression form to a polars expression; this port's expression dialect is
-# ``pyarrow.compute.Expression`` throughout.
+# hgraph parity: the join-key type variable. Native joins use Arrow expressions;
+# the dynamic filter operators below additionally support Polars expressions.
 ON_TYPE = TypeVar("ON_TYPE", str, tuple, pc.Expression)
 
 
@@ -74,6 +74,8 @@ _filter_frame_native = operator_function("filter_frame")
 def _pack_tsb(values):
     from hgraph._wiring._core import WiringPort, _unwrap
 
+    if isinstance(values, WiringPort):
+        return values
     ports = {name: _unwrap(value) for name, value in values.items()}
     schema = _hgraph.un_named_tsb_type(
         [(name, port.ts_type) for name, port in ports.items()]
@@ -109,6 +111,16 @@ def filter_exp_ts_(condition: TS[pc.Expression], ts: TS[Frame[ROW]]) -> TS[Frame
     return as_arrow_table(ts.value).filter(condition.value)
 
 
+@compute_node(overloads=filter_)
+def filter_polars_exp_ts_(condition: TS[pl.Expr], ts: TS[Frame[ROW]]) -> TS[Frame[ROW]]:
+    frame = (
+        ts.value
+        if isinstance(ts.value, pl.DataFrame)
+        else pl.from_arrow(as_arrow_table(ts.value))
+    )
+    return frame.filter(condition.value)
+
+
 for _op, _impl in (
     (lt_, operators.lt),
     (gt_, operators.gt),
@@ -120,8 +132,8 @@ for _op, _impl in (
     (mul_, operators.mul),
     (div_, operators.truediv),
     (floordiv_, operators.floordiv),
-    (and_, operators.and_),
-    (or_, operators.or_),
+    (bit_and, operators.and_),
+    (bit_or, operators.or_),
 ):
 
     @compute_node(overloads=_op)
@@ -129,8 +141,34 @@ for _op, _impl in (
         return op(lhs.value, pc.scalar(rhs.value))
 
     @compute_node(overloads=_op)
-    def _arrow_expression_lhs(lhs: TS[SCALAR], rhs: TS[pc.Expression], op: object = _impl) -> TS[pc.Expression]:
+    def _arrow_expression_both(
+        lhs: TS[pc.Expression], rhs: TS[pc.Expression], op: object = _impl
+    ) -> TS[pc.Expression]:
+        return op(lhs.value, rhs.value)
+
+    @compute_node(overloads=_op)
+    def _arrow_expression_lhs(
+        lhs: TS[SCALAR], rhs: TS[pc.Expression], op: object = _impl
+    ) -> TS[pc.Expression]:
         return op(pc.scalar(lhs.value), rhs.value)
+
+    @compute_node(overloads=_op)
+    def _polars_expression_rhs(
+        lhs: TS[pl.Expr], rhs: TS[SCALAR], op: object = _impl
+    ) -> TS[pl.Expr]:
+        return op(lhs.value, pl.lit(rhs.value))
+
+    @compute_node(overloads=_op)
+    def _polars_expression_both(
+        lhs: TS[pl.Expr], rhs: TS[pl.Expr], op: object = _impl
+    ) -> TS[pl.Expr]:
+        return op(lhs.value, rhs.value)
+
+    @compute_node(overloads=_op)
+    def _polars_expression_lhs(
+        lhs: TS[SCALAR], rhs: TS[pl.Expr], op: object = _impl
+    ) -> TS[pl.Expr]:
+        return op(pl.lit(lhs.value), rhs.value)
 
 
 @compute_node

@@ -381,8 +381,8 @@ whose curated signatures remain authoritative.
      - ``3 overloads``
      - 3 native overloads; lazy operator
    * - :ref:`emit <python-operator-emit>`
-     - ``emit(ts: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; explicit helper
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - :ref:`eq_ <python-operator-eq_>`
      - ``15 overloads``
      - 15 native overloads; lazy operator
@@ -411,8 +411,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`floordiv_ <python-operator-floordiv_>`
-     - ``12 overloads``
-     - 12 native overloads; lazy operator
+     - ``13 overloads``
+     - 13 native overloads; lazy operator
    * - :ref:`format_ <python-operator-format_>`
      - ``format_(arg0: TS[str], *args: TIME_SERIES_TYPE, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
      - 1 native overload; lazy operator
@@ -441,11 +441,11 @@ whose curated signatures remain authoritative.
      - ``9 overloads``
      - 9 native overloads; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
-     - ``10 overloads``
-     - 10 native overloads; lazy operator
+     - ``13 overloads``
+     - 13 native overloads; lazy operator
    * - :ref:`getitem_ <python-operator-getitem_>`
-     - ``17 overloads``
-     - 17 native overloads; lazy operator
+     - ``18 overloads``
+     - 18 native overloads; lazy operator
    * - :ref:`group_by <python-operator-group_by>`
      - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator
@@ -585,8 +585,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`mul_ <python-operator-mul_>`
-     - ``15 overloads``
-     - 15 native overloads; lazy operator
+     - ``17 overloads``
+     - 17 native overloads; lazy operator
    * - :ref:`ne_ <python-operator-ne_>`
      - ``11 overloads``
      - 11 native overloads; lazy operator
@@ -807,7 +807,7 @@ whose curated signatures remain authoritative.
      - ``union(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`unpartition <python-operator-unpartition>`
-     - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]``
+     - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, REF[V]]``
      - 1 native overload; lazy operator
    * - :ref:`until_true <python-operator-until_true>`
      - ``3 overloads``

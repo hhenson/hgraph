@@ -221,6 +221,54 @@ TEST_CASE("value builders widen covariant variadic tuple elements")
     CHECK(target.as_list().at(0).concrete().as_bundle()["extra"].checked_as<Int>() == 2);
 }
 
+TEST_CASE("compact tuples materialize polymorphic elements into owned recursive fields")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *text = scalar_descriptor<Str>::value_meta();
+    const auto *base = registry.bundle(
+        "tests.value_builder.recursive_tuple", "Base", {{"symbol", text}}, {}, true);
+    const auto *leaf = registry.bundle(
+        "tests.value_builder.recursive_tuple", "Leaf", {{"symbol", text}}, {base});
+    const auto *source_tuple_schema = registry.list(base, 0, true);
+    const auto *target_tuple_schema = registry.list(registry.owned(base), 0, true);
+    static_cast<void>(registry.bundle(
+        "tests.value_builder.recursive_tuple", "Multiple",
+        {{"symbol", text}, {"ancestors", target_tuple_schema}}, {base}));
+
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+
+    BundleBuilder leaf_builder{realization->exact_type_for(leaf)};
+    leaf_builder.set("symbol", Value{Str{"front"}});
+    const Value leaf_value = leaf_builder.build();
+
+    const auto source_element = realization->type_for(base);
+    ListBuilder source_builder{source_element, *source_tuple_schema};
+    source_builder.push_back(leaf_value.view());
+    const Value source = source_builder.build();
+
+    const auto target_element = ValuePlanFactory::instance().type_for(registry.owned(base));
+    const auto target_binding = compact_list_type(target_element, *target_tuple_schema);
+    REQUIRE(target_element.ops_ref().accepts_source(target_element, source_element));
+    REQUIRE(target_binding.ops_ref().accepts_source(target_binding, source.binding()));
+    const auto incompatible_tuple = compact_list_type(
+        realization->type_for(text), *registry.list(text, 0, true));
+    CHECK_FALSE(target_binding.ops_ref().accepts_source(
+        target_binding, incompatible_tuple));
+    const auto non_tuple_list = compact_list_type(
+        source_element, *registry.list(base));
+    CHECK_FALSE(target_binding.ops_ref().accepts_source(
+        target_binding, non_tuple_list));
+
+    const Value target{target_binding, source.view()};
+    REQUIRE(target.as_list().size() == 1);
+    const auto materialized = target.as_list().front().concrete();
+    REQUIRE(materialized.schema() == leaf);
+    CHECK(materialized.as_bundle()["symbol"].checked_as<Str>() == Str{"front"});
+}
+
 TEST_CASE("value builders reject an incompatible view before changing their contents")
 {
     const auto schemas = polymorphic_builder_schemas();

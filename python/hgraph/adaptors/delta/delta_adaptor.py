@@ -156,7 +156,7 @@ def delta_write_adaptor_impl(
 
     @graph
     def receive(key: TS[int]):
-        return delta_write_adaptor_raw[SCHEMA:_schema].to_graph(
+        return delta_write_adaptor_raw.to_graph(
             path=connection_string, __request_id__=key,
             __no_ts_inputs__=True)
 

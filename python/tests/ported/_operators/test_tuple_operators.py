@@ -42,6 +42,20 @@ def test_getitem_fixed_tuple():
     assert eval_node(g, [(1, 2, 3)], [1]) == [2]
 
 
+def test_getitem_heterogeneous_fixed_tuple_with_scalar_index():
+    @graph
+    def first(a: TS[Tuple[str, int]]) -> TS[str]:
+        return a[0]
+
+    @graph
+    def last(a: TS[Tuple[str, int]]) -> TS[int]:
+        return a[-1]
+
+    values = [("one", 1), ("two", 2)]
+    assert eval_node(first, values) == ["one", "two"]
+    assert eval_node(last, values) == [1, 2]
+
+
 def test_and_tuples():
     @graph
     def app(lhs: TS[Tuple[int, ...]], rhs: TS[Tuple[int, ...]]) -> TS[bool]:

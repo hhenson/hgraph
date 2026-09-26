@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pytest
 from frozendict import frozendict
 
-from hgraph import CompoundScalar, Frame, Series, TS, TSD, compound_scalar, filter_, graph
+from hgraph import CompoundScalar, Frame, Series, TS, TSD, compound_scalar, const, filter_, graph
+from hgraph._frame import as_arrow_table
 from hgraph.adaptors.data_frame import (
     concat,
     filter_cs,
@@ -24,6 +27,18 @@ from hgraph.test import eval_node
 class AB(CompoundScalar):
     a: int
     b: int
+
+
+@dataclass(frozen=True)
+class StringViewRow(CompoundScalar):
+    name: str
+    rank: int
+
+
+@dataclass(frozen=True)
+class TimestampedRow(CompoundScalar):
+    timestamp: datetime
+    value: int
 
 
 def test_join():
@@ -98,10 +113,48 @@ def test_arrow_expression_operator_and_filter_overload():
 
     @graph
     def app(ts: TS[Frame[AB]], expression: TS[pc.Expression], threshold: TS[int]) -> TS[Frame[AB]]:
-        return filter_(expression > threshold, ts)
+        return filter_((expression > threshold) & (const(pc.field("b")) < 30), ts)
 
     result = eval_node(app, [table], [pc.field("a")], [1])
-    assert result[0].equals(table.slice(1))
+    assert result[0].equals(table.slice(1, 1))
+
+
+def test_polars_expression_operator_and_filter_overload():
+    pl = pytest.importorskip("polars")
+    table = pa.table({
+        "timestamp": [
+            datetime(2025, 10, 1),
+            datetime(2025, 10, 2),
+            datetime(2025, 10, 3),
+        ],
+        "value": [10, 20, 30],
+    })
+
+    @graph
+    def app(
+        ts: TS[Frame[TimestampedRow]], business_date: TS[date]
+    ) -> TS[Frame[TimestampedRow]]:
+        condition = const(pl.col("timestamp")) > business_date - timedelta(days=2)
+        return filter_(condition, ts)
+
+    result = eval_node(app, [table], [date(2025, 10, 3)])[0]
+    assert as_arrow_table(result).equals(table.slice(1))
+
+
+def test_polars_expression_operators_compose_dynamic_expressions():
+    pl = pytest.importorskip("polars")
+    table = pa.table({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    @graph
+    def app(
+        ts: TS[Frame[AB]], offset: TS[int], ceiling: TS[int]
+    ) -> TS[Frame[AB]]:
+        above_floor = const(pl.col("a")) + offset > 2
+        below_ceiling = ceiling - const(pl.col("b")) > 5
+        return filter_(above_floor & below_ceiling, ts)
+
+    result = eval_node(app, [table], [1], [35])[0]
+    assert as_arrow_table(result).equals(table.slice(1, 1))
 
 
 def test_sorted_and_concat():
@@ -117,6 +170,43 @@ def test_sorted_and_concat():
         [second],
         resolution_dict={"ts1": TS[Frame[AB]], "ts2": TS[Frame[AB]]},
     )[0].equals(pa.concat_tables([first, second]))
+
+
+def test_sorted_preserves_and_orders_string_view_columns():
+    table = pa.table(
+        {
+            "name": pa.array(["b", "a", "c"], type=pa.string_view()),
+            "rank": [2, 1, 0],
+        }
+    )
+
+    by_rank = eval_node(
+        sorted_, [table], by="rank",
+        resolution_dict={"ts": TS[Frame[StringViewRow]]},
+    )[0]
+    assert by_rank.equals(
+        pa.table(
+            {
+                "name": pa.array(["c", "a", "b"], type=pa.string_view()),
+                "rank": [0, 1, 2],
+            }
+        )
+    )
+    assert by_rank.schema.field("name").type == pa.string_view()
+
+    by_name = eval_node(
+        sorted_, [table], by="name",
+        resolution_dict={"ts": TS[Frame[StringViewRow]]},
+    )[0]
+    assert by_name.equals(
+        pa.table(
+            {
+                "name": pa.array(["a", "b", "c"], type=pa.string_view()),
+                "rank": [1, 2, 0],
+            }
+        )
+    )
+    assert by_name.schema.field("name").type == pa.string_view()
 
 
 def test_ungroup_default_and_with_keys():

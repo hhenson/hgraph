@@ -351,6 +351,43 @@ TEST_CASE(
       {1, none, 3});
 }
 
+TEST_CASE("ts_delta: atomic capture constructs an immutable canonical owner") {
+  auto &registry = TypeRegistry::instance();
+  auto &value_factory = ValuePlanFactory::instance();
+  auto &ts_factory = TSDataPlanFactory::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *ts_integer = registry.ts(integer);
+  const auto canonical = value_factory.type_for(integer);
+
+  // Model a graph-local representation whose portable owner is immutable,
+  // as with a realized Python-object hierarchy.
+  auto *graph_ops = new ValueOps{canonical.ops_ref()};
+  auto *owner_ops = new ValueOps{canonical.ops_ref()};
+  owner_ops->allows_mutation = false;
+  const auto graph_binding =
+      intern_value_type(*integer, canonical.checked_plan(), *graph_ops);
+  const auto owner_binding =
+      intern_value_type(*integer, canonical.checked_plan(), *owner_ops);
+  register_value_owning_type(graph_binding, owner_binding);
+
+  TSOutput output{
+      ts_factory.output_type_for(ts_integer, graph_binding)};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *ts_integer, TSEndpointSchema::peered(ts_integer))};
+  input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+
+  Value source{Int{42}};
+  REQUIRE(output.view(MIN_ST)
+              .begin_mutation(MIN_ST)
+              .copy_value_from(source.view()));
+  REQUIRE(input.view(nullptr, MIN_ST).value().binding() == graph_binding);
+  REQUIRE_FALSE(owner_binding.ops_ref().can_begin_mutation());
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  REQUIRE(captured.binding() == owner_binding);
+  REQUIRE(*static_cast<const Int *>(captured.view().data()) == 42);
+}
+
 TEST_CASE("ts_delta: apply_delta matches ts_delta<S>::apply for a scalar TS") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   auto ex = run_graph<ApplyGraph<TS<Int>>>([](const GlobalStateView &gs) {
@@ -551,6 +588,36 @@ TEST_CASE("apply_current_value accepts a concrete closed Bundle alternative") {
   REQUIRE(stored.as_bundle()["name"].checked_as<Str>() == "kg");
 }
 
+TEST_CASE("capture_delta realizes an atomic Bundle owner for a derived source") {
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *text = registry.register_scalar<Str>("str");
+  const auto *base = registry.bundle("tests.atomic.delta", "Instrument",
+                                     {{"id", integer}}, {}, true);
+  const auto *leaf = registry.bundle("tests.atomic.delta", "Future",
+                                     {{"id", integer}, {"symbol", text}}, {base});
+  const auto *base_ts = registry.ts(base);
+
+  const auto snapshot = TypeRealizationSnapshot::capture(registry);
+  TypeRealizationScope scope{snapshot.get()};
+  TSOutput source{*base_ts};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *base_ts, TSEndpointSchema::peered(base_ts))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+
+  Value future{ValuePlanFactory::instance().type_for(leaf)};
+  auto fields = future.as_bundle().begin_mutation();
+  fields["id"].set(Int{7});
+  fields["symbol"].set(Str{"EDZ6"});
+  REQUIRE(source.view(MIN_ST).begin_mutation(MIN_ST).copy_value_from(future.view()));
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  REQUIRE(captured.binding() == snapshot->type_for(base));
+  const auto concrete = captured.view().concrete();
+  REQUIRE(concrete.schema() == leaf);
+  REQUIRE(concrete.as_bundle()["symbol"].checked_as<Str>() == "EDZ6");
+}
+
 TEST_CASE(
     "TSD output slots realize polymorphic values nested in TSB elements") {
   auto &registry = TypeRegistry::instance();
@@ -700,6 +767,32 @@ TEST_CASE(
       {tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), std::nullopt),
        tsb_delta<QuoteWithSet>(std::nullopt, 5),
        tsb_delta<QuoteWithSet>(set_delta<Int>({3}, {1}), 6)});
+}
+
+TEST_CASE("ts_delta: partial TSB capture preserves an omitted collection field") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+
+  const Value partial =
+      tsb_delta<QuoteWithSet>(std::nullopt, Int{5});
+  const auto authored = partial.view().as_bundle();
+  REQUIRE_FALSE(authored.at(0).has_value());
+  REQUIRE(authored.at(1).checked_as<Int>() == 5);
+
+  const auto *schema = schema_descriptor<QuoteWithSet>::ts_meta();
+  TSOutput output{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+  input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+  apply_delta(output.view(MIN_ST), partial.view());
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  const auto delta = captured.view().as_bundle();
+  REQUIRE_FALSE(delta.at(0).has_value());
+  REQUIRE(delta.at(1).checked_as<Int>() == 5);
+
+  const Value explicit_empty = tsb_delta<QuoteWithSet>(
+      set_delta<Int>({}, {}), std::nullopt);
+  REQUIRE(explicit_empty.view().as_bundle().at(0).has_value());
 }
 
 TEST_CASE("ts_delta: capture_current_delta includes unchanged scalar and collection fields") {

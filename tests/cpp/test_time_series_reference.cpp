@@ -1622,6 +1622,62 @@ TEST_CASE("TimeSeriesReference: nested interior-REF resurrection rebinds retaine
     REQUIRE(after_tick_inner_output.as_dict().at(inner_key.view()).value().checked_as<std::int32_t>() == 12);
 }
 
+TEST_CASE("TimeSeriesReference: elementwise from-REF dict reorders bundle fields by name")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *source_bundle = registry.tsb(
+        "TimeSeriesReferenceReorderedSource", {{"values", ts_int}, {"status", ts_int}});
+    const auto *requested_bundle = registry.tsb(
+        "TimeSeriesReferenceReorderedRequested", {{"status", ts_int}, {"values", ts_int}});
+    const auto *source_schema = registry.tsd(int_meta, registry.ref(source_bundle));
+    const auto *requested_schema = registry.tsd(int_meta, requested_bundle);
+
+    TSOutput target{*source_bundle};
+    TSOutput source{*source_schema};
+    const auto [t1, t2, t3] = sequential_times<3>();
+    Value key{std::int32_t{1}};
+
+    {
+        auto target_data = target.data_view();
+        auto bundle      = target_data.as_bundle();
+        Value values{std::int32_t{7}};
+        Value status{std::int32_t{2}};
+        REQUIRE(bundle.field("values").begin_mutation(t1).copy_value_from(values.view()));
+        REQUIRE(bundle.field("status").begin_mutation(t1).copy_value_from(status.view()));
+    }
+    {
+        Value reference{TimeSeriesReference{target.view(t1)}};
+        auto source_data     = source.data_view();
+        auto source_dict     = source_data.as_dict();
+        auto source_mutation = source_dict.begin_mutation(t2);
+        auto child           = source_mutation.at(key.view());
+        REQUIRE(child.begin_mutation(t2).copy_value_from(reference.view()));
+    }
+
+    auto handle = source.view(t2).binding_for(*requested_schema);
+    auto initial      = handle.view(t2);
+    auto initial_dict = initial.as_dict();
+    auto item_output  = initial_dict.at(key.view());
+    auto item         = item_output.as_bundle();
+    REQUIRE(item.field("status").value().checked_as<std::int32_t>() == 2);
+    REQUIRE(item.field("values").value().checked_as<std::int32_t>() == 7);
+
+    Value next{std::int32_t{8}};
+    auto target_data   = target.data_view();
+    auto target_bundle = target_data.as_bundle();
+    REQUIRE(target_bundle.field("values").begin_mutation(t3).copy_value_from(next.view()));
+    auto updated      = handle.view(t3);
+    auto updated_dict = updated.as_dict();
+    auto ticked_item  = updated_dict.at(key.view());
+    auto ticked       = ticked_item.as_bundle();
+    REQUIRE(ticked.field("values").modified());
+    REQUIRE(ticked.field("values").value().checked_as<std::int32_t>() == 8);
+    REQUIRE_FALSE(ticked.field("status").modified());
+}
+
 TEST_CASE("TimeSeriesReference: from-REF dict alternative rebinds target links")
 {
     using namespace hgraph;

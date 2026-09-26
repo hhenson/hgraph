@@ -2877,7 +2877,7 @@ TEST_CASE("Runtime contract reports dictionary membership independently of child
 {
     using namespace hgraph;
     auto &registry = TypeRegistry::instance();
-    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    const auto *schema = registry.tsd(registry.register_scalar<int>("int32"), registry.ts(registry.register_scalar<int>("int32")));
     TSOutput output{schema};
     TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
     input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
@@ -2916,7 +2916,7 @@ TEST_CASE("Runtime contract unbound scalar has no last modified time", "[runtime
 {
     using namespace hgraph;
     auto &registry = TypeRegistry::instance();
-    const auto *schema = registry.ts(registry.register_scalar<int>());
+    const auto *schema = registry.ts(registry.register_scalar<int>("int32"));
     TSOutput output{schema};
     TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
     set_output(output, 7, MIN_ST);
@@ -2932,7 +2932,7 @@ TEST_CASE("Runtime contract dictionary rebind samples children and retains withd
 {
     using namespace hgraph;
     auto &registry = TypeRegistry::instance();
-    const auto *schema = registry.tsd(registry.register_scalar<int>(), registry.ts(registry.register_scalar<int>()));
+    const auto *schema = registry.tsd(registry.register_scalar<int>("int32"), registry.ts(registry.register_scalar<int>("int32")));
     TSOutput a{schema}, b{schema};
     TSInput input{TSInputBuilderFactory::checked_builder_for(*schema, TSEndpointSchema::peered(schema))};
     Value x{1}, y{2}, z{3}, seven{7}, nine{9};

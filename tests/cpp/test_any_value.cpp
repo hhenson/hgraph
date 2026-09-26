@@ -10,6 +10,7 @@
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/primitive_types.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/value.h>
 
@@ -135,6 +136,40 @@ TEST_CASE("Any: holds heterogeneous values (different schemas)")
     any.as_any().begin_mutation().set(Value{std::string{"hello"}});
     REQUIRE(any.as_any().value_schema()->value_kind() == ValueTypeKind::Atomic);
     CHECK(any.as_any().get().checked_as<std::string>() == "hello");
+}
+
+TEST_CASE("Any: erased assignment boxes concrete source values")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<std::int32_t>("int32");
+    (void)registry.register_scalar<Float>("float");
+
+    Value any = make_any();
+    Value integer{std::int32_t{42}};
+    auto destination = any.begin_mutation();
+
+    REQUIRE(any.binding().ops_ref().accepts_source(any.binding(), integer.binding()));
+    any.binding().ops_ref().copy_assign_from(
+        any.binding(), destination.mutable_data(), integer.binding(), integer.view().data());
+    CHECK(any.as_any().get().checked_as<std::int32_t>() == 42);
+
+    Value boxed_integer = make_any(integer);
+    any.binding().ops_ref().copy_assign_from(
+        any.binding(), destination.mutable_data(), boxed_integer.binding(),
+        boxed_integer.view().data());
+    CHECK_FALSE(any.as_any().get().is_any());
+    CHECK(any.as_any().get().checked_as<std::int32_t>() == 42);
+
+    Value floating{Float{1.5}};
+    any.binding().ops_ref().move_assign_from(
+        any.binding(), destination.mutable_data(), floating.binding(),
+        floating.begin_mutation().mutable_data());
+    CHECK(any.as_any().get().checked_as<Float>() == 1.5);
+
+    Value json{ValuePlanFactory::instance().type_for(registry.json())};
+    CHECK_FALSE(json.binding().ops_ref().accepts_source(
+        json.binding(), integer.binding()));
 }
 
 TEST_CASE("Any: equals / compare / hash delegate to the contained value")

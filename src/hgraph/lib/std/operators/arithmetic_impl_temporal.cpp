@@ -61,12 +61,15 @@ namespace hgraph::stdlib
 
         // Scaling and quotients.
         register_overload<mul_, arithmetic_impl_detail::timedelta_scale_impl>();
+        register_overload<mul_, arithmetic_impl_detail::int_scale_timedelta_impl>();
         register_overload<mul_, arithmetic_impl_detail::timedelta_scale_float_impl>();
+        register_overload<mul_, arithmetic_impl_detail::float_scale_timedelta_impl>();
         register_overload<mul_, arithmetic_impl_detail::period_scale_impl>();
         register_overload<mul_, arithmetic_impl_detail::int_scale_period_impl>();
         register_overload<div_, arithmetic_impl_detail::timedelta_div_impl>();
         register_overload<div_, arithmetic_impl_detail::timedelta_div_float_impl>();
         register_overload<div_, div_timedeltas>();                    // TimeDelta / TimeDelta -> Float
+        register_overload<floordiv_, floordiv_timedeltas>();          // TimeDelta // TimeDelta -> Int
 
         // Unary.
         register_overload<neg_, arithmetic_impl_detail::negate_duration_impl>();

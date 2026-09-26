@@ -1221,6 +1221,41 @@ TEST_CASE("KeySlotStore supports heterogeneous realized value lookup") {
   REQUIRE(canonical_store.size() == 1);
 }
 
+TEST_CASE("KeySlotStore finds a concrete base through its polymorphic representation") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  const auto *base = registry.bundle(
+      "tests.realization.concrete_base_key_store", "Base", {{"id", integer}});
+  static_cast<void>(registry.bundle(
+      "tests.realization.concrete_base_key_store", "Derived",
+      {{"id", integer}, {"extra", integer}}, {base}));
+
+  const auto snapshot = TypeRealizationSnapshot::capture(registry);
+  const auto exact_base_binding = snapshot->exact_type_for(base);
+  Value exact_base{exact_base_binding};
+  exact_base.as_bundle().begin_mutation()["id"].set(Int{7});
+
+  const auto realized_base_binding = snapshot->type_for(base);
+  Value realized_base{realized_base_binding};
+  realized_base_binding.ops_ref().copy_assign_from(
+      realized_base_binding, realized_base.begin_mutation().mutable_data(),
+      exact_base.binding(), exact_base.view().data());
+
+  REQUIRE(exact_base.view().equals(realized_base.view()));
+  REQUIRE(realized_base.view().equals(exact_base.view()));
+  REQUIRE(exact_base.view().hash() == realized_base.view().hash());
+
+  KeySlotStore store{realized_base_binding};
+  const auto inserted = store.insert(exact_base.view());
+  REQUIRE(inserted.inserted);
+  REQUIRE(store.find_slot(realized_base.view()) == inserted.slot);
+  REQUIRE_FALSE(store.insert(realized_base.view()).inserted);
+  REQUIRE(store.size() == 1);
+}
+
 TEST_CASE("closed unions convert alternatives between realization snapshots") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();

@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,71 @@ namespace
     using Quote = TSB<"Quote", Field<"bid", TS<Int>>, Field<"ask", TS<Int>>>;
     using QuoteList = TSL<Quote, 2>;
     using QuoteDict = TSD<Str, Quote>;
+    using PartitionedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
+    using NestedPartitionedIntDict = TSD<Str, TSD<Str, TSD<Int, TS<Int>>>>;
+    using FlattenedIntDict = TSD<Int, TS<Int>>;
+    using FlattenedNestedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
+    using FlattenedIntRefDict = TSD<Int, REF<TS<Int>>>;
+    using FlattenedNestedIntRefDict = TSD<Str, REF<TSD<Int, TS<Int>>>>;
+
+    struct TSDDifferenceSize
+    {
+        static constexpr auto name = "tsd_difference_size";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> lhs,
+                                     Port<TSD<Int, TS<Int>>> rhs)
+        {
+            auto difference = wire<stdlib::sub_>(w, lhs, rhs).as<TSD<Int, TS<Int>>>();
+            auto keys = wire<stdlib::keys_>(w, difference).as<TSS<Int>>();
+            return wire<stdlib::len_>(w, keys).as<TS<Int>>();
+        }
+    };
+
+    struct UnpartitionIntLeaves
+    {
+        static constexpr auto name = "unpartition_int_leaves";
+
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<PartitionedIntDict> ts)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, ts);
+            if (flattened.erased().schema != ts_type<FlattenedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not preserve scalar leaves by reference");
+            }
+            return flattened.as<TSD<Int, TS<Int>>>();
+        }
+    };
+
+    struct UnpartitionStructuredLeaves
+    {
+        static constexpr auto name = "unpartition_structured_leaves";
+
+        static Port<FlattenedNestedIntDict> compose(Wiring &w, Port<NestedPartitionedIntDict> ts)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, ts);
+            if (flattened.erased().schema != ts_type<FlattenedNestedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not preserve structured leaves by reference");
+            }
+            return flattened.as<FlattenedNestedIntDict>();
+        }
+    };
+
+    struct DefaultUnpartitionedLeaves
+    {
+        static constexpr auto name = "default_unpartitioned_leaves";
+
+        static Port<FlattenedIntDict> compose(Wiring &w, Port<PartitionedIntDict> primary,
+                                              Port<FlattenedIntDict> fallback)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, primary);
+            if (flattened.erased().schema != ts_type<FlattenedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not expose reference leaves");
+            }
+            return wire<stdlib::default_>(w, flattened, fallback).as<FlattenedIntDict>();
+        }
+    };
 
     struct DictSpread
     {
@@ -661,7 +727,7 @@ TEST_CASE("collections: unpartition flattens nested TSD inner deltas")
     using namespace hgraph::testing;
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT((eval_node<stdlib::unpartition, TSD<Str, TSD<Int, TS<Int>>>>(
+    CHECK_OUTPUT((eval_node<UnpartitionIntLeaves>(
                      values<Value>(
                          dict_delta<Str, TSD<Int, TS<Int>>>({{"odd"s, dict_delta<Int, TS<Int>>({{1, 1}})}}),
                          dict_delta<Str, TSD<Int, TS<Int>>>(
@@ -677,6 +743,44 @@ TEST_CASE("collections: unpartition flattens nested TSD inner deltas")
                                dict_delta<Int, TS<Int>>({}, {1}),
                                dict_delta<Int, TS<Int>>({}, {2}),
                                dict_delta<Int, TS<Int>>({{3, 6}})));
+}
+
+TEST_CASE("collections: unpartition preserves structured leaves by reference")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<UnpartitionStructuredLeaves>(
+                     values<Value>(
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>(
+                             {{"outer"s, dict_delta<Str, TSD<Int, TS<Int>>>(
+                                             {{"inner"s, dict_delta<Int, TS<Int>>({{1, 2}})}})}}),
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>(
+                             {{"outer"s, dict_delta<Str, TSD<Int, TS<Int>>>(
+                                             {{"inner"s, dict_delta<Int, TS<Int>>({{2, 3}})}})}}),
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>({}, {"outer"s})))),
+                 values<Value>(
+                     dict_delta<Str, TSD<Int, TS<Int>>>(
+                         {{"inner"s, dict_delta<Int, TS<Int>>({{1, 2}})}}),
+                     dict_delta<Str, TSD<Int, TS<Int>>>(
+                         {{"inner"s, dict_delta<Int, TS<Int>>({{2, 3}})}}),
+                     dict_delta<Str, TSD<Int, TS<Int>>>({}, {"inner"s})));
+}
+
+TEST_CASE("collections: default adapts a non-empty value TSD to unpartition reference leaves")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<DefaultUnpartitionedLeaves>(
+            values<Value>(none, none),
+            values<Value>(dict_delta<Int, TS<Int>>({{7, 70}}),
+                          dict_delta<Int, TS<Int>>({{7, 71}, {8, 80}})))),
+        values<Value>(dict_delta<Int, TS<Int>>({{7, 70}}),
+                      dict_delta<Int, TS<Int>>({{7, 71}, {8, 80}})));
 }
 
 TEST_CASE("collections: union removes an element only when no input still holds it")
@@ -822,6 +926,13 @@ TEST_CASE("collections: TSD bitwise and subtraction operators mirror set algebra
                                    dict_delta<Int, TS<Int>>({{3, 2}})))),
                  values<Value>(none,
                                dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}})));
+
+    // An evaluated difference has a valid value even when every lhs key is
+    // excluded. Its key-set projection must expose the initial empty result.
+    CHECK_OUTPUT((eval_node<TSDDifferenceSize>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}})),
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 2}})))),
+                 values<Int>(0));
 
     CHECK_OUTPUT((eval_node<stdlib::bit_or, TSD<Int, TS<Int>>, TSD<Int, TS<Int>>>(
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 1}}),
@@ -1003,11 +1114,12 @@ TEST_CASE("collections: TSD unary min max and sum reduce valid child values")
                  values<Int>(none, 2, 5, 2));
 
     CHECK_OUTPUT((eval_node<stdlib::sum_, TSD<Int, TS<Int>>>(
-                     values<Value>(dict_delta<Int, TS<Int>>({}),
+                     values<Value>(none,
+                                   dict_delta<Int, TS<Int>>({}),
                                    dict_delta<Int, TS<Int>>({{3, 2}, {1, 100}}),
                                    dict_delta<Int, TS<Int>>({{1, -1}}),
                                    dict_delta<Int, TS<Int>>({}, {3})))),
-                 values<Int>(0, 102, 1, -1));
+                 values<Int>(none, 0, 102, 1, -1));
 }
 
 TEST_CASE("collections: TSD unary mean reduces valid child values")

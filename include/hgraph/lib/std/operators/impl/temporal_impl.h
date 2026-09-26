@@ -618,6 +618,34 @@ namespace hgraph::stdlib
         }
     };
 
+    struct getattr_datetime_date_impl
+    {
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            const auto *attr = context.scalar_as<Str>("attr");
+            return attr != nullptr && *attr == "date";
+        }
+
+        static void eval(In<"ts", TS<DateTime>> ts, Scalar<"attr", Str>, Out<TS<Date>> out)
+        {
+            out.set(datetime_parts_detail::civil_date(ts.value()));
+        }
+    };
+
+    struct getattr_datetime_time_impl
+    {
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            const auto *attr = context.scalar_as<Str>("attr");
+            return attr != nullptr && *attr == "time";
+        }
+
+        static void eval(In<"ts", TS<DateTime>> ts, Scalar<"attr", Str>, Out<TS<Time>> out)
+        {
+            out.set(time_of_day(ts.value()));
+        }
+    };
+
     struct timestamp_datetime_impl
     {
         static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Float>> out)

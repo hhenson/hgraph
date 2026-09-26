@@ -863,6 +863,85 @@ struct getattr_ts_bundle {
   }
 };
 
+/** getattr_ over TSD<K, TS[CompoundScalar]>: project the named scalar field
+    for each modified key and preserve dictionary removals. */
+struct getattr_tsd_scalar_bundle {
+  static constexpr auto name = "getattr_tsd_scalar_bundle";
+
+  [[nodiscard]] static const ValueTypeMetaData *
+  element_bundle_schema(const TSValueTypeMetaData *observed) {
+    const auto *tsd = time_series_schema_as<AnyTSD>(observed);
+    const auto *element =
+        tsd != nullptr ? time_series_schema_as<AnyTS>(tsd->element_ts())
+                       : nullptr;
+    return element != nullptr && element->value_schema != nullptr &&
+                   element->value_schema->value_kind() == ValueTypeKind::Bundle
+               ? element->value_schema
+               : nullptr;
+  }
+
+  static bool requires_(const ResolutionMap &, OperatorCallContext context) {
+    if (context.args.size() != 2 ||
+        context.args[0].kind != WiringArg::Kind::TimeSeries) {
+      return false;
+    }
+    const auto *bundle = element_bundle_schema(context.args[0].port.schema);
+    const Str *attr = context.scalar_as<Str>("attr");
+    return bundle != nullptr && attr != nullptr &&
+           getattr_ts_bundle::field_index(bundle, *attr).has_value();
+  }
+
+  static void resolve_default_types(ResolutionMap &resolution,
+                                    OperatorCallContext context) {
+    if (resolution.find_ts("__out__") != nullptr || context.args.size() != 2) {
+      return;
+    }
+    const auto *tsd =
+        time_series_schema_as<AnyTSD>(context.args[0].port.schema);
+    const auto *bundle = element_bundle_schema(context.args[0].port.schema);
+    const Str *attr = context.scalar_as<Str>("attr");
+    if (tsd == nullptr || bundle == nullptr || attr == nullptr) {
+      return;
+    }
+    const auto index = getattr_ts_bundle::field_index(bundle, *attr);
+    if (!index.has_value()) {
+      return;
+    }
+    auto &registry = TypeRegistry::instance();
+    resolution.bind_ts(
+        "__out__",
+        registry.tsd(tsd->key_type(), registry.ts(bundle->fields[*index].type)));
+  }
+
+  static void eval(
+      In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"S">>>,
+         InputValidity::Unchecked>
+          ts,
+      Scalar<"attr", Str> attr, Out<TsVar<"__out__">> out) {
+    const auto &erased = static_cast<const TSOutputView &>(out);
+    auto output = erased.as_dict();
+    auto mutation = output.begin_mutation(erased.evaluation_time());
+
+    for (const ValueView &key : ts.removed_keys()) {
+      static_cast<void>(mutation.erase(key));
+    }
+    for (const auto [key, child] : ts.modified_items()) {
+      if (!child.valid()) {
+        continue;
+      }
+      const ValueView value = child.base().value();
+      const auto index = getattr_ts_bundle::field_index(value.schema(), attr.value());
+      if (!index.has_value()) {
+        continue;
+      }
+      const ValueView field = value.as_indexed_view().at(*index);
+      if (field.valid()) {
+        mutation.set(key, field);
+      }
+    }
+  }
+};
+
 /** getattr_ over TS[tuple[CompoundScalar, ...]]: the named field of
     EACH element - unset fields become holes (python None) or, in the
     default form, the fallback scalar. */

@@ -413,7 +413,7 @@ are fixed when the graph is built.
    Maximum number of queued values. Optional in overloads that show ``= ...``.
 
 ``use_wall_clock`` : scalar; ``bool``
-   Schedule delayed releases against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   Use host time for delayed releases in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -1856,7 +1856,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSS[K]``, ``TIME_SERIES_TYPE``
    Collection-valued time series to expand.
 
 ``**kwargs`` : Python argument; ``object``
@@ -1878,6 +1878,7 @@ Accepted native overloads
 
 .. code-block:: text
 
+   emit(ts: TSS[K]) -> TS[K]
    emit(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-eq_:
@@ -2280,10 +2281,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
    Dividend.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``
    Divisor.
 
 ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -2317,6 +2318,7 @@ Accepted native overloads
    floordiv_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT
    floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT
    floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   floordiv_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[int]
 
 .. _python-operator-format_:
 
@@ -2717,7 +2719,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TIME_SERIES_TYPE``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TIME_SERIES_TYPE``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[datetime]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
    Structured input.
 
 ``attr`` : scalar; ``str``
@@ -2750,9 +2752,12 @@ Accepted native overloads
    getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT
+   getattr_(ts: TSD[K, TS[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT
    getattr_(ts: TS[date], attr: str) -> TS[int]
+   getattr_(ts: TS[datetime], attr: str) -> TS[date]
+   getattr_(ts: TS[datetime], attr: str) -> TS[time]
    getattr_(ts: TS[Any], attr: str) -> TS[str]
    getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]
 
@@ -2771,11 +2776,14 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_2``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
+``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_2``, ``TS[SCALAR_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
    Collection, mapping, list, bundle, or other indexable input.
 
 ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
    Index, key, or slice selector supported by the chosen overload.
+
+``default_value`` : time-series; ``TS[SCALAR]``
+   Value emitted when the primary input has no usable value.
 
 Returns
 ~~~~~~~
@@ -2793,7 +2801,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   getitem_(ts: TS[SCALAR], key: TS[K]) -> TS[SCALAR_1]
+   getitem_(ts: TS[Mapping[K, SCALAR]], key: TS[K]) -> TS[SCALAR]
+   getitem_(ts: TS[Mapping[K, SCALAR]], key: TS[K], default_value: TS[SCALAR]) -> TS[SCALAR]
    getitem_(ts: TS[str], key: TS[int]) -> TS[str]
    getitem_(ts: TSL[TIME_SERIES_TYPE, SIZE], key: TS[int]) -> REF[TIME_SERIES_TYPE]
    getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]
@@ -3679,7 +3688,7 @@ are fixed when the graph is built.
    Positive tick count or duration selected at wiring time.
 
 ``on_wall_clock`` : scalar; ``bool``
-   For duration lag, schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   For duration lag, use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 ``proxy`` : time-series; ``SIGNAL``
    Optional proxy stream whose count defines progress for proxy-lag overloads.
@@ -4869,7 +4878,7 @@ are fixed when the graph is built.
 ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``, ``TS[SCALAR]``
    Left-hand multiplicand.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[period]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[period]``
    Right-hand multiplicand.
 
 Returns
@@ -4899,7 +4908,9 @@ Accepted native overloads
    mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT
    mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    mul_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]
+   mul_(lhs: TS[int], rhs: TS[timedelta]) -> TS[timedelta]
    mul_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]
+   mul_(lhs: TS[float], rhs: TS[timedelta]) -> TS[timedelta]
    mul_(lhs: TS[period], rhs: TS[int]) -> TS[period]
    mul_(lhs: TS[int], rhs: TS[period]) -> TS[period]
    mul_(lhs: TS[SCALAR], rhs: TS[int]) -> OUT
@@ -6470,7 +6481,7 @@ are fixed when the graph is built.
    Optional upper bound after which the source becomes passive. Optional in overloads that show ``= ...``.
 
 ``use_wall_clock`` : scalar; ``bool``
-   Schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+   Use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
 ``start`` : time-series; ``TS[datetime]``
    Optional time-series start instant that re-bases the schedule grid.
@@ -8019,7 +8030,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]
+   unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, REF[V]]
 
 .. _python-operator-until_true:
 
@@ -8114,7 +8125,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSD[K, TS[SCALAR]]``, ``TIME_SERIES_TYPE``
    Mapping or keyed time-series dictionary.
 
 Returns
@@ -8133,7 +8144,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   values_(ts: TSD[K, V]) -> TSS[SCALAR]
+   values_(ts: TSD[K, TS[SCALAR]]) -> TSS[SCALAR]
    values_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-weekday:

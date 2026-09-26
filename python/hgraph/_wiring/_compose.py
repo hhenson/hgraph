@@ -464,6 +464,7 @@ def _bind_switch_scalar_args(branch, args, kwargs):
     takes_key = bool(parameters) and parameters[0].name == "key"
     key_marker = object()
     bound = signature.bind(*((key_marker, *args) if takes_key else args), **kwargs)
+    supplied = set(bound.arguments)
     bound.apply_defaults()
 
     dynamic_names = []
@@ -477,7 +478,13 @@ def _bind_switch_scalar_args(branch, args, kwargs):
                                 inspect.Parameter.VAR_KEYWORD):
             raise TypeError("switch_ scalar binding does not support variadic branch parameters")
 
-    captured = dict(bound.arguments)
+    # Leave unsupplied defaults out of the delegated call. In particular, an
+    # AUTO_RESOLVE type argument must remain absent so the branch's standard
+    # graph-resolution pass can derive it from its live inputs.
+    captured = {
+        name: value for name, value in bound.arguments.items()
+        if name in supplied or value is key_marker or isinstance(value, WiringPort)
+    }
 
     def adapter(*dynamic_args, **dynamic_kwargs):
         dynamic_bound = inspect.Signature(dynamic_parameters).bind(
@@ -526,7 +533,12 @@ def switch_(key, cases, *args, reload_on_ticked=False, **kwargs):
     for case_key, branch in cases.items():
         if case_key is DEFAULT:
             case_key = None   # hgraph's DEFAULT marker = the default branch
-        if has_scalar_args:
+        if isinstance(branch, (str, _hgraph.WiredFn)):
+            if has_scalar_args:
+                raise TypeError(
+                    "switch_ scalar arguments require Python callable branches; "
+                    "capture scalar configuration in a C++ branch type instead")
+        else:
             branch = _bind_switch_scalar_args(branch, args, kwargs)
         prepared[case_key] = branch if isinstance(branch, str) else _as_wired(branch)
     erased = _hgraph.switch_cases(
@@ -707,9 +719,12 @@ class _Emit:
 
         if self._value_ts is None or not isinstance(self._value_ts, _TsExpr):
             return wire("emit", ts, **kwargs)
+        source = _unwrap(ts)
+        if source.ts_type.dereference.is_tss:
+            return wire("emit", ts, output_type=self._value_ts, **kwargs)
         # The hinted KeyValue output resolves in C++ (the target-resolution
         # home): {key: TS[K], value: <value_ts>} with K from the dict input.
-        out = _TsExprFor(_hgraph.resolve_emit_target(self._value_ts.handle, (_unwrap(ts),)))
+        out = _TsExprFor(_hgraph.resolve_emit_target(self._value_ts.handle, (source,)))
         return wire("emit", ts, output_type=out, **kwargs)
 
 

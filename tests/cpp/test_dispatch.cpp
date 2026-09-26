@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
@@ -515,6 +516,31 @@ TEST_CASE("dispatch_: C++ wiring selects exact and inherited Bundle cases")
                 cat_value(types, 3)),
             arg<"count">(testing::values<Int>(1, 2, 3)))),
         string_values({"woof", "yip", "meow"}));
+}
+
+TEST_CASE("dispatch_: case selection ignores value storage categories")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    const auto *logical = scalar_descriptor<Animal>::value_meta();
+    const auto *schema = schema_descriptor<TS<Owned<Animal>>>::ts_meta();
+    CHECK(stdlib::higher_order_impl_detail::dispatch_bundle_schema(schema) == logical);
+
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.dog, fn<SoundWithCount>()),
+    });
+    const Value dog = dog_value(types, 1, "woof");
+    const Value owned_dog{
+        ValuePlanFactory::instance().type_for(TypeRegistry::instance().owned(types.animal)),
+        dog.view()};
+
+    CHECK_OUTPUT(
+        (testing::eval_node<stdlib::dispatch_, TS<Owned<Animal>>>(
+            cases, testing::values<Value>(owned_dog),
+            arg<"count">(testing::values<Int>(1)))),
+        string_values({"woof"}));
 }
 
 TEST_CASE("dispatch_: a typed branch is compiled once while wiring")

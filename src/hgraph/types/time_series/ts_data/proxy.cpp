@@ -274,6 +274,7 @@ namespace hgraph
                 dict_base.to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_to_python>::call;
                 dict_base.delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_delta_to_python>::call;
                 dict_ops.structural_delta_current_impl = &structural_delta_current;
+                dict_ops.slot_published_impl = &slot_published;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
                 dict_ops.next_modified_slot_impl = &next_modified_slot;
@@ -778,6 +779,11 @@ namespace hgraph
                 return source_available(memory) && source_dict(memory).slot_removed(slot);
             }
 
+            [[nodiscard]] static bool slot_published(const void *, const void *memory, std::size_t slot)
+            {
+                return proxy_storage(memory).slot_published(slot);
+            }
+
             [[nodiscard]] static std::size_t next_added_slot(const void *, const void *memory,
                                                              std::size_t previous)
             {
@@ -825,7 +831,7 @@ namespace hgraph
 
             [[nodiscard]] static bool set_contains(const void *context, const void *memory, const ValueView &key)
             {
-                if (key.binding() != ctx(context)->layout.key_binding) { return false; }
+                if (key.binding().schema() != ctx(context)->layout.key_binding.schema()) { return false; }
                 return source_available(memory) && source_dict(memory).contains(key);
             }
 
@@ -839,7 +845,10 @@ namespace hgraph
 
             [[nodiscard]] static std::size_t find_slot(const void *context, const void *memory, const ValueView &key)
             {
-                if (key.binding() != ctx(context)->layout.key_binding) { return TS_DATA_NO_CHILD_ID; }
+                if (key.binding().schema() != ctx(context)->layout.key_binding.schema())
+                {
+                    return TS_DATA_NO_CHILD_ID;
+                }
                 return source_available(memory) ? source_dict(memory).find_slot(key) : TS_DATA_NO_CHILD_ID;
             }
 
@@ -1436,7 +1445,10 @@ namespace hgraph
             throw std::invalid_argument("TSDProxy refresh policy and identity matcher do not agree");
         }
 
+        const bool was_suspended = source_suspended_;
         child_refresh_ = child_refresh;
+        source_suspended_ = false;
+        suspended_published_.clear();
         const auto &element_plan = element_type.checked_plan();
         const bool reconfigure =
             self_type_ != self_type ||
@@ -1461,6 +1473,17 @@ namespace hgraph
         else
         {
             source_storage_ = TSDDataStorageRef{source.base().storage_ref(), TSTypeKind::TSD};
+        }
+
+        if (was_suspended)
+        {
+            for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
+            {
+                if (!values_.has_slot(slot)) { continue; }
+                auto child = TSDataView{element_type_, values_.value_memory(slot)};
+                child.mutable_tracking().parent = TSParentLink{self_type_, this, slot};
+                detail::attach_owned_ts_data_parents(child.borrowed_ref());
+            }
         }
 
         // The initial sync only FORCES a modified mark when the source has
@@ -1646,6 +1669,19 @@ namespace hgraph
         return values_.slot_updated(slot) && updated_window_ == tracking_.last_modified_time;
     }
 
+    bool TSDProxy::slot_published(std::size_t slot) const
+    {
+        if (source_suspended_)
+        {
+            return slot < suspended_published_.size() && suspended_published_[slot];
+        }
+        if (!source_available()) { return false; }
+        auto dict = source_dict();
+        if (dict.slot_removed(slot)) { return true; }
+        return dict.slot_live(slot) && has_child(slot) &&
+               TSDataView{element_type_, values_.value_memory(slot)}.has_current_value();
+    }
+
     const void *TSDProxy::child_at_slot(std::size_t slot) const
     {
         if (!has_child(slot)) { throw std::out_of_range("TSDProxy child slot is not constructed"); }
@@ -1672,7 +1708,7 @@ namespace hgraph
         subscribed_ = true;
     }
 
-    void TSDProxy::unsubscribe_source(bool strict) noexcept
+    void TSDProxy::unsubscribe_source(bool strict, bool retain_source) noexcept
     {
         if (!source_storage_.valid())
         {
@@ -1690,7 +1726,7 @@ namespace hgraph
             });
         }
         subscribed_ = false;
-        source_storage_ = {};
+        if (!retain_source) { source_storage_ = {}; }
     }
 
     void TSDProxy::on_source_invalidated(const TSDataTracking *source) noexcept
@@ -1727,6 +1763,8 @@ namespace hgraph
         }));
         values_.destroy_all();
         std::ranges::fill(built_times_, MIN_DT);
+        suspended_published_.clear();
+        source_suspended_ = false;
         updated_window_ = MIN_DT;
         structure_pending_ = false;
     }
@@ -1899,7 +1937,7 @@ namespace hgraph
 
     void TSDProxy::refresh_stale_child(std::size_t slot) const
     {
-        if (!has_child(slot) || value_ops_ == nullptr || !source_storage_.valid()) { return; }
+        if (source_suspended_ || !has_child(slot) || value_ops_ == nullptr || !source_storage_.valid()) { return; }
         auto dict = source_dict();
         if (!dict.slot_live(slot)) { return; }
         auto source_child = dict.at_slot(slot);
@@ -1952,7 +1990,7 @@ namespace hgraph
 
     void TSDProxy::record_child_modified(std::size_t slot, DateTime modified_time)
     {
-        if (!has_child(slot) || !source_available()) { return; }
+        if (source_suspended_ || !has_child(slot) || !source_available()) { return; }
         // LAZY delta-window roll: updated bits describe the CURRENT window
         // only - a record at a NEWER time clears the previous window's bits
         // (they otherwise over-report the Modified surface forever). Older
@@ -1980,9 +2018,34 @@ namespace hgraph
         slot_observers_.remove(observer);
     }
 
+    void TSDProxy::suspend_source()
+    {
+        if (!source_storage_.valid() || source_suspended_) { return; }
+        auto dict = source_dict();
+        suspended_published_.assign(dict.slot_capacity(), false);
+        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+        {
+            if (!dict.slot_occupied(slot)) { continue; }
+            if (dict.slot_live(slot) && has_child(slot)) { refresh_stale_child(slot); }
+            suspended_published_[slot] =
+                dict.slot_removed(slot) ||
+                (dict.slot_live(slot) && has_child(slot) &&
+                 TSDataView{element_type_, values_.value_memory(slot)}.has_current_value());
+        }
+        source_suspended_ = true;
+        for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
+        {
+            if (!values_.has_slot(slot)) { continue; }
+            TSDataView{element_type_, values_.value_memory(slot)}.mutable_tracking().parent = {};
+        }
+        unsubscribe_source(false, true);
+    }
+
     void TSDProxy::stop() noexcept
     {
         unsubscribe_source(false);
+        source_suspended_ = false;
+        suspended_published_.clear();
     }
 
     TSDataTypeRef tsd_proxy_data_type_for(const TSValueTypeMetaData &schema,

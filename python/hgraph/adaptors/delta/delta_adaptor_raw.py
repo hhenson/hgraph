@@ -6,7 +6,7 @@ from enum import Enum
 import pyarrow as pa
 
 from hgraph import (
-    AUTO_RESOLVE, MIN_DT, SCHEMA, STATE, Frame, TS, TSB, TSD,
+    MIN_DT, STATE, Frame, TS, TSB, TSD,
     generator, graph, map_, push_queue, schedule, service_adaptor,
     service_adaptor_impl, sink_node,
 )
@@ -224,22 +224,20 @@ def delta_query_adaptor_raw_impl(
 
 @service_adaptor
 def delta_write_adaptor_raw(
-    path: str, table: TS[str], data: TS[Frame[SCHEMA]],
+    path: str, table: TS[str], data: TS[Frame],
     write_mode: TS[DeltaWriteMode], schema_mode: TS[DeltaSchemaMode],
     keys: TS[tuple[str, ...]], partition: TS[tuple[str, ...]],
-    _schema: type[SCHEMA] = AUTO_RESOLVE,
 ) -> _TIME_STREAM:
     ...
 
 
 @service_adaptor_impl(interfaces=delta_write_adaptor_raw)
 def delta_write_adaptor_raw_impl(
-    path: str, table: TSD[int, TS[str]], data: TSD[int, TS[Frame[SCHEMA]]],
+    path: str, table: TSD[int, TS[str]], data: TSD[int, TS[Frame]],
     write_mode: TSD[int, TS[DeltaWriteMode]],
     schema_mode: TSD[int, TS[DeltaSchemaMode]],
     keys: TSD[int, TS[tuple[str, ...]]],
     partition: TSD[int, TS[tuple[str, ...]]],
-    _schema: type[SCHEMA] = AUTO_RESOLVE,
 ) -> TSD[int, _TIME_STREAM]:
     path = _base_path(path)
     sender_ref = {}
@@ -288,7 +286,7 @@ def delta_write_adaptor_raw_impl(
 
     @sink_node(valid=("request_id", "table", "data", "mode", "credentials", "executor"))
     def send_query(
-        request_id: TS[int], table: TS[str], data: TS[Frame[_schema]],
+        request_id: TS[int], table: TS[str], data: TS[Frame],
         mode: TS[DeltaWriteMode], schema_mode: TS[DeltaSchemaMode],
         keys: TS[tuple[str, ...]], partition: TS[tuple[str, ...]],
         credentials: TS[object], executor: TS[Executor], _state: STATE = None,

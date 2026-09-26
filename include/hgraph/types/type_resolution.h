@@ -668,11 +668,19 @@ namespace hgraph
             }
             if constexpr (sizeof...(C) > 0)
             {
-                if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
+                if (!((time_series_value_equivalent(concrete, schema_descriptor<C>::ts_meta())) || ...))
                 {
                     throw std::logic_error(
                         fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
                 }
+            }
+            if (const TSValueTypeMetaData *bound = m.find_ts(Name.sv()))
+            {
+                if (!time_series_value_equivalent(bound, concrete))
+                {
+                    throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", Name.sv()));
+                }
+                return;
             }
             m.bind_ts(Name.sv(), concrete);
         }

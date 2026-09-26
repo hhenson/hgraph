@@ -100,6 +100,25 @@ def test_combine_frame():
     assert eval_node(g, ts1=[(1,)], ts2=[("1",)])[-1].equals(frame)
 
 
+def test_combine_frame_from_projected_series_columns():
+    @dataclass
+    class SourceRow(CompoundScalar):
+        a: int
+        b: str
+
+    @dataclass
+    class TargetRow(CompoundScalar):
+        a: int
+        b: str
+
+    @graph
+    def g(ts: TS[Frame[SourceRow]]) -> TS[Frame[TargetRow]]:
+        return combine[TS[Frame[TargetRow]]](a=ts.a, b=ts.b)
+
+    frame = pa.table({"a": [1, 2], "b": ["one", "two"]})
+    assert eval_node(g, ts=[frame])[-1].equals(frame)
+
+
 def test_convert_cs_frame():
     @dataclass
     class ABStruct(CompoundScalar):
@@ -112,6 +131,23 @@ def test_convert_cs_frame():
 
     frame = pa.table({"a": [1], "b": ["1"]})
     assert eval_node(g, ts=ABStruct(1, "1"))[-1].equals(frame)
+
+
+def test_convert_python_owned_inherited_dataclass_to_frame():
+    @dataclass(frozen=True)
+    class TimedValue:
+        value: int
+        timestamp: int
+
+    class DerivedValue(TimedValue):
+        pass
+
+    @graph
+    def g(ts: TS[DerivedValue]) -> TS[Frame[DerivedValue]]:
+        return convert[TS[Frame]](ts)
+
+    frame = pa.table({"value": [1], "timestamp": [2]})
+    assert eval_node(g, ts=DerivedValue(1, 2))[-1].equals(frame)
 
 
 def test_convert_tuple_to_frame():

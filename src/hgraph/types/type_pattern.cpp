@@ -40,12 +40,41 @@ namespace hgraph
             return TypeRegistry::instance().value_is_a(concrete, pattern.bound);
         }
 
+        [[nodiscard]] const ValueTypeMetaData *matching_input_constraint(
+            const ScalarPattern &pattern,
+            const ValueTypeMetaData *concrete)
+        {
+            const ValueTypeMetaData *best = nullptr;
+            std::optional<std::size_t> best_distance;
+            auto &registry = TypeRegistry::instance();
+            for (const ValueTypeMetaData *constraint : pattern.constraints)
+            {
+                if (constraint == nullptr) { continue; }
+                const auto distance = registry.value_inheritance_distance(concrete, constraint);
+                if (distance.has_value() && (!best_distance.has_value() || *distance < *best_distance))
+                {
+                    best = constraint;
+                    best_distance = distance;
+                }
+            }
+            return best;
+        }
+
         [[nodiscard]] bool ts_allowed_by_constraints(const TypePattern &pattern,
                                                      const TSValueTypeMetaData *concrete)
         {
             if (pattern.constraints.empty()) { return true; }
             return std::ranges::any_of(pattern.constraints, [concrete](const TSValueTypeMetaData *constraint) {
                 return constraint != nullptr && time_series_schema_equivalent(constraint, concrete);
+            });
+        }
+
+        [[nodiscard]] bool input_ts_allowed_by_constraints(const TypePattern &pattern,
+                                                            const TSValueTypeMetaData *concrete)
+        {
+            if (pattern.constraints.empty()) { return true; }
+            return std::ranges::any_of(pattern.constraints, [concrete](const TSValueTypeMetaData *constraint) {
+                return constraint != nullptr && time_series_value_equivalent(constraint, concrete);
             });
         }
 
@@ -118,10 +147,20 @@ namespace hgraph
             }
             if (pattern.kind == ScalarPattern::Kind::Var)
             {
-                if (const auto *bound = map.find_scalar(pattern.name);
-                    bound != nullptr && concrete != nullptr &&
-                    TypeRegistry::instance().value_is_a(concrete, bound))
+                if (const auto *bound = map.find_scalar(pattern.name); bound != nullptr)
                 {
+                    return concrete != nullptr && TypeRegistry::instance().value_is_a(concrete, bound);
+                }
+                if (!pattern.constraints.empty())
+                {
+                    const ValueTypeMetaData *constraint = matching_input_constraint(pattern, concrete);
+                    if (constraint == nullptr ||
+                        (pattern.bound != nullptr &&
+                         !TypeRegistry::instance().value_is_a(constraint, pattern.bound)))
+                    {
+                        return false;
+                    }
+                    map.bind_scalar(pattern.name, constraint);
                     return true;
                 }
             }
@@ -402,6 +441,17 @@ namespace hgraph
                 return concrete->kind == TSTypeKind::TS &&
                        input_scalar_pattern_match(pattern.scalar, concrete->value_schema, map);
             case TypePattern::Kind::Var:
+            {
+                if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
+                {
+                    return graph_wiring_detail::input_accepts_output_schema(bound, concrete) &&
+                           input_ts_allowed_by_constraints(pattern, bound);
+                }
+                const auto *value = TypeRegistry::instance().dereference(concrete);
+                if (!input_ts_allowed_by_constraints(pattern, value)) { return false; }
+                map.bind_ts(pattern.name, value);
+                return true;
+            }
             case TypePattern::Kind::TSS:
             case TypePattern::Kind::TSW:
             case TypePattern::Kind::Signal:

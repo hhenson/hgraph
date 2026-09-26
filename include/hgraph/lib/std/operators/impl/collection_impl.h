@@ -186,15 +186,6 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "values_tsd_as_tss";
 
-            static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
-            {
-                const auto *element = resolution.find_scalar("E");
-                if (element == nullptr) { return false; }
-                const auto *schema = time_series_schema_at_as<AnyTSD>(context, 0);
-                const auto *value  = schema != nullptr ? ts_value_schema(schema->element_ts()) : nullptr;
-                return value == element;
-            }
-
             static void start(State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
                 // TSS value schema = Set[element]; the element binding builds it.
@@ -202,7 +193,7 @@ namespace hgraph::stdlib
                 bindings.set(resolve_set_bindings(erased.base()));
             }
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"E">>>> ts,
                              State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
                 const TSDInputView  &dict     = ts;
@@ -759,7 +750,6 @@ namespace hgraph::stdlib
         struct sum_tsd_unary
         {
             static constexpr auto name = "sum_tsd_unary";
-            static constexpr bool schedule_on_start = true;
 
             static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts, Out<TS<T>> out)
             {
@@ -1985,22 +1975,63 @@ namespace hgraph::stdlib
 
             static void eval(In<"ts", TSD<ScalarVar<"K1">, TSD<ScalarVar<"K">, TsVar<"V">>>,
                                 InputValidity::Unchecked> ts,
-                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
+                             RecordableState<TSD<ScalarVar<"K">, TS<ScalarVar<"K1">>>> owners,
+                             Out<TSD<ScalarVar<"K">, REF<TsVar<"V">>>> out)
             {
+                const auto    &erased = out.base();
                 TSDOutputView &out_dict = out;
-                auto           out_mutation = out_dict.begin_mutation(out_dict.evaluation_time());
+                TSDOutputView &owner_dict = owners;
+                const auto     evaluation_time = out_dict.evaluation_time();
+                auto           out_mutation = out_dict.begin_mutation(evaluation_time);
+                auto           owner_mutation = owner_dict.begin_mutation(owner_dict.evaluation_time());
 
+                // The outer key is deliberately absent from the result, so
+                // retain just enough ownership information to remove all of a
+                // partition's flattened keys when the partition disappears.
+                for (const ValueView &outer_key : ts.removed_keys())
+                {
+                    std::vector<Value> removed;
+                    for (const auto [inner_key, owner] : owner_dict.items())
+                    {
+                        if (owner.valid() && owner.value().equals(outer_key)) { removed.emplace_back(inner_key); }
+                    }
+                    for (const Value &inner_key : removed)
+                    {
+                        (void)out_mutation.erase(inner_key.view());
+                        (void)owner_mutation.erase(inner_key.view());
+                    }
+                }
+
+                // Apply removals before additions, matching the legacy
+                // removed|modified delta merge when several partitions tick.
                 for (const auto [outer_key, inner] : ts.modified_items())
                 {
-                    static_cast<void>(outer_key);
                     const TSDInputView &inner_dict = inner;
                     for (const ValueView &inner_key : inner_dict.removed_keys())
                     {
                         (void)out_mutation.erase(inner_key);
+                        (void)owner_mutation.erase(inner_key);
                     }
+                }
+
+                for (const auto [outer_key, inner] : ts.modified_items())
+                {
+                    const TSDInputView &inner_dict = inner;
                     for (const auto [inner_key, child] : inner_dict.modified_items())
                     {
-                        copy_tsd_child_if_changed(out_mutation, out_dict, inner_key, child);
+                        if (!child.valid()) { continue; }
+
+                        Value reference{child.reference()};
+                        auto  element = out_mutation.at(inner_key);
+                        if (!(element.has_current_value() &&
+                              element.value().checked_as<TimeSeriesReference>() ==
+                                  reference.view().checked_as<TimeSeriesReference>()))
+                        {
+                            auto element_mutation =
+                                TSOutputView{erased.output(), element, evaluation_time}.begin_mutation(evaluation_time);
+                            static_cast<void>(element_mutation.move_value_from(std::move(reference)));
+                        }
+                        owner_mutation.set(inner_key, outer_key);
                     }
                 }
             }
@@ -3459,6 +3490,67 @@ namespace hgraph::stdlib
             }
         };
 
+        /** getitem_ over a fixed tuple with a wiring-time scalar index. Unlike
+            dynamic indexing, the selected field may have a distinct type. */
+        struct getitem_ts_fixed_tuple_scalar
+        {
+            static constexpr auto name = "getitem_ts_fixed_tuple_scalar";
+
+            [[nodiscard]] static const ValueTypeMetaData *selected_element(
+                OperatorCallContext context)
+            {
+                const auto *schema = time_series_schema_at_as<AnyTS>(context, 0);
+                const WiringArg *key = scalar_arg_at(context, 1);
+                const Int *index = key != nullptr
+                                       ? key->scalar_value.try_as<Int>()
+                                       : nullptr;
+                if (schema == nullptr || schema->value_schema == nullptr ||
+                    schema->value_schema->value_kind() != ValueTypeKind::Tuple ||
+                    index == nullptr)
+                {
+                    return nullptr;
+                }
+
+                const auto size = static_cast<Int>(schema->value_schema->field_count);
+                const Int normalized = *index < 0 ? *index + size : *index;
+                if (normalized < 0 || normalized >= size) { return nullptr; }
+                return schema->value_schema->fields[static_cast<std::size_t>(normalized)].type;
+            }
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return selected_element(context) != nullptr;
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution,
+                                              OperatorCallContext context)
+            {
+                if (output_bound(resolution)) { return; }
+                const auto *element = selected_element(context);
+                if (element != nullptr)
+                {
+                    bind_output(resolution, TypeRegistry::instance().ts(element));
+                }
+            }
+
+            static void eval(In<"ts", TS<ScalarVar<"T">>> ts,
+                             Scalar<"key", Int> key, Out<TsVar<"__out__">> out)
+            {
+                const auto value = ts.base().value();
+                auto items = value.as_indexed_view();
+                Int index = key.value();
+                if (index < 0) { index += static_cast<Int>(items.size()); }
+                const auto element = items.at(static_cast<std::size_t>(index));
+                const auto &erased = static_cast<const TSOutputView &>(out);
+                if (erased.data_view().has_current_value() && erased.value().equals(element))
+                {
+                    return;
+                }
+                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(element));
+            }
+        };
+
         /** contains_(tuple, element). */
         struct contains_ts_list
         {
@@ -3753,7 +3845,7 @@ namespace hgraph::stdlib
             return result;
         }
 
-        template <bool Strict>
+        template <bool Strict, bool AllowMaterializableMissing = false>
         void combine_cs_from_fields_eval(const TSInputView &fields, const CombineCsBindings &bindings,
                                          const TSOutputView &erased)
         {
@@ -3771,13 +3863,22 @@ namespace hgraph::stdlib
                 auto child = fields.indexed_child_at(index);
                 if constexpr (Strict)
                 {
-                    // hgraph default: EVERY supplied field must be valid.
-                    if (!child.valid()) { return; }
+                    if (!child.valid())
+                    {
+                        // Strict combine requires every supplied field. A
+                        // converter may instead rely on constructor defaults.
+                        if constexpr (!AllowMaterializableMissing) { return; }
+                        continue;
+                    }
                 }
                 else if (!child.valid()) { continue; }
                 if (target_index < target->field_count) { builder.set(target_index, child.value()); }
             }
             Value source = builder.build();
+            if constexpr (AllowMaterializableMissing)
+            {
+                if (!fields.all_valid() && !policy_materialization) { return; }
+            }
             if (policy_materialization &&
                 !target_binding.ops_ref().can_materialize_source(source.binding(), source.view().data()))
             {
@@ -3945,22 +4046,17 @@ namespace hgraph::stdlib
                 return bundle_value != nullptr && bundle_value->value_kind() == ValueTypeKind::Bundle;
             }
 
-            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto &erased = static_cast<const TSOutputView &>(out);
-                const auto  value  = ts.base().value();
-                if (!ts.base().all_valid())
-                {
-                    const auto target = erased.data_view().layout().value_binding;
-                    if (!target || !target.ops_ref().can_materialize_source(value.binding(), value.data()))
-                    {
-                        return;
-                    }
-                }
-                Value materialized{value};
-                if (erased.data_view().has_current_value() && erased.value().equals(materialized.view())) { return; }
-                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(std::move(materialized)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
+            }
+
+            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                combine_cs_from_fields_eval<true, true>(
+                    ts.base(), bindings.ref(), static_cast<const TSOutputView &>(out));
             }
         };
 
@@ -3975,14 +4071,17 @@ namespace hgraph::stdlib
                 return convert_tsb_to_cs_impl::requires_(resolution, context);
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Scalar<"__strict__", Bool>, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto &erased = static_cast<const TSOutputView &>(out);
-                const auto  value  = ts.base().value();
-                Value materialized{value};
-                if (erased.data_view().has_current_value() && erased.value().equals(materialized.view())) { return; }
-                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(std::move(materialized)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, Scalar<"__strict__", Bool>,
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                combine_cs_from_fields_eval<false>(
+                    ts.base(), bindings.ref(), static_cast<const TSOutputView &>(out));
             }
         };
 

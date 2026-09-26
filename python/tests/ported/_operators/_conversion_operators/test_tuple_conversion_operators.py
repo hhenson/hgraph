@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Tuple, Set
 
 
@@ -6,6 +7,7 @@ import pytest
 from hgraph import (
     TIME_SERIES_TYPE,
     combine,
+    compute_node,
     TS,
     graph,
     collect,
@@ -142,6 +144,31 @@ def test_combine_tuple_nonuniform():
         return combine[TS[Tuple[int, str]]](a, b, __strict__=False)
 
     assert eval_node(g, [None, 1], "2") == [(None, "2"), (1, "2")]
+
+
+def test_combine_tuple_nonuniform_lifts_scalar_elements():
+    @graph
+    def g(value: TS[date]) -> TS[Tuple[str, str, object]]:
+        return combine[TS[Tuple[str, str, object]]]("date", ">=", value)
+
+    value = date(2026, 9, 21)
+    assert eval_node(g, value) == [("date", ">=", value)]
+
+
+def test_fixed_tuple_auto_converts_to_variadic_tuple_input():
+    @compute_node
+    def tuple_size(value: TS[Tuple[Tuple[int, int], ...]]) -> TS[int]:
+        return len(value.value)
+
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TS[int]:
+        values = combine[TS[Tuple]](
+            combine[TS[Tuple[int, int]]](a, b),
+            combine[TS[Tuple[int, int]]](b, a),
+        )
+        return tuple_size(values)
+
+    assert eval_node(g, 1, 2) == [2]
 
 
 def test_combine_tuple_dereferences_each_structural_input():

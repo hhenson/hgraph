@@ -4,7 +4,7 @@ from typing import Type, TypeVar
 import _hgraph
 import pytest
 
-from hgraph import AUTO_RESOLVE, TS, WiringError, compute_node, const, graph, operator
+from hgraph import AUTO_RESOLVE, TS, WiringError, compute_node, const, drop_dups, graph, operator
 from hgraph.reflection import resolved_type
 from hgraph.test import eval_node
 
@@ -19,6 +19,80 @@ class OpaqueDerived(OpaqueBase):
 
 class OtherOpaque:
     pass
+
+
+def test_opaque_hash_collision_deduplication_clears_comparison_errors(capfd):
+    comparisons = []
+
+    class Symbolic:
+        def __hash__(self):
+            return 0
+
+        def __eq__(self, other):
+            comparisons.append(other)
+            return self
+
+        def __bool__(self):
+            raise TypeError("symbolic equality has no truth value")
+
+    first, second = Symbolic(), Symbolic()
+    result = eval_node(drop_dups, [first, first, second], resolution_dict={"ts": TS[Symbolic]})
+
+    assert result[0] is first
+    assert result[1] is None
+    assert result[2] is second
+    assert comparisons
+    assert capfd.readouterr().err == ""
+
+
+def test_unhashable_opaque_deduplication_uses_identity_without_symbolic_equality():
+    comparisons = []
+
+    class Symbolic:
+        __hash__ = None
+
+        def __eq__(self, other):
+            comparisons.append(other)
+            raise TypeError("symbolic equality has no truth value")
+
+    first, second = Symbolic(), Symbolic()
+    result = eval_node(drop_dups, [first, first, second], resolution_dict={"ts": TS[Symbolic]})
+
+    assert result[0] is first
+    assert result[1] is None
+    assert result[2] is second
+    assert comparisons == []
+
+
+def test_opaque_constant_hash_collision_does_not_leave_a_python_error():
+    comparisons = []
+
+    class Symbolic:
+        def __init__(self, number):
+            self.number = number
+
+        def __hash__(self):
+            return 0
+
+        def __eq__(self, other):
+            comparisons.append(other)
+            return self
+
+        def __bool__(self):
+            raise TypeError("symbolic equality has no truth value")
+
+    first, second = Symbolic(3), Symbolic(7)
+
+    @compute_node
+    def total(lhs: TS[Symbolic], rhs: TS[Symbolic]) -> TS[int]:
+        return lhs.value.number + rhs.value.number
+
+    @graph
+    def app() -> TS[int]:
+        return total(const(first), const(second))
+
+    assert eval_node(app) == [10]
+    assert comparisons
 
 
 def _scalar_value_type(ts_type):
@@ -142,6 +216,18 @@ def test_bound_opaque_base_accepts_subclass_auto_const():
         return ts == value
 
     assert eval_node(same_as_value, [value]) == [True]
+
+
+def test_constrained_opaque_typevar_promotes_subclass_to_constraint():
+    scalar = TypeVar("scalar", OpaqueBase, OtherOpaque)
+
+    @compute_node
+    def resolved_type_name(
+        value: TS[scalar], tp: type[scalar] = AUTO_RESOLVE
+    ) -> TS[str]:
+        return tp.__name__
+
+    assert eval_node(resolved_type_name, [OpaqueDerived()]) == ["OpaqueBase"]
 
 
 def test_constrained_zero_input_operator_distinguishes_opaque_classes():

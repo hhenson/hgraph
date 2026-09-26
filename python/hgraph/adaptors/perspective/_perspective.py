@@ -47,8 +47,6 @@ _PERSPECTIVE_WEB_ASSETS = (
     "@finos/perspective-workspace/dist/css/pro-dark.css",
     "@finos/perspective-viewer-datagrid/dist/cdn/perspective-viewer-datagrid.js",
     "@finos/perspective-viewer-d3fc/dist/cdn/perspective-viewer-d3fc.js",
-    "perspective-viewer-datagrid-norollups/dist/cdn/perspective-viewer-datagrid-norollups.js",
-    "perspective-viewer-summary/dist/cdn/perspective-viewer-summary.js",
 )
 
 

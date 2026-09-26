@@ -440,6 +440,26 @@ def _resolve_generic_annotation(annotation, samples):
     if pattern is None:
         return None
 
+    # Frame samples carry enough Arrow schema to resolve Frame[ROW]. Match a
+    # concrete candidate against the declared pattern so this path applies
+    # only to frame-shaped annotations, not arbitrary Arrow-compatible values.
+    from .._frame import _schema_type_from_frame
+    from .._types import Frame, TS
+
+    for sample in samples:
+        if sample is None:
+            continue
+        try:
+            concrete = TS[Frame[_schema_type_from_frame(sample)]]
+        except TypeError:
+            break
+        scope = _hgraph.ResolutionScope()
+        if scope.match(pattern, concrete.handle):
+            resolved = scope.resolve_ts(pattern)
+            if resolved is not None:
+                return _TsExpr(resolved, f"resolved[{annotation!r}]")
+        break
+
     if pattern.ts_kind == _hgraph.TS_KIND_TSS:
         from .._types import TSS
         from ._sentinels import Removed
@@ -671,6 +691,16 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     named_series = {k: v for k, v in kwargs.items() if _named_series_value(k, v)}
     for k in named_series:
         kwargs.pop(k)
+
+    def _extend_positional_inputs(last_index):
+        """Pad named-input promotion without discarding declared defaults."""
+        extended = list(inputs)
+        for index in range(len(extended), last_index + 1):
+            default = params[index].default
+            extended.append(
+                None if default is inspect.Parameter.empty else default)
+        return extended
+
     if not named_series and kwargs and params:
         # A non-list kwarg naming a TS-annotated param is a plain value:
         # promote it to its positional slot so the const-lift rule applies
@@ -684,9 +714,16 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             for k in named_series:
                 kwargs.pop(k)
             by_name = {p.name: i for i, p in enumerate(params)}
-            extended = list(inputs) + [None] * (max(by_name[k] for k in named_series) + 1 - len(inputs))
+            extended = _extend_positional_inputs(
+                max(by_name[k] for k in named_series))
             for k, value in named_series.items():
                 extended[by_name[k]] = value
+            # A scalar between promoted TS parameters occupies one of the
+            # padded slots and must not also remain a keyword argument.
+            for k in list(kwargs):
+                index = by_name.get(k)
+                if index is not None and index < len(extended) and extended[index] is None:
+                    extended[index] = kwargs.pop(k)
             return eval_node(fn, *extended, output_type=output_type, resolution_dict=resolution_dict,
                              __trace__=__trace__, __trace_wiring__=__trace_wiring__,
                              __observers__=__observers__,
@@ -696,7 +733,8 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         named_series = {}
     if named_series:
         by_name = {p.name: i for i, p in enumerate(params)}
-        extended = list(inputs) + [None] * (max(by_name[k] for k in named_series) + 1 - len(inputs))
+        extended = _extend_positional_inputs(
+            max(by_name[k] for k in named_series))
         for k, series in named_series.items():
             extended[by_name[k]] = series
         # Scalar-supplied kwargs whose position got padded move into the
@@ -886,8 +924,10 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         _gs_scope.__exit__(None, None, None)
     if __elide__:
         # hgraph parity: elide keeps only the ticked cycles, in order (the
-        # recording was made SPARSE, so this is just the list).
-        return [_simplify_delta(v) for _, v in run.recorded("eval_node::out", sparse=True)]
+        # recording was made SPARSE, so this is just the list). As in the
+        # legacy runner, a never-ticking output is reported as None.
+        recorded = [_simplify_delta(v) for _, v in run.recorded("eval_node::out", sparse=True)]
+        return recorded or None
     recorded = [None if v is None else _simplify_delta(v) for v in run.recorded("eval_node::out")]
     if (not realtime and __start_time__ is not None
             and __start_time__ > _hgraph.MIN_ST):

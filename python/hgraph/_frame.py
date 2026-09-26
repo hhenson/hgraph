@@ -64,6 +64,57 @@ def as_arrow_table(frame):
     return table.cast(target) if target != table.schema else table
 
 
+def _python_type_from_arrow(arrow_type):
+    """Map a supported Arrow field type onto its hgraph scalar annotation."""
+    from datetime import date, datetime, time, timedelta
+
+    import pyarrow as pa
+
+    if pa.types.is_null(arrow_type):
+        return type(None)
+    if pa.types.is_boolean(arrow_type):
+        return bool
+    if pa.types.is_integer(arrow_type):
+        return int
+    if pa.types.is_floating(arrow_type):
+        return float
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) \
+            or pa.types.is_string_view(arrow_type):
+        return str
+    if pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type) \
+            or pa.types.is_binary_view(arrow_type):
+        return bytes
+    if pa.types.is_date(arrow_type):
+        return date
+    if pa.types.is_timestamp(arrow_type):
+        return datetime
+    if pa.types.is_time(arrow_type):
+        return time
+    if pa.types.is_duration(arrow_type):
+        return timedelta
+    if pa.types.is_dictionary(arrow_type):
+        return _python_type_from_arrow(arrow_type.value_type)
+    if (pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type)
+            or pa.types.is_fixed_size_list(arrow_type)):
+        return tuple[_python_type_from_arrow(arrow_type.value_type), ...]
+    raise TypeError(f"unsupported Arrow datatype {arrow_type}")
+
+
+def _schema_type_from_frame(frame):
+    """Build the anonymous CompoundScalar describing an Arrow-compatible frame."""
+    import pyarrow as pa
+
+    from ._types import compound_scalar
+
+    table = as_arrow_table(frame)
+    if not isinstance(table, pa.Table):
+        raise TypeError(f"expected an Arrow-compatible frame, got {type(frame)!r}")
+    return compound_scalar(**{
+        field.name: _python_type_from_arrow(field.type)
+        for field in table.schema
+    })
+
+
 def _strip_utc_timestamps(table):
     """Naive-UTC presentation of a table's timestamp columns.
 

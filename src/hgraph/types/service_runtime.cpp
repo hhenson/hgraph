@@ -326,7 +326,7 @@ namespace hgraph
         if (default_fallback)
         {
             w.register_default_service_implementation_candidate(
-                "ref_svc://", "/" + descriptor.name,
+                "ref_svc://", "/" + descriptor.name, descriptor.specialization,
                 "default reference service " + descriptor.name, std::move(materialize));
         }
         else
@@ -459,7 +459,7 @@ namespace hgraph
         if (default_fallback)
         {
             w.register_default_service_implementation_candidate(
-                "subs_svc://", "/" + descriptor.name,
+                "subs_svc://", "/" + descriptor.name, descriptor.specialization,
                 "default subscription service " + descriptor.name, std::move(materialize));
         }
         else
@@ -656,7 +656,7 @@ namespace hgraph
         if (default_fallback)
         {
             w.register_default_service_implementation_candidate(
-                "reqrepl_svc://", "/" + descriptor.name,
+                "reqrepl_svc://", "/" + descriptor.name, descriptor.specialization,
                 "default request/reply service " + descriptor.name, std::move(materialize));
         }
         else
@@ -914,12 +914,14 @@ namespace hgraph
         std::vector<WiringPortRef> stored_inputs(implementation_inputs.begin(), implementation_inputs.end());
         if (default_fallback)
         {
-            std::vector<std::pair<std::string, std::string>> selectors;
+            std::vector<WiringDefaultServiceSelector> selectors;
             selectors.reserve(stored_descriptors.size());
             for (const auto *descriptor : stored_descriptors)
             {
-                selectors.emplace_back(
-                    std::string{flavour_prefix(descriptor->flavour)}, "/" + descriptor->name);
+                selectors.push_back(WiringDefaultServiceSelector{
+                    std::string{flavour_prefix(descriptor->flavour)},
+                    "/" + descriptor->name,
+                    descriptor->specialization});
             }
             w.register_default_service_implementation_candidate(
                 std::move(selectors), "default multi-service implementation",
@@ -1003,9 +1005,10 @@ namespace hgraph
         w.register_service_implementation_stub(endpoint, "adaptor");
         WiringPortRef shared = shared_output_source_node(
             w, std::type_index(typeid(adaptor::detail::output_source_marker)), descriptor.output_schema, endpoint);
+        WiringPortRef output = describe_service_output(descriptor, descriptor.output_schema, out);
         const WiringInstance *capture = shared_output_capture_node(
             w, std::type_index(typeid(adaptor::detail::output_capture_marker)),
-            out.schema != nullptr ? out.schema : descriptor.output_schema, endpoint, out, shared);
+            descriptor.output_schema, endpoint, output, shared);
         w.register_service_rank_anchor(endpoint, capture);
     }
 
@@ -1121,7 +1124,7 @@ namespace hgraph
         if (default_fallback)
         {
             w.register_default_service_implementation_candidate(
-                "adaptor://", "/" + descriptor.name,
+                "adaptor://", "/" + descriptor.name, descriptor.specialization,
                 "default adaptor " + descriptor.name, std::move(materialize));
         }
         else
@@ -1224,9 +1227,10 @@ namespace hgraph
             std::type_index(typeid(service_adaptor::detail::output_source_marker)));
         const auto *dict_meta = TypeRegistry::instance().tsd(
             scalar_descriptor<Int>::value_meta(), descriptor.output_schema);
+        WiringPortRef output = describe_service_output(descriptor, dict_meta, out);
         const WiringInstance *capture = shared_output_capture_node(
             w, std::type_index(typeid(service_adaptor::detail::output_capture_marker)),
-            out.schema != nullptr ? out.schema : dict_meta, endpoint, out, shared);
+            dict_meta, endpoint, output, shared);
         w.register_service_rank_anchor(endpoint, capture);
     }
 
@@ -1377,7 +1381,7 @@ namespace hgraph
         if (default_fallback)
         {
             w.register_default_service_implementation_candidate(
-                "service_adaptor://", "/" + descriptor.name,
+                "service_adaptor://", "/" + descriptor.name, descriptor.specialization,
                 "default service adaptor " + descriptor.name, std::move(materialize));
         }
         else

@@ -600,7 +600,71 @@ struct TopDownChainG {
   }
 };
 
+struct OncePerCyclePassThrough {
+  static constexpr auto name = "mesh_once_per_cycle_pass_through";
+
+  static void start(State<DateTime> last_evaluation) {
+    last_evaluation.set(MIN_DT);
+  }
+
+  static void eval(In<"value", TS<Int>> value, DateTime evaluation_time,
+                   State<DateTime> last_evaluation, Out<TS<Int>> out) {
+    if (last_evaluation.get() == evaluation_time) {
+      throw std::logic_error("mesh child evaluated twice in one cycle");
+    }
+    last_evaluation.set(evaluation_time);
+    out.set(value.value());
+  }
+};
+
+// A dependency can itself acquire dependencies while its dependent is already
+// selected for the cycle. The dependent must wait for that complete chain to
+// settle; evaluating it with the dependency's previous value would make its
+// output stale for the rest of the cycle.
+struct StagedDependencyFn {
+  static constexpr auto name = "mesh_staged_dependency_fn";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value,
+                               Port<TS<Int>> link1,
+                               Port<TS<Int>> link2) {
+    using namespace hgraph::stdlib::syntax;
+    auto zero = wire<stdlib::const_, TS<Int>>(w, Int{0});
+    auto dep1 = wire<stdlib::default_>(
+                    w, stdlib::mesh_ref<TS<Int>>(w, link1), zero)
+                    .as<TS<Int>>();
+    auto dep2 = wire<stdlib::default_>(
+                    w, stdlib::mesh_ref<TS<Int>>(w, link2), zero)
+                    .as<TS<Int>>();
+    auto result = (value + dep1 + dep2).as<TS<Int>>();
+    return wire<OncePerCyclePassThrough>(w, result);
+  }
+};
+
 struct MeshLifecycleRecorderTag {};
+
+struct ScheduleParentOnStop {
+  static constexpr auto name = "mesh_schedule_parent_on_stop";
+
+  static void eval(In<"value", TS<Int>>) {}
+
+  static void stop(NodeView node, DateTime evaluation_time) {
+    NodeView mesh = node.graph().as_nested().parent_node();
+    GraphView parent = mesh.graph();
+    const std::size_t target = parent.node_count() - 1;
+    if (target <= mesh.node_index()) {
+      throw std::logic_error("mesh retirement test has no later parent node");
+    }
+    parent.schedule_node(target, evaluation_time);
+  }
+};
+
+struct ScheduleParentOnStopG {
+  static constexpr auto name = "mesh_schedule_parent_on_stop_g";
+
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value) {
+    wire<ScheduleParentOnStop>(w, value);
+    return value;
+  }
+};
 
 void wire_mesh_lifecycle_recorder(
     Wiring &w, const WiringPortRef &mesh_output,
@@ -1036,6 +1100,19 @@ TEST_CASE("mesh_: removed instances stop for one cycle before slot erase") {
         NestedLifecycleSnapshot{2, 0, 2, 2, 2});
 }
 
+TEST_CASE("mesh_: retiring a child stops it at the parent evaluation time") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<stdlib::mesh_, TSD<Str, TS<Int>>>(
+          fn<ScheduleParentOnStopG>(),
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                        dict_delta<Str, TS<Int>>({}, {"a"s})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                    dict_delta<Str, TS<Int>>({}, {"a"s})));
+}
+
 TEST_CASE("mesh_: named key-set access forwards the mesh output key set") {
   using namespace hgraph;
   stdlib::register_standard_operators();
@@ -1235,6 +1312,32 @@ TEST_CASE("mesh_: a changed input re-propagates through the dependency graph") {
                         dict_delta<Int, TS<Int>>({})))),
       values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 10}, {3, 10}}),
                     dict_delta<Int, TS<Int>>({{1, 20}, {2, 20}, {3, 20}})));
+}
+
+TEST_CASE("mesh_: a dependent waits while its dependency expands") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  // Cycle 1: key 0 reads keys 1 and 2, producing 0 + 10 + 2 = 12.
+  // Cycle 2: key 1 acquires dependencies 11 and 12 while key 0 also ticks.
+  // Key 0 must evaluate once, after key 1 settles to 10 + 12 + 13 = 35,
+  // and produce 1 + 35 + 3 = 39. Using key 1's previous value would produce
+  // 14.
+  CHECK_OUTPUT(
+      (eval_node<stdlib::mesh_, TSD<Int, TS<Int>>, TSD<Int, TS<Int>>,
+                 TSD<Int, TS<Int>>>(
+          fn<StagedDependencyFn>(),
+          values<Value>(
+              dict_delta<Int, TS<Int>>({{0, 0}, {1, 10}, {2, 2}}),
+              dict_delta<Int, TS<Int>>({{0, 1}, {2, 3}, {11, 12}, {12, 13}})),
+          values<Value>(dict_delta<Int, TS<Int>>({{0, 1}}),
+                        dict_delta<Int, TS<Int>>({{1, 11}})),
+          values<Value>(dict_delta<Int, TS<Int>>({{0, 2}}),
+                        dict_delta<Int, TS<Int>>({{1, 12}})))),
+      values<Value>(
+          dict_delta<Int, TS<Int>>({{0, 12}, {1, 10}, {2, 2}}),
+          dict_delta<Int, TS<Int>>(
+              {{0, 39}, {1, 35}, {2, 3}, {11, 12}, {12, 13}})));
 }
 
 TEST_CASE("mesh_: retargeting onto an existing quiescent instance settles "

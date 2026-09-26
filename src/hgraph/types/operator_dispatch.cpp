@@ -578,7 +578,7 @@ namespace hgraph
             }
 
             out.args.reserve(fixed + tail.size());
-            for (auto &slot : filled) { out.args.push_back(std::move(*slot)); }
+            for (auto &filled_arg : filled) { out.args.push_back(std::move(*filled_arg)); }
             for (auto &arg : tail) { out.args.push_back(std::move(arg)); }
             return true;
         }

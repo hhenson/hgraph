@@ -117,7 +117,13 @@ namespace hgraph::python_bridge
         if (lhs.object == rhs.object) { return true; }
         if (lhs.object == nullptr || rhs.object == nullptr) { return false; }
         nb::gil_scoped_acquire gil;
+        // Opaque values that cannot be hashed use identity hashes. A bucket
+        // collision must not turn their symbolic equality into a value test.
+        if (object_hash(lhs.object) != object_hash(rhs.object)) { return false; }
         const int result = PyObject_RichCompareBool(lhs.object, rhs.object, Py_EQ);
+        // This scalar comparator is a noexcept boundary. Failed comparisons
+        // mean distinct values and must not leak PyErr into the wiring call.
+        if (result < 0) { PyErr_Clear(); }
         return result == 1;
     }
 

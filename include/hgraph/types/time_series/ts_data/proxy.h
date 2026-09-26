@@ -106,6 +106,7 @@ namespace hgraph
         [[nodiscard]] const TSDataTracking &key_set_tracking() const noexcept;
         [[nodiscard]] bool has_child(std::size_t slot) const noexcept;
         [[nodiscard]] bool child_updated(std::size_t slot) const noexcept;
+        [[nodiscard]] bool slot_published(std::size_t slot) const;
         [[nodiscard]] const void *child_at_slot(std::size_t slot) const;
         [[nodiscard]] void *child_at_slot(std::size_t slot);
         [[nodiscard]] void *owned_child_memory(std::size_t slot) noexcept
@@ -131,6 +132,9 @@ namespace hgraph
         [[nodiscard]] TSRoleTypeRef element_type() const noexcept { return element_type_; }
         [[nodiscard]] std::size_t child_capacity() const noexcept { return values_.slot_capacity(); }
         [[nodiscard]] bool source_identities_match() const;
+        /** Stop observing and rebuilding while retaining the source-backed
+         * structural surface for readers that still hold this proxy. */
+        void suspend_source();
         void stop() noexcept;
 
       private:
@@ -146,7 +150,7 @@ namespace hgraph
         void on_source_invalidated(const TSDataTracking *source) noexcept;
 
         void subscribe_source();
-        void unsubscribe_source(bool strict = true) noexcept;
+        void unsubscribe_source(bool strict = true, bool retain_source = false) noexcept;
         void sync_from_source(DateTime modified_time, bool force_modified);
         void construct_child_at_slot(std::size_t slot);
         bool retry_pending_child_at_slot(std::size_t slot, DateTime modified_time);
@@ -168,7 +172,9 @@ namespace hgraph
         DateTime                      updated_window_{MIN_DT};   // lazy delta-window roll
         TSDProxyChildRefresh          child_refresh_{TSDProxyChildRefresh::StructureOnly};
         bool                          subscribed_{false};
+        bool                          source_suspended_{false};
         bool                          structure_pending_{false};
+        std::vector<bool>             suspended_published_{};
         TSDataTracking                tracking_{};
         TSDataTracking                key_set_tracking_{};
         SlotObserverList              slot_observers_{};

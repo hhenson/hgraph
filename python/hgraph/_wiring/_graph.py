@@ -8,13 +8,16 @@ import _hgraph
 
 from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
-from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
-                    _resolve_context, _unwrap, _wiring_stack, wire)
+from ._core import (IncorrectTypeBinding, ParseError,
+                    RequirementsNotMetWiringError, WiringError, WiringPort,
+                    _current_wiring, _resolve_context, _unwrap, _wiring_stack,
+                    wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _annotation_ts_kind, _is_object_vt)
 from ._node import (_PyNode, _is_time_series_annotation,
                     _bind_partial, _ensure_current_signature,
                     _lift_time_series_argument, _partial_binding_plan,
+                    _rewrite_variadic_callable,
                     _signature_registry_generation, _warn_deprecated,
                     _wired_fn_cache)
 from ._operator import _register_overload, _run_requires
@@ -331,7 +334,11 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_o
     if isinstance(func, (_hgraph.WiredFn, str)) or not isinstance(
             func, bindable) and not callable(func):
         return _as_wired(func), args, kwargs
-    if (not isinstance(func, bindable)
+    from ._services import _AdaptorStub, _ServiceAdaptorStub, _ServiceStub
+
+    framework_callable = isinstance(
+        func, bindable + (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub))
+    if (not framework_callable
             and getattr(func, "__name__", None) != "<lambda>"):
         return _as_wired(func), args, kwargs
 
@@ -339,6 +346,8 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_o
     signature = getattr(func, "_wiring_signature", None)
     if signature is None and isinstance(func, _Component):
         signature = func._graph._wiring_signature
+    if signature is None and framework_callable:
+        signature = getattr(func, "_signature", None)
     if signature is None:
         signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [
@@ -481,7 +490,8 @@ class _ResolvedSize:
 
 
 def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
-                        seed_bindings=None):
+                        seed_bindings=None, argument_types=None,
+                        expected_output=None):
     """Fill ``x: type[SENTINEL] = AUTO_RESOLVE`` graph parameters: match
     every time-series parameter's TYPE PATTERN against its wired port in a
     C++ resolution scope, then read each sentinel's binding from it."""
@@ -498,12 +508,24 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
             pass   # a binding kind the scope cannot seed is simply unavailable
     from .._types import AUTO_RESOLVE
 
+    if expected_output is not None:
+        output = signature.return_annotation
+        if not scope.match_output(_pattern_of(output), expected_output.handle):
+            raise IncorrectTypeBinding(
+                f"requested output {expected_output!r} does not match {output!r}")
+
     for name, param in signature.parameters.items():
         value = arguments.get(name)
-        if isinstance(value, WiringPort) and isinstance(
+        actual_type = (
+            argument_types.get(name)
+            if argument_types is not None and name in argument_types
+            else _unwrap(value).ts_type if isinstance(value, WiringPort)
+            else None
+        )
+        if actual_type is not None and isinstance(
                 param.annotation, (_GenericTsExpr, _TypeVarSentinel)):
             try:
-                scope.match(_pattern_of(param.annotation), _unwrap(value).ts_type)
+                scope.match(_pattern_of(param.annotation), actual_type)
             except (RuntimeError, ValueError, TypeError):
                 pass   # inconsistent bindings surface at the consuming node
             continue
@@ -548,7 +570,8 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         verdict = _run_requires(requires, scope.bindings, scalar_values)
         if verdict is not True:
             reason = verdict if isinstance(verdict, str) else "requirements not met"
-            raise WiringError(f"graph requirements not met: {reason}")
+            raise RequirementsNotMetWiringError(
+                f"graph requirements not met: {reason}")
     return resolved
 
 class _Component:
@@ -628,9 +651,20 @@ class _GraphFn:
                  deprecated=False, signature=None):
         from .._types import AUTO_RESOLVE, default_type_var_of
 
-        self.fn = fn
         self._signature, self._default_type_var = default_type_var_of(
             signature or inspect.signature(fn, eval_str=True))
+        self._has_var_group = any(
+            parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            )
+            for parameter in self._signature.parameters.values()
+        )
+        self.fn = (
+            _rewrite_variadic_callable(fn, self._signature)
+            if self._has_var_group
+            else fn
+        )
         self._wiring_signature = self._signature
         self.__name__ = fn.__name__
         self.__doc__ = fn.__doc__
@@ -813,21 +847,65 @@ class _GraphFn:
                     if resolved_type is not None else None
                 )
                 continue
-            if (param.name in bound.arguments and
-                    param.kind in (inspect.Parameter.VAR_POSITIONAL,
-                                   inspect.Parameter.VAR_KEYWORD) and
+            if (param.kind in (inspect.Parameter.VAR_POSITIONAL,
+                               inspect.Parameter.VAR_KEYWORD) and
                     _is_time_series_annotation(param.annotation)):
+                value = bound.arguments.get(
+                    param.name,
+                    () if param.kind is inspect.Parameter.VAR_POSITIONAL else {},
+                )
                 def lift_variadic(item):
                     return item if item is None or isinstance(item, WiringPort) \
                         else wire("const", item)
 
                 if param.kind is inspect.Parameter.VAR_POSITIONAL:
-                    bound.arguments[param.name] = tuple(
-                        lift_variadic(item) for item in value)
+                    entries = tuple(lift_variadic(item) for item in value)
+                    if entries:
+                        raw_entries = [_unwrap(item) for item in entries]
+                        if _annotation_ts_kind(param.annotation) == _hgraph.TS_KIND_TSB:
+                            packed = _hgraph.bundle_port(
+                                raw_entries, [False] * len(raw_entries))
+                        else:
+                            packed = _hgraph.tsl_port(raw_entries)
+                        bound.arguments[param.name] = WiringPort(packed)
                 else:
-                    bound.arguments[param.name] = {
+                    entries = {
                         key: lift_variadic(item) for key, item in value.items()
                     }
+                    annotation_kind = _annotation_ts_kind(param.annotation)
+                    if annotation_kind == _hgraph.TS_KIND_TSB:
+                        if isinstance(param.annotation, _TsExpr):
+                            packed = param.annotation.from_ts(**entries)
+                        else:
+                            raw_entries = {
+                                key: _unwrap(item) for key, item in entries.items()
+                            }
+                            tsb_type = _hgraph.un_named_tsb_type(
+                                [(key, item.ts_type) for key, item in raw_entries.items()]
+                            )
+                            packed = WiringPort(
+                                _hgraph.tsb_port(tsb_type, raw_entries)
+                            )
+                        bound.arguments[param.name] = packed
+                    elif entries:
+                        if annotation_kind == _hgraph.TS_KIND_TSD:
+                            packed = wire(
+                                "combine_tsd",
+                                tuple(entries),
+                                *entries.values(),
+                                __strict__=False,
+                            )
+                        else:
+                            raw_entries = {
+                                key: _unwrap(item) for key, item in entries.items()
+                            }
+                            tsb_type = _hgraph.un_named_tsb_type(
+                                [(key, item.ts_type) for key, item in raw_entries.items()]
+                            )
+                            packed = WiringPort(
+                                _hgraph.tsb_port(tsb_type, raw_entries)
+                            )
+                        bound.arguments[param.name] = packed
                 continue
             if (param.name in bound.arguments and value is not None
                     and not isinstance(value, WiringPort)
@@ -838,7 +916,11 @@ class _GraphFn:
             bound.arguments.update(_graph_auto_resolve(
                 self._signature, bound.arguments, self._resolvers, self._requires,
                 getattr(self, "_seed_bindings", None)))
-        result = self.fn(*bound.args, **bound.kwargs)
+        result = (
+            self.fn(**bound.arguments)
+            if self._has_var_group
+            else self.fn(*bound.args, **bound.kwargs)
+        )
         if isinstance(result, dict) and result and all(isinstance(v, WiringPort) for v in result.values()):
             # hgraph parity: a dict literal of ports returned from a @graph
             # coerces to its annotated TSB output (a structural bundle when

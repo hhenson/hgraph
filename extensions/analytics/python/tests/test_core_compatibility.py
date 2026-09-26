@@ -19,6 +19,25 @@ def test_core_analytical_aliases_warn_and_delegate():
         assert eval_node(hg.pct_change, [100.0, 110.0, 121.0]) == [None, 0.1, 0.1]
 
 
+def test_core_clip_alias_accepts_live_bounds():
+    @hg.graph
+    def app(
+        value: hg.TS[float], minimum: hg.TS[float], maximum: hg.TS[float]
+    ) -> hg.TS[float]:
+        return hg.clip(value, minimum, maximum)
+
+    with pytest.warns(
+        DeprecationWarning,
+        match=r"hgraph\.clip.*hgraph_analytics\.clip",
+    ):
+        assert eval_node(
+            app,
+            [5.0, None, None, 1.0],
+            [0.0, None, 6.0, None],
+            [10.0, 3.0, 8.0, None],
+        ) == [5.0, 3.0, 6.0, 6.0]
+
+
 def test_core_statistical_aliases_preserve_old_names():
     with pytest.warns(
         DeprecationWarning,

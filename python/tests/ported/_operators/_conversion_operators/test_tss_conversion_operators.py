@@ -134,3 +134,9 @@ def test_emit_tss():
         return emit(m)
 
     assert eval_node(g, [{1, 2, 3}, None, {4}]) == [1, 2, 3, 4]
+
+    @graph
+    def typed(m: TSS[int]) -> TS[int]:
+        return emit[TS[int]](m)
+
+    assert eval_node(typed, [{1, 2, 3}, None, {4}]) == [1, 2, 3, 4]

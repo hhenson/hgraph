@@ -18,7 +18,9 @@ import pyarrow as pa
 import pytest
 
 import _hgraph
-from hgraph import CompoundScalar, Frame, Series, TS, len_, pass_through
+from hgraph import (COMPOUND_SCALAR, DEFAULT, OUT, CompoundScalar, Frame,
+                    Series, TS, compute_node, graph, len_, operator,
+                    pass_through)
 from hgraph.test import eval_node
 
 polars = pytest.importorskip("polars")
@@ -90,6 +92,51 @@ def test_polars_dataframes_accepted_inbound_and_round_trip(polars_frames):
     )[0]
     assert isinstance(result, polars.DataFrame)
     assert result.equals(frame)
+
+
+@pytest.mark.parametrize("frame", [
+    _price_table(),
+    polars.DataFrame({"instrument": ["A"], "value": [1.5]}),
+    polars.DataFrame({"instrument": [], "value": []}),
+])
+def test_generic_frame_input_resolves_from_sample_schema(polars_frames, frame):
+    @graph
+    def generic_input(ts: TS[Frame[COMPOUND_SCALAR]]) \
+            -> TS[Frame[COMPOUND_SCALAR]]:
+        return pass_through(ts)
+
+    result = eval_node(generic_input, [frame])[0]
+    assert isinstance(result, polars.DataFrame)
+    assert result.columns == ["instrument", "value"]
+
+
+def test_output_selected_operator_replays_its_declared_frame_input(polars_frames):
+    import inspect
+
+    @dataclass(frozen=True)
+    class LabelRow(CompoundScalar):
+        label: str
+
+    @operator
+    def summarize(frame: "TS[Frame[PriceRow]]") -> DEFAULT[OUT]: ...
+
+    @compute_node(overloads=summarize)
+    def count_prices(
+        frame: TS[Frame[PriceRow]],
+        tp: type[TS[int]] = DEFAULT[OUT],
+    ) -> TS[int]:
+        return frame.value.height
+
+    @compute_node(overloads=summarize)
+    def join_labels(
+        frame: TS[Frame[LabelRow]],
+        tp: type[TS[str]] = DEFAULT[OUT],
+    ) -> TS[str]:
+        return ",".join(frame.value["label"])
+
+    assert inspect.signature(summarize[TS[int]]).parameters["frame"].annotation == TS[Frame[PriceRow]]
+    frame = polars.DataFrame({"instrument": ["A"], "value": [1.5]})
+    assert eval_node(summarize[TS[int]], frame=[frame]) == [1]
 
 
 def test_series_surface_as_polars_series(polars_frames):

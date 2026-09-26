@@ -787,6 +787,8 @@ inline std::string map_key_adapter_to_string(const void *, const void *memory)
     {
         [[nodiscard]] bool compact_accepts_source(
             const void *, ValueTypeRef binding, ValueTypeRef source) noexcept;
+        [[nodiscard]] bool compact_list_accepts_source(
+            const void *, ValueTypeRef binding, ValueTypeRef source) noexcept;
         void compact_list_copy_assign_from(
             const void *, ValueTypeRef binding, void *dst,
             ValueTypeRef source, const void *src);
@@ -872,7 +874,7 @@ inline std::string map_key_adapter_to_string(const void *, const void *memory)
                 value.dynamic_storage_metrics_impl =
                     &compact_dynamic_storage_metrics<ListStorage>;
                 value.element_valid = &container_ops_detail::list_element_valid;
-                value.accepts_source_impl = &compact_accepts_source;
+                value.accepts_source_impl = &compact_list_accepts_source;
                 value.copy_assign_from_impl = &compact_list_copy_assign_from;
                 value.move_assign_from_impl =
                 &container_ops_detail::compact_move_assign_via_copy<

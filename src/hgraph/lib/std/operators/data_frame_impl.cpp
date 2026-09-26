@@ -11,9 +11,11 @@
 #include <hgraph/types/time_series/ts_input/dict_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
 #include <hgraph/types/value/specialized_views.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <arrow/api.h>
 #include <arrow/acero/api.h>
+#include <arrow/array/concatenate.h>
 #include <arrow/compute/api.h>
 #include <arrow/table.h>
 #include <fmt/format.h>
@@ -775,7 +777,8 @@ namespace hgraph::stdlib
             // A value input's schema is the observed shape: binding follows
             // references before the node sees it.
             const auto *schema   = ts.schema();
-            plan->row_meta       = columns;
+            plan->row_binding    = BundleBuilder::assembly_type(
+                checked_binding(columns, "to_data_frame"));
             plan->converter      = &table_converter(columns);
             plan->dict           = schema->kind == TSTypeKind::TSD;
 
@@ -812,7 +815,7 @@ namespace hgraph::stdlib
             [[nodiscard]] Value snapshot_row(const ToFramePlan &plan, DateTime now, const ValueView *key,
                                              const TSInputView &leaf)
             {
-                Value row{checked_binding(plan.row_meta, "to_data_frame")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     const auto &column = plan.columns[i];
@@ -1005,6 +1008,108 @@ namespace hgraph::stdlib
             }
         }
 
+        namespace
+        {
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> sortable_column(
+                const std::shared_ptr<arrow::ChunkedArray> &column)
+            {
+                const auto type_id = column->type()->id();
+                if (type_id != arrow::Type::STRING_VIEW &&
+                    type_id != arrow::Type::BINARY_VIEW)
+                {
+                    return column;
+                }
+
+                const auto target = type_id == arrow::Type::STRING_VIEW
+                                        ? arrow::utf8()
+                                        : arrow::binary();
+                auto cast = arrow::compute::Cast(arrow::Datum{column}, target);
+                if (!cast.ok())
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow view-key cast failed: " +
+                        cast.status().ToString());
+                }
+                if (cast->kind() == arrow::Datum::CHUNKED_ARRAY)
+                {
+                    return cast->chunked_array();
+                }
+                if (cast->kind() == arrow::Datum::ARRAY)
+                {
+                    return std::make_shared<arrow::ChunkedArray>(cast->make_array());
+                }
+                throw std::runtime_error(
+                    "sorted_: arrow view-key cast returned an unexpected value kind");
+            }
+
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> take_column_by_slices(
+                const std::shared_ptr<arrow::ChunkedArray> &column,
+                const arrow::UInt64Array &indices)
+            {
+                arrow::ArrayVector slices;
+                for (std::int64_t i = 0; i < indices.length();)
+                {
+                    if (indices.IsNull(i))
+                    {
+                        throw std::runtime_error(
+                            "sorted_: arrow sort produced a null row index");
+                    }
+                    const auto start = indices.Value(i);
+                    std::int64_t length = 1;
+                    while (i + length < indices.length() &&
+                           !indices.IsNull(i + length) &&
+                           indices.Value(i + length) == start +
+                                                            static_cast<std::uint64_t>(length))
+                    {
+                        ++length;
+                    }
+                    auto run = column->Slice(static_cast<std::int64_t>(start), length);
+                    slices.insert(slices.end(), run->chunks().begin(), run->chunks().end());
+                    i += length;
+                }
+
+                auto concatenated = arrow::Concatenate(slices);
+                if (!concatenated.ok())
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow fallback concatenate failed: " +
+                        concatenated.status().ToString());
+                }
+                return std::make_shared<arrow::ChunkedArray>(std::move(*concatenated));
+            }
+
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> take_column(
+                const std::shared_ptr<arrow::ChunkedArray> &column,
+                const arrow::Datum &indices, const arrow::UInt64Array &index_array)
+            {
+                auto taken = arrow::compute::Take(arrow::Datum{column}, indices);
+                if (taken.ok())
+                {
+                    if (taken->kind() == arrow::Datum::ARRAY)
+                    {
+                        return std::make_shared<arrow::ChunkedArray>(taken->make_array());
+                    }
+                    if (taken->kind() == arrow::Datum::CHUNKED_ARRAY)
+                    {
+                        return taken->chunked_array();
+                    }
+                    throw std::runtime_error(
+                        "sorted_: arrow take returned an unexpected value kind");
+                }
+                const auto type_id = column->type()->id();
+                if (!taken.status().IsNotImplemented() ||
+                    (type_id != arrow::Type::STRING_VIEW &&
+                     type_id != arrow::Type::BINARY_VIEW))
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow take failed: " + taken.status().ToString());
+                }
+                // Arrow 24 cannot take view arrays. Reassemble contiguous runs
+                // from zero-copy slices, then coalesce them back to one array.
+                return take_column_by_slices(column, index_array);
+            }
+        }
+
         Frame sort_frame(const Frame &frame, std::string_view by, bool descending)
         {
             if (!frame.has_value() || frame_rows(frame) < 2) { return frame; }
@@ -1015,19 +1120,28 @@ namespace hgraph::stdlib
                 throw std::invalid_argument("sorted_: frame has no column named '" + std::string{by} + "'");
             }
             auto indices = arrow::compute::SortIndices(
-                *column, descending ? arrow::compute::SortOrder::Descending
-                                    : arrow::compute::SortOrder::Ascending);
+                *sortable_column(column),
+                descending ? arrow::compute::SortOrder::Descending
+                           : arrow::compute::SortOrder::Ascending);
             if (!indices.ok())
             {
                 throw std::runtime_error("sorted_: arrow sort failed: " + indices.status().ToString());
             }
-            auto sorted = arrow::compute::Take(arrow::Datum{frame.table}, arrow::Datum{*indices});
-            if (!sorted.ok())
+            if ((*indices)->type_id() != arrow::Type::UINT64)
             {
-                throw std::runtime_error("sorted_: arrow take failed: " + sorted.status().ToString());
+                throw std::runtime_error(
+                    "sorted_: arrow sort returned unexpected indices");
             }
-            return Frame{sorted->table()->ReplaceSchemaMetadata(
-                frame.table->schema()->metadata())};
+            const auto index_array =
+                std::static_pointer_cast<arrow::UInt64Array>(*indices);
+            const arrow::Datum index_datum{*indices};
+            std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
+            columns.reserve(static_cast<std::size_t>(frame.table->num_columns()));
+            for (const auto &input : frame.table->columns())
+            {
+                columns.push_back(take_column(input, index_datum, *index_array));
+            }
+            return Frame{arrow::Table::Make(frame.table->schema(), std::move(columns))};
         }
 
         Frame concat_frames(const Frame &lhs, const Frame &rhs)
@@ -1729,7 +1843,8 @@ namespace hgraph::stdlib
                 }
                 columns = TypeRegistry::instance().un_named_bundle(spec);
             }
-            plan->row_meta  = columns;
+            plan->row_binding = BundleBuilder::assembly_type(
+                checked_binding(columns, "convert"));
             plan->converter = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1762,7 +1877,8 @@ namespace hgraph::stdlib
             }
             const ValueTypeMetaData *columns = out.schema()->value_schema->element_type;
             if (columns == nullptr) { columns = element; }
-            plan->row_meta  = columns;
+            plan->row_binding = BundleBuilder::assembly_type(
+                checked_binding(columns, "convert"));
             plan->converter = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1779,7 +1895,7 @@ namespace hgraph::stdlib
         {
             [[nodiscard]] Value value_row(const ToFramePlan &plan, const ValueView &element)
             {
-                Value row{checked_binding(plan.row_meta, "convert")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     auto      bundle = element.as_bundle();
@@ -1842,7 +1958,8 @@ namespace hgraph::stdlib
             auto        plan    = std::make_unique<ToFramePlan>();
             const auto *columns = frame_columns_schema(out.schema()->value_schema, "combine");
             const auto *bundle  = ts.schema()->value_schema;   // the structural TSB
-            plan->row_meta      = columns;
+            plan->row_binding   = BundleBuilder::assembly_type(
+                checked_binding(columns, "combine"));
             plan->converter     = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1857,26 +1974,54 @@ namespace hgraph::stdlib
 
         void eval_combine_frame(const ToFramePlan &plan, const TSInputView &ts, const TSOutputView &out)
         {
-            // Each input field is a TS[tuple[T, ...]] COLUMN; rows zip them.
+            // Frame projections are atomic Series values; legacy callers may
+            // still supply indexed tuple columns.
             auto        bundle = const_cast<TSInputView &>(ts).as_bundle();
             std::size_t rows_n = 0;
             {
                 auto first = bundle.at(plan.columns.front().ts_field);
                 if (!first.valid()) { return; }
-                rows_n = first.value().as_indexed_view().size();
+                const auto *meta = first.schema()->value_schema;
+                if (TypeRegistry::instance().is_series(meta))
+                {
+                    const ValueView first_value = first.value();
+                    const auto &series = first_value.checked_as<Series>();
+                    rows_n = series.has_value()
+                                 ? static_cast<std::size_t>(series.array->length())
+                                 : 0;
+                }
+                else { rows_n = first.value().as_indexed_view().size(); }
             }
             std::vector<Value> rows;
+            rows.reserve(rows_n);
             for (std::size_t r = 0; r < rows_n; ++r)
             {
-                Value row{checked_binding(plan.row_meta, "combine")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     auto child = bundle.at(plan.columns[i].ts_field);
                     if (!child.valid()) { continue; }
-                    auto column = child.value().as_indexed_view();
-                    if (r >= column.size()) { continue; }
-                    const ValueView &cell = column.at(r);
-                    set_bundle_field(row, i, cell);
+                    const auto *meta = child.schema()->value_schema;
+                    if (TypeRegistry::instance().is_series(meta))
+                    {
+                        const ValueView child_value = child.value();
+                        const auto &series = child_value.checked_as<Series>();
+                        if (!series.has_value() ||
+                            r >= static_cast<std::size_t>(series.array->length()))
+                        {
+                            continue;
+                        }
+                        set_bundle_field(
+                            row, i,
+                            array_cell(*series.array, meta->element_type,
+                                       static_cast<std::int64_t>(r)));
+                    }
+                    else
+                    {
+                        auto column = child.value().as_indexed_view();
+                        if (r >= column.size()) { continue; }
+                        set_bundle_field(row, i, column.at(r));
+                    }
                 }
                 rows.push_back(std::move(row));
             }

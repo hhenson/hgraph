@@ -86,6 +86,9 @@ namespace hgraph
         [[nodiscard]] TSOutputView view(DateTime evaluation_time = MIN_DT) const;
 
         /** Binding data for a canonical or alternative representation of ``source``. */
+        [[nodiscard]] static bool binding_compatible(
+            const TSValueTypeMetaData *source_schema,
+            const TSValueTypeMetaData &requested_schema) noexcept;
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema) const;
 

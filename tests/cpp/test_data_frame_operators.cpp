@@ -24,6 +24,8 @@ namespace
     using namespace hgraph::testing;
 
     using Row = Bundle<"tests.data_frame::Row", Field<"a", Int>, Field<"b", Int>>;
+    using StringViewRow = Bundle<"tests.data_frame::StringViewRow",
+                                 Field<"name", Str>, Field<"rank", Int>>;
     using FixedRows = Tuple<Row, Row>;
     using MixedFixedRows = Tuple<Row, Int>;
     using FrameMetaDetails = Bundle<"tests.data_frame::FrameMetaDetails",
@@ -43,6 +45,10 @@ namespace
     using BColumnTSB = UnNamedTSB<Field<"b", TS<Int>>>;
     using CColumnTSB = UnNamedTSB<Field<"c", TS<Int>>>;
     using CSeriesColumnTSB = UnNamedTSB<Field<"c", TS<SeriesOf<Int>>>>;
+    using FrameSeriesColumnsTSB =
+        UnNamedTSB<Field<"a", TS<SeriesOf<Int>>>, Field<"b", TS<SeriesOf<Int>>>>;
+    using RecombinedRow = Bundle<"tests.data_frame::RecombinedRow",
+                                 Field<"a", Int>, Field<"b", Int>>;
     using FrameBundleTSB = UnNamedTSB<Field<"frame", TS<FrameOf<Row>>>>;
     using ProjectedRow = Bundle<"tests.data_frame::ProjectedRow", Field<"a", Int>,
                                 Field<"c", Int>>;
@@ -74,6 +80,23 @@ namespace
         return Frame{arrow::Table::Make(
             arrow::schema({arrow::field("a", arrow::int64()), arrow::field("b", arrow::int64())}),
             {std::move(a_array), std::move(b_array)})};
+    }
+
+    [[nodiscard]] Frame string_view_frame(std::vector<std::string> names,
+                                          std::vector<std::int64_t> ranks)
+    {
+        arrow::StringViewBuilder name_builder;
+        arrow::Int64Builder rank_builder;
+        for (const auto &name : names) { require_arrow(name_builder.Append(name)); }
+        require_arrow(rank_builder.AppendValues(ranks));
+        std::shared_ptr<arrow::Array> name_array;
+        std::shared_ptr<arrow::Array> rank_array;
+        require_arrow(name_builder.Finish(&name_array));
+        require_arrow(rank_builder.Finish(&rank_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({arrow::field("name", arrow::utf8_view()),
+                           arrow::field("rank", arrow::int64())}),
+            {std::move(name_array), std::move(rank_array)})};
     }
 
     [[nodiscard]] bool equals(const Frame &lhs, const Frame &rhs)
@@ -335,6 +358,19 @@ namespace
         }
     };
 
+    struct SortStringViewFrameGraph
+    {
+        static constexpr auto name = "sort_string_view_frame_graph";
+
+        static Port<TS<FrameOf<StringViewRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<StringViewRow>>> ts,
+            Scalar<"by", Str> by)
+        {
+            return wire<stdlib::sorted_>(w, ts, by, Bool{false})
+                .as<TS<FrameOf<StringViewRow>>>();
+        }
+    };
+
     struct ConvertCompoundFrameGraph
     {
         static constexpr auto name = "convert_compound_frame_graph";
@@ -577,6 +613,20 @@ namespace
         }
     };
 
+    struct CombineProjectedFrameColumnsGraph
+    {
+        static constexpr auto name = "combine_projected_frame_columns_graph";
+
+        static Port<TS<FrameOf<RecombinedRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            auto a = wire<stdlib::getattr_>(w, ts, Str{"a"}).as<TS<SeriesOf<Int>>>();
+            auto b = wire<stdlib::getattr_>(w, ts, Str{"b"}).as<TS<SeriesOf<Int>>>();
+            auto columns = stdlib::to_tsb<FrameSeriesColumnsTSB>(w, a, b);
+            return wire<stdlib::combine, TS<FrameOf<RecombinedRow>>>(w, columns);
+        }
+    };
+
     struct MissingFrameColumnGraph
     {
         static constexpr auto name = "missing_frame_column_graph";
@@ -733,6 +783,28 @@ TEST_CASE("data frame operators: sorted_ orders rows through the native wiring p
     REQUIRE(result.size() == 1);
     REQUIRE(result[0].has_value());
     CHECK(equals(*result[0], expected));
+}
+
+TEST_CASE("data frame operators: sorted_ preserves and orders Arrow string-view columns")
+{
+    stdlib::register_standard_operators();
+    const auto input = string_view_frame({"b", "a", "c"}, {2, 1, 0});
+
+    const auto by_rank = eval_node<SortStringViewFrameGraph>(
+        values<Frame>(input), Str{"rank"});
+    REQUIRE(by_rank.size() == 1);
+    REQUIRE(by_rank[0].has_value());
+    CHECK(equals(*by_rank[0], string_view_frame({"c", "a", "b"}, {0, 1, 2})));
+    CHECK((*by_rank[0]).table->schema()->field(0)->type()->id() ==
+          arrow::Type::STRING_VIEW);
+
+    const auto by_name = eval_node<SortStringViewFrameGraph>(
+        values<Frame>(input), Str{"name"});
+    REQUIRE(by_name.size() == 1);
+    REQUIRE(by_name[0].has_value());
+    CHECK(equals(*by_name[0], string_view_frame({"a", "b", "c"}, {1, 2, 0})));
+    CHECK((*by_name[0]).table->schema()->field(0)->type()->id() ==
+          arrow::Type::STRING_VIEW);
 }
 
 TEST_CASE("data frame operators: convert compound scalars to rows")
@@ -1079,6 +1151,19 @@ TEST_CASE("data frame operators: Frame column and row access use the declared ro
 
     REQUIRE_THROWS(eval_node<FrameRowGraph>(values<Frame>(input), Int{2}));
     REQUIRE_THROWS(eval_node<MissingFrameColumnGraph>(values<Frame>(input)));
+}
+
+TEST_CASE("data frame operators: combine rebuilds a frame from projected Series columns")
+{
+    stdlib::register_standard_operators();
+    const auto input = frame({1, 2}, {10, 20});
+
+    const auto result = eval_node<CombineProjectedFrameColumnsGraph>(
+        values<Frame>(input));
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(equals(*result[0], input));
 }
 
 TEST_CASE("data frame operators: ungroup concatenates keyed frames and materializes keys natively")

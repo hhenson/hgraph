@@ -178,6 +178,15 @@ TSOutputView TSOutput::view(DateTime evaluation_time) const {
   return TSOutputView{this, data_view(), evaluation_time};
 }
 
+bool TSOutput::binding_compatible(
+    const TSValueTypeMetaData *source_schema,
+    const TSValueTypeMetaData &requested_schema) noexcept {
+  return source_schema != nullptr &&
+         (time_series_value_equivalent(source_schema, &requested_schema) ||
+          detail::TSOutputAlternativeStore::can_bind(source_schema,
+                                                     requested_schema));
+}
+
 TSOutputHandle
 TSOutput::binding_for(const TSOutputView &source,
                       const TSValueTypeMetaData &requested_schema) const {
@@ -199,7 +208,7 @@ TSOutput::binding_for(const TSOutputView &source,
       requested_schema.kind == TSTypeKind::SIGNAL &&
       source_schema->kind == TSTypeKind::REF;
   if (!signal_from_reference &&
-      !time_series_value_equivalent(source_schema, &requested_schema)) {
+      !binding_compatible(source_schema, requested_schema)) {
     throw std::invalid_argument("TSOutput alternative binding requires "
                                 "dereference-compatible schemas: source '" +
                                 std::string{source_schema->name()} +
@@ -240,7 +249,7 @@ TSOutputHandle TSOutput::checkpoint_binding_for(const TSOutputView &source,
   if (time_series_schema_equivalent(source.schema(), &requested_schema)) { return source.handle(); }
   const bool signal_from_reference = requested_schema.kind == TSTypeKind::SIGNAL &&
                                      source.schema()->kind == TSTypeKind::REF;
-  if (!signal_from_reference && !time_series_value_equivalent(source.schema(), &requested_schema)) {
+  if (!signal_from_reference && !binding_compatible(source.schema(), requested_schema)) {
     throw std::invalid_argument("checkpoint adapter requires dereference-compatible schemas");
   }
   if (!alternatives_) { alternatives_ = std::make_unique<detail::TSOutputAlternativeStore>(); }

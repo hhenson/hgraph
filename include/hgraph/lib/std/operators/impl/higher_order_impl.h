@@ -1293,7 +1293,7 @@ namespace hgraph::stdlib
 
         inline void configure_switch_branch_output(SingleNestedGraphNodeSpec &spec,
                                                     const TSValueTypeMetaData *switch_output_schema,
-                                                    bool preserve_terminal)
+                                                    SwitchOutputMode output_mode)
         {
             if (!spec.output_binding.has_value() ||
                 spec.output_binding->kind != NestedGraphOutputBinding::Kind::ChildOutput)
@@ -1309,6 +1309,10 @@ namespace hgraph::stdlib
             spec.output_terminal_is_reference =
                 branch_output_schema != nullptr && branch_output_schema->kind == TSTypeKind::REF;
 
+            const bool preserve_terminal =
+                output_mode == SwitchOutputMode::Forwarding ||
+                (output_mode == SwitchOutputMode::RefCopy &&
+                 switch_branch_requires_preserved_terminal(spec, switch_output_schema));
             if (preserve_terminal) { return; }
 
             // A REF terminal owns the selected reference token. Re-homing it
@@ -1565,6 +1569,17 @@ namespace hgraph::stdlib
                 ts.push_back(kwargs[i].second);
             }
 
+            // A structural argument can expose children narrower than its root
+            // schema (for example TSB[{value: TS<Base>}] assembled with a
+            // TS<Derived> child). Branch inputs are runtime target links, so
+            // normalize those children in the parent wiring before the raw
+            // structural edges cross the dynamic graph boundary.
+            for (WiringPortRef &source : ts)
+            {
+                source = graph_wiring_detail::adapt_source_for_input(
+                    w, source.schema, std::move(source));
+            }
+
             const TSValueTypeMetaData *output_schema = nullptr;
             std::optional<bool>        branches_have_output;
             SwitchNodeSpec             spec;
@@ -1612,14 +1627,15 @@ namespace hgraph::stdlib
                                 }) ||
                         (spec.default_branch.has_value() &&
                          requires_preserved_terminal(*spec.default_branch)));
-                const bool preserve = spec.output_mode == SwitchOutputMode::Forwarding;
                 for (SwitchBranch &branch : spec.branches)
                 {
-                    configure_switch_branch_output(branch.spec, output_schema, preserve);
+                    configure_switch_branch_output(
+                        branch.spec, output_schema, spec.output_mode);
                 }
                 if (spec.default_branch.has_value())
                 {
-                    configure_switch_branch_output(*spec.default_branch, output_schema, preserve);
+                    configure_switch_branch_output(
+                        *spec.default_branch, output_schema, spec.output_mode);
                 }
             }
 
@@ -2016,7 +2032,9 @@ namespace hgraph::stdlib
             const TSValueTypeMetaData *schema) noexcept
         {
             const auto *value_schema = time_series_schema_as<AnyTS>(schema);
-            return value_schema != nullptr ? value_schema->value_schema : nullptr;
+            return value_schema != nullptr
+                       ? value_schema_without_storage(value_schema->value_schema)
+                       : nullptr;
         }
 
         [[nodiscard]] inline bool dispatch_case_more_specific(
@@ -2550,14 +2568,15 @@ namespace hgraph::stdlib
                     (spec.default_branch.has_value() &&
                      switch_branch_requires_preserved_terminal(
                          *spec.default_branch, output_schema)));
-            const bool preserve = spec.output_mode == SwitchOutputMode::Forwarding;
             for (SwitchBranch &branch : spec.branches)
             {
-                configure_switch_branch_output(branch.spec, output_schema, preserve);
+                configure_switch_branch_output(
+                    branch.spec, output_schema, spec.output_mode);
             }
             if (spec.default_branch.has_value())
             {
-                configure_switch_branch_output(*spec.default_branch, output_schema, preserve);
+                configure_switch_branch_output(
+                    *spec.default_branch, output_schema, spec.output_mode);
             }
             return add_compiled_switch(
                 w, std::move(key), std::move(ts), std::move(spec), output_schema,

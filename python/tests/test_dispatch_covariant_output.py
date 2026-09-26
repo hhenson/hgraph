@@ -1,6 +1,19 @@
+import inspect
 from dataclasses import dataclass
+from typing import TypeVar
 
-from hgraph import CompoundScalar, TS, combine, dispatch, graph
+from hgraph import (
+    CompoundScalar,
+    TS,
+    TSB,
+    combine,
+    compute_node,
+    dispatch,
+    graph,
+    operator,
+    switch_,
+)
+from hgraph.reflection import operator_overloads, resolved_type, scalar_type
 from hgraph.test import eval_node
 
 
@@ -45,3 +58,160 @@ def test_dispatch_adapts_covariant_branch_outputs_to_the_declared_base_type():
         Future(symbol="FUT", expiry=202612),
         Option(symbol="OPT", strike=42.0),
     ]
+
+
+def test_switch_adapts_covariant_fields_inside_structural_branch_inputs():
+    @dataclass(frozen=True)
+    class Detail(CompoundScalar):
+        name: str
+
+    @dataclass(frozen=True)
+    class DetailLeaf(Detail):
+        pass
+
+    @dataclass(frozen=True)
+    class DetailMultiple(Detail):
+        ancestors: tuple[Detail, ...]
+
+    @dataclass(frozen=True)
+    class Result:
+        detail: Detail
+
+    @compute_node
+    def make_multiple(trigger: TS[bool]) -> TS[DetailMultiple]:
+        return DetailMultiple(
+            name="multiple", ancestors=(DetailLeaf(name="source"),)
+        )
+
+    @graph
+    def pass_result(result: TSB[Result]) -> TSB[Result]:
+        return result
+
+    @graph
+    def app(result: TSB[Result], trigger: TS[bool]) -> TSB[Result]:
+        result = result.copy_with(detail=make_multiple(trigger))
+        return switch_(
+            trigger,
+            {True: pass_result, False: pass_result},
+            result=result,
+        )
+
+    assert eval_node(
+        app,
+        result=[{"detail": DetailLeaf(name="initial")}],
+        trigger=[True],
+    ) == [
+        {
+            "detail": DetailMultiple(
+                name="multiple", ancestors=(DetailLeaf(name="source"),)
+            )
+        }
+    ]
+
+
+def test_graph_materializes_a_covariant_python_object_field():
+    @dataclass(frozen=True)
+    class Detail:
+        name: str
+
+    @dataclass(frozen=True)
+    class DetailLeaf(Detail):
+        source: str
+
+    @dataclass(frozen=True)
+    class Result:
+        detail: Detail
+
+    @compute_node
+    def make_detail(trigger: TS[bool]) -> TS[DetailLeaf]:
+        return DetailLeaf(name="leaf", source="test")
+
+    @graph
+    def app(trigger: TS[bool]) -> TSB[Result]:
+        return combine[TSB[Result]](detail=make_detail(trigger))
+
+    assert eval_node(app, [True]) == [
+        {"detail": DetailLeaf(name="leaf", source="test")}
+    ]
+
+
+def test_recreated_dispatch_filters_branches_by_resolved_output_requirements():
+    @dataclass(frozen=True)
+    class Request(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Model(CompoundScalar):
+        name: str
+
+    OUT = TypeVar("OUT", TS[int], TS[str])
+
+    @operator
+    def price(request: TS[Request], model: TS[Model]) -> OUT: ...
+
+    @compute_node(overloads=price, requires=lambda m: resolved_type(m[OUT]) == TS[int])
+    def live_price(request: TS[Request], model: TS[Model]) -> TS[int]:
+        return 1
+
+    @compute_node(overloads=price, requires=lambda m: resolved_type(m[OUT]) == TS[str])
+    def historical_price(request: TS[Request], model: TS[Model]) -> TS[int]:
+        return 2
+
+    def extracted_price(output_type):
+        @operator
+        def extracted(request: TS[Request], model: TS[Model]) -> OUT: ...
+
+        recreated = dispatch(extracted)
+        for overload in operator_overloads(price):
+            recreated.overload(overload)
+        return recreated[output_type]
+
+    @graph
+    def app(request: TS[Request]) -> TS[int]:
+        return extracted_price(TS[int])(request, Model(name="test"))
+
+    assert eval_node(app, [Request(symbol="ES")]) == [1]
+
+
+def test_recreated_dispatch_accepts_an_owned_ancestry_field():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        pass
+
+    @dataclass(frozen=True)
+    class Option(Instrument):
+        underlying: Instrument
+
+    @dispatch
+    @compute_node
+    def schedule(instrument: TS[Instrument]) -> TS[str]:
+        return f"instrument:{instrument.value.symbol}"
+
+    @compute_node(overloads=schedule)
+    def future_schedule(instrument: TS[Future]) -> TS[str]:
+        return f"future:{instrument.value.symbol}"
+
+    @graph(overloads=schedule)
+    def option_schedule(instrument: TS[Option]) -> TS[str]:
+        @operator
+        def underlying_schedule(instrument: TS[Instrument]) -> TS[str]: ...
+
+        underlying_dispatch = dispatch(underlying_schedule)
+        for overload in operator_overloads(schedule):
+            annotation = inspect.signature(overload.fn, eval_str=True).parameters[
+                "instrument"
+            ].annotation
+            if not issubclass(scalar_type(annotation), Option):
+                underlying_dispatch.overload(overload)
+
+        return underlying_dispatch(instrument.underlying)
+
+    @graph
+    def app(instrument: TS[Instrument]) -> TS[str]:
+        return schedule(instrument)
+
+    assert eval_node(app, [Option("OPT", Future("FUT"))]) == ["future:FUT"]

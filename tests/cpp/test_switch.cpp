@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -40,6 +41,12 @@ namespace switch_repro
 {
     struct CovariantStore
     {};
+
+    struct CovariantDetail
+    {};
+
+    struct CovariantDetailMultiple
+    {};
 }
 
 namespace hgraph
@@ -55,6 +62,44 @@ namespace hgraph
                 "tests.switch", "CovariantStore",
                 {{"path", registry.value_type("str")}}, {}, true);
         }
+    };
+
+    template <>
+    struct scalar_descriptor<switch_repro::CovariantDetail>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.switch", "CovariantDetail",
+                {{"name", registry.value_type("str")}}, {}, true);
+        }
+    };
+
+    template <>
+    struct scalar_descriptor<switch_repro::CovariantDetailMultiple>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            const auto *base = scalar_descriptor<switch_repro::CovariantDetail>::value_meta();
+            return registry.bundle(
+                "tests.switch", "CovariantDetailMultiple",
+                {{"name", registry.value_type("str")},
+                 {"count", registry.value_type("int")}},
+                {base});
+        }
+    };
+}
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<switch_repro::CovariantDetailMultiple>>
+        : bundle_ts_harness<TS<switch_repro::CovariantDetailMultiple>>
+    {
     };
 }
 
@@ -137,6 +182,50 @@ namespace
                                              {Value{Str{"b"}}, fn<RefPassThrough>()}}),
                        ts)
                 .as<TS<Int>>();
+        }
+    };
+
+    using SwitchValueDict = TSD<Int, TS<Int>>;
+    using SwitchRefDict = TSD<Int, REF<TS<Int>>>;
+    using SwitchPartitionedDict = TSD<Str, TSD<Int, TS<Int>>>;
+
+    struct InteriorRefDictBranch
+    {
+        static constexpr auto name = "interior_ref_dict_branch";
+
+        static Port<SwitchRefDict> compose(Wiring &w, Port<SwitchPartitionedDict> primary,
+                                           Port<SwitchValueDict>)
+        {
+            return wire<stdlib::unpartition>(w, primary).as<SwitchRefDict>();
+        }
+    };
+
+    struct ValueDictBranch
+    {
+        static constexpr auto name = "value_dict_branch";
+
+        static Port<SwitchValueDict> compose(Wiring &, Port<SwitchPartitionedDict>,
+                                             Port<SwitchValueDict> fallback)
+        {
+            return fallback;
+        }
+    };
+
+    struct MixedInteriorRefSwitchGraph
+    {
+        static constexpr auto name = "mixed_interior_ref_switch_graph";
+
+        static Port<SwitchValueDict> compose(Wiring &w, Port<TS<Str>> key,
+                                             Port<SwitchPartitionedDict> primary,
+                                             Port<SwitchValueDict> fallback)
+        {
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases(
+                           {{Value{Str{"refs"}}, fn<InteriorRefDictBranch>()},
+                            {Value{Str{"value"}}, fn<ValueDictBranch>()}}),
+                       primary, fallback)
+                .as<SwitchValueDict>();
         }
     };
 
@@ -425,6 +514,37 @@ namespace
 
     using SwitchSignalBundle = UnNamedTSB<Field<"p1", TS<Int>>, Field<"p2", TS<Str>>>;
     using SwitchIntList = TSL<TS<Int>, 2>;
+    using CovariantDetail = switch_repro::CovariantDetail;
+    using CovariantDetailMultiple = switch_repro::CovariantDetailMultiple;
+    using CovariantResult = UnNamedTSB<Field<"detail", TS<CovariantDetail>>>;
+
+    struct CovariantResultBranch
+    {
+        static constexpr auto name = "covariant_result_branch";
+
+        static Port<CovariantResult> compose(Wiring &, Port<CovariantResult> result)
+        {
+            return result;
+        }
+    };
+
+    struct CovariantFieldSwitchGraph
+    {
+        static constexpr auto name = "covariant_field_switch_graph";
+
+        static Port<CovariantResult> compose(
+            Wiring &w, Port<TS<Bool>> key, Port<TS<CovariantDetailMultiple>> detail)
+        {
+            auto result = stdlib::to_tsb<CovariantResult>(w, detail);
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases(
+                           {{Value{Bool{true}}, fn<CovariantResultBranch>()},
+                            {Value{Bool{false}}, fn<CovariantResultBranch>()}}),
+                       result)
+                .as<CovariantResult>();
+        }
+    };
 
     struct PeeredBundleBranch
     {
@@ -465,6 +585,100 @@ namespace
         static Port<SwitchSignalBundle> compose(Wiring &, Port<REF<SwitchSignalBundle>> bundle)
         {
             return bundle.as<SwitchSignalBundle>();
+        }
+    };
+
+    struct RefBundlePassThrough
+    {
+        static constexpr auto name = "ref_bundle_pass_through";
+
+        static void eval(In<"bundle", SwitchSignalBundle> bundle,
+                         Out<REF<SwitchSignalBundle>> out)
+        {
+            out.set(bundle.base().reference());
+        }
+    };
+
+    struct ForwardingBundleNodeTag
+    {
+    };
+
+    [[nodiscard]] NodeBuilder forwarding_bundle_node_builder()
+    {
+        const auto *bundle = ts_type<SwitchSignalBundle>();
+        const auto *p1 = ts_type<TS<Int>>();
+        const auto *p2 = ts_type<TS<Str>>();
+        const auto *input = TypeRegistry::instance().un_named_tsb(
+            {{"p1", p1}, {"p2", p2}});
+
+        NodeTypeMetaData meta;
+        meta.display_name = "forwarding_bundle_node";
+        meta.input_schema = input;
+        meta.output_schema = bundle;
+        meta.output_endpoint_schema = forwarding_output_endpoint_schema(bundle);
+
+        NodeCallbacks callbacks;
+        callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
+            auto input = view.input(evaluation_time);
+            auto inputs = input.as_bundle();
+            auto output = view.output(evaluation_time);
+            bind_forwarding_output_to_source(
+                output.indexed_child_at(0), inputs[0].bound_output());
+            bind_forwarding_output_to_source(
+                output.indexed_child_at(1), inputs[1].bound_output());
+        };
+        return NodeBuilder::native(
+            std::move(meta), std::move(callbacks),
+            TSEndpointSchema::non_peered(
+                input, {TSEndpointSchema::peered(p1),
+                        TSEndpointSchema::peered(p2)}));
+    }
+
+    struct ForwardingBundleBranch
+    {
+        static constexpr auto name = "forwarding_bundle_branch";
+
+        static Port<SwitchSignalBundle> compose(Wiring &w,
+                                                Port<TS<Int>> p1,
+                                                Port<TS<Str>> p2)
+        {
+            const std::array<WiringPortRef, 2> inputs{p1.erased(), p2.erased()};
+            auto output = w.add_node(
+                std::type_index(typeid(ForwardingBundleNodeTag)),
+                forwarding_bundle_node_builder(), inputs, Value{});
+            return Port<SwitchSignalBundle>{w, std::move(output)};
+        }
+    };
+
+    struct ReferencedBundleBranch
+    {
+        static constexpr auto name = "referenced_bundle_branch";
+
+        static Port<REF<SwitchSignalBundle>> compose(Wiring &w,
+                                                     Port<TS<Int>> p1,
+                                                     Port<TS<Str>> p2)
+        {
+            return wire<RefBundlePassThrough>(
+                w, stdlib::to_tsb<SwitchSignalBundle>(w, p1, p2));
+        }
+    };
+
+    struct ForwardingBundleInRefSwitchGraph
+    {
+        static constexpr auto name = "forwarding_bundle_in_ref_switch_graph";
+
+        static Port<SwitchSignalBundle> compose(Wiring &w,
+                                                Port<TS<Bool>> reference,
+                                                Port<TS<Int>> p1,
+                                                Port<TS<Str>> p2)
+        {
+            return wire<stdlib::switch_, REF<SwitchSignalBundle>>(
+                       w, reference,
+                       stdlib::switch_cases(
+                           {{Value{false}, fn<ForwardingBundleBranch>()},
+                            {Value{true}, fn<ReferencedBundleBranch>()}}),
+                       p1, p2)
+                .as<SwitchSignalBundle>();
         }
     };
 
@@ -831,6 +1045,29 @@ TEST_CASE("switch_: mixed value and REF branches remain visible across transitio
                  values<Int>(1, 2, 3));
 }
 
+TEST_CASE("switch_: value and interior-REF TSD branches share a reference-leaved output")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<MixedInteriorRefSwitchGraph>(
+            values<Str>(Str{"value"}, Str{"refs"}),
+            values<Value>(
+                dict_delta<Str, TSD<Int, TS<Int>>>(
+                    {{"partition"s, dict_delta<Int, TS<Int>>({{1, 10}})}}),
+                dict_delta<Str, TSD<Int, TS<Int>>>(
+                    {{"partition"s, dict_delta<Int, TS<Int>>({{1, 11}})}})),
+            values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
+                          dict_delta<Int, TS<Int>>({{9, 91}})))),
+        // Replacing the selected dictionary withdraws the previous branch's
+        // keys as well as publishing the new branch's current children.
+        values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
+                      dict_delta<Int, TS<Int>>({{1, 11}}, {9})));
+}
+
 TEST_CASE("switch_: a paused REF branch preserves the previous token until resume")
 {
     using namespace hgraph;
@@ -1011,6 +1248,42 @@ TEST_CASE("switch_: a direct structural branch samples held bundle values on act
                                tsb_delta<SwitchSignalBundle>(Int{20}, Str{"b"}),
                                tsb_delta<SwitchSignalBundle>(Int{1}, Str{"fixed"}),
                                tsb_delta<SwitchSignalBundle>(Int{40}, Str{"d"})));
+}
+
+TEST_CASE("switch_: a REF-shaped outer switch preserves a forwarding value terminal")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<ForwardingBundleInRefSwitchGraph>(
+                     values<Bool>(false, true, false),
+                     values<Int>(7, 8, 9),
+                     values<Str>(Str{"value"}, Str{"reference"}, Str{"value-again"})),
+                 values<Value>(
+                     tsb_delta<SwitchSignalBundle>(Int{7}, Str{"value"}),
+                     tsb_delta<SwitchSignalBundle>(Int{8}, Str{"reference"}),
+                     tsb_delta<SwitchSignalBundle>(Int{9}, Str{"value-again"})));
+}
+
+TEST_CASE("switch_: structural branch inputs adapt covariant child fields")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto *derived_schema = scalar_descriptor<CovariantDetailMultiple>::value_meta();
+    BundleBuilder derived{ValuePlanFactory::instance().type_for(derived_schema)};
+    derived.set("name", Value{Str{"multiple"}});
+    derived.set("count", Value{Int{2}});
+
+    const auto actual = eval_node<CovariantFieldSwitchGraph>(
+        values<Bool>(true), values<Value>(derived.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto detail = actual.front()->view().as_bundle().at(0).concrete();
+    REQUIRE(detail.schema() == derived_schema);
+    CHECK(detail.as_bundle().at("name").checked_as<Str>() == Str{"multiple"});
+    CHECK(detail.as_bundle().at("count").checked_as<Int>() == Int{2});
 }
 
 TEST_CASE("switch_: a direct structural branch samples held list values on activation")

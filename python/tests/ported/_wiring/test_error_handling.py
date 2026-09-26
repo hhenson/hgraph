@@ -1,6 +1,6 @@
 from hgraph import (REMOVE, NodeError, TSD, TS, TSB, TimeSeriesSchema, TryExceptResult,
                     TryExceptTsdMapResult, compute_node, exception_time_series,
-                    combine, graph, map_, sink_node, try_except)
+                    combine, graph, map_, sink_node, switch_, try_except)
 from hgraph.test import eval_node
 
 
@@ -79,6 +79,38 @@ def test_try_except_preserves_composed_structural_graph_output():
     assert eval_node(protected, [1, 2]) == [
         {"out": {"value": 1, "offset": 2}},
         {"out": {"value": 2, "offset": 3}},
+    ]
+
+
+def test_try_except_follows_structural_output_across_child_switch_branches():
+    class Pair(TimeSeriesSchema):
+        value: TS[int]
+        offset: TS[int]
+
+    @graph
+    def pending(value: TS[str]) -> TSB[Pair]:
+        del value
+        return combine[TSB[Pair]](value=-1, offset=-2)
+
+    @graph
+    def ready(value: TS[str]) -> TSB[Pair]:
+        return combine[TSB[Pair]](value=5, offset=6)
+
+    @graph
+    def selected(value: TS[str]) -> TSB[Pair]:
+        return switch_(
+            value,
+            {"pending": pending, "ready": ready},
+            value,
+        )
+
+    @graph
+    def protected(value: TS[str]) -> TSB[Pair]:
+        return try_except(selected, value).out
+
+    assert eval_node(protected, ["pending", "ready"]) == [
+        {"value": -1, "offset": -2},
+        {"value": 5, "offset": 6},
     ]
 
 

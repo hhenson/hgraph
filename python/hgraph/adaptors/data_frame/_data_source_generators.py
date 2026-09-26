@@ -18,6 +18,7 @@ from hgraph import (
     operator_function,
     ts_schema,
 )
+from hgraph._frame import _python_type_from_arrow, _schema_type_from_frame
 
 from ._data_frame_source import DATA_FRAME_SOURCE, DataStore, _as_arrow_table
 
@@ -42,37 +43,11 @@ SIZE_1 = _typing.TypeVar("SIZE_1")
 _from_data_frame_batches = operator_function("from_data_frame_batches")
 
 
-def _python_type(arrow_type: pa.DataType):
-    if pa.types.is_boolean(arrow_type):
-        return bool
-    if pa.types.is_integer(arrow_type):
-        return int
-    if pa.types.is_floating(arrow_type):
-        return float
-    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-        return str
-    if pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
-        return bytes
-    if pa.types.is_date(arrow_type):
-        return date
-    if pa.types.is_timestamp(arrow_type):
-        return datetime
-    if pa.types.is_time(arrow_type):
-        return time
-    if pa.types.is_duration(arrow_type):
-        return timedelta
-    if pa.types.is_dictionary(arrow_type):
-        return _python_type(arrow_type.value_type)
-    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-        return tuple[_python_type(arrow_type.value_type), ...]
-    raise TypeError(f"unsupported Arrow datatype {arrow_type}")
+_python_type = _python_type_from_arrow
 
 
 def schema_from_frame(frame) -> type:
-    table = _as_arrow_table(frame)
-    return compound_scalar(
-        **{field.name: _python_type(field.type) for field in table.schema}
-    )
+    return _schema_type_from_frame(frame)
 
 
 def _source(source_type: type[DATA_FRAME_SOURCE]):

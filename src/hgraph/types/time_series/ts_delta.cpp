@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -1317,7 +1318,23 @@ namespace hgraph
         Value capture_delta_ts(const TSInputView &in)
         {
             const ValueView value = in.value();
-            if (value.type()) { return Value{value}; }
+            if (value.type())
+            {
+                auto binding = canonical_delta_binding(in, "capture_delta");
+                if (value.binding() == binding) { return Value{value}; }
+                if (!binding.ops_ref().accepts_source(binding, value.binding()))
+                {
+                    const auto realized = value_type_for_active_realization(binding.schema());
+                    if (!realized || !realized.ops_ref().accepts_source(realized, value.binding()))
+                    {
+                        throw std::logic_error(fmt::format(
+                            "capture_delta: neither canonical nor realized binding for {} accepts {}",
+                            binding.schema()->name(), value.binding().schema()->name()));
+                    }
+                    binding = realized;
+                }
+                return Value{binding, value};
+            }
 
             // A modified atomic endpoint may be scheduled by a reference
             // unbind while carrying no value. Preserve the canonical delta
@@ -1537,21 +1554,40 @@ namespace hgraph
 
         Value capture_delta_tsb(const TSInputView &in)
         {
-            static_cast<void>(require_schema(in.schema(), "capture_delta"));
-            // Only the fields with news are set (TS-24: a bundle delta holds
-            // its changed valid fields). Seeding every collection field with an
-            // empty surface made "no news" read as "ticked empty" -- and a
-            // replay of it validated a collection that never ticked (#835). A
-            // field whose collection genuinely ticked empty still captures its
-            // own (empty or removal-only) delta below.
-            BundleBuilder builder{canonical_delta_binding(in, "capture_delta")};
+            const auto &schema = require_schema(in.schema(), "capture_delta");
+            const auto canonical = canonical_delta_binding(in, "capture_delta");
+            BundleBuilder builder{canonical};
             auto          bundle = in.as_bundle();
+            std::vector<std::optional<Value>> captured(bundle.size());
+            std::vector<ValueTypeRef> field_bindings;
+            field_bindings.reserve(bundle.size());
+            bool requires_realized_owner = false;
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
+                field_bindings.push_back(builder.field_binding(index));
                 auto child = bundle.at(index);
                 if (!child.modified() || !child_delta_worth_capturing(child)) { continue; }
-                Value child_delta = capture_delta(child);
-                builder.set(index, std::move(child_delta));
+                captured[index].emplace(capture_delta(child));
+                const auto child_binding = captured[index]->binding();
+                if (field_bindings[index] != child_binding)
+                {
+                    field_bindings[index] = child_binding;
+                    requires_realized_owner = true;
+                }
+            }
+
+            if (requires_realized_owner)
+            {
+                builder = BundleBuilder{
+                    ValuePlanFactory::instance().realized_composite_type_for(
+                        schema.delta_value_schema, field_bindings)};
+            }
+            for (std::size_t index = 0; index < captured.size(); ++index)
+            {
+                if (captured[index])
+                {
+                    builder.set(index, std::move(*captured[index]));
+                }
             }
             return builder.build();
         }

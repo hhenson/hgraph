@@ -84,7 +84,7 @@ namespace hgraph::stdlib
             };
 
             const TableConverter     *converter{nullptr};   // over the OUT frame column schema
-            const ValueTypeMetaData  *row_meta{nullptr};    // that column bundle
+            ValueTypeRef              row_binding{};         // mutable structural assembly binding
             std::vector<Column>       columns{};
             bool                      dict{false};          // input is a TSD
         };
@@ -990,8 +990,8 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``combine[TS[Frame[X]]](a=col_ts, b=col_ts)`` — zip tuple-valued
-        column time-series into a frame (fields matched by name). */
+    /** ``combine[TS[Frame[X]]](a=col_ts, b=col_ts)`` — zip Series- or
+        tuple-valued column time-series into a frame (fields matched by name). */
     struct combine_frame_impl
     {
         static constexpr auto name = "combine_frame";

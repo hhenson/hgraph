@@ -81,6 +81,61 @@ TEST_CASE("datepart truncates datetime values to midnight")
                          DateTime{sys_days{date(2024, 11, 1)}}));
 }
 
+TEST_CASE("timedelta floor division uses Python quotient semantics")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::floordiv_>(
+            values<TimeDelta>(seconds{7}, seconds{-7}, seconds{7}),
+            values<TimeDelta>(seconds{3}, seconds{3}, seconds{-3})),
+        values<Int>(2, -3, -3));
+
+    CHECK_THROWS(
+        eval_node<hgraph::stdlib::floordiv_>(
+            values<TimeDelta>(seconds{7}),
+            values<TimeDelta>(seconds{0})));
+}
+
+TEST_CASE("timedelta multiplication accepts a numeric left operand")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::mul_>(
+            values<Int>(4),
+            values<TimeDelta>(seconds{3})),
+        values<TimeDelta>(seconds{12}));
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::mul_>(
+            values<Float>(1.5),
+            values<TimeDelta>(seconds{2})),
+        values<TimeDelta>(seconds{3}));
+}
+
+TEST_CASE("datetime getattr exposes native date and time values")
+{
+    hgraph::stdlib::register_standard_operators();
+    const DateTime before_epoch =
+        DateTime{sys_days{date(1969, 12, 31)}} + hours{23} +
+        minutes{59} + seconds{58} + microseconds{654321};
+    const DateTime after_epoch =
+        DateTime{sys_days{date(2024, 11, 1)}} + hours{15} +
+        minutes{42} + seconds{17} + microseconds{123456};
+
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::getattr_>(
+            values<DateTime>(before_epoch, after_epoch),
+            arg<"attr">(Str{"date"})),
+        values<Date>(date(1969, 12, 31), date(2024, 11, 1)));
+    CHECK_OUTPUT(
+        eval_node<hgraph::stdlib::getattr_>(
+            values<DateTime>(before_epoch, after_epoch),
+            arg<"attr">(Str{"time"})),
+        values<Time>(time_of_day(23, 59, 58, 654321),
+                     time_of_day(15, 42, 17, 123456)));
+}
+
 TEST_CASE("temporal zone graph operators resolve through GlobalState")
 {
     hgraph::stdlib::register_standard_operators();

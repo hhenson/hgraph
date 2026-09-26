@@ -805,6 +805,16 @@ namespace hgraph
             return out;
         }
 
+        [[nodiscard]] inline bool mutable_map_snapshot_compatible(
+            const ValueTypeMetaData *source, const ValueTypeMetaData *target) noexcept
+        {
+            return source != nullptr && target != nullptr &&
+                   source->try_value_kind() == ValueTypeKind::Map &&
+                   target->try_value_kind() == ValueTypeKind::Map && source->is_mutable() &&
+                   !target->is_mutable() && source->key_type == target->key_type &&
+                   source->element_type == target->element_type;
+        }
+
         [[nodiscard]] inline std::optional<Value> coerce_scalar_value_to_meta(const Value &source,
                                                                               const ValueTypeMetaData *target)
         {
@@ -825,6 +835,21 @@ namespace hgraph
                                                 : source.view();
                 if (contained.valid()) { coerced.as_any().begin_mutation().set(contained); }
                 return coerced;
+            }
+
+            // Plain Python dictionaries arrive as mutable value-layer maps.
+            // A const TS[Map[K, V]] owns an immutable wiring-time snapshot.
+            if (mutable_map_snapshot_compatible(source.schema(), target))
+            {
+                MapBuilder builder{ValuePlanFactory::instance().type_for(target->key_type),
+                                   ValuePlanFactory::instance().type_for(target->element_type)};
+                const auto source_map = source.view().as_map();
+                for (const auto [key, value] : source_map)
+                {
+                    if (value.has_value()) { builder.set_item(key, value); }
+                    else { builder.set_item_unset(key); }
+                }
+                return builder.build();
             }
 
             if (target == scalar_descriptor<Bool>::value_meta()) { return coerce_standard_numeric_scalar<Bool>(source); }
@@ -884,6 +909,7 @@ namespace hgraph
             const TSValueTypeMetaData &target, const ValueTypeMetaData &source)
         {
             return current_value_schema_compatible(target, source) ||
+                   mutable_map_snapshot_compatible(&source, target.value_schema) ||
                    opaque_auto_const_distance(target, source).has_value();
         }
 

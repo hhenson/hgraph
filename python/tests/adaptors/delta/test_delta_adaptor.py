@@ -16,7 +16,10 @@ from hgraph.adaptors.delta import (
     publish_tsd_to_delta_table,
 )
 from hgraph.adaptors.data_catalogue import DataEnvironment, DataEnvironmentEntry
-from hgraph.adaptors.delta.delta_adaptor_raw import delta_table_maintenance
+from hgraph.adaptors.delta.delta_adaptor_raw import (
+    delta_table_maintenance,
+    delta_write_adaptor_raw,
+)
 from hgraph.adaptors.delta.delta_tsd_publisher import tsd_to_frame_batched
 from hgraph.stream import StreamStatus
 
@@ -143,6 +146,44 @@ def test_delta_write_preserves_modes_keys_and_partitions(tmp_path):
         {"name": "a", "value": 1},
         {"name": "b", "value": 2},
     ]
+
+
+def test_delta_write_raw_accepts_schema_untyped_frames(tmp_path):
+    from deltalake import DeltaTable
+
+    @hg.push_queue(hg.TS[hg.Frame])
+    def data(sender):
+        sender(pa.table({"name": ["a"], "value": [1]}))
+
+    response_type = hg.TSB[hg.stream.Stream[hg.stream.Data[datetime]]]
+
+    @hg.sink_node
+    def stop(response: response_type, engine: hg.EvaluationEngineApi = None):
+        if response.status.value is StreamStatus.OK:
+            engine.request_engine_stop()
+
+    @hg.graph
+    def app():
+        hg.register_adaptor(f"{tmp_path}/", __import__(
+            "hgraph.adaptors.delta.delta_adaptor_raw", fromlist=["delta_write_adaptor_raw_impl"]
+        ).delta_write_adaptor_raw_impl)
+        stop(
+            delta_write_adaptor_raw(
+                path=f"{tmp_path}/",
+                table="rows",
+                data=data(),
+                write_mode=DeltaWriteMode.APPEND,
+                schema_mode=DeltaSchemaMode.MERGE,
+                keys=(),
+                partition=(),
+            )
+        )
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
+
+    result = DeltaTable(str(tmp_path / "rows")).to_pyarrow_table()
+    assert result.to_pylist() == [{"name": "a", "value": 1}]
 
 
 def test_delta_table_maintenance_compacts_and_vacuums(monkeypatch):

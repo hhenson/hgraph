@@ -2199,8 +2199,15 @@ class _TsExpr:
                 # combine[TS[Tuple...]](a, b, ...): pack a non-reference
                 # structural TSB. Each original child edge is retained, while
                 # its declared field shape is the value observed through any
-                # REF, matching legacy TSB.from_ts vararg packing.
-                raw_ports = [_unwrap(p) for p in ports]
+                # REF, matching legacy TSB.from_ts vararg packing. Positional
+                # scalar values are const-lifted before building the bundle.
+                raw_ports = []
+                for value in ports:
+                    unwrapped = _unwrap(value)
+                    if not isinstance(unwrapped, _m.Port):
+                        value = wire("const", value)
+                        unwrapped = _unwrap(value)
+                    raw_ports.append(unwrapped)
                 structural = WiringPort(
                     _m.bundle_port(raw_ports, [False] * len(raw_ports)))
                 if strict_cs is False:
@@ -2222,7 +2229,10 @@ class _TsExpr:
         for name, ftype in field_types.items():
             if name not in field_ports:
                 field_ports[name] = _unwrap(wire("nothing", output_type=_TsExpr(ftype, repr(ftype))))
-        return WiringPort(_m.tsb_port(self.handle, field_ports))
+        structural = WiringPort(_m.tsb_port(self.handle, field_ports))
+        if strict_cs:
+            return wire("combine", structural, __strict__=True)
+        return structural
 
     """A resolved time-series type: wraps the C++ TsType handle."""
 
@@ -3031,7 +3041,11 @@ class _TSBMeta(type):
                 # Keep an unspecialized structured scalar as a C++ type
                 # pattern; its nominal Bundle is created after resolution.
                 compound_meta = None
-            if compound_meta is not None:
+            # An authored TimeSeriesSchema may associate a scalar snapshot
+            # whose collection fields have different storage shapes. Preserve
+            # its declared TS fields and use the scalar only for materializing
+            # complete values below.
+            if compound_meta is not None and (is_cs or is_python_object):
                 expression = _TsExpr(
                     _hgraph.tsb(compound_meta), f"TSB[{origin.__name__}]")
                 _TSB_SCHEMA_CLASSES[expression.handle] = origin

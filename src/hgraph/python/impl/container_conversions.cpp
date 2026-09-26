@@ -57,6 +57,19 @@ namespace hgraph::python_bridge
             };
         }
 
+        [[nodiscard]] nb::list list_to_python_elements(const ListStorage &storage)
+        {
+            const auto  element_binding = storage.element_binding();
+            const auto &ops             = element_binding.ops_ref();
+            nb::list    result;
+            for (std::size_t i = 0; i < storage.size(); ++i)
+            {
+                // UNSET holes read back as None.
+                result.append(storage.element_set(i) ? to_python(ops, storage.element_at(i)) : nb::none());
+            }
+            return result;
+        }
+
         // -- compact to_python ---------------------------------------------------
         nb::object list_to_python(const void *, const void *memory)
         {
@@ -93,23 +106,20 @@ namespace hgraph::python_bridge
                 }
             }
 
-            const auto  element_binding = storage->element_binding();
-            const auto &ops             = element_binding.ops_ref();
-            nb::list    result;
-            for (std::size_t i = 0; i < storage->size(); ++i)
-            {
-                // UNSET holes read back as None.
-                result.append(storage->element_set(i) ? to_python(ops, storage->element_at(i)) : nb::none());
-            }
-            return result;
+            return list_to_python_elements(*storage);
         }
 
         /** The VARIADIC-TUPLE variant: same storage, python reads back a
             TUPLE (ops-variant selection at binding time - the type-erasure
             rule: no runtime flag checks). */
-        nb::object list_to_python_tuple(const void *context, const void *memory)
+        nb::object list_to_python_tuple(const void *, const void *memory)
         {
-            return nb::tuple(list_to_python(context, memory));
+            const auto *storage = static_cast<const ListStorage *>(memory);
+            if (storage == nullptr || storage->element_binding() == nullptr)
+            {
+                throw std::runtime_error("Tuple to_python requires live storage with an element binding");
+            }
+            return nb::tuple(list_to_python_elements(*storage));
         }
 
         /** Shaped-array variant selected when the binding is interned. */

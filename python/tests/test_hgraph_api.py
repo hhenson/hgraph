@@ -22,6 +22,23 @@ def test_graph_with_operator_sugar():
     check(eval_node(calc, [1, None, 3], [10, 20, None]) == [22, 42, 46], "sugar")
 
 
+def test_eval_node_elide_returns_none_when_output_never_ticks():
+    @graph
+    def never(a: TS[int]) -> TS[int]:
+        return hg.filter_(hg.const(False), a)
+
+    assert eval_node(never, [1], __elide__=True) is None
+
+
+def test_eval_node_named_input_preserves_preceding_ts_default():
+    @hg.compute_node
+    def add_default(a: TS[int] = 1, b: TS[int] = 2) -> TS[int]:
+        return a.value + b.value
+
+    assert eval_node(add_default, b=3) == [4]
+    assert eval_node(add_default, b=[3, 4]) == [4, 5]
+
+
 def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
     class Result(TimeSeriesSchema):
         value: TS[int]
@@ -30,6 +47,20 @@ def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
     @graph
     def partial(value: TS[int]) -> TSB[Result]:
         return {"value": value}
+
+    assert eval_node(partial, [1, 2]) == [{"value": 1}, {"value": 2}]
+
+
+def test_compute_node_partial_tsb_return_omits_unticked_collection_fields():
+    class Result(TimeSeriesSchema):
+        value: TS[int]
+        by_name: TSD[str, TS[int]]
+        names: TSS[str]
+        values: TSL[TS[int], Size[2]]
+
+    @hg.compute_node
+    def partial(value: TS[int]) -> TSB[Result]:
+        return {"value": value.value}
 
     assert eval_node(partial, [1, 2]) == [{"value": 1}, {"value": 2}]
 
@@ -344,6 +375,14 @@ def test_eval_node_scalar_inputs_follow_ts_annotations():
         return hg.sum_(a, b, c)
 
     check(eval_node(total, 4.0, 5.0, 6.0) == [15.0], "scalar eval_node inputs")
+
+
+def test_eval_node_named_scalar_ts_inputs_preserve_intervening_scalar():
+    @graph
+    def scaled_sum(left: TS[int], factor: int, right: TS[int]) -> TS[int]:
+        return (left + right) * factor
+
+    assert eval_node(scaled_sum, left=2, factor=3, right=5) == [21]
 
 
 def test_eval_node_accepts_tuple_valued_scalar_keyword():
@@ -1635,6 +1674,50 @@ def test_service_adaptor_from_python():
 
     out = eval_node(arithmetic_client, [7], [2])
     check(out == [{"total": 9, "difference": 5}], f"multi-field service adaptor: {out}")
+
+    class StreamLikeResult(hg.TimeSeriesSchema):
+        status: TS[int]
+        status_msg: TS[str]
+        values: TS[int]
+        timestamp: TS[datetime.datetime]
+
+    class ImplementationStreamLikeResult(hg.TimeSeriesSchema):
+        values: TS[int]
+        status: TS[int]
+        status_msg: TS[str]
+        timestamp: TS[datetime.datetime]
+
+    @hg.service_adaptor
+    def ref_leaf_result(request: TS[int]) -> TSB[StreamLikeResult]: ...
+
+    @hg.graph
+    def make_ref_leaf_result(value: TS[int]) -> TSB[ImplementationStreamLikeResult]:
+        return hg.combine[TSB[ImplementationStreamLikeResult]](
+            values=value,
+            status=hg.const(0, tp=TS[int]),
+            status_msg=hg.const("", tp=TS[str]),
+            timestamp=hg.const(datetime.datetime(2024, 1, 1), tp=TS[datetime.datetime]),
+        )
+
+    @hg.service_adaptor_impl(interfaces=ref_leaf_result)
+    def ref_leaf_result_impl(
+        requests: TSD[int, TS[int]],
+    ) -> TSD[int, TSB[ImplementationStreamLikeResult]]:
+        values = hg.map_(make_ref_leaf_result, requests)
+        groups = hg.map_(
+            lambda key: hg.const("all", tp=TS[str]),
+            __keys__=values.key_set,
+            __key_arg__="key",
+        )
+        return hg.unpartition(hg.partition(values, groups))
+
+    @graph
+    def ref_leaf_result_client(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("ref-leaf-result", ref_leaf_result_impl)
+        return ref_leaf_result(value, path="ref-leaf-result").values
+
+    out = eval_node(ref_leaf_result_client, [3, None, 5])
+    check(out == [3, None, 5], f"reference-leaf service adaptor: {out}")
 
     try:
         @hg.service_adaptor_impl(interfaces=echo)

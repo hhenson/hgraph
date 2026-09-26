@@ -287,5 +287,5 @@ def _options_port(explicit, options):
             name: convert[TS[object]](value)
             for name, value in options.items()
         }
-        return convert[TS[dict[str, object]]](combine(**boxed))
+        return convert[TS[dict[str, object]]](combine(**boxed, __strict__=True))
     return const(frozendict(options), tp=TS[object])

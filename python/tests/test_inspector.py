@@ -113,6 +113,7 @@ def test_inspector_registers_native_diagnostics_without_adding_recurring_ticks(m
 
 def test_inspector_retains_the_released_perspective_workspace_interactions():
     import hgraph.debug._inspector as implementation
+    import hgraph.adaptors.perspective._perspective as perspective_impl
 
     template = implementation.Path(implementation.__file__).with_name(
         "inspector_template.html"
@@ -122,6 +123,13 @@ def test_inspector_retains_the_released_perspective_workspace_interactions():
     assert 'fetch_alert("/inspect/expand/"' in template
     assert 'fetch("/inspect/ref/"' in template
     assert 'window.open("/inspect_value/"' in template
+    assert "perspective-viewer-datagrid-norollups" not in template
+    assert "perspective-viewer-summary" not in template
+    assert all(
+        "perspective-viewer-datagrid-norollups" not in asset
+        and "perspective-viewer-summary" not in asset
+        for asset in perspective_impl._PERSPECTIVE_WEB_ASSETS
+    )
     frame_template = implementation.Path(implementation.__file__).with_name(
         "frame_template.html"
     ).read_text()

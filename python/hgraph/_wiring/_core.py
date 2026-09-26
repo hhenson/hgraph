@@ -629,7 +629,7 @@ class _OperatorFunction:
             self._type_variables = _signature_type_variables(
                 wiring_signature.parameters.values(), wiring_signature.return_annotation)
             self._public_return = wiring_signature.return_annotation
-            signature = inspect.signature(signature)
+            signature = inspect.signature(signature, eval_str=True)
         self.__signature__ = (
             signature if signature is not None
             else _operator_runtime_signature(signatures)
@@ -729,6 +729,7 @@ class _OperatorFunction:
             if isinstance(i, slice):
                 if _type_var_name(i.start) == "OUT" and output_type is None:
                     output_type = i.stop
+                    resolutions["OUT"] = i.stop
                 elif isinstance(i.stop, int):
                     sizes.append(i.stop)   # op[SIZE: Size[4]] pins size vars
                 else:
@@ -1037,6 +1038,11 @@ WiringPort.__enter__ = _port_enter
 WiringPort.__exit__ = _port_exit
 
 
+def _context_has_name(port, frame, name):
+    """Whether ``name`` is a local alias for this published port."""
+    return name in frame.f_locals and frame.f_locals[name] is port
+
+
 def _context_name_of(port, frame):
     """The `as` variable name: the frame local bound to this port."""
     # The source parameter and the later ``as`` alias commonly point at the
@@ -1067,7 +1073,7 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
     pattern = _pattern_of(ctx_expr.ts) if isinstance(
         ctx_expr.ts, (_GenericTsExpr, _TypeVarSentinel)) else None
     for port, ts_type, frame, owning_wiring in reversed(_published_contexts):
-        if name is not None and _context_name_of(port, frame) != name:
+        if name is not None and not _context_has_name(port, frame, name):
             continue
         matches = wanted is not None and ts_type == wanted
         if not matches and pattern is not None:

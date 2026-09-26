@@ -51,6 +51,8 @@ from hgraph import (
     reference_service,
     register_service,
     rekey,
+    sample,
+    schedule,
     service_impl,
     set_delta,
     str_,
@@ -145,6 +147,14 @@ def test_sub_tsds_2():
         return tsd1 - tsd2
 
     assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [frozendict({1: 1}), None]
+
+
+def test_sub_tsds_empty_result_is_valid():
+    @graph
+    def difference_size(lhs: TSD[int, TS[int]], rhs: TSD[int, TS[int]]) -> TS[int]:
+        return len_((lhs - rhs).key_set)
+
+    assert eval_node(difference_size, [{1: 1}], [{1: 2}]) == [0]
 
 
 def test_tsd_get_item():
@@ -362,6 +372,21 @@ def test_default_tsd_with_polymorphic_compound_keys(key):
     assert eval_node(g, [True]) == [value]
 
 
+def test_default_adapts_non_empty_tsd_to_unpartition_reference_leaves():
+    @graph
+    def g(
+        primary: TSD[str, TSD[int, TS[int]]],
+        fallback: TSD[int, TS[int]],
+    ) -> TSD[int, TS[int]]:
+        return default(unpartition(primary), fallback)
+
+    assert eval_node(
+        g,
+        [None, None],
+        [{7: 70}, {7: 71, 8: 80}],
+    ) == [{7: 70}, {7: 71, 8: 80}]
+
+
 def test_tsd_get_items_change_tsd():
     @graph
     def g(c: TS[bool], ts1: TSD[int, TS[int]], ts2: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
@@ -388,6 +413,24 @@ def test_tsd_get_bundle_item():
         return ts.a
 
     assert eval_node(g, [{1: dict(a=1, b=2), 2: dict(a=3, b=4)}]) == [{1: 1, 2: 3}]
+
+
+def test_tsd_get_compound_scalar_item():
+    @graph
+    def g(ts: TSD[int, TS[SelectedCompoundValue]]) -> TSD[int, TS[float]]:
+        return ts.value
+
+    assert eval_node(
+        g,
+        [
+            {
+                1: SelectedCompoundValue(symbol="A", value=1.0),
+                2: SelectedCompoundValue(symbol="B", value=2.0),
+            },
+            {1: SelectedCompoundValue(symbol="A2", value=1.0)},
+            {2: REMOVE},
+        ],
+    ) == [{1: 1.0, 2: 2.0}, {1: 1.0}, {2: REMOVE}]
 
 
 def test_tsd_get_bundle_item_2():
@@ -692,6 +735,24 @@ def test_partition_with_reduce():
             assert key is not None
 
 
+def test_partition_receives_mapped_key_when_child_becomes_valid_late():
+    @graph
+    def late(value: TS[float]) -> TS[float]:
+        return sample(schedule(MIN_TD, max_ticks=1), value)
+
+    @graph
+    def g(ts: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
+        delayed = map_(late, ts)
+        partitions = map_(lambda key: key, __keys__=delayed.key_set, __key_arg__="key")
+        return map_(lambda bucket: bucket.reduce(add_), partition(delayed, partitions))
+
+    assert eval_node(
+        g,
+        [{"a": 1.0}, {"b": 2.0}, None, None, None],
+        __elide__=True,
+    ) == [{"a": 1.0}, {"b": 2.0}]
+
+
 def test_tsd_unpartition():
     @graph
     def g(tsd: TSD[str, TSD[int, TS[int]]]) -> TSD[int, TS[int]]:
@@ -707,6 +768,25 @@ def test_tsd_unpartition():
             {"prime": {3: 6}, "odd": {3: REMOVE}},
         ],
     ) == [{1: 1}, {1: 4, 3: 6, 2: 5}, {1: REMOVE}, {2: REMOVE}, {3: 6}]
+
+
+def test_tsd_unpartition_with_structured_values():
+    @graph
+    def g(tsd: TSD[str, TSD[str, TSD[int, TS[int]]]]) -> TSD[str, TSD[int, TS[int]]]:
+        return unpartition(tsd)
+
+    assert eval_node(
+        g,
+        [
+            {"outer": {"inner": {1: 2}}},
+            {"outer": {"inner": {2: 3}}},
+            {"outer": REMOVE},
+        ],
+    ) == [
+        {"inner": {1: 2}},
+        {"inner": {2: 3}},
+        {"inner": REMOVE},
+    ]
 
 
 def test_sub_tsds_initial_lhs_valid_before_rhs():
@@ -793,7 +873,7 @@ def test_sum_tsd_unary():
         log_("TSD {}", tsd)
         return sum_(tsd)
 
-    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
+    assert eval_node(app, [None, frozendict({}), {3: 2, 1: 100}]) == [None, 0, 102]
 
 
 def test_str_tsd():
@@ -900,7 +980,7 @@ def test_combine_tuple_tuple_to_tsd():
 def test_tsd_values_as_tss():
     @graph
     def g(tsd: TSD[int, TS[int]]) -> TSS[int]:
-        return values_[TSS[int]](tsd)
+        return values_(tsd)
 
     actual = eval_node(g, [{1: 4, 2: 5, 3: 6}, {1: REMOVE}])
     assert actual == [

@@ -1439,10 +1439,9 @@ namespace hgraph::stdlib
 
         static void eval(In<"delay", TS<TimeDelta>> delay, Scalar<"initial_delay", Bool> initial_delay,
                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
-                         NodeScheduler scheduler, RecordableState<TS<Int>> ticks, EvaluationClockView clock,
-                         Out<TS<Bool>> out)
+                         NodeScheduler scheduler, RecordableState<TS<Int>> ticks, Out<TS<Bool>> out)
         {
-            const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
+            const DateTime now = scheduler.scheduling_time(use_wall_clock.value());
             stream_impl_detail::schedule_ts_eval<In<"start", TS<DateTime>>>(
                 delay, nullptr, initial_delay.value(), max_ticks.value(), use_wall_clock.value(), scheduler,
                 ticks, now, out);
@@ -1466,9 +1465,9 @@ namespace hgraph::stdlib
         static void eval(In<"delay", TS<TimeDelta>> delay, In<"start", TS<DateTime>, InputValidity::Unchecked> start,
                          Scalar<"initial_delay", Bool> initial_delay, Scalar<"max_ticks", Int> max_ticks,
                          Scalar<"use_wall_clock", Bool> use_wall_clock, NodeScheduler scheduler,
-                         RecordableState<TS<Int>> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
+                         RecordableState<TS<Int>> ticks, Out<TS<Bool>> out)
         {
-            const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
+            const DateTime now = scheduler.scheduling_time(use_wall_clock.value());
             stream_impl_detail::schedule_ts_eval(delay, &start, initial_delay.value(), max_ticks.value(),
                                                  use_wall_clock.value(), scheduler, ticks, now, out);
         }

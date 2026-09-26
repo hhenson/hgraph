@@ -654,6 +654,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!slot_live(slot)) { return; }
                 prepare_delta(modified_time);
 
+                // Publishing or invalidating a child's value changes the
+                // dictionary delta, but not membership or its key-set clock.
                 if (!child_has_current_value(slot))
                 {
                     modified_.reset(slot);

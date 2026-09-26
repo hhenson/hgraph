@@ -61,13 +61,13 @@ def count(ts: SIGNAL, reset: SIGNAL = None) -> TS[int]:
 
 
 @graph(deprecated=_moved("clip"))
-def clip(ts: TS[NUMBER], min: NUMBER, max: NUMBER) -> TS[NUMBER]:
+def clip(ts: TS[NUMBER], min: TS[NUMBER], max: TS[NUMBER]) -> TS[NUMBER]:
     """Deprecated numeric clipping graph delegating to analytics.
 
-    Each valid input tick emits the value constrained to the inclusive scalar
-    bounds.  The bounds are fixed while wiring, no state or warm-up is used,
-    and an inverted interval raises when the node starts.  Wiring warns and
-    requires ``hgraph-analytics``.
+    Each valid input tick emits the value constrained to inclusive fixed or
+    live bounds. A live bound tick recomputes the output, and an inverted
+    interval raises when observed. Wiring warns and requires
+    ``hgraph-analytics``.
     """
     from hgraph_analytics import clip as _clip
 

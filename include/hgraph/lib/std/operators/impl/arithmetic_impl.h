@@ -354,6 +354,16 @@ namespace hgraph::stdlib
         }
     };
 
+    /** ``TimeDelta // TimeDelta -> Int`` — the floored ratio of two durations. */
+    struct floordiv_timedeltas
+    {
+        static void eval(In<"lhs", TS<TimeDelta>> lhs, In<"rhs", TS<TimeDelta>> rhs,
+                         Out<TS<Int>> out)
+        {
+            out.set(floor_divide_int(lhs.value().count(), rhs.value().count()));
+        }
+    };
+
     struct abs_timedelta
     {
         static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<TimeDelta>> out)
@@ -723,6 +733,16 @@ namespace hgraph::stdlib
             }
         };
 
+        struct int_scale_timedelta_impl
+        {
+            static constexpr auto name = "mul_int_timedelta";
+
+            static void eval(In<"lhs", TS<Int>> lhs, In<"rhs", TS<TimeDelta>> rhs, Out<TS<TimeDelta>> out)
+            {
+                out.set(checked_multiply(rhs.value(), lhs.value()));
+            }
+        };
+
         struct timedelta_div_impl
         {
             static constexpr auto name = "div_timedelta_int";
@@ -742,6 +762,18 @@ namespace hgraph::stdlib
                              Out<TS<Duration>> out)
             {
                 out.set(checked_multiply(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct float_scale_timedelta_impl
+        {
+            static constexpr auto name = "mul_float_timedelta";
+
+            static void eval(In<"lhs", TS<Float>> lhs,
+                             In<"rhs", TS<Duration>> rhs,
+                             Out<TS<Duration>> out)
+            {
+                out.set(checked_multiply(rhs.value(), lhs.value()));
             }
         };
 
@@ -871,26 +903,8 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "getitem_map_scalar";
 
-            static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
-            {
-                const auto *meta = resolved_t(resolution);
-                return meta != nullptr && meta->value_kind() == ValueTypeKind::Map;
-            }
-
-            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
-            {
-                for (const WiringArg &arg : context.args)
-                {
-                    if (arg.kind != WiringArg::Kind::TimeSeries || arg.port.schema == nullptr) { continue; }
-                    const auto *value_meta = arg.port.schema->value_schema;
-                    if (value_meta == nullptr || value_meta->value_kind() != ValueTypeKind::Map) { continue; }
-                    resolution.bind_scalar("K", value_meta->key_type);
-                    resolution.bind_scalar("E", value_meta->element_type);
-                    return;
-                }
-            }
-
-            static void eval(In<"ts", TS<ScalarVar<"T">>> ts, In<"key", TS<ScalarVar<"K">>> key,
+            static void eval(In<"ts", TS<Map<ScalarVar<"K">, ScalarVar<"E">>>> ts,
+                             In<"key", TS<ScalarVar<"K">>> key,
                              Out<TS<ScalarVar<"E">>> out)
             {
                 auto map = ts.base().value().as_map();
@@ -899,6 +913,30 @@ namespace hgraph::stdlib
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.begin_mutation(erased.evaluation_time());
                 static_cast<void>(mutation.copy_value_from(map.at(key_value)));
+            }
+        };
+
+        /** getitem_ over a MAP-scalar with an explicit fallback. */
+        struct getitem_map_scalar_default_impl : getitem_map_scalar_impl
+        {
+            static constexpr auto name = "getitem_map_scalar_default";
+
+            static void eval(In<"ts", TS<Map<ScalarVar<"K">, ScalarVar<"E">>>> ts,
+                             In<"key", TS<ScalarVar<"K">>> key,
+                             In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
+                             Out<TS<ScalarVar<"E">>> out)
+            {
+                const auto map = ts.base().value().as_map();
+                const auto key_value = key.base().value();
+                const ValueView value = [&] {
+                    if (map.contains(key_value)) { return map.at(key_value); }
+                    const auto &fallback = default_value.base();
+                    return fallback.valid() ? fallback.value() : ValueView{};
+                }();
+                if (!value.has_value()) { return; }
+                const auto &erased = static_cast<const TSOutputView &>(out);
+                auto mutation = erased.begin_mutation(erased.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(value));
             }
         };
 

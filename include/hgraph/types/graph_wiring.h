@@ -11,6 +11,7 @@
 #include <hgraph/runtime/shared_output_node.h>
 #include <hgraph/types/static_schema.h>                 // schema_descriptor
 #include <hgraph/types/time_series/endpoint_schema.h>   // time_series_schema_equivalent
+#include <hgraph/types/time_series/ts_output.h>         // TSOutput::binding_compatible
 #include <hgraph/types/type_resolution.h>               // ResolutionMap, ts_resolver, unifiers, ts_type
 #include <hgraph/types/value/value.h>                   // Value (scalar configuration)
 #include <hgraph/types/wiring_observer.h>
@@ -480,6 +481,22 @@ namespace hgraph
         std::string interface_name{};
         std::string specialization{};
         bool        receive{true};
+    };
+
+    struct WiringDefaultServiceSelector
+    {
+        WiringDefaultServiceSelector(std::string path_prefix,
+                                     std::string path_suffix,
+                                     std::optional<std::string> specialization)
+            : path_prefix(std::move(path_prefix)),
+              path_suffix(std::move(path_suffix)),
+              specialization(std::move(specialization))
+        {
+        }
+
+        std::string path_prefix{};
+        std::string path_suffix{};
+        std::optional<std::string> specialization{};
     };
 
     namespace wiring_path_detail
@@ -1034,11 +1051,25 @@ namespace hgraph
             std::string description,
             std::function<void(Wiring &, std::string_view)> materialize);
 
+        /** As above, restricted to clients carrying one concrete generic
+            interface specialization. */
+        void register_default_service_implementation_candidate(
+            std::string path_prefix,
+            std::string path_suffix,
+            std::string specialization,
+            std::string description,
+            std::function<void(Wiring &, std::string_view)> materialize);
+
         /** Record an atomic multi-interface default implementation. Demand
             through any selector materializes the whole group at that user
             path; an overlapping exact implementation is ambiguous. */
         void register_default_service_implementation_candidate(
             std::vector<std::pair<std::string, std::string>> path_selectors,
+            std::string description,
+            std::function<void(Wiring &, std::string_view)> materialize);
+
+        void register_default_service_implementation_candidate(
+            std::vector<WiringDefaultServiceSelector> path_selectors,
             std::string description,
             std::function<void(Wiring &, std::string_view)> materialize);
 
@@ -1947,6 +1978,7 @@ namespace hgraph
             if (input_schema->kind == TSTypeKind::SIGNAL) { return true; }
 
             if (time_series_value_equivalent(input_schema, output_schema)) { return true; }
+            if (TSOutput::binding_compatible(output_schema, *input_schema)) { return true; }
             auto &registry = TypeRegistry::instance();
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
@@ -1972,6 +2004,18 @@ namespace hgraph
             // says nothing about whether it derives from the declared input.
             const auto *produced = value_schema_without_storage(output->value_schema);
             const auto *expected = value_schema_without_storage(input->value_schema);
+            if (produced != nullptr && expected != nullptr &&
+                produced->try_value_kind() == ValueTypeKind::Tuple &&
+                expected->try_value_kind() == ValueTypeKind::List &&
+                expected->has(ValueTypeFlags::VariadicTuple) &&
+                expected->element_type != nullptr && produced->field_count > 0)
+            {
+                return std::all_of(
+                    produced->fields, produced->fields + produced->field_count,
+                    [expected](const ValueFieldMetaData &field) {
+                        return field.type == expected->element_type;
+                    });
+            }
             return produced != nullptr && expected != nullptr &&
                    registry.value_is_a(produced, expected);
         }
@@ -2588,7 +2632,7 @@ namespace hgraph
                         throw std::logic_error(
                             "wire<G>: erased input port schema does not match the sub-graph's time-series input");
                     }
-                    return P{w, arg.erased()};
+                    return P{w, adapt_source_for_input(w, expected, arg.erased())};
                 }
                 else
                 {

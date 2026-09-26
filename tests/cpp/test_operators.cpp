@@ -699,6 +699,33 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: a repeated input variable accepts a narrower nominal input")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *animal = registry.bundle(
+        "tests.operator.repeated", "Animal", {{"id", integer}});
+    const auto *dog = registry.bundle(
+        "tests.operator.repeated", "Dog",
+        {{"id", integer}, {"barks", registry.value_type("bool")}}, {animal});
+
+    register_overload<add_, add_generic>();
+
+    std::array<WiringArg, 2> covariant_args{
+        ts_arg(registry.ts(animal)), ts_arg(registry.ts(dog))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "add", std::span<const WiringArg>{covariant_args}, true);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.map.find_ts("S") == registry.ts(animal));
+
+    std::array<WiringArg, 2> unsafe_args{
+        ts_arg(registry.ts(dog)), ts_arg(registry.ts(animal))};
+    REQUIRE_THROWS_AS(
+        OperatorRegistry::instance().resolve(
+            "add", std::span<const WiringArg>{unsafe_args}, true),
+        OperatorResolutionError);
+}
+
 TEST_CASE("operators: frame acceptance and its ranking stay in step")
 {
     // value_is_a and value_inheritance_distance advertise that
@@ -1028,6 +1055,43 @@ TEST_CASE("operators: a requires_ predicate that fails vetoes the specific overl
     CHECK(impl->rank > 0);  // the gate rejected the specific overload; the generic was selected
 }
 
+TEST_CASE("operators: expected output requirements exclude incompatible candidates")
+{
+    const auto *ts_int = ts_type<TS<Int>>();
+    const auto *ts_str = ts_type<TS<Str>>();
+    int live_requires_calls = 0;
+    int historical_requires_calls = 0;
+
+    OperatorImpl live;
+    live.name = "output_requirement_filter";
+    live.label = "live";
+    live.has_output = true;
+    live.output = TypePattern::var("OUT");
+    live.requires_predicate = [&](const ResolutionMap &map, OperatorCallContext) {
+        ++live_requires_calls;
+        return map.find_ts("OUT") == ts_int;
+    };
+
+    OperatorImpl historical = live;
+    historical.label = "historical";
+    historical.requires_predicate = [&](const ResolutionMap &map, OperatorCallContext) {
+        ++historical_requires_calls;
+        return map.find_ts("OUT") == ts_str;
+    };
+
+    OperatorRegistry::instance().register_overload(std::move(live));
+    OperatorRegistry::instance().register_overload(std::move(historical));
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "output_requirement_filter", std::span<const WiringArg>{}, true, ts_int);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "live");
+    CHECK(resolved.map.find_ts("OUT") == ts_int);
+    CHECK(live_requires_calls == 1);
+    CHECK(historical_requires_calls == 1);
+}
+
 TEST_CASE("operators: the TypePattern interpreter matches and ranks a nested TSL")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
@@ -1178,6 +1242,37 @@ TEST_CASE("operators: shared TypePattern input matcher mirrors wiring semantics"
 
     ResolutionMap nested_strict;
     CHECK_FALSE(ts_pattern_match(nested_ref, ts_type<TSL<TS<Int>, 2>>(), nested_strict));
+}
+
+TEST_CASE("operators: repeated input variables accept equivalent interior reference layouts")
+{
+    using RefDict = TSD<Str, REF<TS<Int>>>;
+    using ValueDict = TSD<Str, TS<Int>>;
+
+    const TypePattern variable = to_pattern<TsVar<"S">>();
+    ResolutionMap runtime;
+    REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), runtime));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+    CHECK(runtime.find_ts("S") == ts_type<ValueDict>());
+    CHECK_FALSE(input_ts_pattern_match(variable, ts_type<TSD<Str, TS<Float>>>(), runtime));
+
+    // The inferred output is dereferenced; an explicit REF output is still strict.
+    CHECK(output_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+    CHECK_FALSE(output_ts_pattern_match(variable, ts_type<RefDict>(), runtime));
+
+    ResolutionMap typed;
+    ts_unifier<TsVar<"S">>::unify(ts_type<RefDict>(), typed);
+    ts_unifier<TsVar<"S">>::unify(ts_type<ValueDict>(), typed);
+    CHECK(typed.find_ts("S") == ts_type<ValueDict>());
+    CHECK_THROWS_AS((ts_unifier<TsVar<"S">>::unify(
+                        ts_type<TSD<Str, TS<Float>>>(), typed)),
+                    std::logic_error);
+
+    ResolutionMap output_first;
+    REQUIRE(output_ts_pattern_match(variable, ts_type<ValueDict>(), output_first));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), output_first));
+    REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), output_first));
+    CHECK(output_first.find_ts("S") == ts_type<ValueDict>());
 }
 
 TEST_CASE("operators: resolving a generic dereferences everything at every depth (#847)")
@@ -1388,6 +1483,34 @@ TEST_CASE("operators: a bare tuple conversion target resolves a Series element t
     REQUIRE(resolved->value_schema != nullptr);
     CHECK(resolved->value_schema->has(ValueTypeFlags::VariadicTuple));
     CHECK(resolved->value_schema->element_type == integer);
+}
+
+TEST_CASE("operators: bare TSD conversion distinguishes nested values from tuple zip")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *text = registry.value_type("str");
+    const auto pattern = to_pattern<TSD<ScalarVar<"K">, TsVar<"V">>>();
+
+    const auto *nested = registry.tsd(integer, registry.ts(integer));
+    const std::array<const TSValueTypeMetaData *, 2> live_inputs{
+        registry.ts(text), nested};
+    const auto *live = stdlib::resolve_convert_target(pattern, live_inputs);
+    REQUIRE(live != nullptr);
+    REQUIRE(live->kind == TSTypeKind::TSD);
+    // Pin the observed nested type, allowing the current runtime to choose
+    // owned or reference-backed storage. The public wiring test below the
+    // operator layer verifies that later value ticks remain live.
+    CHECK(registry.dereference(live->element_ts()) == nested);
+
+    const auto *key_tuple = registry.ts(registry.list(text, 0, true));
+    const auto *value_tuple = registry.ts(registry.list(integer, 0, true));
+    const std::array<const TSValueTypeMetaData *, 2> zip_inputs{
+        key_tuple, value_tuple};
+    const auto *zip = stdlib::resolve_convert_target(pattern, zip_inputs);
+    REQUIRE(zip != nullptr);
+    REQUIRE(zip->kind == TSTypeKind::TSD);
+    CHECK(zip->element_ts() == registry.ts(integer));
 }
 
 TEST_CASE("operators: TypePattern supports TSB schema variables")
@@ -1725,6 +1848,27 @@ TEST_CASE("operators: scalar variable constraints reject unsupported scalar type
     ResolutionMap late_constraint;
     REQUIRE(ts_pattern_match(to_pattern<TS<ScalarVar<"T">>>(), ts_type<TS<Float>>(), late_constraint));
     CHECK_FALSE(ts_pattern_match(to_pattern<TS<ScalarVar<"T", Int>>>(), ts_type<TS<Float>>(), late_constraint));
+}
+
+TEST_CASE("operators: constrained scalar inputs promote subclasses to their matching constraint")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    REQUIRE(integer != nullptr);
+    const auto *base = registry.bundle(
+        "tests.constraint", "Base", {{"id", integer}}, {}, true);
+    const auto *derived = registry.bundle(
+        "tests.constraint", "Derived", {{"id", integer}, {"rank", integer}}, {base});
+    const auto *alternative = registry.bundle(
+        "tests.constraint", "Alternative", {{"id", integer}});
+
+    const TypePattern pattern = TypePattern::ts(
+        ScalarPattern::var("T", {base, alternative}));
+    ResolutionMap resolution;
+
+    REQUIRE(input_ts_pattern_match(pattern, registry.ts(derived), resolution));
+    CHECK(resolution.find_scalar("T") == base);
+    CHECK(ts_pattern_resolve(pattern, resolution) == registry.ts(base));
 }
 
 TEST_CASE("operators: TypePattern matches generic TSW and TSB structures")

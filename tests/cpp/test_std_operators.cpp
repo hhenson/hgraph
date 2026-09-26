@@ -28,6 +28,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/subgraph_wiring.h>
@@ -58,6 +59,18 @@ namespace polymorphic_emit_repro
     {};
 }
 
+namespace polymorphic_tsb_conversion_repro
+{
+    struct Explain
+    {};
+    struct ExplainLeaf
+    {};
+    using Price = hgraph::Bundle<
+        "PolymorphicTsbConversionPrice",
+        hgraph::Field<"value", hgraph::Float>,
+        hgraph::Field<"explain", Explain>>;
+}
+
 namespace hgraph
 {
     template <>
@@ -69,6 +82,34 @@ namespace hgraph
             auto &registry = TypeRegistry::instance();
             return registry.bundle(
                 "tests.emit", "Event", {{"event_id", registry.value_type("str")}}, {}, true);
+        }
+    };
+
+    template <>
+    struct scalar_descriptor<polymorphic_tsb_conversion_repro::Explain>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.tsb_conversion", "Explain",
+                {{"symbol", registry.value_type("str")}}, {}, true);
+        }
+    };
+
+    template <>
+    struct scalar_descriptor<polymorphic_tsb_conversion_repro::ExplainLeaf>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.tsb_conversion", "ExplainLeaf",
+                {{"symbol", registry.value_type("str")},
+                 {"detail", registry.value_type("str")}},
+                {scalar_descriptor<polymorphic_tsb_conversion_repro::Explain>::value_meta()});
         }
     };
 }
@@ -107,8 +148,19 @@ namespace hgraph
 namespace hgraph::testing
 {
     template <>
+    struct ts_harness<TS<Set<Int>>> : bundle_ts_harness<TS<Set<Int>>>
+    {
+    };
+
+    template <>
     struct ts_harness<TS<polymorphic_emit_repro::Event>>
         : bundle_ts_harness<TS<polymorphic_emit_repro::Event>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<polymorphic_tsb_conversion_repro::ExplainLeaf>>
+        : bundle_ts_harness<TS<polymorphic_tsb_conversion_repro::ExplainLeaf>>
     {
     };
 
@@ -320,7 +372,47 @@ namespace
         }
     };
 
+    struct FixedToVariadicTupleGraph
+    {
+        static constexpr auto name = "fixed_to_variadic_tuple_graph";
+
+        static Port<TS<HomogeneousTuple<Int>>> compose(
+            Wiring &w, Port<TS<Tuple<Int, Int>>> ts)
+        {
+            return wire<stdlib::convert, TS<HomogeneousTuple<Int>>>(w, ts);
+        }
+    };
+
+    struct SetToVariadicTupleGraph
+    {
+        static constexpr auto name = "set_to_variadic_tuple_graph";
+
+        static Port<TS<HomogeneousTuple<Int>>> compose(Wiring &w, Port<TS<Set<Int>>> ts)
+        {
+            return wire<stdlib::convert, TS<HomogeneousTuple<Int>>>(w, ts);
+        }
+    };
+
     using PolymorphicEvent = polymorphic_emit_repro::Event;
+
+    using PolymorphicExplain = polymorphic_tsb_conversion_repro::Explain;
+    using PolymorphicExplainLeaf = polymorphic_tsb_conversion_repro::ExplainLeaf;
+    using PolymorphicPrice = polymorphic_tsb_conversion_repro::Price;
+    using PolymorphicPriceTsb =
+        NominalTSB<PolymorphicPrice,
+                   Field<"value", TS<Float>>,
+                   Field<"explain", TS<PolymorphicExplain>>>;
+
+    struct PolymorphicTsbToCompoundScalarGraph
+    {
+        static Port<TS<PolymorphicPrice>> compose(
+            Wiring &w, Port<TS<Float>> value,
+            Port<TS<PolymorphicExplainLeaf>> explain)
+        {
+            auto price = stdlib::to_tsb<PolymorphicPriceTsb>(w, value, explain);
+            return wire<stdlib::convert, TS<PolymorphicPrice>>(w, price);
+        }
+    };
 
     using PolymorphicEventDict = TSD<Str, TS<PolymorphicEvent>>;
     using PolymorphicEventKeyValue =
@@ -342,6 +434,16 @@ namespace
         {
             return wire<stdlib::emit>(w, events)
                 .as<PolymorphicEventKeyValue>();
+        }
+    };
+
+    struct TypedTssEmitGraph
+    {
+        static constexpr auto name = "typed_tss_emit_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSS<Int>> values)
+        {
+            return wire<stdlib::emit, TS<Int>>(w, values);
         }
     };
 
@@ -492,6 +594,38 @@ namespace
         }
     };
 
+    using HeterogeneousTuple = FixedTuple<Str, Int>;
+
+    struct HeterogeneousTupleFirstGraph
+    {
+        static constexpr auto name = "heterogeneous_tuple_first_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<HeterogeneousTuple>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Int{0}).as<TS<Str>>();
+        }
+    };
+
+    struct HeterogeneousTupleLastGraph
+    {
+        static constexpr auto name = "heterogeneous_tuple_last_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<HeterogeneousTuple>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Int{-1}).as<TS<Int>>();
+        }
+    };
+
+    Value heterogeneous_tuple(Str text, Int number)
+    {
+        Value value{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<HeterogeneousTuple>::value_meta())};
+        auto tuple = value.as_tuple().begin_mutation();
+        tuple.at(0).checked_mutable_as<Str>() = std::move(text);
+        tuple.at(1).checked_mutable_as<Int>() = number;
+        return value;
+    }
+
     template <typename T>
     struct SeriesContainsGraph
     {
@@ -616,6 +750,50 @@ namespace
         static Port<TS<Float>> compose(Wiring &w, Port<void> ts)
         {
             return wire<stdlib::mean>(w, ts).as<TS<Float>>();
+        }
+    };
+
+    struct MapGetitemDefaultGraph
+    {
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Str>> key,
+                                       Port<TS<Float>> default_value)
+        {
+            auto values = wire<stdlib::const_, TS<Map<Str, Float>>>(
+                w, stdlib::make_map<Str, Float>({{Str{"KRW"}, Float{1.0}}}));
+            return wire<stdlib::getitem_>(w, values, key, default_value)
+                .as<TS<Float>>();
+        }
+    };
+
+    Value mutable_int_map(std::initializer_list<std::pair<Int, Int>> entries)
+    {
+        const auto *item = scalar_descriptor<Int>::value_meta();
+        Value map{ValuePlanFactory::instance().type_for(
+            TypeRegistry::instance().mutable_map(item, item))};
+        auto mutation = map.as_map().begin_mutation();
+        for (const auto &[key, value] : entries)
+        {
+            mutation.set_item(Value{key}.view(), Value{value}.view());
+        }
+        return map;
+    }
+
+    struct MutableMapGetitemGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key)
+        {
+            return wire<stdlib::getitem_>(w, mutable_int_map({{Int{1}, Int{10}}}), key)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MutableMapGetitemDefaultGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key)
+        {
+            return wire<stdlib::getitem_>(
+                       w, mutable_int_map({{Int{1}, Int{10}}}), key, Int{-1})
+                .as<TS<Int>>();
         }
     };
 
@@ -774,9 +952,12 @@ namespace
         TSB<"NamedContainerAccessBundle", Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
     using HandlerOutputBundle =
         UnNamedTSB<Field<"response", TS<Int>>, Field<"audit", TS<Str>>>;
+    using HandlerResponseValue =
+        Bundle<"HandlerResponseValue", Field<"response", Int>, Field<"audit", Str>>;
     using NumericTsbBundle      = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Float>>>;
     using FloatTsbBundle        = UnNamedTSB<Field<"a", TS<Float>>, Field<"b", TS<Float>>>;
     using IntTsbBundle          = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
+    using SetFieldTsbBundle     = UnNamedTSB<Field<"values", TSS<Int>>>;
     using IfIntRefBundle        = UnNamedTSB<Field<"true", REF<TS<Int>>>, Field<"false", REF<TS<Int>>>>;
     using IfIntTsdRefBundle = UnNamedTSB<Field<"true", REF<TSD<Int, TS<Int>>>>,
                                          Field<"false", REF<TSD<Int, TS<Int>>>>>;
@@ -784,6 +965,42 @@ namespace
     using IntTslPair            = TSL<TS<Int>, 2>;
     using IntTslPairReferences  = TSL<REF<TS<Int>>, 2>;
     using IntTsd                = TSD<Int, TS<Int>>;
+
+    Value handler_response_value(Int response, Str audit)
+    {
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<HandlerResponseValue>::value_meta())};
+        builder.set("response", Value{response}.view());
+        builder.set("audit", Value{std::move(audit)}.view());
+        return builder.build();
+    }
+
+    Value handler_response_dict_delta(std::vector<std::pair<Int, Value>> modified,
+                                      std::vector<Int> removed = {})
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *key_meta = scalar_descriptor<Int>::value_meta();
+        const auto *value_meta = scalar_descriptor<HandlerResponseValue>::value_meta();
+        const auto key_binding = ValuePlanFactory::instance().type_for(key_meta);
+        const auto value_binding = ValuePlanFactory::instance().type_for(value_meta);
+
+        SetBuilder removed_values{key_binding};
+        for (const Int key : removed) { removed_values.insert_copy(&key); }
+
+        MapBuilder modified_values{key_binding, value_binding};
+        for (const auto &[key, value] : modified)
+        {
+            modified_values.set_item_copy(&key, value.view().data());
+        }
+
+        const auto *delta_meta = registry.un_named_bundle(
+            {{"removed", registry.set(key_meta)},
+             {"modified", registry.map(key_meta, value_meta)}});
+        BundleBuilder delta{ValuePlanFactory::instance().type_for(delta_meta)};
+        delta.set("removed", removed_values.build());
+        delta.set("modified", modified_values.build());
+        return delta.build();
+    }
 
     struct ForwardReference
     {
@@ -1145,6 +1362,16 @@ namespace
     {
         static Port<TSD<Int, TS<Int>>> compose(Wiring &w,
                                                Port<TSD<Int, HandlerOutputBundle>> responses)
+        {
+            return wire<stdlib::getattr_>(w, responses, Str{"response"})
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
+    struct KeyedCompoundResponseProjectionGraph
+    {
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Int, TS<HandlerResponseValue>>> responses)
         {
             return wire<stdlib::getattr_>(w, responses, Str{"response"})
                 .as<TSD<Int, TS<Int>>>();
@@ -1719,6 +1946,30 @@ namespace
         }
     };
 
+    struct AnyMapSetSize
+    {
+        static constexpr auto name = "any_map_set_size";
+
+        static void eval(In<"values", TS<Map<Str, AnyValue>>> values, Out<TS<Int>> out)
+        {
+            const auto map_value = values.base().value().as_map();
+            const auto boxed = map_value.at(Value{Str{"values"}}.view()).as_any().get();
+            out.set(static_cast<Int>(boxed.as_set().size()));
+        }
+    };
+
+    struct ConvertTsbSetFieldToAnyMapGraph
+    {
+        static constexpr auto name = "convert_tsb_set_field_to_any_map_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSS<Int>> values)
+        {
+            auto bundle = stdlib::to_tsb<SetFieldTsbBundle>(w, values);
+            auto map = wire<stdlib::convert, TS<Map<Str, AnyValue>>>(w, bundle);
+            return wire<AnyMapSetSize>(w, map);
+        }
+    };
+
     struct AnyCheckedDowncastGraph
     {
         static constexpr auto name = "any_checked_downcast_graph";
@@ -1738,6 +1989,17 @@ namespace
         {
             auto boxed = wire<stdlib::convert, TS<AnyValue>>(w, ts);
             return wire<stdlib::downcast_, TS<Int>>(w, boxed);
+        }
+    };
+
+    struct ConvertNestedTsdGraph
+    {
+        static constexpr auto name = "convert_nested_tsd_graph";
+
+        static Port<TSD<Str, TSD<Int, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TSD<Int, TS<Int>>> values)
+        {
+            return wire<stdlib::convert, TSD<Str, TSD<Int, TS<Int>>>>(w, key, values);
         }
     };
 
@@ -2035,6 +2297,38 @@ TEST_CASE("std operators: convert dispatches from native Any by its contained sc
                                   DateTime{sys_days{ymd(2025, 12, 31)}}));
 }
 
+TEST_CASE("std operators: convert keys an arbitrary live time series")
+{
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ConvertNestedTsdGraph>(
+            values<Str>("a", none, "b", none),
+            values<Value>(
+                dict_delta<Int, TS<Int>>({{1, 10}}),
+                dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}}),
+                none,
+                dict_delta<Int, TS<Int>>({{2, 21}}))),
+        values<Value>(
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"a"s, dict_delta<Int, TS<Int>>({{1, 10}})}}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"a"s, dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}})}}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"b"s, dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}})}}, {"a"s}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"b"s, dict_delta<Int, TS<Int>>({{2, 21}})}})));
+}
+
+TEST_CASE("std operators: convert TSB collection fields to object mappings")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ConvertTsbSetFieldToAnyMapGraph>(
+                     values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {}))),
+                 values<Int>(2, 3));
+}
+
 TEST_CASE("std operators: downcast checks the value contained by native Any")
 {
     stdlib::register_standard_operators();
@@ -2100,6 +2394,18 @@ TEST_CASE("std operators: tuple subtraction accepts a native erased comparator")
                  values<Value>(int_tuple({2, 4})));
 }
 
+TEST_CASE("std operators: scalar indexing resolves heterogeneous tuple elements")
+{
+    stdlib::register_standard_operators();
+    const auto tuples = values<Value>(
+        heterogeneous_tuple("one", 1), heterogeneous_tuple("two", 2));
+
+    CHECK_OUTPUT(eval_node<HeterogeneousTupleFirstGraph>(tuples),
+                 values<Str>("one", "two"));
+    CHECK_OUTPUT(eval_node<HeterogeneousTupleLastGraph>(tuples),
+                 values<Int>(1, 2));
+}
+
 TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
 {
     stdlib::register_standard_operators();
@@ -2138,6 +2444,49 @@ TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
         (eval_node<stdlib::emit, TS<HomogeneousTuple<PolymorphicEvent>>>(
             values<Value>(events))),
         values<Value>(created));
+}
+
+TEST_CASE("std operators: a TSS emit resolves its scalar output from the signature")
+{
+    stdlib::register_standard_operators();
+
+    WiringArg input;
+    input.kind = WiringArg::Kind::TimeSeries;
+    input.port.schema = ts_type<TSS<Int>>();
+    const std::array args{input};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "emit", std::span<const WiringArg>{args}, true, ts_type<TS<Int>>());
+    REQUIRE(resolved.impl != nullptr);
+    CHECK_FALSE(resolved.impl->default_resolver);
+
+    CHECK_OUTPUT(
+        eval_node<TypedTssEmitGraph>(
+            values<Value>(set_delta<Int>({1, 2, 3}, {}), none,
+                          set_delta<Int>({4}, {}))),
+        values<Int>(1, 2, 3, 4));
+}
+
+TEST_CASE("std operators: TSB conversion preserves a nested concrete Bundle leaf")
+{
+    stdlib::register_standard_operators();
+
+    const auto *leaf_schema = scalar_descriptor<PolymorphicExplainLeaf>::value_meta();
+    BundleBuilder leaf{ValuePlanFactory::instance().type_for(leaf_schema)};
+    leaf.set("symbol", Value{Str{"ABC"}});
+    leaf.set("detail", Value{Str{"derived detail"}});
+
+    const auto actual = eval_node<PolymorphicTsbToCompoundScalarGraph>(
+        values<Float>(42.0), values<Value>(leaf.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto price = actual.front()->view().as_bundle();
+    CHECK(price.field("value").checked_as<Float>() == 42.0);
+    const auto explain = price.field("explain").concrete();
+    REQUIRE(explain.schema() == leaf_schema);
+    CHECK(explain.as_bundle().field("symbol").checked_as<Str>() == Str{"ABC"});
+    CHECK(explain.as_bundle().field("detail").checked_as<Str>() ==
+          Str{"derived detail"});
 }
 
 TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")
@@ -2914,6 +3263,28 @@ TEST_CASE("std operators: min_ and max_ support binary scalar operands")
                  values<Date>(ymd(2020, 1, 3), ymd(2020, 1, 10)));
 }
 
+TEST_CASE("std operators: map getitem uses an explicit default for a missing key")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<MapGetitemDefaultGraph>(
+                     values<Str>(Str{"KRW"}, Str{"USD"}),
+                     values<Float>(none, Float{10000.0})),
+                 values<Float>(Float{1.0}, Float{10000.0}));
+}
+
+TEST_CASE("std operators: map getitem snapshots mutable scalar constants")
+{
+    const auto types = stdlib::register_standard_types();
+    static_cast<void>(types);
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<MutableMapGetitemGraph>(values<Int>(Int{1})),
+                 values<Int>(Int{10}));
+    CHECK_OUTPUT(eval_node<MutableMapGetitemDefaultGraph>(values<Int>(Int{1}, Int{2})),
+                 values<Int>(Int{10}, Int{-1}));
+}
+
 TEST_CASE("std operators: scalar container aggregate overloads resolve by kind and element type")
 {
     const auto types = stdlib::register_standard_types();
@@ -3545,6 +3916,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                                                            dict_delta<Int, TS<Int>>({}, {0})))),
                  values<Int>(0, 1, 0));
 
+    CHECK_OUTPUT((eval_node<stdlib::values_, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}, {3, 6}}),
+                                   dict_delta<Int, TS<Int>>({}, {1})))),
+                 values<Value>(set_delta<Int>({4, 5, 6}, {}), set_delta<Int>({}, {4})));
+
     // A NEVER-VALID input (upstream parity): len_ stays silent until the
     // first real delta (issue #116 family); contains_ SEEDS False — upstream
     // initializes the contains ref-output before the container first ticks
@@ -3707,6 +4083,24 @@ TEST_CASE("std operators: keyed bundle projection exposes the response field")
                       dict_delta<Int, TS<Int>>({}, {2})));
 }
 
+TEST_CASE("std operators: keyed compound scalar projection exposes the response field")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<KeyedCompoundResponseProjectionGraph>(
+            values<Value>(
+                handler_response_dict_delta(
+                    {{1, handler_response_value(Int{10}, Str{"first"})},
+                     {2, handler_response_value(Int{20}, Str{"second"})}}),
+                handler_response_dict_delta(
+                    {{1, handler_response_value(Int{10}, Str{"updated"})}}),
+                handler_response_dict_delta({}, {2}))),
+        values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                      dict_delta<Int, TS<Int>>({{1, 10}}),
+                      dict_delta<Int, TS<Int>>({}, {2})));
+}
+
 TEST_CASE("std operators: active reference topology receives one explicit startup sample")
 {
     stdlib::register_standard_operators();
@@ -3827,6 +4221,28 @@ TEST_CASE("std operators: convert copies an Arrow Series into a native variadic 
                                     int_series({Int{2}, std::nullopt, Int{3}}))),
                  values<Value>(int_tuple({}), int_tuple({Int{1}}),
                                nullable_int_tuple({Int{2}, std::nullopt, Int{3}})));
+}
+
+TEST_CASE("std operators: tuple conversion retains scalar set support")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<SetToVariadicTupleGraph>(
+                     values<Value>(int_set({}), int_set({1}), int_set({3}), int_set({}))),
+                 values<Value>(int_tuple({}), int_tuple({1}), int_tuple({3}), int_tuple({})));
+}
+
+TEST_CASE("std operators: convert rebuilds a homogeneous fixed tuple as a variadic tuple")
+{
+    stdlib::register_standard_operators();
+
+    const auto *meta = scalar_descriptor<Tuple<Int, Int>>::value_meta();
+    BundleBuilder input{ValuePlanFactory::instance().type_for(meta)};
+    input.set(0, Value{Int{3}});
+    input.set(1, Value{Int{5}});
+
+    CHECK_OUTPUT(eval_node<FixedToVariadicTupleGraph>(values<Value>(input.build())),
+                 values<Value>(int_tuple({Int{3}, Int{5}})));
 }
 
 TEST_CASE("std operators: Arrow Series arithmetic and access use public typed wiring")
@@ -4110,25 +4526,23 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                  values<Int>(none, 1, 2, 3));
     CHECK_OUTPUT(eval_node<stdlib::lag>(values<Int>(1, 2, 3, 4), Int{2}),
                  values<Int>(none, none, 1, 2));
-    CHECK_THROWS_WITH(eval_node<stdlib::lag>(values<Int>(1), MIN_TD, Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
-    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(MIN_TD, Bool{true}, Int{1}, Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
-    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
-                                                  Bool{true},
-                                                  Int{1},
-                                                  Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
-    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
-                                                  values<DateTime>(MIN_ST),
-                                                  Bool{true},
-                                                  Int{1},
-                                                  Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
+    // A simulation graph treats wall-clock requests as ordinary graph-time
+    // schedules. Real-time executors still supply an explicit wall clock.
+    CHECK_OUTPUT(eval_node<stdlib::lag>(values<Int>(1), MIN_TD, Bool{true}),
+                 values<Int>(none, 1));
+    CHECK_OUTPUT(eval_node<stdlib::schedule>(MIN_TD, Bool{true}, Int{1}, Bool{true}),
+                 values<Bool>(none, true));
+    CHECK_OUTPUT(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
+                                             Bool{true},
+                                             Int{1},
+                                             Bool{true}),
+                 values<Bool>(none, true));
+    CHECK_OUTPUT(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
+                                             values<DateTime>(MIN_ST),
+                                             Bool{true},
+                                             Int{1},
+                                             Bool{true}),
+                 values<Bool>(none, true));
     CHECK_OUTPUT((eval_node<stdlib::lag, TSS<Int>>(
                      values<Value>(set_delta<Int>({1}, {}),
                                    set_delta<Int>({2}, {}),
@@ -4164,13 +4578,12 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                                          values<Int>(1, 2, 3, none),
                                          Int{8}),
                  values<Int>(none, none, 1, 2, 3));
-    CHECK_THROWS_WITH(eval_node<stdlib::batch>(values<Bool>(true, none),
-                                               values<Int>(1, 2),
-                                               MIN_TD,
-                                               std::numeric_limits<Int>::max(),
-                                               Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
+    CHECK_OUTPUT(eval_node<stdlib::batch>(values<Bool>(true, none),
+                                          values<Int>(1, 2),
+                                          MIN_TD,
+                                          std::numeric_limits<Int>::max(),
+                                          Bool{true}),
+                 values<Value>(int_tuple({1}), none, int_tuple({2})));
     // hgraph semantics: a tick landing on the cycle the window releases
     // MERGES into that release (upstream throttle accumulates before the
     // scheduled drain), so t2 emits 3 (not the buffered 2) and t4 emits 5.
@@ -4188,15 +4601,11 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                                                                none,
                                                                none)),
                  values<Int>(1, none, 0, none, 0));
-    // Wall-clock throttling is a real-time-only scheduling mode. Reaching the
-    // scheduler guard here proves the overload retained and forwarded the
-    // option rather than silently using simulation time.
-    CHECK_THROWS_WITH(eval_node<stdlib::throttle>(values<Int>(1),
-                                                  values<TimeDelta>(MIN_TD * 2),
-                                                  Bool{false},
-                                                  Bool{true}),
-                      Catch::Matchers::ContainsSubstring(
-                          "wall-clock alarms require a real-time graph executor"));
+    CHECK_OUTPUT(eval_node<stdlib::throttle>(values<Int>(1, 2, 3),
+                                             values<TimeDelta>(MIN_TD * 2, none, none),
+                                             Bool{false},
+                                             Bool{true}),
+                 values<Int>(1, none, 3));
     CHECK_OUTPUT(eval_node<stdlib::throttle>(
                      values<Str>(Str{"1"}, Str{"2"}, Str{}, Str{"4"}, Str{}),
                      values<TimeDelta>(MIN_TD * 2, none, none, none, none)),

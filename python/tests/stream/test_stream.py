@@ -1,7 +1,8 @@
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 import hgraph as hg
-from hgraph import TS, TSB, combine, eval_node, graph
+from hgraph import CompoundScalar, TS, TSB, combine, compute_node, eval_node, graph
 from hgraph.stream import (
     Data,
     Stream,
@@ -35,6 +36,29 @@ def test_stream_data_schema_flattens_payload_fields():
     }]
 
 
+def test_stream_full_value_is_the_associated_scalar():
+    @dataclass(frozen=True)
+    class Payload(CompoundScalar):
+        value: int
+
+    schema = Stream[Payload]
+    stream_type = TSB[schema]
+    scalar_type = schema.scalar_type()
+
+    @compute_node
+    def inspect_stream(value: stream_type) -> TS[int]:
+        snapshot = value.value
+        assert isinstance(snapshot, scalar_type)
+        return replace(snapshot, value=snapshot.value + 1).value
+
+    assert scalar_type.__bundle_type__ is schema
+    assert eval_node(inspect_stream, [{
+        "status": StreamStatus.OK,
+        "status_msg": "",
+        "value": 7,
+    }]) == [8]
+
+
 def test_stream_time_series_schema_preserves_nested_fields():
     class Cascade(hg.TimeSeriesSchema):
         weights: hg.TSD[str, hg.TS[float]]
@@ -59,6 +83,20 @@ def test_stream_time_series_schema_preserves_nested_fields():
         "status_msg": "",
         "weights": {"front": 0.6, "back": 0.4},
     }]
+
+    scalar_type = Stream[Cascade].scalar_type()
+
+    @compute_node
+    def inspect_stream(value: stream_type) -> TS[float]:
+        snapshot = value.value
+        assert isinstance(snapshot, scalar_type)
+        return snapshot.weights["front"]
+
+    assert eval_node(inspect_stream, [{
+        "status": StreamStatus.OK,
+        "status_msg": "",
+        "weights": {"front": 0.6, "back": 0.4},
+    }]) == [0.6]
 
 
 def test_stream_status_operations_use_severity_and_deduplicate_messages():
@@ -103,8 +141,6 @@ def test_reduce_stream_statuses_and_messages_use_current_tsd_state():
 def test_stream_accepts_python_owned_dataclass_payload():
     # Issue #36: a frozen python-owned dataclass is a structured payload and
     # flattens exactly like a CompoundScalar payload.
-    from dataclasses import dataclass
-
     from hgraph.reflection import fields
 
     @dataclass(frozen=True)
@@ -139,3 +175,10 @@ def test_stream_still_rejects_unstructured_payloads():
 
     with pytest.raises(TypeError, match="structured dataclass"):
         Stream[int]
+
+
+def test_generic_stream_defers_full_value_scalar_materialization():
+    schema = Stream[Data[hg.SCALAR]]
+
+    assert schema.scalar_type() is None
+    assert repr(TSB[schema]).startswith("TSB[Stream[")
