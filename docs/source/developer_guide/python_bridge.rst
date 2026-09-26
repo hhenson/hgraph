@@ -757,6 +757,15 @@ plans, an empty collection delta default-constructs its surfaces, and the
 builders publish through ``build_storage()`` into the field bindings. The
 ``throttle_tss`` family of the lock matrix guards it.
 
+The canonical binding is the *producer's* layout, and a storage category
+(``Owned``, ``Shared``) is a layout detail: an input declared ``TS[X]`` may
+bind an output laid out as ``TS[Owned[X]]`` (a recursive field), as
+``time_series_schema_equivalent`` allows. Capture therefore accepts a
+canonical binding that differs from the input's declared delta schema only
+by storage, and then materialises the value in its own owning type -- the
+type the consumer declared -- so a recorder or queue typed from the input
+receives ``X``, not ``Owned[X]``. No registry lookup is involved.
+
 **Enforcement**: every type-system mutex is a ``TypeSystemMutex``
 (``types/utils/counted_mutex.h``), counted in ``type_system_lock_count()``
 and surfaced as ``RuntimeRegistrySnapshot.type_system_lock_acquisitions``.
