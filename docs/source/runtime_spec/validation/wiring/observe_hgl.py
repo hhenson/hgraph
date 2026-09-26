@@ -20,16 +20,22 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TYPE = re.compile(r"^\s*t(\d+) (\w+)(.*)$")
+LITERAL = re.compile(r"^\s*e(\d+) .*value=constant literal (\S+)")
 CALL = re.compile(r"operation=exact-function:\S+\.pass substitutions=\[s\d+=t(\d+)\]")
 
 
-def _render(types: dict[int, tuple[str, str]], index: int) -> str:
+def _render(types: dict[int, tuple[str, str]], sizes: dict[int, str], index: int) -> str:
     kind, rest = types[index]
     children = [int(c) for c in re.findall(r"t(\d+)", (re.search(r"children=\[([^\]]*)\]", rest) or [None, ""])[1])]
     if kind == "scalar":
         return rest.split()[0]
-    if kind in ("ref", "list"):
-        return f"{kind}<{_render(types, children[0])}>"
+    if kind == "ref":
+        return f"ref<{_render(types, sizes, children[0])}>"
+    if kind == "list":
+        # A fixed list's extent is a separate size expression (size=eN).
+        extent = re.search(r"size=e(\d+)", rest)
+        size = f", {sizes.get(int(extent.group(1)), '?')}" if extent else ""
+        return f"list<{_render(types, sizes, children[0])}{size}>"
     return f"{kind}?"
 
 
@@ -51,7 +57,8 @@ def main() -> None:
         [str(hgl), "check", str(HERE / "front_end.hgl"), "--dump-hir"], capture_output=True, text=True, check=True
     ).stdout
     types = {int(m.group(1)): (m.group(2), m.group(3)) for m in map(TYPE.match, dump.splitlines()) if m}
-    bound = [_render(types, int(m.group(1))) for m in CALL.finditer(dump)]
+    sizes = {int(m.group(1)): m.group(2) for m in map(LITERAL.match, dump.splitlines()) if m}
+    bound = [_render(types, sizes, int(m.group(1))) for m in CALL.finditer(dump)]
     observed = {"revision": args.revision, "front_end": "hgl", "through_ref": bound[0], "through_list": bound[1]}
     for field, module in (("superset_implementation", "contract_superset.hgl"),
                           ("required_extra_implementation", "contract_required_extra.hgl"),

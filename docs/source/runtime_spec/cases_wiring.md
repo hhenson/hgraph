@@ -192,4 +192,4 @@ bind as the runtime does.
 | Call | Expected binding of `T` |
 |---|---|
 | `pass(value)`, `value: ref<f64>` | `f64` |
-| `pass(values)`, `values: list<ref<f64>, 2>` | `list<f64>` |
+| `pass(values)`, `values: list<ref<f64>, 2>` | `list<f64, 2>` |

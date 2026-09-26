@@ -28,8 +28,8 @@
       "verdict": "varies"
     },
     "through_list": {
-      "expected": "list<f64>",
-      "observed": "list<ref<f64>>",
+      "expected": "list<f64, 2>",
+      "observed": "list<ref<f64>, 2>",
       "rules": [
         "WIR-14",
         "WIR-7"

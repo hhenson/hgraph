@@ -243,12 +243,12 @@
       "derivation": "The same call wired by the runtime binds the variable to the argument's type with the reference removed; HGL must reach that binding."
     },
     "through_list": {
-      "expected": "list<f64>",
+      "expected": "list<f64, 2>",
       "rules": [
         "WIR-14",
         "WIR-7"
       ],
-      "derivation": "Likewise at depth: the element references are removed."
+      "derivation": "Likewise at depth: the element references are removed; the fixed extent is kept."
     },
     "superset_implementation": {
       "expected": "accepted",
