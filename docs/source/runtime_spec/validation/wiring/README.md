@@ -74,7 +74,9 @@ here; the case records the corrected behaviour, which Python 0.5.41 shares.
 ## Limits
 
 These cases observe type resolution and selection through the public Python
-surface. A structural requested output (a variable nested in a requested
+surface; `tests/cpp/test_wiring_contract.cpp` holds the same expectations
+through native C++ wiring, where the stated resolution is C++'s explicit
+output schema and is covered in `tests/cpp/test_operators.cpp` instead. A structural requested output (a variable nested in a requested
 type) and the static C++ unifier are covered by native tests
 (`tests/cpp/test_operators.cpp`), not by this record. Parts 1 and 3's
 remaining rules rest on source evidence; see the chapter's Evidence table.

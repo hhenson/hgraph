@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -30,13 +31,22 @@ def _render(types: dict[int, tuple[str, str]], index: int) -> str:
     return f"{kind}?"
 
 
+def _compiler(path: str) -> Path:
+    """The HGL compiler named on the command line: an executable file called hgl."""
+    compiler = Path(path).resolve(strict=True)
+    if compiler.name not in ("hgl", "hgl.exe") or not compiler.is_file() or not os.access(compiler, os.X_OK):
+        raise SystemExit(f"--hgl must name the hgl compiler executable, got {path!r}")
+    return compiler
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hgl", required=True)
     parser.add_argument("--revision", required=True)
     args = parser.parse_args()
+    hgl = _compiler(args.hgl)
     dump = subprocess.run(
-        [args.hgl, "check", str(HERE / "front_end.hgl"), "--dump-hir"], capture_output=True, text=True, check=True
+        [str(hgl), "check", str(HERE / "front_end.hgl"), "--dump-hir"], capture_output=True, text=True, check=True
     ).stdout
     types = {int(m.group(1)): (m.group(2), m.group(3)) for m in map(TYPE.match, dump.splitlines()) if m}
     bound = [_render(types, int(m.group(1))) for m in CALL.finditer(dump)]

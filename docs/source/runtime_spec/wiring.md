@@ -100,16 +100,15 @@ variables.
 ### State
 
 A port's type is fixed when the port is made and never changes. A session
-is open until it produces its description, or until a call fails.
+is open until it produces its description. A call that fails (WIR-4) fails
+alone; it does not close the session (point to settle 6).
 
 ```mermaid
 stateDiagram-v2
     [*] --> Open
-    Open --> Open : a call succeeds
-    Open --> Failed : a call fails (WIR-4)
+    Open --> Open : a call succeeds, or fails (WIR-4)
     Open --> Described : wiring completes
     Described --> [*]
-    Failed --> [*]
 ```
 
 ### Behaviour
@@ -119,7 +118,7 @@ flowchart TD
     C["call(callee, arguments)"] --> O{"an operator?"}
     O -- "yes" --> S["select one candidate (Part 3)"]
     O -- "no" --> R
-    S -- "none, or a tie" --> F(["fail at this call (WIR-4)"])
+    S -- "none, or a tie" --> F(["this call fails (WIR-4)"])
     S --> R["resolve the callee's variables (Part 2)"]
     R -- "no consistent binding" --> F
     R --> B["bind each argument: an edge, or a projection of a port (WIR-5)"]
@@ -132,9 +131,11 @@ flowchart TD
 
 - **WIR-1** Wiring describes a graph and never evaluates it. No time-series
   of the graph being described exists during wiring; a port has a type and no
-  value. A constant computed during wiring comes from a separate graph, run
-  to completion before the call returns; to the graph being described it is
-  a scalar.
+  value. A constant computed during wiring is the result of an operator's
+  **constant kernel**: the candidate is selected exactly as a wired call
+  would select it (Part 3), and its kernel is a function of the call's
+  scalars and type arguments, called directly. It reads no time-series, and
+  to the graph being described its result is a scalar.
 - **WIR-2** Every port has one time-series type, fixed when the port is made.
   No type variable survives into a description.
 - **WIR-3** A call binds each argument to a parameter of the callee's
@@ -296,8 +297,10 @@ and not yet needed by a concept here:
   match and rank.
 - **Type arguments**: a parameter whose argument is a type, and how a
   non-type argument passes over a defaulted type argument (RFC 0033).
-- **Constants evaluated at wiring** (WIR-1's separate graph): which calls
-  may be evaluated so, and what they may depend on (RFC 0042).
+- **Constants evaluated at wiring** (WIR-1's constant kernel): which
+  operators declare one, and what an eager call needs that a wired call gets
+  from its graph, such as a recordable id (`record_replay_table.rst`,
+  "P1 — const-evaluable operators"; RFC 0042).
 - **Context inputs and services**: inputs bound by name from an enclosing
   scope rather than by an argument.
 - **Wiring diagnostics**: labels and source locations carried into the
@@ -330,6 +333,11 @@ Points to settle
 5. **How much of Part 3 belongs here.** The Deferred items are specified in
    the developer guide. They move here when a front end other than hgraph's
    own needs them.
+6. **What a failed call leaves behind.** A caller may catch a failed call
+   and go on wiring: the C++ session stays usable. An operator call that
+   fails adds nothing, but a graph call that fails part-way keeps what its
+   earlier calls added. Should a failed call add nothing, or a caught failure
+   close the session?
 
 
 Evidence and cases
@@ -341,9 +349,9 @@ and C++ observations.
 
 | Rules | Evidence |
 |---|---|
-| WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)"); `python/tests/test_generic_binds_dereferenced.py` covers the Python surface |
+| WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes and held by `python/tests/test_wiring_contract.py`; the same cases through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)") |
 | WIR-14 | The HGL front end is observed in the validation, where it currently varies |
-| WIR-4, WIR-15 to WIR-17 | Wiring cases for selection, ambiguity, no candidate and repeated variables. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
+| WIR-4, WIR-15 to WIR-17 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
 | WIR-1 to WIR-3, WIR-18, WIR-19 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
 
 The owner's ruling of 2026-09-24 (issue #847) states WIR-7 and WIR-9:
