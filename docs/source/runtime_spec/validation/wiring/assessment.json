@@ -59,14 +59,14 @@
   "runtimes": {
     "bundle_identity": {
       "named_and_unnamed_repeat": {
-        "cpp": "fails",
+        "cpp": "wires",
         "expected": "wires",
         "python": "wires",
         "rules": [
           "WIR-15",
           "WIR-17"
         ],
-        "verdict": "python"
+        "verdict": "both"
       },
       "named_input_from_other_name": {
         "cpp": "wires",
@@ -98,7 +98,7 @@
         "verdict": "both"
       },
       "two_names_repeat": {
-        "cpp": "fails",
+        "cpp": "wires",
         "expected": "fails",
         "python": "fails",
         "rules": [
@@ -106,7 +106,7 @@
           "WIR-17",
           "WIR-4"
         ],
-        "verdict": "both"
+        "verdict": "python"
       },
       "unnamed_input_from_named": {
         "cpp": "wires",

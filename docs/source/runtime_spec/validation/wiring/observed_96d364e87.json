@@ -1,13 +1,13 @@
 {
-  "candidate_revision": "76b8e22e8",
+  "candidate_revision": "96d364e87",
   "cases": {
     "bundle_identity": {
       "cpp": {
-        "named_and_unnamed_repeat": "wires",
+        "named_and_unnamed_repeat": "fails",
         "named_input_from_other_name": "wires",
         "named_input_from_unnamed": "wires",
         "same_name_repeat": "wires",
-        "two_names_repeat": "wires",
+        "two_names_repeat": "fails",
         "unnamed_input_from_named": "wires"
       },
       "python": {

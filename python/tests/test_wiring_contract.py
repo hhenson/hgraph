@@ -25,8 +25,8 @@ RUNTIME_CASES = sorted(case for case in REASONED if not case.startswith("_") and
 # must still vary exactly as recorded: the correction that fixes one removes
 # it from here.
 KNOWN_VARIATIONS = {
-    ("bundle_identity", "named_and_unnamed_repeat"): ("WV-3", "fails"),
     ("bundle_identity", "named_input_from_other_name"): ("WV-4", "wires"),
+    ("bundle_identity", "two_names_repeat"): ("WV-4", "wires"),
     ("operator_contract", "widening_registers"): ("WV-6", "registered"),
     ("operator_contract", "widening_call_for_float"): ("WV-6", "wires"),
     ("failure_report", "names_the_graph_path"): ("WV-8", False),

@@ -9,8 +9,11 @@ Fourteen cases ran three times each, each run in a fresh process, on Python
 hgraph 0.5.41 and on the C++ runtime's Python surface, on macOS arm64 with
 Python 3.14.7. Every repeat agreed. The C++ runtime was first observed at
 `main` @ `dea948136`, then again at this branch's `96d364e87` when the two
-failure cases were added; no earlier observation changed. The HGL front end
-was observed on the same generic calls at `dea948136`.
+failure cases were added; no earlier observation changed. After this branch
+was rebased onto `main` @ `640df576e` it was observed a third time, at
+`76b8e22e8`, and two C++ observations changed (see "Observations after the
+rebase"). The HGL front end was observed on the same generic calls at
+`dea948136`.
 
 | Result | Observations |
 |---|---:|
@@ -80,8 +83,8 @@ rule:
 | ID | Case and observation | Accepted expectation | Variation |
 |---|---|---|---|
 | WV-1 | projection, `getattr_(bundle, "routed")`; WIR-5, WIR-13 | R + C++: the reference field, `REF[TS[int]]` | Python 0.5.41 has no `getattr_` candidate for a bundle; wiring fails. Its `bundle.routed` is a Python-side projection that never calls the operator, and matches. The C++ candidate is a superset |
-| WV-3 | bundle_identity, `_same(Foo, {a})`; WIR-15, WIR-17 | R + Python: wires, one bundle is unnamed | C++ fails. On the C++ surface Python's unnamed schema carries a generated name (the port's type prints as `...UnNamedTimeSeriesSchema_<hash>`), and a variable already bound compares the type's identity |
-| WV-4 | bundle_identity, `_takes_foo(Bar)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
+| WV-3 | bundle_identity, `_same(Foo, {a})`; WIR-15, WIR-17 | R + Python: wires, one bundle is unnamed | C++ fails. On the C++ surface Python's unnamed schema carries a generated name (the port's type prints as `...UnNamedTimeSeriesSchema_<hash>`), and a variable already bound compares the type's identity. No longer varies at `76b8e22e8` (below) |
+| WV-4 | bundle_identity, `_takes_foo(Bar)`, and from `76b8e22e8` also `_same(Foo, Bar)`; WIR-15 | R + Python: fails, both named with different names | C++ wires: its bundle comparison (`time_series_schema_equivalent`) looks only at fields, never at the names |
 | WV-5 | HGL front end, an implementation with a `const scale` parameter its operator does not declare, with a default and without one; WIR-22 | R + both runtimes (their candidates may add parameters): accepted | HGL rejects both: "implementation parameter count does not match its operator contract" |
 | WV-6 | operator_contract, a candidate accepting `TIME_SERIES_TYPE` for an operator declaring `TS[int]`; WIR-23, WIR-24 | Owner ruling: rejected when registered, so a `TS[float]` call fails | Both runtimes register it and select it for `TS[float]`: neither checks a candidate against its operator. HGL rejects it |
 | WV-7 | HGL front end, a call passing `scale=5.0`, which the operator does not declare; WIR-22 | R + both runtimes: accepted, the argument goes to the candidates | HGL binds a call's arguments against the operator's signature and rejects the extra one |
@@ -92,6 +95,25 @@ rule:
 
 WV-2 is corrected in the HGL compiler, citing WIR-14; the correction's tests
 replay `front_end.hgl`.
+
+## Observations after the rebase
+
+Rebasing onto `main` brought in #1651, which compares a type variable bound
+twice by value equivalence (`time_series_value_equivalent`: references
+removed, then `time_series_schema_equivalent`) instead of by identity. At
+`76b8e22e8` two C++ observations of bundle_identity changed; every other
+observation is as before. The earlier set is kept in
+[observed_96d364e87.json](observed_96d364e87.json).
+
+| Observation | At `96d364e87` | At `76b8e22e8` | Assessment |
+|---|---|---|---|
+| `_same(Foo, {a})` (named_and_unnamed_repeat) | fails (WV-3) | wires | Now meets the expectation: WV-3 no longer varies |
+| `_same(Foo, Bar)` (two_names_repeat) | fails | wires | Now varies. WIR-15 says two named bundles with different names do not match; the comparison ignores names, as in WV-4, so it is recorded under WV-4 |
+
+The result counts above are unchanged: one observation moved from "C++
+varies" to "both", the other the other way. The correction for WV-4
+(#1655) makes the bundle comparison count names when both bundles are
+named, which covers both observations.
 
 ## The C++ correction behind WIR-7
 
