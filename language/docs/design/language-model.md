@@ -371,12 +371,15 @@ scope is an error, and a plain `fn` that shares a name with an in-scope
 operator is a conflict rather than a candidate. The function signature must be
 a compatible specialization of the contract and may itself be generic. The
 contract is the minimum an implementation meets, not an exact shape (runtime
-spec Wiring, WIR-21 to WIR-23; owner ruling 2026-09-26): an implementation
-declares every contract parameter, in order, and may declare more after them,
-each with a default that a call through the contract uses; and it may refine
-a contract parameter to a narrower type, within the contract's constraints.
-Whether an implementation may be wider than its contract is open (runtime
-spec Wiring, point to settle 6); HGL currently rejects it. Its body
+spec Wiring, WIR-21 to WIR-24; owner rulings 2026-09-26). An operator
+behaves as if its signature ended with `*args, **kwargs`: an implementation
+declares every contract parameter, in order, and may declare more after
+them, with or without defaults. One whose extra parameter has no default
+does not match a call that does not supply it; that is not an error. An
+implementation may refine a contract parameter to a narrower type and never
+widens one; the compiler rejects an implementation that does not have the
+contract's shape. Passing an extra argument through the operator's call is
+not yet supported (runtime spec wiring validation, WV-7). Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the

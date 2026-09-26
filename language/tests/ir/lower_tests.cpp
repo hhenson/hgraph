@@ -1563,7 +1563,7 @@ fn use_pick(value: f64) -> f64 => pick(value)
     REQUIRE(completed);
 }
 
-TEST_CASE("typed HIR rejects an implementation that drops or cannot default a contract parameter (runtime spec WIR-22)",
+TEST_CASE("typed HIR rejects an implementation that drops a contract parameter (runtime spec WIR-22)",
           "[ir][typed][operators][contract]") {
     Lowered dropped{R"(
 module checks.contract_dropped
@@ -1578,9 +1578,14 @@ fn use_combine(value: f64) -> f64 => combine(value, value)
     CHECK_FALSE(complete(dropped));
     CHECK(dropped.diagnostics.render(dropped.file).find("declares every parameter of its operator contract") !=
           std::string::npos);
+}
 
-    Lowered undefaulted{R"(
-module checks.contract_undefaulted
+TEST_CASE("typed HIR does not select an implementation whose extra parameter the call does not supply (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    // No default is needed (owner ruling 2026-09-26): the implementation is
+    // valid, and simply does not match a call that omits the argument.
+    Lowered lowered{R"(
+module checks.contract_required_extra
 
 operator pick<T>(value: T) -> T
 
@@ -1588,9 +1593,17 @@ impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
 
 fn use_pick(value: f64) -> f64 => pick(value)
 )"};
-    require_clean(undefaulted);
-    CHECK_FALSE(complete(undefaulted));
-    CHECK(undefaulted.diagnostics.render(undefaulted.file).find("gives each extra parameter a default") != std::string::npos);
+    require_clean(lowered);
+    (void)complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK(lowered.diagnostics.render(lowered.file).find("declares every parameter") == std::string::npos);
+    bool saw_call = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator) { continue; }
+        saw_call = true;
+        CHECK_FALSE(expression.operation.candidate.valid());
+    }
+    CHECK(saw_call);
 }
 
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {

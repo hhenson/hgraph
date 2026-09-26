@@ -142,17 +142,21 @@ named, which covers both observations.
 ## HGL correction for WV-5
 
 An HGL implementation may extend its operator contract (WIR-22): the
-contract's parameters come first, and each extra one has a default, which a
-call through the contract uses. Conformance, `instantiate` materialization
-and local candidate selection all accept it (`TypeChecker::extends_contract`).
-Regression coverage: `language/tests/ir/lower_tests.cpp` ("accepts an
-implementation that extends its operator contract", and the rejection of a
-dropped or undefaulted parameter). Replaying `observe_hgl.py` against the
-corrected compiler accepts `contract_superset.hgl`.
+contract's parameters come first, and extra ones follow, with or without
+defaults. Conformance and `instantiate` materialization accept it; local
+candidate selection selects it for a call that supplies only the contract's
+parameters when every extra parameter has a default, and otherwise does not
+match (`TypeChecker::extends_contract`, `extras_defaulted`). Regression
+coverage: `language/tests/ir/lower_tests.cpp` ("accepts an implementation
+that extends its operator contract", "does not select an implementation
+whose extra parameter the call does not supply", and the rejection of a
+dropped contract parameter). Replaying `observe_hgl.py` against the
+corrected compiler accepts `contract_superset.hgl` and
+`contract_required_extra.hgl`.
 
-Not yet supported in HGL: supplying an extra parameter explicitly through
-the operator's call, which WIR-22 also allows. An HGL operator call binds its
-arguments against the contract's signature, so it has no way to name one.
+WV-7 remains: an HGL operator call binds its arguments against the
+contract's signature, so it cannot yet pass an extra argument through to the
+implementations.
 
 ## The C++ correction behind WIR-7
 
