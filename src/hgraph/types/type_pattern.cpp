@@ -358,6 +358,42 @@ namespace hgraph
         return true;
     }
 
+    namespace
+    {
+        /**
+         * Whether every shape ``specific`` accepts, ``general`` accepts: the same
+         * rank; a fixed size in ``general`` is matched by the same fixed size; a
+         * dynamic size (0) or a variable accepts any; and a variable ``general``
+         * repeats (a square matrix) is repeated identically in ``specific``.
+         */
+        bool array_dimensions_cover(const std::vector<DimensionPattern> &general,
+                                    const std::vector<DimensionPattern> &specific)
+        {
+            if (general.size() != specific.size()) { return false; }
+            std::vector<std::pair<std::string_view, const DimensionPattern *>> repeated;
+            for (std::size_t index = 0; index < general.size(); ++index)
+            {
+                const DimensionPattern &g = general[index];
+                const DimensionPattern &c = specific[index];
+                if (g.variable)
+                {
+                    const auto seen = std::ranges::find(repeated, std::string_view{g.name},
+                                                        &std::pair<std::string_view, const DimensionPattern *>::first);
+                    if (seen == repeated.end()) { repeated.emplace_back(g.name, &c); continue; }
+                    const DimensionPattern &first = *seen->second;
+                    const bool same = first.variable ? c.variable && c.name == first.name
+                                                     : !c.variable && c.value != 0 && c.value == first.value;
+                    if (!same) { return false; }
+                }
+                else if (g.value != 0 && (c.variable || c.value != g.value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }  // namespace
+
     bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific)
     {
         // A concrete candidate type is covered exactly when the operator's
@@ -388,6 +424,10 @@ namespace hgraph
         }
         if (specific.optional_metadata && !general.optional_metadata) { return false; }
         if (general.kind != specific.kind || general.children.size() != specific.children.size()) { return false; }
+        if (general.kind == ScalarPattern::Kind::Array && !array_dimensions_cover(general.dimensions, specific.dimensions))
+        {
+            return false;
+        }
         for (std::size_t index = 0; index < general.children.size(); ++index)
         {
             if (!scalar_pattern_covers(general.children[index], specific.children[index])) { return false; }
@@ -424,10 +464,13 @@ namespace hgraph
             {
                 const bool any_size = general.size_var ? general.size_constraints.empty()
                                                        : general.fixed_size == unbounded_tsl_size;
+                const auto allowed  = [&](std::size_t size) {
+                    return std::ranges::find(general.size_constraints, size) != general.size_constraints.end();
+                };
                 const bool size_ok  = any_size ||
-                                     (!specific.size_var && general.size_var &&
-                                      std::ranges::find(general.size_constraints, specific.fixed_size) !=
-                                          general.size_constraints.end()) ||
+                                     (!specific.size_var && general.size_var && allowed(specific.fixed_size)) ||
+                                     (specific.size_var && general.size_var && !specific.size_constraints.empty() &&
+                                      std::ranges::all_of(specific.size_constraints, allowed)) ||
                                      (!general.size_var && !specific.size_var && general.fixed_size == specific.fixed_size);
                 return size_ok && ts_pattern_covers(general.children[0], specific.children[0]);
             }

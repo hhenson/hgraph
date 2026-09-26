@@ -2137,7 +2137,7 @@ class _freeze_Operator(_Protocol):
     are fixed when the graph is built.
 
     ``predicate`` : time-series, scalar; ``TS[bool]``, ``callable``, ``fn``
-       Boolean stream that freezes the output when true.
+       Boolean stream that freezes the output when true, or a function of ``ts`` returning that stream.
 
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
        Stream to forward until frozen.
@@ -3581,7 +3581,7 @@ class _lag_Operator(_Protocol):
        Stream to delay.
 
     ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
-       Positive tick count or duration selected at wiring time.
+       Positive tick count or duration fixed at wiring time, or a ``TS[timedelta]`` duration that may change.
 
     ``on_wall_clock`` : scalar; ``bool``
        For duration lag, use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.

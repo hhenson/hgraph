@@ -326,7 +326,12 @@ flowchart TD
   narrower type (a concrete type for a variable, a structure for a bare
   variable). It never widens one: every type a candidate accepts for a
   declared parameter is one the operator's parameter accepts, and a
-  variable the operator constrains stays within those constraints.
+  variable the operator constrains stays within those constraints. A
+  parameter's kind counts as its type does: a scalar argument lifts to a
+  constant source for a time-series input, so a candidate may take as a
+  scalar what the operator declares as an input (a refinement), but never
+  takes as an input what the operator declares as a scalar. A declared type
+  argument stays a type argument.
 - **WIR-24** A front end checks each candidate against the operator's
   signature when it registers or compiles the candidate, and rejects one
   that does not have the operator's shape (WIR-22, WIR-23). The arguments a

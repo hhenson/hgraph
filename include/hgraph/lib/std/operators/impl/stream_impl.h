@@ -2152,13 +2152,7 @@ namespace hgraph::stdlib
             return context.scalar_as<Int>("period") != nullptr;
         }
 
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
-        {
-            if (output_bound(resolution)) { return; }
-            bind_output(resolution, TypeRegistry::instance().ts(scalar_descriptor<Float>::value_meta()));
-        }
-
-        static auto compose(Wiring &w, NamedPort<"ts", TS<ScalarVar<"T">>> ts, Scalar<"period", Int> period,
+        static Port<TS<Float>> compose(Wiring &w, NamedPort<"ts", TS<ScalarVar<"T">>> ts, Scalar<"period", Int> period,
                             Scalar<"min_window_period", Int> min_window_period)
         {
             auto current = wire<sum_>(w, ts);
@@ -2166,7 +2160,7 @@ namespace hgraph::stdlib
             if (min_window_period.value() <= 0)
             {
                 auto denom = wire<const_, TS<Float>>(w, Float(period.value()));
-                return wire<div_>(w, wire<sub_>(w, current, delayed), denom);
+                return wire<div_>(w, wire<sub_>(w, current, delayed), denom).as<TS<Float>>();
             }
             // The early window: ticks counted from min_window_period up to
             // period cap the denominator, and the missing lagged sum is a
@@ -2179,7 +2173,7 @@ namespace hgraph::stdlib
             Value zero{ValuePlanFactory::instance().type_for(element)};
             auto fallback     = wire<sample>(w, counted, wire<const_>(w, std::move(zero)));
             auto safe_delayed = wire<default_>(w, delayed, fallback);
-            return wire<div_>(w, wire<sub_>(w, current, safe_delayed), capped);
+            return wire<div_>(w, wire<sub_>(w, current, safe_delayed), capped).as<TS<Float>>();
         }
 
         static auto defaults()
@@ -2200,15 +2194,9 @@ namespace hgraph::stdlib
             return context.scalar_as<TimeDelta>("period") != nullptr;
         }
 
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
-        {
-            if (output_bound(resolution)) { return; }
-            bind_output(resolution, TypeRegistry::instance().ts(scalar_descriptor<Float>::value_meta()));
-        }
-
-        static auto compose(Wiring &w, NamedPort<"ts", TS<ScalarVar<"T">>> ts,
-                            Scalar<"period", TimeDelta> period,
-                            Scalar<"min_window_period", TimeDelta> min_window_period)
+        static Port<TS<Float>> compose(Wiring &w, NamedPort<"ts", TS<ScalarVar<"T">>> ts,
+                                       Scalar<"period", TimeDelta> period,
+                                       Scalar<"min_window_period", TimeDelta> min_window_period)
         {
             auto lagged        = wire<lag>(w, ts, period.value());
             auto current       = wire<sum_>(w, ts);
@@ -2223,7 +2211,7 @@ namespace hgraph::stdlib
             auto empty       = wire<eq_>(w, delta_ticks, wire<const_, TS<Int>>(w, Int{0}));
             auto nan   = wire<const_, TS<Float>>(w, std::numeric_limits<Float>::quiet_NaN());
             auto denom = wire<if_then_else>(w, empty, nan, wire<convert, TS<Float>>(w, delta_ticks));
-            return wire<div_>(w, wire<convert, TS<Float>>(w, wire<sub_>(w, current, delayed)), denom);
+            return wire<div_>(w, wire<convert, TS<Float>>(w, wire<sub_>(w, current, delayed)), denom).as<TS<Float>>();
         }
 
         static auto defaults()

@@ -324,6 +324,41 @@ namespace
     {
         static void eval(In<"lhs", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"unary"}); }
     };
+    // A declared type argument is part of the shape, as a parameter is.
+    struct declares_type_arg_ : Operator<"wiring_contract_declares_type_arg",
+                                         TypeArg<"tp", TS<ScalarVar<"T", Int, Float>>>, Out<TS<Str>>>
+    {
+    };
+    struct NoTypeArg
+    {
+        static void eval(Out<TS<Str>> out) { out.set(Str{"none"}); }
+    };
+    struct WiderTypeArg
+    {
+        static void eval(TypeArg<"tp", TsVar<"S">>, Out<TS<Str>> out) { out.set(Str{"wider"}); }
+    };
+    struct NarrowerTypeArg
+    {
+        static void eval(TypeArg<"tp", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"int"}); }
+    };
+    // A scalar refines a declared input (a scalar argument lifts to a const
+    // source); an input for a declared scalar widens it.
+    struct ScalarNamedTs
+    {
+        static void eval(Scalar<"ts", Int>, Out<TS<Str>> out) { out.set(Str{"scalar"}); }
+    };
+    struct StrScalarNamedTs
+    {
+        static void eval(Scalar<"ts", Str>, Out<TS<Str>> out) { out.set(Str{"str"}); }
+    };
+    struct declares_scalar_ : Operator<"wiring_contract_declares_scalar", In<"ts", TS<Int>>, Scalar<"n", Int>,
+                                       Out<TS<Str>>>
+    {
+    };
+    struct InputNamedN
+    {
+        static void eval(In<"ts", TS<Int>>, In<"n", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"input"}); }
+    };
 
     void register_case_operators()
     {
@@ -465,6 +500,19 @@ TEST_CASE("wiring contract: registration rejects a candidate without its operato
                       Catch::Matchers::ContainsSubstring("lacks the declared parameter 'rhs'"));
     // May omit a declared optional parameter.
     CHECK_NOTHROW((register_overload<declares_optional_rhs_, UnaryOnly>()));
+    // A declared type argument: required, never widened, and may be refined.
+    CHECK_THROWS_WITH((register_overload<declares_type_arg_, NoTypeArg>()),
+                      Catch::Matchers::ContainsSubstring("lacks the declared parameter 'tp'"));
+    CHECK_THROWS_WITH((register_overload<declares_type_arg_, WiderTypeArg>()),
+                      Catch::Matchers::ContainsSubstring("widens 'tp'"));
+    CHECK_NOTHROW((register_overload<declares_type_arg_, NarrowerTypeArg>()));
+    // A scalar refines a declared input it lifts into, and widens one it does not.
+    CHECK_NOTHROW((register_overload<declares_int_, ScalarNamedTs>()));
+    CHECK_THROWS_WITH((register_overload<declares_int_, StrScalarNamedTs>()),
+                      Catch::Matchers::ContainsSubstring("widens 'ts': declared TS[int], candidate scalar str"));
+    // An input where the operator declares a scalar is another kind of parameter.
+    CHECK_THROWS_WITH((register_overload<declares_scalar_, InputNamedN>()),
+                      Catch::Matchers::ContainsSubstring("declares 'n' as a time-series input, the operator as a scalar"));
 }
 
 TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23)")
@@ -493,6 +541,22 @@ TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23
     using CoverUnnamed = UnNamedTSB<Field<"a", TS<Int>>>;
     CHECK(ts_pattern_covers(to_pattern<CoverUnnamed>(), to_pattern<CoverFoo>()));
     CHECK_FALSE(ts_pattern_covers(to_pattern<CoverFoo>(), to_pattern<CoverBar>()));
+    // A constrained list size covers a size variable within its constraints.
+    CHECK(ts_pattern_covers(to_pattern<TSL<TS<Int>, SIZE<"N", 2, 3>>>(), to_pattern<TSL<TS<Int>, SIZE<"M", 2>>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TSL<TS<Int>, SIZE<"N", 2>>>(), to_pattern<TSL<TS<Int>, SIZE<"M">>>()));
+    // Array shapes: rank, fixed extents and repeated variables count.
+    const ScalarPattern matrix = to_scalar_pattern<ArrayOf<ScalarVar<"T">, SIZE<"R">, SIZE<"C">>>();
+    const ScalarPattern square = to_scalar_pattern<ArrayOf<ScalarVar<"T">, SIZE<"N">, SIZE<"N">>>();
+    CHECK(scalar_pattern_covers(matrix, square));
+    CHECK(scalar_pattern_covers(matrix, to_scalar_pattern<ArrayOf<ScalarVar<"U">, 2, 3>>()));
+    CHECK_FALSE(scalar_pattern_covers(square, matrix));
+    CHECK_FALSE(scalar_pattern_covers(square, to_scalar_pattern<ArrayOf<ScalarVar<"U">, 2, 3>>()));
+    CHECK(scalar_pattern_covers(square, to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"M">, SIZE<"M">>>()));
+    CHECK_FALSE(scalar_pattern_covers(to_scalar_pattern<ArrayOf<ScalarVar<"T">, 2>>(),
+                                      to_scalar_pattern<ArrayOf<ScalarVar<"U">, 3>>()));
+    CHECK_FALSE(scalar_pattern_covers(to_scalar_pattern<ArrayOf<ScalarVar<"T">, 2>>(),
+                                      to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"N">>>()));
+    CHECK_FALSE(scalar_pattern_covers(matrix, to_scalar_pattern<ArrayOf<ScalarVar<"U">, SIZE<"N">>>()));
 }
 
 TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")

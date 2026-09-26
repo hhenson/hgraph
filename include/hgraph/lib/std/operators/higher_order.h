@@ -79,7 +79,7 @@ namespace hgraph::stdlib
     struct reduce_ : Operator<"reduce",
                               Scalar<"func", WiredFn>,
                               In<"ts", TsVar<"C">>,           // the collection (TSL / TSD / TSS ...)
-                              Scalar<"zero", ScalarVar<"Z">>, // optional arity; never inferred
+                              In<"zero", TsVar<"Z">>,         // a time-series, or a scalar lifted to one
                               Scalar<"is_associative", Bool>,
                               Out<TsVar<"V">>>
     {

@@ -34,7 +34,8 @@ namespace hgraph::stdlib
         Tick-count lag replays the value after that many later source ticks; duration lag
         schedules it for ``input_time + period``.
         @param ts Stream to delay.
-        @param period Positive tick count or duration selected at wiring time.
+        @param period Positive tick count or duration fixed at wiring time, or a
+                      ``TS[timedelta]`` duration that may change.
         @param on_wall_clock For duration lag, use host time in a real-time graph; simulation uses graph time.
         @param proxy Optional proxy stream whose count defines progress for proxy-lag overloads.
         @return The original values with delayed tick times.
@@ -44,7 +45,7 @@ namespace hgraph::stdlib
         delayed = hg.lag(price, timedelta(seconds=5))
         @endcode
         @note Cost: O(delta) per tick; retains up to ``period`` pending deltas. */
-    struct lag : Operator<"lag", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>, Out<TsVar<"S">>>
+    struct lag : Operator<"lag", In<"ts", TsVar<"S">>, In<"period", TS<ScalarVar<"P", Int, TimeDelta>>>, Out<TsVar<"S">>>
     {
     };
 
@@ -69,7 +70,7 @@ namespace hgraph::stdlib
         @code{.py}
         every_second = hg.schedule(timedelta(seconds=1))
         @endcode */
-    struct schedule : Operator<"schedule", Scalar<"delay", TimeDelta>, Out<TS<Bool>>>
+    struct schedule : Operator<"schedule", In<"delay", TS<TimeDelta>>, Out<TS<Bool>>>
     {
     };
 
@@ -142,14 +143,15 @@ namespace hgraph::stdlib
 
     /** Forward source ticks until ``predicate`` first ticks true, then retain the last
         value and passivate the source permanently.
-        @param predicate Boolean stream that freezes the output when true.
+        @param predicate Boolean stream that freezes the output when true, or a
+                         function of ``ts`` returning that stream.
         @param ts Stream to forward until frozen.
         @return The source stream up to the freeze point, retaining its last value.
         @par Python example
         @code{.py}
         final_price = hg.freeze(done, price)
         @endcode */
-    struct freeze : Operator<"freeze", In<"predicate", TS<Bool>>, In<"ts", TsVar<"S">>, Out<TsVar<"S">>>
+    struct freeze : Operator<"freeze", In<"predicate", TsVar<"P">>, In<"ts", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };
 

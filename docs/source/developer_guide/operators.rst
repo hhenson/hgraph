@@ -498,6 +498,19 @@ operator behaves as if its signature ended with ``*args, **kwargs``:
   ``Scalar<"period", ScalarVar<"P", Int, TimeDelta>>``. A frame operator
   whose candidates take frames with and without metadata declares
   ``TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>``;
+* the declared kind holds. A scalar argument lifts to a const source, so a
+  candidate may take a declared input as a scalar (a refinement: the lifted
+  ``TS[scalar]`` must be covered); it never takes a declared scalar as an
+  input. ``reduce``'s ``zero``, ``lag``'s ``period``, ``schedule``'s
+  ``delay`` and ``freeze``'s ``predicate`` are declared inputs because some
+  of their candidates take them as time-series and others as scalars;
+* a declared type argument (``TypeArg``) is checked as a parameter is, and
+  is optional when it has a default;
+* shapes count: an ``ArrayOf`` pattern covers only arrays of its rank whose
+  fixed extents match and whose repeated extent variables stay repeated
+  (``ArrayOf<T, SIZE<"N">, SIZE<"N">>`` never covers ``ArrayOf<U, 2, 3>``),
+  and a constrained ``SIZE`` covers a size variable only within its
+  constraints;
 * a graph candidate whose output is always one type returns that typed
   ``Port`` rather than an erased one, so its output is checkable.
 

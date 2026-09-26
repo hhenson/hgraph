@@ -2436,8 +2436,9 @@ namespace hgraph
     {
         /**
          * How a candidate departs from its operator's shape (runtime spec
-         * WIR-22, WIR-23): a declared parameter it lacks, or a declared
-         * parameter or output it widens. Empty when it has the shape.
+         * WIR-22, WIR-23): a declared parameter it lacks or declares as
+         * another kind, or a declared parameter, type argument or output it
+         * widens. Empty when it has the shape.
          */
         template <typename Op>
         [[nodiscard]] std::vector<std::string> candidate_shape_violations(const OperatorImpl &impl)
@@ -2466,6 +2467,24 @@ namespace hgraph
             const auto is_optional = [&](const std::string &name) {
                 return std::ranges::find(optional, name) != optional.end();
             };
+            // A parameter found by the declared name but of another kind cannot
+            // take the argument a call supplies under that name (a scalar for a
+            // declared input is the exception: it refines, see below).
+            const auto kind_name = [](ParamPattern::Kind kind) -> std::string {
+                switch (kind)
+                {
+                    case ParamPattern::Kind::Input: return "a time-series input";
+                    case ParamPattern::Kind::Scalar: return "a scalar";
+                    case ParamPattern::Kind::TypeArg: return "a type argument";
+                }
+                return "a parameter";
+            };
+            const auto of_kind = [&](const auto found, const std::string &name, ParamPattern::Kind kind) {
+                if (found->kind == kind) { return true; }
+                out.push_back("declares '" + name + "' as " + kind_name(found->kind) + ", the operator as " +
+                              kind_name(kind));
+                return false;
+            };
             [&]<std::size_t... I>(std::index_sequence<I...>) {
                 (
                     [&] {
@@ -2486,7 +2505,23 @@ namespace hgraph
                                 if (!packed && !is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
                                 return;
                             }
-                            if (found->kind == ParamPattern::Kind::Input && !ts_pattern_covers(pattern, found->ts))
+                            if (found->kind == ParamPattern::Kind::Scalar)
+                            {
+                                // A scalar argument lifts to a const source for a
+                                // time-series input, so a scalar parameter refines
+                                // the declared input when TS[its type] is covered.
+                                const TypePattern lifted =
+                                    found->scalar.kind == ScalarPattern::Kind::Concrete && found->scalar.meta != nullptr
+                                        ? TypePattern::concrete(TypeRegistry::instance().ts(found->scalar.meta))
+                                        : TypePattern::ts(found->scalar);
+                                if (!ts_pattern_covers(pattern, lifted))
+                                {
+                                    out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
+                                                  ", candidate scalar " + scalar_pattern_to_string(found->scalar));
+                                }
+                                return;
+                            }
+                            if (of_kind(found, name, ParamPattern::Kind::Input) && !ts_pattern_covers(pattern, found->ts))
                             {
                                 out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
                                               ", candidate " + ts_pattern_to_string(found->ts));
@@ -2504,10 +2539,40 @@ namespace hgraph
                             }
                             const ScalarPattern pattern =
                                 to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
-                            if (found->kind == ParamPattern::Kind::Scalar && !scalar_pattern_covers(pattern, found->scalar))
+                            if (of_kind(found, name, ParamPattern::Kind::Scalar) &&
+                                !scalar_pattern_covers(pattern, found->scalar))
                             {
                                 out.push_back("widens '" + name + "': declared " + scalar_pattern_to_string(pattern) +
                                               ", candidate " + scalar_pattern_to_string(found->scalar));
+                            }
+                        }
+                        else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+                        {
+                            const std::string  name{P::field_name.sv()};
+                            const auto         found = find(name, ParamPattern::Kind::TypeArg);
+                            ++position;
+                            const ParamPattern declared_arg = type_arg_param_pattern<P>(name);
+                            if (found == impl.params.end())
+                            {
+                                // A type argument with a default is optional, as a
+                                // defaulted scalar is.
+                                if (!is_optional(name) && !declared_arg.has_default())
+                                {
+                                    out.push_back("lacks the declared parameter '" + name + "'");
+                                }
+                                return;
+                            }
+                            if (!of_kind(found, name, ParamPattern::Kind::TypeArg)) { return; }
+                            const bool covered =
+                                found->carrier == declared_arg.carrier &&
+                                (declared_arg.carrier == ResolutionKind::Scalar
+                                     ? scalar_pattern_covers(declared_arg.scalar, found->scalar)
+                                     : ts_pattern_covers(declared_arg.ts, found->ts));
+                            if (!covered)
+                            {
+                                out.push_back("widens '" + name + "': declared type[" +
+                                              type_arg_pattern_to_string(declared_arg) + "], candidate type[" +
+                                              type_arg_pattern_to_string(*found) + "]");
                             }
                         }
                     }(),

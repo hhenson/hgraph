@@ -18,7 +18,7 @@ namespace hgraph::analytics::detail
         {
             static constexpr auto name = "rolling_mean_tick";
 
-            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            static void resolve_default_types(ResolutionMap &, OperatorCallContext context)
             {
                 const auto *period  = context.scalar_as<Int>("period");
                 const auto *minimum = context.scalar_as<Int>("min_window_period");
@@ -31,7 +31,6 @@ namespace hgraph::analytics::detail
                     throw std::invalid_argument(
                         "rolling_mean: min_window_period must be between zero and period");
                 }
-                hgraph::stdlib::rolling_average_tick_compose::resolve_default_types(resolution, context);
             }
         };
 
@@ -41,7 +40,7 @@ namespace hgraph::analytics::detail
         {
             static constexpr auto name = "rolling_mean_time";
 
-            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
+            static void resolve_default_types(ResolutionMap &, OperatorCallContext context)
             {
                 const auto *period  = context.scalar_as<TimeDelta>("period");
                 const auto *minimum = context.scalar_as<TimeDelta>("min_window_period");
@@ -55,7 +54,6 @@ namespace hgraph::analytics::detail
                     throw std::invalid_argument(
                         "rolling_mean: min_window_period must be between zero and period");
                 }
-                hgraph::stdlib::rolling_average_time_compose::resolve_default_types(resolution, context);
             }
         };
     }  // namespace
