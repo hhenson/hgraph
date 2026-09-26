@@ -139,6 +139,21 @@ varies" to "both", the other the other way. The correction for WV-4
 (#1655) makes the bundle comparison count names when both bundles are
 named, which covers both observations.
 
+## HGL correction for WV-5
+
+An HGL implementation may extend its operator contract (WIR-22): the
+contract's parameters come first, and each extra one has a default, which a
+call through the contract uses. Conformance, `instantiate` materialization
+and local candidate selection all accept it (`TypeChecker::extends_contract`).
+Regression coverage: `language/tests/ir/lower_tests.cpp` ("accepts an
+implementation that extends its operator contract", and the rejection of a
+dropped or undefaulted parameter). Replaying `observe_hgl.py` against the
+corrected compiler accepts `contract_superset.hgl`.
+
+Not yet supported in HGL: supplying an extra parameter explicitly through
+the operator's call, which WIR-22 also allows. An HGL operator call binds its
+arguments against the contract's signature, so it has no way to name one.
+
 ## The C++ correction behind WIR-7
 
 Before `main` @ `dea948136` (PR #1650, issue #847) the C++ matcher removed

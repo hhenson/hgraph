@@ -369,7 +369,14 @@ such operator brought into local scope by a selective import; the binding is
 written, never inferred from a name coincidence. `impl fn` with no operator in
 scope is an error, and a plain `fn` that shares a name with an in-scope
 operator is a conflict rather than a candidate. The function signature must be
-compatible specialization of the contract and may itself be generic. Its body
+a compatible specialization of the contract and may itself be generic. The
+contract is the minimum an implementation meets, not an exact shape (runtime
+spec Wiring, WIR-21 to WIR-23; owner ruling 2026-09-26): an implementation
+declares every contract parameter, in order, and may declare more after them,
+each with a default that a call through the contract uses; and it may refine
+a contract parameter to a narrower type, within the contract's constraints.
+Whether an implementation may be wider than its contract is open (runtime
+spec Wiring, point to settle 6); HGL currently rejects it. Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the

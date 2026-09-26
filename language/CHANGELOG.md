@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- An operator implementation may extend its contract (runtime spec Wiring,
+  WIR-22): after the contract's parameters it may declare more, each with a
+  default that a call through the contract uses. The compiler used to reject
+  any implementation whose parameter count differed from the contract's.
+  Passing an extra parameter explicitly through the operator is not yet
+  supported.
 - Accept `map<K, ref<V>>` as a map containing references, lowered to
   `TSD[K, REF[V]]` with no reference around the map (owner ruling
   2026-09-26). The compiler previously rejected the form pending that

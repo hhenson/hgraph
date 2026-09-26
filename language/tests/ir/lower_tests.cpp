@@ -1543,6 +1543,56 @@ instantiate id<ref<f64>>
     REQUIRE(completed);
 }
 
+TEST_CASE("typed HIR accepts an implementation that extends its operator contract (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    // An operator's signature is the minimum an implementation meets: it may
+    // declare more parameters, each with a default a call through the
+    // contract uses (owner ruling 2026-09-26).
+    Lowered lowered{R"(
+module checks.contract_superset
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
+TEST_CASE("typed HIR rejects an implementation that drops or cannot default a contract parameter (runtime spec WIR-22)",
+          "[ir][typed][operators][contract]") {
+    Lowered dropped{R"(
+module checks.contract_dropped
+
+operator combine<T>(lhs: T, rhs: T) -> T
+
+impl fn combine(lhs: f64) -> f64 => lhs
+
+fn use_combine(value: f64) -> f64 => combine(value, value)
+)"};
+    require_clean(dropped);
+    CHECK_FALSE(complete(dropped));
+    CHECK(dropped.diagnostics.render(dropped.file).find("declares every parameter of its operator contract") !=
+          std::string::npos);
+
+    Lowered undefaulted{R"(
+module checks.contract_undefaulted
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+fn use_pick(value: f64) -> f64 => pick(value)
+)"};
+    require_clean(undefaulted);
+    CHECK_FALSE(complete(undefaulted));
+    CHECK(undefaulted.diagnostics.render(undefaulted.file).find("gives each extra parameter a default") != std::string::npos);
+}
+
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
     Lowered lowered{R"(
 module checks.constraints
