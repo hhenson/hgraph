@@ -189,7 +189,13 @@ way); ``TypeRegistry::value_element_ts`` answers the element of a ``TSD`` /
 (``endpoint_schema.h``) compares two schemas through references on both
 sides -- ``REF[TS[int]]`` is value-equivalent to ``TS[int]`` and not to
 ``TS[float]`` -- and is what ``input_accepts_output_schema`` and every
-alternative-shape check use; ``TSOutputView::through_reference()`` resolves
+alternative-shape check use. Before any of them,
+``input_accepts_output_schema`` refuses two schemas that name different
+bundles at the same place (``time_series_bundle_names_conflict``: both
+bundles named, names differ, at any depth, through references), so no
+alternative representation can carry a bundle across a name (runtime spec
+WIR-15); fields otherwise pair by name, in any order.
+``TSOutputView::through_reference()`` resolves
 a ``REF`` output to its referenced value before a structural hop, and
 ``TSInputView::bound_target_is_reference()`` reads whether a link's bound
 output can move, recorded when the link binds. ``TypeRegistry::ref`` is

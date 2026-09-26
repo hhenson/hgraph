@@ -172,7 +172,10 @@ namespace hgraph
                                                    ResolutionMap &map)
         {
             if (!pattern.named_bundle) { return true; }
-            if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return false; }
+            // An unnamed bundle is compared by its fields alone, which the
+            // caller checks next: a bundle's name counts only when both are
+            // named (runtime spec WIR-15).
+            if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return true; }
             if (pattern.scalar.kind == ScalarPattern::Kind::Bundle && !pattern.scalar.bundle_origin.empty())
             {
                 return scalar_pattern_match(pattern.scalar, concrete->value_type, map);
@@ -192,7 +195,8 @@ namespace hgraph
         {
             if (pattern.kind != TypePattern::Kind::Var) { return false; }
             const TSValueTypeMetaData *bound = map.find_ts(pattern.name);
-            return bound == concrete && ts_allowed_by_constraints(pattern, bound);
+            return bound != nullptr && time_series_schema_equivalent(bound, concrete) &&
+                   ts_allowed_by_constraints(pattern, bound);
         }
 
         // A TSB schema variable is a generic too: it binds the dereferenced
@@ -489,7 +493,10 @@ namespace hgraph
                     // included: it matches an argument exactly as supplied as
                     // well as dereferenced. Bindings made by matching are
                     // always dereferenced, so only an explicit one keeps a REF.
-                    return (bound == value || bound == concrete) && ts_allowed_by_constraints(pattern, bound);
+                    // Compared as types are (WIR-15): a named bundle and the
+                    // same unnamed bundle are one type.
+                    return (time_series_schema_equivalent(bound, value) || time_series_schema_equivalent(bound, concrete)) &&
+                           ts_allowed_by_constraints(pattern, bound);
                 }
                 if (!ts_allowed_by_constraints(pattern, value)) { return false; }
                 map.bind_ts(pattern.name, value);

@@ -1976,6 +1976,8 @@ namespace hgraph
         {
             if (input_schema == nullptr || output_schema == nullptr) { return false; }
             if (input_schema->kind == TSTypeKind::SIGNAL) { return true; }
+            // Two named bundles with different names never bind (WIR-15).
+            if (time_series_bundle_names_conflict(input_schema, output_schema)) { return false; }
 
             if (time_series_value_equivalent(input_schema, output_schema)) { return true; }
             if (TSOutput::binding_compatible(output_schema, *input_schema)) { return true; }

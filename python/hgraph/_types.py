@@ -3113,7 +3113,13 @@ class _TSBMeta(type):
             name = f"python::tsb::{origin.__module__}::{qualname}"
         if compound_meta is None and type_args:
             name += "[" + ",".join(_compound_specialization_token(arg) for arg in type_args) + "]"
-        expression = _TsExpr(_hgraph.tsb(name, fields), f"TSB[{origin.__name__}]")
+        if compound_meta is None and origin.__dict__.get("__unnamed_time_series_schema__", False):
+            # ts_schema(...) builds an unnamed schema: it is the structural
+            # bundle, which matches any bundle with the same fields (WIR-15).
+            native = _hgraph.un_named_tsb(fields)
+        else:
+            native = _hgraph.tsb(name, fields)
+        expression = _TsExpr(native, f"TSB[{origin.__name__}]")
         _TSB_SCHEMA_CLASSES[expression.handle] = origin
         if compound_meta is not None:
             _hgraph.register_tsb_compound_class(expression.handle, compound_meta)
@@ -3467,6 +3473,8 @@ def ts_schema(**kwargs):
     digest = hashlib.md5(label.encode()).hexdigest()[:12]
     schema = type(f"UnNamedTimeSeriesSchema_{digest}", (TimeSeriesSchema,), {})
     schema.__annotations__ = dict(kwargs)
+    # Registered natively as an unnamed bundle (runtime spec WIR-15).
+    schema.__unnamed_time_series_schema__ = True
     return schema
 
 

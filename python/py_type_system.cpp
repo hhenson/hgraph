@@ -1246,6 +1246,18 @@ namespace hgraph::python_bridge
     m.def("tsb", [](PyValueType bundle) {
         return PyTsType{TypeRegistry::instance().tsb(bundle.meta)};
     });
+    // An unnamed (structural) bundle: it matches any bundle with the same
+    // fields, named or not (runtime spec WIR-15).
+    m.def("un_named_tsb", [](nb::list fields) {
+        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> entries;
+        entries.reserve(nb::len(fields));
+        for (nb::handle field : fields)
+        {
+            auto pair = nb::cast<nb::tuple>(field);
+            entries.emplace_back(nb::cast<std::string>(pair[0]), nb::cast<PyTsType &>(pair[1]).meta);
+        }
+        return PyTsType{TypeRegistry::instance().un_named_tsb(entries)};
+    });
 
     m.def("scalar_pattern_var", [](const std::string &name) {
         return PyScalarPattern{ScalarPattern::var(name)};
