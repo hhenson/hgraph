@@ -214,6 +214,13 @@ def test_public_operator_patterns_use_python_generic_names_by_kind():
     assert formatter.format("~RESULT", category="time_series", output=True) == "OUT"
 
 
+def test_a_qualified_schema_name_keeps_its_scope_separator():
+    # "::" is a scope separator in a qualified name, not a TSB field colon.
+    formatter = PublicTypePatternFormatter()
+    assert formatter.format("TS[hgraph::TableSchema]", category="time_series") == "TS[hgraph::TableSchema]"
+    assert formatter.format("TSB[a: TS[int]]", category="time_series") == "TSB[a: TS[int]]"
+
+
 def test_structured_doxygen_operator_documentation_is_preserved():
     documentation = _parse_doxygen(
         """
@@ -268,7 +275,7 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "``zero_`` —" not in source
     assert "``union_`` —" not in source
     assert "running_variance = hg.var(returns)" not in source
-    assert "additive_identity = hg.zero[TS[int]](hg.add_)" in source
+    assert "additive_identity = hg.zero(TS[int], hg.add_)" in source
     assert "all_symbols = hg.union(primary_symbols, secondary_symbols)" in source
     assert "latest source value if the source changed while the gate was closed" in source
     assert "condition reopens" in source

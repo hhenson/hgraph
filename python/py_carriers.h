@@ -25,7 +25,7 @@
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/json.h>
 #include <hgraph/lib/std/operators/impl/io_impl.h>   // io_write_slot (sys.stdout routing)
-#include <hgraph/lib/std/operators/impl/table_impl.h>   // ts_table_layout (table_schema_info)
+#include <hgraph/lib/std/operators/impl/table_impl.h>   // table config, table_column_type_name
 #include <hgraph/runtime/logger.h>       // log::reset_logger (test support)
 #include <hgraph/runtime/node_error.h>   // node_error_ts_meta (exception_time_series)
 #include <hgraph/types/value/json_codec.h>          // to_json_string / from_json_string (builders)

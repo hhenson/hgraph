@@ -236,6 +236,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
+    test_runtime_spec_conformance.cpp
     test_type_arguments.cpp
     test_type_resolution.cpp
     test_wiring_observers.cpp
@@ -245,6 +246,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     lift/test_lift.cpp
     test_audit_behavior.cpp
     test_collection_nodes.cpp
+    test_operator_contracts.cpp
     test_binary_atoms.cpp
     test_binary_codec.cpp
     test_binary_session.cpp
@@ -263,6 +265,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_externally_driven_executor.cpp
     test_worker_graph_checkpoint.cpp
     test_const_eval.cpp
+    test_type_names.cpp
     test_data_frame_operators.cpp
     test_cs_field_projection.cpp
     test_dispatch.cpp

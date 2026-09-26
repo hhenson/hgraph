@@ -9,6 +9,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <cstddef>
@@ -199,6 +200,31 @@ namespace
         }
     };
 
+    /** compare(lhs, rhs) with no id: released hgraph's spelling (#818 5.4). */
+    struct BareCompareGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "bare_compare_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            wire<stdlib::compare>(w, lhs, rhs);
+            return lhs;
+        }
+    };
+
+    /** The same spelling under a recordable id trait takes that id. */
+    struct TraitCompareGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "trait_compare_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            w.set_trait(std::string{record_replay::RECORDABLE_ID_TRAIT}, Value{Str{"desk"}});
+            wire<stdlib::compare>(w, lhs, rhs);
+            return lhs;
+        }
+    };
+
     struct NoIdHarness
     {
         [[maybe_unused]] static constexpr auto name = "component_no_id_harness";
@@ -266,6 +292,27 @@ TEST_CASE("component: C++ recordable state works through eval_node")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<DedupHarness>(values<Int>(1, 2, 3, 3, 4)),
                  values<Int>(1, 2, 3, none, 4));
+}
+
+TEST_CASE("component: a recording exists from the recorder's start (runtime spec OP-11)")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
+
+    // Parity #1315: inputs that never tick leave EMPTY recordings, not none.
+    {
+        record_replay::scope mode{Mode::Record};
+        CHECK_OUTPUT(eval_node<RecordingHarness>(values<Int>(none, none), values<Int>(none, none)),
+                     values<Int>(none, none));
+    }
+    const auto state = context.state().view();
+    REQUIRE(state.contains(":memory:calc.lhs"));
+    REQUIRE(state.contains(":memory:calc.rhs"));
+    CHECK(state.get(":memory:calc.lhs").as_list().size() == 0);
+    CHECK(state.get(":memory:calc.rhs").as_list().size() == 0);
 }
 
 TEST_CASE("component: in-memory mode records timestamped values and replays them")
@@ -462,6 +509,29 @@ TEST_CASE("compare: a fresh memory compare run zeroes the published summary")
     REQUIRE(summary.has_value());
     CHECK(summary->compared == 0);
     CHECK(summary->mismatches == 0);
+}
+
+TEST_CASE("compare: recordable_id defaults to the enclosing recordable id")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    record_replay::set_config(
+        context.state().view(),
+        record_replay::RecordReplayConfig{.backend = std::string{record_replay::MEMORY}});
+
+    // Released hgraph's compare(lhs, rhs) wires on the memory backend too and
+    // takes the id from the recordable trait (ruling 2026-09-24, #818 5.4).
+    (void)eval_node<TraitCompareGraph>(values<Int>(1, 2), values<Int>(1, 2));
+    const auto summary =
+        record_replay::comparison_summary(context.state().view(), "desk.__compare__");
+    REQUIRE(summary.has_value());
+    CHECK(summary->compared == 2);
+    CHECK(summary->mismatches == 0);
+
+    // With neither an id nor a trait it wires, then fails at start, as the
+    // frame backend does (released hgraph fails at stop).
+    CHECK_THROWS_WITH((void)eval_node<BareCompareGraph>(values<Int>(1), values<Int>(1)),
+                      Catch::Matchers::ContainsSubstring("no recordable id provided"));
 }
 
 TEST_CASE("compare: an unrecognised backend matches no core overload")

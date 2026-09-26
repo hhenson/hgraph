@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsb_latest_invalid",
+  "description": "Derived-input time is the maximum current child time. Invalidating the latest child reveals the older sibling time; this is not a new tick.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "mode": "tsb_latest_invalid"
+  },
+  "features": []
+}

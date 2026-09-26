@@ -201,7 +201,11 @@ Behaviour
 - **Order.** Unset comes before set. An enum orders by its members'
   integers. Values of an abstract type order only within the same concrete
   member. A set or a map has no order.
-- **Text.** Every value has one text form. An enum's is its member's name.
+- **Text.** Every value has a text form. An enum's is its member's name. A
+  set or a map has no order, so its text lists its members in no specified
+  order, and equal sets or maps may render differently (ruling 2026-09-24).
+  A type, held as a value, is written as its name: `int`, `TS[int]`
+  (RFC 0042).
 - **Constructing a struct.** Fields are given by name. A field not given
   takes its default; a field with no default must be given unless it is
   optional, in which case it is unset. A struct built with nothing given and

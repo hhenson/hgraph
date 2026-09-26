@@ -411,6 +411,9 @@ TEST_CASE("type arguments: const and nothing declare their type argument")
     // delay is keyword-only after tp, as in the 0.5 signature.
     auto delayed = wire<stdlib::const_, TS<Int>>(w, Int{3}, arg<"delay">(TimeDelta{}));
     CHECK(delayed.erased().schema == ts_type<TS<Int>>());
+    // A positional non-type passes over a defaulted type argument only onto a
+    // REQUIRED parameter; delay is optional, so the 0.5 positions stand.
+    CHECK_THROWS(wire<stdlib::const_, TS<Int>>(w, Int{3}, TimeDelta{}));
     CHECK(OperatorRegistry::instance().carrier_parameters("const").names == std::vector<std::string>{"tp"});
 }
 
@@ -430,4 +433,42 @@ namespace
 TEST_CASE("type arguments: a node with a TypeArg evaluates with an empty placeholder in its slot")
 {
     CHECK_OUTPUT(eval_node<ta_cast_graph>(values<Int>(1, none, 3)), {1, none, 3});
+}
+
+TEST_CASE("type values: a type's text is its name (RFC 0042)")
+{
+    registered();
+    CHECK(Value{TypeCarrier::of_scalar(scalar_descriptor<Int>::value_meta())}.to_string() == "int");
+    CHECK(Value{TypeCarrier::of_scalar(scalar_descriptor<DateTime>::value_meta())}.to_string() == "datetime");
+    CHECK(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.to_string() == ts_type<TS<Int>>()->name());
+    CHECK(Value{TypeCarrier::of_size(3)}.to_string() == "Size[3]");
+    CHECK(Value{TypeCarrier::of_size(unbounded_tsl_size)}.to_string() == "Size[-1]");
+    // Equal types are equal values: the interned schema is the identity.
+    CHECK(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view().equals(
+        Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view()));
+    CHECK_FALSE(Value{TypeCarrier::of_ts(ts_type<TS<Int>>())}.view().equals(
+        Value{TypeCarrier::of_ts(ts_type<TS<Float>>())}.view()));
+}
+
+namespace
+{
+    /** A native node over type values: each tick writes its input type's text. */
+    struct TypeText
+    {
+        static constexpr auto name = "rfc0042_type_text";
+
+        static void eval(In<"t", TS<TypeCarrier>> t, Out<TS<Str>> out)
+        {
+            out.set(Str{Value{t.value()}.to_string()});
+        }
+    };
+}  // namespace
+
+TEST_CASE("type values: a native graph carries them tick by tick (RFC 0042)")
+{
+    registered();
+    CHECK_OUTPUT(eval_node<TypeText>(values<TypeCarrier>(TypeCarrier::of_scalar(scalar_descriptor<Int>::value_meta()),
+                                                         TypeCarrier::of_ts(ts_type<TS<Int>>()),
+                                                         TypeCarrier::of_size(3))),
+                 values<Str>(Str{"int"}, Str{ts_type<TS<Int>>()->name()}, Str{"Size[3]"}));
 }

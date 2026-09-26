@@ -72,12 +72,16 @@ namespace hgraph::stdlib
 
     /** Encode a dynamic JSON-tree value as standards-compliant JSON text.
         @param ts Dynamic JSON value.
-        @return Compact JSON string.
+        @param _tp The encoded scalar type, ``str`` or ``bytes``; a type argument
+            (``json_encode(value, str)`` or ``json_encode[SCALAR: str](value)``),
+            as released hgraph declares it (parity #818 item 2.2).
+        @return Compact JSON text of the selected type.
         @par Python example
         @code{.py}
-        text = hg.json_encode(json_value)
+        text = hg.json_encode(json_value, str)
         @endcode */
-    struct json_encode : Operator<"json_encode", In<"ts", TsVar<"S">>, Out<TS<Str>>>
+    struct json_encode : Operator<"json_encode", In<"ts", TsVar<"S">>,
+                                  TypeArg<"_tp", ScalarVar<"SCALAR">, AutoResolve>, Out<TS<ScalarVar<"SCALAR">>>>
     {
     };
 

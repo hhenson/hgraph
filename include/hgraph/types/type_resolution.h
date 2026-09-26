@@ -5,7 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/static_schema.h>
-#include <hgraph/types/time_series/endpoint_schema.h>
+#include <hgraph/types/time_series/endpoint_schema.h>  // time_series_schema_equivalent
 #include <hgraph/types/type_carrier.h>   // ResolutionKind, TypeCarrier
 
 #include <fmt/format.h>
@@ -655,7 +655,17 @@ namespace hgraph
     {
         static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
         {
-            concrete = unify_dereference(concrete);
+            // Resolving a generic dereferences everything, at every depth
+            // (owner ruling 2026-09-24, #847); a REF binds only where the
+            // pattern names one. A variable bound up front (an explicit
+            // output schema) states the schema, references included, so the
+            // port as supplied is kept when it IS that schema -- only the
+            // dereference is skipped; the constraints below still apply, as
+            // in the runtime matcher.
+            if (concrete == nullptr || m.find_ts(Name.sv()) != concrete)
+            {
+                concrete = TypeRegistry::instance().dereference(concrete);
+            }
             if constexpr (sizeof...(C) > 0)
             {
                 if (!((time_series_value_equivalent(concrete, schema_descriptor<C>::ts_meta())) || ...))
@@ -764,11 +774,49 @@ namespace hgraph
 
     namespace type_resolution_detail
     {
+        /** Bind a TSB schema variable to ``pack``, or check an earlier
+            binding against the supplied pack. An earlier binding (bound up
+            front, or by another parameter) matches the pack as supplied or
+            ``also`` -- compared structurally, as the runtime matcher's TSB
+            schema variable does (``tsb_schema_var_match``). */
+        template <fixed_string VarName>
+        void bind_tsb_field_pack(const TSValueTypeMetaData *pack, const TSValueTypeMetaData *also,
+                                 ResolutionMap &m)
+        {
+            if (pack == nullptr || pack->kind != TSTypeKind::TSB)
+            {
+                throw std::logic_error(fmt::format("type variable '{}' requires a TSB", VarName.sv()));
+            }
+            if (const TSValueTypeMetaData *bound = m.find_ts(VarName.sv()))
+            {
+                if (time_series_schema_equivalent(bound, pack) ||
+                    (also != nullptr && time_series_schema_equivalent(bound, also)))
+                {
+                    return;
+                }
+                throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", VarName.sv()));
+            }
+            m.bind_ts(VarName.sv(), pack);
+        }
+
+        /** An input pack: the variable binds the dereferenced pack, and an
+            earlier binding also matches the pack as supplied (see
+            ts_unifier<TsVar>). */
         template <fixed_string VarName>
         void unify_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
         {
-            c = unify_dereference(c);
-            m.bind_ts(VarName.sv(), c != nullptr && c->kind == TSTypeKind::TSB ? c : nullptr);
+            bind_tsb_field_pack<VarName>(TypeRegistry::instance().dereference(c), unify_dereference(c), m);
+        }
+
+        /** A requested output pack is the caller stating it, so its schema
+            variable binds the requested TSB verbatim, REF fields included --
+            the runtime matcher's ``output_ts_pattern_match``. A REF around the
+            whole bundle is followed: a bundle pattern cannot produce a
+            reference. */
+        template <fixed_string VarName>
+        void unify_requested_tsb_field_pack(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            bind_tsb_field_pack<VarName>(unify_dereference(c), nullptr, m);
         }
 
         template <typename Field>
@@ -838,6 +886,74 @@ namespace hgraph
 
     template <>
     struct ts_unifier<Kwargs<>> : ts_unifier<UnNamedTSB<TsVar<"kwargs">>>
+    {
+    };
+
+    /**
+     * Unify a REQUESTED output schema (``wire<X, OutSchema>``). The caller
+     * states the schema, so it binds as requested -- a bare output variable
+     * verbatim when the schema holds a ``REF`` at any depth, and a TSB schema
+     * variable verbatim always -- and the produced port carries it, as the
+     * runtime matcher's ``output_ts_pattern_match`` does (#847). A structural
+     * output pattern unifies as an input does.
+     */
+    template <typename S>
+    struct ts_output_unifier : ts_unifier<S>
+    {
+    };
+
+    template <fixed_string Name, typename... C>
+    struct ts_output_unifier<TsVar<Name, C...>>
+    {
+        static void unify(const TSValueTypeMetaData *concrete, ResolutionMap &m)
+        {
+            if (concrete == nullptr || !TypeRegistry::contains_ref(concrete))
+            {
+                ts_unifier<TsVar<Name, C...>>::unify(concrete, m);
+                return;
+            }
+            if constexpr (sizeof...(C) > 0)
+            {
+                if (!((concrete == schema_descriptor<C>::ts_meta()) || ...))
+                {
+                    throw std::logic_error(
+                        fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
+                }
+            }
+            // An earlier binding must BE the requested schema, references
+            // included -- compared structurally, as output_ts_pattern_match.
+            if (const TSValueTypeMetaData *bound = m.find_ts(Name.sv()))
+            {
+                if (!time_series_schema_equivalent(bound, concrete))
+                {
+                    throw std::logic_error(fmt::format("type variable '{}' resolved inconsistently", Name.sv()));
+                }
+                return;
+            }
+            m.bind_ts(Name.sv(), concrete);
+        }
+    };
+
+    template <fixed_string VarName, typename... C>
+    struct ts_output_unifier<UnNamedTSB<TsVar<VarName, C...>>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            type_resolution_detail::unify_requested_tsb_field_pack<VarName>(c, m);
+        }
+    };
+
+    template <fixed_string Name, fixed_string VarName, typename... C>
+    struct ts_output_unifier<TSB<Name, TsVar<VarName, C...>>>
+    {
+        static void unify(const TSValueTypeMetaData *c, ResolutionMap &m)
+        {
+            type_resolution_detail::unify_requested_tsb_field_pack<VarName>(c, m);
+        }
+    };
+
+    template <>
+    struct ts_output_unifier<Kwargs<>> : ts_output_unifier<UnNamedTSB<TsVar<"kwargs">>>
     {
     };
 

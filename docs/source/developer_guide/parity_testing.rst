@@ -116,6 +116,31 @@ a directory it could not remove is named, the run continues through the rest,
 and the command exits non-zero. A listing run always exits zero -- finding
 caches is not an error.
 
+An environment failure is never a divergence
+--------------------------------------------
+
+A parity issue records that both runtimes ran a graph and did different
+things. A process that could not start, a harness fault, or an installation
+that cannot ``import hgraph`` ran no graph, so it is not an outcome to
+compare. The runner reports an unimportable installation as
+``infrastructure-error`` in the ``import`` phase, and the campaign
+quarantines a candidate environment failure as ``candidate-environment``
+instead of comparing it with the reference trace. The reference side already
+quarantined its own.
+
+Two further checks stop one broken installation from reaching the issue
+tracker. ``campaign`` imports hgraph in the candidate environment before it
+runs any recipe and fails at once if it cannot. ``publish-issues`` refuses a
+failure whose either side is an environment failure, which also covers a
+report written before the runner made the distinction (there the import
+failure is spelled ``error`` in the ``import`` phase).
+
+This is not hypothetical. On 2026-09-23 the nightly candidate wheel was built
+on a host with a newer libc than the campaign runners, every recipe failed to
+import it, and 528 issues were filed from that single run. The publisher also
+finds existing issues by the ``parity`` label rather than among the newest
+thousand issues of any kind, so an old issue is matched, not filed again.
+
 Upstream conformance suite
 --------------------------
 
@@ -516,6 +541,32 @@ way:
   non-empty set — which renders identically on both sides — and the
   neighbouring renderings decided **fix** (a bool, a TSD, a tuple: issue #819)
   stay reportable.
+* ``ieee-log-domain`` (runtime spec OP-10) is a status relation: the
+  reference raised at run time, some input is not positive, and every value
+  the candidate published is the IEEE logarithm of its input.
+* ``n-ary-set-fold`` (OP-7) admits three or more operands to intersection or
+  symmetric difference, when the reference rejected sets at wiring or never
+  published over dictionaries. The candidate publishes nothing before every
+  operand is valid (OP-6) and ends with the fold of the recipe's final
+  operands.
+* ``key-set-reader-tick`` (OP-3) compares ``tsd_key_set_pipeline`` tick by
+  tick: a field only the reference publishes must be a key-set aggregate
+  holding its empty-set answer, at a tick where the dictionary has no key,
+  and every shared field agrees.
+
+* ``unordered-member-text`` (OP-9, the owner's ruling of 2026-09-24 that a
+  map is unordered) admits a ``str_`` difference only where both renderings
+  spell, as Python literals, the same value containing a map or a set.
+
+* ``first-empty-set-result`` (OP-5, the owner's ruling of 2026-09-24) admits
+  one position only: the candidate's first tick of a dictionary set
+  operator, holding exactly the empty dictionary, where the reference is
+  silent, at a cycle in which the operator is admitted.
+
+The last five came from the parity triage of 2026-09-24, which derived the
+runtime specification's operator contracts
+(``docs/source/runtime_spec/operators.md``, evidence in
+``runtime_spec/validation/parity``).
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through
@@ -577,8 +628,10 @@ The nightly workflow builds one candidate wheel, runs eight bounded shards
 over a deterministic 5,000-example matrix, and uploads complete reports.  Each
 shard has a one-hour campaign budget and a 90-minute job ceiling; the example
 limit remains the normal stopping condition, while the time budget prevents a
-slow or pathological family from monopolizing a runner.  Campaign jobs have
-read-only permissions.  A
+slow or pathological family from monopolizing a runner.  The candidate build
+may run on the opt-in :ref:`self-hosted Linux runner
+<self-hosted-linux-runner>`; the shards and the publisher always run on
+hosted runners.  Campaign jobs have read-only permissions.  A
 separate default-branch publisher receives only the validated report artifacts
 and has ``issues: write`` permission.  It creates or reopens deduplicated
 ``bug``/``parity`` issues and then exits; individual crashes and mismatches do

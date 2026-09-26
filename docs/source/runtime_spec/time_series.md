@@ -15,7 +15,7 @@ Concept
 ### What every time-series has
 
 The timestamp definitions below describe owned outputs. Inputs reflect them
-or add the sampling and binding observations specified in TS-1 and TS-14–TS-15.
+or add child-change, sampling and binding observations (TS-7, TS-14–TS-15).
 
 | Property | Meaning |
 |---|---|
@@ -44,12 +44,15 @@ the cycle. A reader that wants to keep what it saw beyond the cycle takes a
 **copy** (see Scalar types).
 
 An **input** belongs to a node that reads. An input **bound** to an output is
-a view of that output — it is **peered** with it — and owns nothing: asking
+a view of that output — it is **peered** with it — and owns no output value: asking
 the input for its value asks the output.
 
 Not every input is peered. A collection input whose children are bound
 separately to different outputs is **non-peered**: it exists only on the
-input side, and what it knows about itself it works out from its children.
+input side, with local state driven by its children. It removes a collection-
+assembly node: its observations should match that node's result. This usually
+saves work for one consumer; several consumers may favour a shared node and
+output. That is a cost choice, not a different collection contract.
 An input may also be **local**, holding a time-series of its own with no
 output behind it.
 
@@ -63,9 +66,10 @@ A time-series **notifies** whoever is watching it when its state changes.
 Every tick notifies. So do two things that are not ticks: **becoming
 invalid**, and some **changes of binding**. Notification is what wakes nodes
 (see Graph); *modified* is what a woken node reads to find out what changed.
-The two usually coincide. When an input goes invalid it reads unmodified;
-other inputs may still be modified. A node can therefore be scheduled when
-none of its inputs reads modified and discover the change through *valid*.
+The two usually coincide. A wholly invalid fixed input reads unmodified.
+Within a still-valid assembled structure, child invalidation is a local change
+observation (TS-7). A node may also be scheduled with no modified input and
+discover the change through *valid*.
 
 ### The kinds
 
@@ -108,7 +112,7 @@ classDiagram
     TimeSeriesInput "0..*" --> "0..1" TimeSeriesOutput : bound to
     TimeSeriesOutput "1" --> "0..*" TimeSeriesInput : notifies
     Node "1" *-- "0..1" TimeSeriesOutput : ordinary output
-    Node "1" *-- "0..*" TimeSeriesInput
+    Node "1" *-- "0..1" TimeSeriesInput : input bundle
     Reference ..> TimeSeriesOutput : designates
 ```
 
@@ -134,15 +138,22 @@ State
 | Item | Held by | Notes |
 |---|---|---|
 | value, delta | An output; a local input | A peered input has none of its own |
-| last modified time | Every output; every non-peered or local input | A peered input reports its output's |
+| last modified time | Outputs and local input observation state | A plain peered input reports its output's; sampling and assembled child changes add local observations |
 | watchers | An output | The inputs bound to it |
 | bound to | An input | An output, or nothing |
-| role | An input | Peered, non-peered or local. Fixed by the graph description, except for the members of a collection that come and go |
+| role | An input | Peered, non-peered or local. A reference may change a fixed collection between whole-output and child bindings |
 | active | An input | Set from the node type when the node starts; the node may change it |
 
-A **non-peered** input's state is its own, derived from its children: it is
-valid when *any* child is valid, all valid when itself and *every* child are
-valid, and its last modified time is the latest at which a child notified it.
+A **non-peered** fixed input is valid when any child is valid, and all valid
+when itself and every child are valid. While it remains valid, child ticks
+and invalidations update its change time; modified means that time is now.
+An invalidated child's input view also records that change, with nil value
+and delta. Idle reads retain the change time, not an older sibling's time.
+
+When the whole structure becomes invalid, its time and descendant observation
+state reset to *never*, unmodified. Binding to an invalid target also clears
+old sample state (TS-14). Implementations may cache these observations from
+child events; reads need not scan children (TS-27).
 
 ```mermaid
 stateDiagram-v2
@@ -159,14 +170,18 @@ stateDiagram-v2
 | Kind | Value | Delta | All valid |
 |---|---|---|---|
 | TS | The scalar | The same scalar | Same as valid |
-| TSB | The fields that are valid, by name | The fields that are modified, by name, each with its own delta | Every field valid |
-| TSL, fixed | The elements, by position | The modified elements, by position, each with its own delta | Every element valid |
+| TSB | Every declared field, with nil for an invalid child | The valid modified fields, by name, each with its own delta | Every field valid |
+| TSL, fixed | The elements, by position | The valid modified elements, by position, each with its own delta | Every element valid |
 | TSL, growing | The elements, by position | Positions removed from the end, and the modified elements by position. Never both added and removed positions in one cycle | Every element valid |
 | TSS | The set | The elements **added** and the elements **removed** | Same as valid |
 | TSD | The live keys, each with its child's value — nil where the child is not yet valid | The keys **removed**, and the modified keys each with its child's delta. Which keys were **added** in this cycle is asked of the dictionary; it is not a separate part of the delta | Every live key's child valid. Removed keys do not count |
 | TSW | The values in the window, oldest first, each with the time it arrived | The value that arrived in this cycle | The window holds its minimum: enough ticks, or enough span |
 | REF | The reference | The reference | Same as valid |
 | SIGNAL | True | True | Same as valid |
+
+A valid TSB value has its full declared structure, recursively. A named bundle
+is a struct, not a sparse map. An invalid nested bundle occupies its field as
+nil; a wholly invalid bundle reads nil. Deltas remain sparse (TS-24).
 
 A TSW is valid from its first value. Only *all valid* waits for the minimum.
 
@@ -188,7 +203,8 @@ sequenceDiagram
     O->>O: last modified time becomes the evaluation time
     O->>P: a child changed
     P->>P: last modified time becomes the evaluation time
-    O-->>I: notify, the first time in this cycle only
+    O-->>I: notify on becoming modified
+    Note over O,I: Invalidation also notifies (TS-7)
     I->>I: record the notification, and pass it up any non-peered parents
     opt the input is active
         I->>G: schedule node B for now
@@ -196,7 +212,9 @@ sequenceDiagram
 ```
 
 - An admitted publication of the value a time-series already holds is still
-  a tick. An operator may suppress an equal result before publication; a
+  a tick: equal scalar values may carry a signal. REF is the exception; an
+  unchanged designation causes no additional tick or sampling (TS-16).
+  An operator may suppress an equal scalar result before publication; a
   conformance adapter must identify that boundary.
 - Further writes while already modified do not notify again; the final
   delta describes the net change. Invalidation notifies separately (TS-7).
@@ -206,11 +224,14 @@ sequenceDiagram
 
 ### Becoming invalid
 
-A time-series can lose its value. Its last modified time goes back to
+An output can lose its value. Its last modified time goes back to
 *never*, so it reads not valid and not modified, and its value reads nil. Its
 children, if it has any, become invalid with it. Its watchers are notified,
-and its parent is told a child changed, so the parent *does* read modified in
-that cycle.
+and its owned parent is told a child changed, so that parent reads modified
+in that cycle. A still-valid assembled input records the change on its child
+view and parent, as an assembly node would. The producer stays invalid and
+unmodified. If the assembled structure becomes invalid, all its observation
+times reset to *never* instead (TS-26).
 
 ### Collections within a cycle
 
@@ -237,9 +258,28 @@ that cycle.
 | Event | What the input reads afterwards | Notification |
 |---|---|---|
 | **bind** | The output's state, as it is, including the output's own last modified time. If the output ticked two cycles ago the input reads valid and not modified | None |
-| **bind, sampled** | As bind, but the input reads **modified** in this cycle, and its delta is the output's whole current value | Yes: an active input schedules its node |
+| **bind, sampled** | A valid target reads modified with its sampled delta; an invalid target reads unmodified, time *never*, and nil delta | A changed binding notifies; an active input schedules its node |
 | **unbind** | Not valid | None — except a TSS or TSD input, which ticks once to report every element or key it was showing as removed |
 | **rebind** | An unbind and a bind in one step. A TSS or TSD input ticks once with the difference: keys only in the old output removed, keys only in the new one added, and the children of the new one read as modified | As sampled bind |
+
+A sampled valid input reports the sampling time; its producer keeps its own
+time. A sampled scalar's delta is its value; a collection reports its valid
+children's sampled deltas. Sampling descends through valid children. An invalid
+target reads unmodified with time *never* and contributes no sampled delta, recursively.
+It inherits neither the previous binding's time nor the sampling time.
+A passive input has the same observations as an active one.
+
+Fixed collection rebinding compares each child's target. Unchanged bindings
+keep their observation state; changed valid targets are sampled. Parent deltas
+contain those children's deltas. Changing whole A to A.left + B.right samples
+only right, even though the parent's peering changes (TS-25).
+
+A keyed withdrawal is an input-side event: the input is invalid and modified,
+has no current members, and reports the former members as removed for this
+cycle. Its last modified time is `never`; the withdrawal event, not an owned
+output timestamp, makes it modified. The removal delta is readable while
+invalid. Physical teardown detaches silently and does not synthesize this
+running-graph withdrawal. See [reference cases](cases_references.md).
 
 Sampling is how an input brought into a running graph — a new branch of a
 switch, a new key of a map — sees values that were set before it existed.
@@ -255,8 +295,11 @@ one of: **empty**; a reference to **one output**; or, for a bundle or a fixed
 list, a reference **per child**. A reference to a reference is just the inner
 reference.
 
-- A REF time-series ticks when it is given a new reference. It does **not**
-  tick when the time-series it designates ticks. A node holding a REF input
+- A REF ticks on its first publication, including empty, and on a changed
+  designation. Publishing the same designation again causes no additional
+  tick, notification or sampling: a REF routes data; it is not a signal.
+  Target-value equality is irrelevant; two outputs remain distinct targets.
+  A REF does **not** tick when its target ticks. A node holding a REF input
   is therefore not woken by the data, only by the re-pointing — which is the
   point: references let a node route a time-series without paying for its
   traffic.
@@ -297,24 +340,31 @@ Rules
 - **TS-1** An owned output is modified exactly when its last modified time
   equals the evaluation time, and valid exactly when that time is not
   *never*. A plain peered input reflects the output. A non-peered input
-  derives its observations from its children; sampling adds the input-side
-  observation in TS-14. An unbound input is not valid; keyed withdrawal
-  retains the removal observation in TS-15 (see Points to settle).
+  maintains child-change observations while valid (TS-7, TS-27); sampling
+  adds the input-side observation in TS-14. An unbound input is not valid;
+  keyed withdrawal retains the removal observation in TS-15 (see Points to settle).
 - **TS-2** The value of a time-series that is not valid is nil. The delta of
   one that is not modified is nil.
-- **TS-3** Last modified time never decreases, except that invalidation
-  returns it to *never*.
+- **TS-3** An owned output's last modified time never decreases, except
+  that invalidation returns it to *never*. A still-valid assembled input
+  records child invalidation at the current time and retains it while idle;
+  it does not fall back to an older sibling time. Invalid structures reset
+  to *never*, including locally cached observations.
 - **TS-4** A child modified in a cycle means every ancestor is modified in
   that cycle.
-- **TS-5** Applying an output's deltas in order, from its last invalid
-  state, reproduces its value. For TSD this also needs membership changes:
+- **TS-5** Applying an output's deltas and child-validity changes in order,
+  from its last invalid state, reproduces its value. Invalidation replaces a
+  fixed child's value with nil. TSD also needs membership changes:
   published-value deltas alone omit keys with invalid children.
 - **TS-6** Marking a time-series modified notifies its watchers. Further
   writes while it is already modified do not notify, even an input that
   began watching between writes. Invalidation notifies separately (TS-7).
   Several notifications still cause only one node evaluation (GRF-16).
-- **TS-7** Becoming invalid notifies, and is not a tick. The time-series
-  reads neither valid nor modified. Its parent reads modified.
+- **TS-7** Output invalidation notifies, resets its time to *never*, and is
+  not a tick. Its owned parent reads modified. In a still-valid assembled
+  input, the affected child view and parent record the current change time
+  and read modified; the invalid child's value and delta remain nil.
+  If the whole input becomes invalid, TS-26 clears those observations.
 - **TS-8** A passive input never schedules its node. Making an input active
   or passive does not change what it reads, and never itself schedules the
   node — not even when its source has already ticked in the cycle.
@@ -325,19 +375,31 @@ Rules
 - **TS-10** In a set's delta, *added* and *removed* share no element. An
   element added and removed in one cycle is in neither.
 - **TS-11** A key removed from a dictionary, and its child, are readable for
-  the rest of that cycle. The key restored in that cycle is the same child.
+  the rest of that cycle. The key restored in that cycle is the same child,
+  with its previous value and timestamp unless explicitly written. From the
+  next engine cycle, a key that remained removed and its child are absent
+  from both live and removed observations. This applies to reference-valued
+  children too; removing one does not destroy its independently owned target.
+  A retained compound view includes descendant values and timestamps.
+  Peering describes its active binding, not the retained removal record.
 - **TS-12** A growing list shrinks only from its end, and never reports
   positions both added and removed in one cycle.
 - **TS-13** A window is valid from its first value, and all valid once it
   holds its minimum.
-- **TS-14** A plain bind causes no notification. A sampled bind reads
-  modified in its cycle with the whole value as its delta.
+- **TS-14** A plain bind causes no notification. A sampled valid target reads
+  modified in its cycle: a scalar's delta is its value; a collection reports
+  valid children's sampled deltas. An invalid target and its invalid
+  descendants read unmodified, time *never*, and no delta.
+  Sampling changes input observations, never producer timestamps.
 - **TS-15** Unbinding causes no notification, except that a set or dictionary
   input reports what it was showing as removed.
-- **TS-16** A reference ticks only when re-pointed; never because what it
-  designates ticked.
-- **TS-17** An input bound through a reference is re-bound, sampled, whenever
-  the reference changes; an empty reference unbinds it.
+- **TS-16** A REF ticks on its first publication or a changed designation,
+  never on an equal repeat or because its target ticked. Equality compares
+  endpoint identities and, for child references, their designation tree;
+  it does not compare target values. Equal repeats cause no additional work.
+- **TS-17** An input follows changes of its REF. Changed valid targets are
+  sampled; unchanged fixed child bindings are preserved (TS-25).
+  An empty reference unbinds it.
 - **TS-18** A SIGNAL input is modified exactly when the output it is bound to
   is.
 - **TS-19** A dictionary key is *added* when it joins the dictionary, whether
@@ -352,6 +414,27 @@ Rules
   what the output shows does not change.
 - **TS-22** What an input gives is read-only. Anything kept from it beyond
   the cycle is a copy.
+- **TS-23** A saved reference does not extend an endpoint's lifetime. From
+  the first engine cycle after its dictionary key remained removed at cycle
+  end, it designates nothing and binding through it leaves the input unbound. Reusing the key
+  or its storage cannot retarget the old reference. Reclamation may be lazy;
+  expiry must be observable at that cycle boundary.
+- **TS-24** A valid TSB value contains every declared field, including nil
+  for invalid children. Apply this at each valid nested bundle. Its schema
+  does not shrink with validity; its delta contains only changed valid fields.
+- **TS-25** Fixed child bindings survive changes between peered and assembled
+  parents. Rebinding samples only changed valid targets; unchanged targets
+  retain their times and delta state. Each parent includes its valid modified
+  children's deltas. Binding an invalid target clears previous sample state.
+- **TS-26** Whole TSL/TSB invalidation resets the collection and every child
+  to invalid, unmodified, time *never*, value nil and delta nil. This also
+  clears local observations when an assembled input loses its last valid
+  child. It notifies; clearing is not a publication of an all-invalid value.
+  Resetting input observations never changes independently owned producers.
+- **TS-27** Non-peered fixed collections fold an assembly node into its
+  consumer. Time and modification may be maintained locally from child events;
+  reads need not recompute them. Caches obey invalidation and rebind resets.
+  Several consumers may instead share one assembly node and output.
 
 
 Deferred
@@ -372,17 +455,12 @@ Points to settle
    ticked, and in hgraph stays valid even if its only valid field is later
    invalidated. A non-peered bundle *input* is valid only while some child
    is. The same bundle can therefore read differently from its two ends.
-2. **Modified and not valid together.** TS-1 rules it out for anything that
-   holds its own last modified time. hgraph has one case on the input side:
-   a set or dictionary input whose reference is withdrawn ticks once to
-   report its keys removed, and is by then unbound. TS-15 keeps that
-   behaviour. Should that input instead report the removals and become
-   invalid a cycle later — or is "modified, not valid" acceptable for an
-   input?
-3. **A stored reference whose output has gone.** Nothing in hgraph says what
-   it means. An input bound through it becomes unbound; a reference merely
-   held in a node's state designates nothing. It should read as empty, and
-   the implementation has to be able to tell.
+2. **Keyed withdrawal** is specified under Binding and exercised by
+   REF-DICTIONARY. It is the explicit input-side exception to the owned-output
+   timestamp rule. Implementation variations are recorded separately.
+3. **Expired stored references** follow TS-23, confirmed 2026-09-21.
+   REF-EXPIRES fixes the cycle boundary and distinguishes using a saved
+   reference from inserting a new dictionary member.
 4. **A reference carried backward.** TS-20 holds by construction so long as
    references travel only along edges. The one way to break it is to carry a
    reference backward — through a feedback, into a lower-ranked node — and

@@ -15,7 +15,7 @@ for hgraph, not a second runtime.
 >
 > The [status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
 > records the boundaries. In particular, enum/switch syntax, imported contract
-> constraints/properties, mixed state/cache, generic constructor inference,
+> constraints/properties, generic constructor inference,
 > optional-field clearing, and wiring-time reference dereference are not
 > implemented. Later target mappings in this guide do not override those limits.
 
@@ -139,7 +139,8 @@ surface.
 - A body without runtime-only constructs is classified as composition;
   `state`, `cache`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
   a runtime node. Collection iteration follows the containing phase and does
-  not classify the function by itself.
+  not classify the function by itself. A `const fn` can request an admitted
+  service without becoming a node; callers inherit its injectable requirements.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
 - A handler with no modification selector defaults to any temporal input; one

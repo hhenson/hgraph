@@ -170,7 +170,7 @@ owner.
 | Item | What it is |
 |---|---|
 | graph description | The child |
-| input bindings | Pairs: a position in the *owner's* input, and an input inside the child (a node and a path). When the child is instantiated, that child input is bound to **the same output the owner's input is bound to**. There is no intermediate node |
+| input bindings | Pairs: a position in the *owner's* input, and an input inside the child (a node and a path). The child preserves the owner's binding recursively: the same output for a peered subtree, the same child designations for an assembled subtree. Captured REF changes remain live; this is not a snapshot of the current target. There is no intermediate node |
 | output binding | One of: a time-series inside the child (a node and a path) whose values become the owner's output; or a position in the owner's input that is passed straight through as the owner's output |
 
 
@@ -216,7 +216,10 @@ flowchart TD
   An implementation identity that cannot be resolved is a failure, not a
   node left out.
 - **GRF-10** A child graph's bindings name only positions in its owner's
-  input and endpoints inside the child.
+  input and endpoints inside the child. They preserve recursive peering,
+  empty children and live REF routes. Rebinding a captured input reaches
+  existing children without recreating their state; unchanged child
+  designations are preserved (TS-25).
 
 
 Part 2 — The graph instance
@@ -327,14 +330,12 @@ reporting its next scheduled time to its owner.
 
 #### Notification becomes scheduling
 
-When an output notifies — it first ticked in this cycle, or it became
-invalid, or a binding to it changed — every input bound to it is told, passing
-the fact up through any non-peered parents it has, and each **active** input
-schedules its node for the current evaluation time. An output notifies once
-per cycle (TS-6): a second write in the cycle changes the value and tells
-nobody. A node can still be scheduled several times in one cycle — by two
-inputs, or by an input and its own scheduler — and scheduling is idempotent:
-many notifications, one evaluation (GRF-16).
+An input notified by an output or binding change passes the notification up
+through its non-peered parents. If active, it schedules its node for now.
+Writes while the output is already modified do not notify again (TS-6);
+invalidation notifies separately (TS-7). Several inputs or a scheduler may
+schedule the same node; scheduling is idempotent: many notifications, one
+evaluation (GRF-16).
 
 #### The evaluation cycle
 

@@ -1,6 +1,7 @@
 #ifndef HGL_IR_HIR_H
 #define HGL_IR_HIR_H
 
+#include "native_contract.h"
 #include "syntax/source.h"
 #include "syntax/temporal.h"
 
@@ -83,6 +84,9 @@ namespace hgl::ir::hir
         LambdaParameter,
         ImportedFunction,
         ImportedOperator,
+        /// A struct another module exports (ADR 0013). Its identity is the
+        /// owner's qualified name; this module declares nothing for it.
+        ImportedStruct,
         Intrinsic,
         ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
@@ -572,23 +576,33 @@ namespace hgl::ir::hir
         std::vector<NativePhase>      phases{};
         /// The call may raise; a raised exception ends the evaluation under
         /// hgraph's node error model. Descriptor policy "translated".
-        bool                          throws{false};
-        std::vector<std::string>      public_headers{};
-        std::vector<std::string>      cmake_packages{};
-        std::vector<std::string>      imported_targets{};
-        std::vector<std::string>      runtime_images{};
-        std::string                   descriptor_fingerprint{};
-        bool                          source_defined{false};
-        std::string                   cpp_parameters{};
-        std::string                   cpp_body{};
-        syntax::SourceRange           range{};
+        bool                     throws{false};
+        std::vector<std::string> public_headers{};
+        std::vector<std::string> cmake_packages{};
+        std::vector<std::string> imported_targets{};
+        std::vector<std::string> runtime_images{};
+        std::string              descriptor_fingerprint{};
+        std::vector<std::string> capabilities{};
+        NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
+        std::vector<std::string> lifecycle{};
+        bool                     source_defined{false};
+        std::string              cpp_parameters{};
+        std::string              cpp_body{};
+        syntax::SourceRange      range{};
     };
     struct StructField
     {
         std::string         name{};
         TypeId              type{};
         ExprId              default_value{};
+        /// The declaration that declares this field, when it is one of this
+        /// module's. A field inherited from a struct another module exports
+        /// has none (ADR 0013), and names its source in `origin_identity`.
         DeclarationId       origin{};
+        /// The identity of the struct that declares this field when it is not
+        /// a declaration here. Empty for a local origin, which `origin` names.
+        std::string         origin_identity{};
         bool                optional{false};
         syntax::SourceRange range{};
         /// An admitted recursive edge (ADR 0012): an optional `atomic<T>` through
@@ -625,6 +639,22 @@ namespace hgl::ir::hir
         std::vector<TypeId>           parents{};
         ConstraintId                  requirements{};
         std::vector<StructField>      fields{};
+    };
+
+    /// A struct another module exports, re-described for this module's IR
+    /// (ADR 0013). Its identity is the owner's; nothing here declares it, so
+    /// it is a record beside the imports rather than a Declaration.
+    struct ImportedStructDecl
+    {
+        std::string                   identity{};
+        SymbolId                      symbol{};
+        bool                          abstract{false};
+        std::vector<GenericParameter> generics{};
+        std::vector<TypeId>           parents{};
+        ConstraintId                  requirements{};
+        std::vector<StructField>      fields{};
+        std::vector<std::string>      public_headers{};
+        syntax::SourceRange           range{};
     };
     struct OperatorProperty
     {
@@ -715,6 +745,10 @@ namespace hgl::ir::hir
         std::vector<std::string>      cpp_includes{};
         std::vector<NativeFunction>   native_functions{};
         std::vector<ImportedOperator> imported_operators{};
+        /// Structs other modules export, re-described here so both backends
+        /// register the owner's schema and the solver can check an applied
+        /// family's requirements (ADR 0013). This module declares none of them.
+        std::vector<ImportedStructDecl> imported_structs{};
         std::vector<Declaration>      declarations{};
         std::vector<DeclarationId>    source_order{};
 

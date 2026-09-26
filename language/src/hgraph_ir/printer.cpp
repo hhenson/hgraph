@@ -668,6 +668,13 @@ namespace hgl::hgraph_ir
                 out << native_phase_names[static_cast<std::size_t>(native.phases[index])];
             }
             out << "] exception=" << (native.throws ? "translated" : "noexcept") << '\n';
+            if (native.implementation_kind == NativeImplementationKind::Graph ||
+                native.implementation_kind == NativeImplementationKind::Node ||
+                native.implementation_kind == NativeImplementationKind::Value) {
+                out << " implementation=" << native_implementation_name(native.implementation_kind);
+                for (const auto &hook : native.lifecycle) { out << " " << hook << ";"; }
+                for (const auto &capability : native.capabilities) { out << " inject=" << capability; }
+            }
         }
 
         out << "callables\n";

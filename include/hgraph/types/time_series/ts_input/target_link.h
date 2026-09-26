@@ -110,7 +110,7 @@ namespace hgraph::detail
         void restore_binding(const TSValueTypeMetaData &schema, const TSOutputView &output,
                              DateTime modified_time, DateTime key_set_time);
         [[nodiscard]] DateTime checkpoint_key_set_time() const;
-        void unbind();
+        void unbind(DateTime evaluation_time = MIN_DT);
         void unbind_structural(DateTime modified_time);
         void unbind_noexcept() noexcept;
         void source_invalidated(const TSDataTracking *source) noexcept;
@@ -197,7 +197,7 @@ namespace hgraph::detail
     void bind_target_link(const TSDataView &view, const TSOutputView &output);
     void bind_target_link_sampled(const TSDataView &view, const TSOutputView &output,
                                   DateTime modified_time);
-    void unbind_target_link(const TSDataView &view);
+    void unbind_target_link(const TSDataView &view, DateTime evaluation_time = MIN_DT);
     void make_target_link_active(const TSDataView &view,
                                  TSInputTargetActiveNode *node,
                                  const TSDataView &observed,

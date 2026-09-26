@@ -1,0 +1,292 @@
+diff --git a/tools/parity/catalog.py b/tools/parity/catalog.py
+index 98e4b2f73..9b6c1860f 100644
+--- a/tools/parity/catalog.py
++++ b/tools/parity/catalog.py
+@@ -5821,6 +5821,15 @@ def _validate_path_parameter(recipe, default):
+         )
+-
++
+-
++
++from . import runtime_contracts
++
++CATALOG["runtime_contract_probe"] = TemplateSpec(
++    name="runtime_contract_probe", required_inputs=("step",),
++    features=("shape:TSD", "reference:REF", "topology:map"),
++    operators=("map_", "switch_"), execute=runtime_contracts.execute,
++)
++
++
+ def validate_recipe(recipe):
+     spec = CATALOG.get(recipe.template)
+     if spec is None:
+@@ -5833,6 +5842,8 @@ def validate_recipe(recipe):
+             f"got {tuple(recipe.inputs)}"
+         )
+     _validate_reference_source(recipe)
++    if recipe.template == "runtime_contract_probe":
++        runtime_contracts.validate(recipe)
+     if recipe.template == "declaration_shape":
+         _validate_declaration_shape(recipe)
+     if recipe.template == "scalar_expression":
+diff --git a/tools/parity/runtime_contracts.py b/tools/parity/runtime_contracts.py
+new file mode 100644
+--- /dev/null
++++ b/tools/parity/runtime_contracts.py
+@@ -0,0 +1,256 @@
++"""Bounded public-API observations for the runtime specification audit."""
++import json
++from collections.abc import Mapping
++from .model import RecipeError
++
++MODES = {"membership": 8, "quote": 8, "scalar_ref": 8,
++         "dictionary_ref": 6, "restore": 4, "timer": 10, "cancel_timer": 9,
++         "nested_timer": 10, "mapped_ref": 11, "nested_mapped_ref": 11, "parallel_children": 10, "child_failure": 3, "child_start_failure": 2, "expired_ref": 7}
++
++
++def validate(recipe):
++    mode = recipe.parameters.get("mode")
++    if mode not in MODES or recipe.parameters != {"mode": mode}:
++        raise RecipeError("runtime contract mode must be one of the fixed cases")
++    if recipe.to_dict()["inputs"] != {"step": list(range(MODES[mode]))}:
++        raise RecipeError("runtime contract steps must match the bounded case")
++
++
++def execute(hg, recipe):
++    from hgraph.test import eval_node
++    validate(recipe)
++    mode = recipe.parameters["mode"]
++    steps = list(range(MODES[mode]))
++    events = []
++
++    def value(v):
++        if v is hg.REMOVE or v is hg.REMOVE_IF_EXISTS:
++            return {"$remove": True}
++        if isinstance(v, Mapping):
++            return {str(k): value(x) for k, x in sorted(v.items())}
++        if isinstance(v, (set, frozenset, tuple, list)):
++            return [value(x) for x in v]
++        return v
++
++    def stamp(ts):
++        t = ts.last_modified_time
++        return "never" if t == hg.MIN_DT else (t - hg.MIN_ST) // hg.MIN_TD
++
++    def scalar(ts):
++        return {"valid": ts.valid, "modified": ts.modified,
++                "last": stamp(ts), "value": value(ts.value) if ts.valid else None,
++                "delta": value(ts.delta_value) if ts.modified else None}
++
++    def dictionary(ts, bundle=False):
++        def child(c):
++            if not bundle:
++                return scalar(c)
++            return {"valid": c.valid, "all_valid": c.all_valid,
++                    "modified": c.modified, "last": stamp(c),
++                    "bid": scalar(c.bid), "ask": scalar(c.ask)}
++        return {"valid": ts.valid, "all_valid": ts.all_valid,
++                "modified": ts.modified, "last": stamp(ts),
++                "children": {k: child(v) for k, v in sorted(ts.items())},
++                "added": sorted(ts.added_keys()), "removed": sorted(ts.removed_keys()),
++                "retired": {k: child(v) for k, v in sorted(ts.removed_items())},
++                "delta": value(ts.delta_value) if ts.modified else None,
++                "keys_modified": ts.key_set.modified}
++
++    def encode(x):
++        return json.dumps(x, sort_keys=True)
++
++    if mode in ("membership", "restore"):
++        @hg.compute_node
++        def source(step: hg.TS[int], _output: hg.TSD = None) -> hg.TSD[str, hg.TS[int]]:
++            n = step.value
++            if mode == "membership":
++                if n == 1: _output.get_or_create("X")
++                elif n in (2, 6): _output.get_or_create("X").value = 7 if n == 2 else 9
++                elif n == 3: _output["X"].invalidate()
++                elif n == 4: del _output["X"]
++            else:
++                if n == 0: _output.get_or_create("X").value = 7
++                elif n == 1:
++                    del _output["X"]
++                    events.append(["removed", dictionary(_output), dictionary(_output)])
++                    restored = _output.get_or_create("X")
++                    events.append(["restored", scalar(restored)])
++                elif n == 2: del _output["X"]
++                elif n == 3: _output.get_or_create("X").value = 9
++
++        @hg.compute_node(valid=("step",), active=("step",))
++        def observe(step: hg.TS[int], ts: hg.TSD[str, hg.TS[int]]) -> hg.TS[str]:
++            return encode(dictionary(ts))
++
++        @hg.graph
++        def graph(step: hg.TS[int]) -> hg.TS[str]:
++            return observe(step, source(step))
++        trace = eval_node(graph, steps)
++
++    elif mode == "quote":
++        class Quote(hg.TimeSeriesSchema):
++            bid: hg.TS[int]
++            ask: hg.TS[int]
++
++        @hg.compute_node
++        def source(step: hg.TS[int], _output: hg.TSD = None) -> hg.TSD[str, hg.TSB[Quote]]:
++            n = step.value
++            if n in (1, 3, 7): _output.get_or_create("X").bid.value = 7
++            elif n == 2: _output.get_or_create("X").ask.value = 9
++            elif n == 5: del _output["X"]
++
++        @hg.compute_node(valid=("step",), active=("step",))
++        def observe(step: hg.TS[int], ts: hg.TSD[str, hg.TSB[Quote]]) -> hg.TS[str]:
++            first = dictionary(ts, True)
++            assert first == dictionary(ts, True), "observation changed the state"
++            return encode(first)
++
++        @hg.graph
++        def graph(step: hg.TS[int]) -> hg.TS[str]:
++            return observe(step, source(step))
++        trace = eval_node(graph, steps)
++
++    elif mode in ("scalar_ref", "dictionary_ref"):
++        shape = hg.TS[int] if mode == "scalar_ref" else hg.TSD[str, hg.TS[int]]
++
++        @hg.compute_node(valid=("selector",), active=("selector",))
++        def choose(selector: hg.TS[int], a: hg.REF[shape], b: hg.REF[shape]) -> hg.REF[shape]:
++            events.append(["select", selector.value])
++            return [a.value, b.value, hg.TimeSeriesReference.make()][selector.value]
++
++        @hg.compute_node(valid=("step",), active=("step",))
++        def observe(step: hg.TS[int], ts: shape, ref: hg.REF[shape]) -> hg.TS[str]:
++            observation = scalar(ts) if mode == "scalar_ref" else dictionary(ts)
++            return encode({"data": observation, "ref_modified": ref.modified, "ref_valid": ref.valid})
++
++        @hg.graph
++        def graph(step: hg.TS[int], a: shape, b: shape, selector: hg.TS[int]) -> hg.TS[str]:
++            selected = choose(selector, a, b)
++            return observe(step, selected, selected)
++
++        if mode == "scalar_ref":
++            a = [7, None, 8, None, None, None, 9, None]
++            b = [20, None, None, 21, None, None, None, None]
++            selection = [2, 0, None, 1, None, 2, 0, None]
++        else:
++            a = [{"X": 1, "Z": 9}, None, None, None, None, None]
++            b = [{"Y": 2, "Z": 3}, {"Y": 4}, None, None, None, None]
++            selection = [0, None, 1, 2, 0, None]
++        trace = eval_node(graph, steps, a, b, selection)
++
++    elif mode in ("mapped_ref", "nested_mapped_ref"):
++        @hg.compute_node
++        def total(ts: hg.TS[int], _state: hg.STATE = None,
++                  _scheduler: hg.SCHEDULER = None) -> hg.TS[int]:
++            if ts.modified:
++                _state.total += ts.value
++                _scheduler.schedule(hg.MIN_TD * 2, "timer")
++                return _state.total
++            if _scheduler.is_scheduled_now:
++                return -_state.total
++
++        @total.start
++        def start(_state: hg.STATE):
++            _state.total = 0
++            events.append("start")
++
++        @total.stop
++        def stop(): events.append("stop")
++
++        @hg.graph
++        def per_key(selector: hg.TS[str], prices: hg.TSD[str, hg.TS[int]]) -> hg.TS[int]:
++            return total(prices[selector])
++
++        @hg.graph
++        def inner(selectors: hg.TSD[str, hg.TS[str]], prices: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
++            return hg.map_(per_key, selectors, hg.pass_through(prices))
++
++        @hg.graph
++        def graph(selectors: hg.TSD[str, hg.TS[str]], prices: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
++            if mode == "nested_mapped_ref":
++                return hg.switch_(hg.const(True), {True: inner}, selectors, prices)
++            return inner(selectors, prices)
++
++        selectors = [{"X": "A"}, None, {"X": "B"}, None, None, {"X": hg.REMOVE}, None, {"X": "A"}, None, None, None]
++        prices = [{"A": 2, "B": 10}, {"A": 3}, None, {"A": 4}, None, None, {"A": 5}, None, None, None, None]
++        trace = eval_node(graph, selectors, prices, __end_time__=hg.MIN_ST + len(steps) * hg.MIN_TD)
++        return {"ticks": value(trace), "events": events}
++
++    elif mode == "expired_ref":
++        @hg.compute_node(valid=("step",), active=("step",))
++        def save(step: hg.TS[int], ref: hg.REF[hg.TS[int]], _state: hg.STATE = None) -> hg.REF[hg.TS[int]]:
++            if step.value == 0:
++                _state.saved = ref.value
++            if step.value in (0, 3, 5):
++                return _state.saved
++
++        @hg.compute_node(valid=("step",), active=("step",))
++        def observe(step: hg.TS[int], ts: hg.TS[int]) -> hg.TS[str]:
++            return encode(scalar(ts))
++
++        @hg.graph
++        def graph(step: hg.TS[int], values: hg.TSD[str, hg.TS[int]]) -> hg.TS[str]:
++            return observe(step, save(step, values["X"]))
++        trace = eval_node(graph, steps, [{"X": 7}, None, {"X": hg.REMOVE}, None, {"X": 9}, None, None])
++
++    elif mode in ("child_failure", "child_start_failure"):
++        @hg.compute_node
++        def failing(ts: hg.TS[int]) -> hg.TS[int]:
++            events.append(["eval", ts.value])
++            if ts.value < 0:
++                raise RuntimeError("runtime-contract-child-failure")
++            return ts.value
++
++        @failing.start
++        def start():
++            events.append("start")
++            if mode == "child_start_failure":
++                raise RuntimeError("runtime-contract-child-failure")
++
++        @failing.stop
++        def stop(): events.append("stop")
++
++        @hg.graph
++        def graph(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
++            return hg.map_(failing, ts)
++        ticks = [{"X": 1}, {"X": -1}, None] if mode == "child_failure" else [{"X": 1}, None]
++        try:
++            trace = eval_node(graph, ticks)
++        except Exception as error:
++            return {"failed": True, "expected_message": "runtime-contract-child-failure" in str(error), "events": events}
++        return {"failed": False, "ticks": value(trace), "events": events}
++
++    else:
++        @hg.compute_node
++        def timer(ts: hg.TS[int], _scheduler: hg.SCHEDULER = None) -> hg.TS[int]:
++            if ts.modified:
++                _scheduler.schedule(hg.MIN_TD * ts.value, "timer")
++                return ts.value
++            if _scheduler.is_scheduled_now:
++                return -1
++
++        @timer.start
++        def start(): events.append("start")
++
++        @timer.stop
++        def stop(): events.append("stop")
++
++        @hg.graph
++        def inner(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
++            return hg.map_(timer, ts)
++
++        @hg.graph
++        def graph(ts: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
++            if mode == "nested_timer":
++                return hg.switch_(hg.const(True), {True: inner}, ts)
++            return inner(ts)
++
++        ticks = ([{"X": 4}, None, {"X": hg.REMOVE}, None, None, {"X": 2}, None, None, None]
++                 if mode == "cancel_timer" else
++                 [{"X": 2}, None, None, {"X": hg.REMOVE}, None, {"X": 3}, None, None, None, None])
++        if mode == "parallel_children":
++            ticks = [{"X": 3, "Y": 2}, None, {"Y": 4}, None, {"X": hg.REMOVE}, {"X": 2}, None, None, {"X": hg.REMOVE, "Y": hg.REMOVE}, None]
++        trace = eval_node(graph, ticks, __end_time__=hg.MIN_ST + len(ticks) * hg.MIN_TD)
++        return {"ticks": value(trace), "events": events}
++
++    return {"ticks": [json.loads(t) if t is not None else None for t in trace], "events": events}

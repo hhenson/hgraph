@@ -211,9 +211,9 @@ TEST_CASE("include remains an ordinary identifier outside cpp include", "[parser
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
 }
 
-TEST_CASE("a lexer error token stands in for a statement terminator", "[parser]") {
+TEST_CASE("ordinary statements reject native hook semicolons", "[parser]") {
     Parsed parsed{"module t\nfn f(a: f64) -> f64 {\n    let b = a; b\n}\n"};
-    REQUIRE(parsed.messages() == std::vector<std::string>{"';' is not a statement terminator; use a newline"});
+    REQUIRE(parsed.messages() == std::vector<std::string>{"expected a newline after the statement, found ';'"});
 }
 
 TEST_CASE("an import set is always braced", "[parser]") {
@@ -1602,4 +1602,46 @@ TEST_CASE("every example parses cleanly", "[parser][examples]") {
         // The dump must reach every node without tripping an arena bound.
         CHECK(!print_ast(module).empty());
     }
+}
+
+TEST_CASE("native interfaces retain ordinary function and parameter constness", "[parser][native][interface]") {
+    Parsed parsed{"module t\nnative const fn value(lhs: i64, rhs: i64) -> i64\n"
+                  "native fn temporal(value: i64, const factor: i64) -> i64\n"
+                  "native fn source(const value: i64) -> i64\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 4);
+    const auto &value = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
+    CHECK(value.is_const);
+    CHECK(value.implementation.body.empty());
+    CHECK_FALSE(value.signature.parameters.front().is_const);
+    const auto &temporal = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
+    CHECK_FALSE(temporal.is_const);
+    CHECK_FALSE(temporal.signature.parameters.front().is_const);
+    CHECK(temporal.signature.parameters.back().is_const);
+    const auto &source = std::get<ast::NativeFunctionDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
+    CHECK_FALSE(source.is_const);
+    CHECK(source.signature.parameters.front().is_const);
+}
+
+TEST_CASE("native implementation bodies retain graph node and lifecycle shape", "[parser][native]") {
+    Parsed parsed{R"hgl(module shape
+native fn filter(value: i64, const limit: i64) -> i64
+native fn filter(value: i64, const limit: i64) -> i64 {}
+native fn filter(value: i64, const limit: i64) -> i64 { inject out, logger; start; when; stop; }
+)hgl"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    std::vector<const ast::NativeFunctionDecl *> natives;
+    for (auto id : parsed.module.declarations) {
+        if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(id).node)) { natives.push_back(fn); }
+    }
+    REQUIRE(natives.size() == 3);
+    CHECK_FALSE(natives[0]->has_contract);
+    CHECK(natives[1]->has_contract);
+    CHECK(natives[1]->lifecycle.empty());
+    CHECK(natives[2]->lifecycle.size() == 3);
+    CHECK(natives[2]->capabilities.size() == 2);
+    Parsed ordinary{"module t\nfn f(value: i64) -> i64 { when { return value; } }\n"};
+    CHECK(ordinary.diagnostics.has_errors());
 }

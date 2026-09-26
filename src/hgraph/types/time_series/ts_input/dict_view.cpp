@@ -33,12 +33,6 @@ namespace hgraph
             return view->slot_occupied(slot) && view->slot_added(slot);
         }
 
-        [[nodiscard]] bool tsd_input_removed_slot(const void *context, const void *, std::size_t slot)
-        {
-            const auto *view = static_cast<const TSDInputView *>(context);
-            return view->slot_occupied(slot) && view->slot_removed(slot);
-        }
-
         [[nodiscard]] ValueView tsd_input_project_key(const void *context, const void *, std::size_t slot)
         {
             return static_cast<const TSDInputView *>(context)->key_at_slot(slot);
@@ -80,12 +74,12 @@ namespace hgraph
     {
         return view_.inherited_sampled_transition()
                    ? slot_live(slot)
-                   : structure_modified() && data_view().slot_added(slot);
+                   : structure_modified() && data_view().membership_slot_added(slot);
     }
     bool TSDInputView::slot_removed(std::size_t slot) const
     {
         return !view_.inherited_sampled_transition() && structure_modified() &&
-               data_view().slot_removed(slot);
+               data_view().membership_slot_removed(slot);
     }
     bool TSDInputView::slot_modified(std::size_t slot) const
     {
@@ -187,13 +181,8 @@ namespace hgraph
     Range<ValueView> TSDInputView::added_keys() const &
     {
         if (!structure_modified()) { return detail::empty_input_range<ValueView>(); }
-        if (view_.inherited_sampled_transition())
-        {
-            return Range<ValueView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
-                                    .predicate = &tsd_input_added_slot,
-                                    .projector = &tsd_input_project_key};
-        }
-        return data_view().added_keys();
+        return Range<ValueView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
+                                .predicate = &tsd_input_added_slot, .projector = &tsd_input_project_key};
     }
 
     Range<TSInputView> TSDInputView::added_values() const &
@@ -216,27 +205,62 @@ namespace hgraph
 
     Range<ValueView> TSDInputView::removed_keys() const &
     {
-        if (!structure_modified()) { return detail::empty_input_range<ValueView>(); }
-        if (view_.inherited_sampled_transition()) { return detail::empty_input_range<ValueView>(); }
-        return data_view().removed_keys();
+        if (!structure_modified() || view_.inherited_sampled_transition()) { return detail::empty_input_range<ValueView>(); }
+        const auto source = data_view().removed_items();
+        return Range<ValueView>{.context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_items();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            }, .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto range = static_cast<const TSDInputView *>(context)->data_view().removed_items();
+                return range.projector(range.context, range.memory, slot).first;
+            }};
     }
 
     Range<TSInputView> TSDInputView::removed_values() const &
     {
-        if (!structure_modified()) { return detail::empty_input_range<TSInputView>(); }
-        return Range<TSInputView>{.context = this, .memory = nullptr, .limit = slot_capacity(),
-                                  .predicate = &tsd_input_removed_slot,
-                                  .projector = &tsd_input_project_value};
+        if (!structure_modified() || view_.inherited_sampled_transition())
+        {
+            return detail::empty_input_range<TSInputView>();
+        }
+        const auto source = data_view().removed_values();
+        return Range<TSInputView>{
+            .context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDInputView *>(context);
+                const auto data = self.data_view();
+                const auto range = data.removed_values();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            },
+            .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDInputView *>(context);
+                const auto range = self.data_view().removed_values();
+                return self.view_.child_from_retained(range.projector(range.context, range.memory, slot));
+            }};
     }
 
     KeyValueRange<ValueView, TSInputView> TSDInputView::removed_items() const &
     {
-        if (!structure_modified()) { return detail::empty_input_kv_range<ValueView, TSInputView>(); }
-        return KeyValueRange<ValueView, TSInputView>{.context = this,
-                                                     .memory = nullptr,
-                                                     .limit = slot_capacity(),
-                                                     .predicate = &tsd_input_removed_slot,
-                                                     .projector = &tsd_input_project_item};
+        if (!structure_modified() || view_.inherited_sampled_transition())
+        {
+            return detail::empty_input_kv_range<ValueView, TSInputView>();
+        }
+        const auto source = data_view().removed_items();
+        return KeyValueRange<ValueView, TSInputView>{
+            .context = this, .memory = nullptr, .limit = source.limit,
+            .predicate = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDInputView *>(context);
+                const auto data = self.data_view();
+                const auto range = data.removed_items();
+                return range.predicate == nullptr || range.predicate(range.context, range.memory, slot);
+            },
+            .projector = [](const void *context, const void *, std::size_t slot) {
+                const auto &self = *static_cast<const TSDInputView *>(context);
+                const auto range = self.data_view().removed_items();
+                auto item = range.projector(range.context, range.memory, slot);
+                return std::pair<ValueView, TSInputView>{std::move(item.first),
+                    self.view_.child_from_retained(std::move(item.second))};
+            }};
     }
 
 }  // namespace hgraph

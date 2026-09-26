@@ -18,7 +18,7 @@ is accepted.
 retains its wiring-time meaning. Local fixed-arity functions and
 [role selection/lifting](../user-guide/value-functions.md) are implemented.
 Generic/pack value-function lowering is not implemented. Scalar `cache`
-declarations are implemented; combining `cache` with `state` is rejected.
+declarations are implemented, including beside `state`.
 Native type lifecycle forms and target-mapping declarations remain outside
 the implemented grammar. Their agreed semantics and open syntax are recorded
 in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
@@ -204,9 +204,13 @@ function_decl   = ( [ "export" | "impl" ], "fn" | "const", "fn" ), identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
 native_function_decl
-                = "native", "fn", identifier, [ generic_parameters ],
+                = "native", [ "const" ], "fn", identifier, [ generic_parameters ],
                   function_signature, [ "throws" ], [ requires_clause ],
-                  "{", [ NL ], cpp_implementation, [ NL ], "}";
+                  [ native_contract_body ];
+native_contract_body
+                = "{", [ NL ], { ( inject_decl, [ ";" ] | native_hook ), [ NL ] },
+                  [ cpp_implementation, [ NL ] ], "}";
+native_hook     = ( "start" | "when" | "stop" ), ";";
 cpp_implementation
                 = "cpp", cpp_parameter_list, cpp_compound_statement;
 
@@ -270,8 +274,8 @@ operator_requirement
                   [ type, { ",", type } ], ")", [ "->", type ];
 ```
 
-When more than one source file is supplied for a compilation, every
-`module_decl` includes a unique part name and every module path is identical.
+In a multi-file compilation, at most one shared interface omits a part name.
+Named parts are unique and every module path is identical.
 The driver independently parses each file, orders the set lexically by part
 name, replaces the redundant module headers in a source-accurate assembled
 view, and runs name resolution and lowering once. The part name does not enter
@@ -374,9 +378,10 @@ and reports the rule each other edge breaks:
 
 A cycle that also runs through inheritance, such as a parent's field that
 names its own descendant, is rejected too: hgraph declares a parent before its
-children, so such a cycle cannot be registered. A struct type cannot name
-another module's struct, and imports are acyclic, so no cycle crosses a module
-(rule 5). The resolver marks each admitted edge on the struct's effective
+children, so such a cycle cannot be registered. A struct type may name another
+module's struct (ADR 0013), but a recursive EDGE may not: rule 5 keeps an edge
+inside the module that owns it, and module imports are acyclic, so no cycle
+crosses a module. The resolver marks each admitted edge on the struct's effective
 fields, and typed HIR and hgraph IR carry the mark with the edge's target
 named by struct identity (compiler and lowering guide, "Recursive struct
 edges"). Both backends realize an edge as an owner of its target, and module
@@ -1205,8 +1210,12 @@ State, cache, and inject declarations precede executable blocks. The first
 slice requires a state or cache initializer and permits at most one `start`
 and one `stop` block. A `cache` is node-local data outside record/replay,
 re-initialized on every start; multiple scalar cache fields share a generated struct in one native
-`State<>` slot. Combining cache with `state` is still unsupported by HGL lowering, although
-native static nodes support both selectors ([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
+`State<>` slot. A function may declare both: the two storages are planned
+independently, as native static nodes admit one `State<>` and one
+`RecordableState<>`, and `start` seeds a state field only when it is not
+already valid while assigning every cache field unconditionally -- so a
+restored state survives and its cache is rebuilt from it
+([ADR 0011](../design/decisions/0011-cache-declarations.md)). It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
@@ -1826,7 +1835,9 @@ determine whether its body describes:
 - or another explicitly admitted hgraph implementation kind.
 
 The implemented classifier (`src/semantics/resolve.cpp`, `classify`) applies
-these rules:
+these rules to temporal `fn` bodies. A `const fn` remains value-level when it
+injects an admitted service; required capabilities also propagate through calls:
+
 
 1. A body containing no node-only construct becomes `CompositionFn`.
 2. The presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
@@ -1885,6 +1896,13 @@ and required-valid. This does not by itself classify an otherwise ordinary or
 iterator-only body as runtime.
 
 ## Runtime state, injectables, and lifecycle
+
+This section describes implemented HGL. The agreed
+[native capability contract](../design/decisions/0014-native-implementation-interfaces.md#outputs-and-capabilities)
+also supports `logger` and `clock` on value functions and native value
+declarations. Calls silently upgrade their callers' injection lists. Injection
+alone does not classify a `const fn` as a node. Temporal native provider
+bindings remain pending.
 
 Each `state` declaration introduces a mutable function-lifetime binding. The
 compiler aggregates all declarations into one typed recordable-state schema.
@@ -2322,9 +2340,12 @@ observation rather than rule, is collected under
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
-- non-scalar reconstructible caches and mixed state/cache storage, native type
-  lifecycle and mapping contracts, lifecycle output access, and runtime sinks;
+- non-scalar reconstructible caches, native type lifecycle and mapping
+  contracts, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior;
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction
   from temporal values.
+
+Native signatures and selected target bodies follow the
+[implementation-part rules](../design/native-implementation-parts.md).

@@ -262,3 +262,14 @@ TEST_CASE("native package API rejects a constructor without a result type") {
     CHECK_THROWS_WITH(hgl::native::descriptor_json(invalid),
                       "$.native.declarations[1].signature.result: a native constructor must declare its result type");
 }
+
+TEST_CASE("native package authoring preserves explicit execution roles", "[native-package][interface]") {
+    auto source = package();
+    source.declarations[1].execution_role = hgl::native::ExecutionRole::Value;
+    const auto value = hgl::native::descriptor_json(source);
+    CHECK(value.find("\"execution_role\": \"value\"") != std::string::npos);
+    source.declarations[1].execution_role = hgl::native::ExecutionRole::Temporal;
+    const auto temporal = hgl::native::descriptor_json(source);
+    CHECK(temporal.find("\"execution_role\": \"temporal\"") != std::string::npos);
+    CHECK(value != temporal);
+}

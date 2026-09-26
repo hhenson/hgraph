@@ -85,6 +85,7 @@ namespace hgl::syntax
             case TokenKind::RBracket: return "']'";
             case TokenKind::Less: return "'<'";
             case TokenKind::Greater: return "'>'";
+            case TokenKind::Semicolon: return "';'";
             case TokenKind::Comma: return "','";
             case TokenKind::Colon: return "':'";
             case TokenKind::ColonColon: return "'::'";

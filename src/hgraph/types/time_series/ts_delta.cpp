@@ -149,7 +149,7 @@ namespace hgraph
 
         [[nodiscard]] ValueTypeRef canonical_delta_binding(const TSInputView &in, const char *fn)
         {
-            const auto &data = in.data_view();
+            const auto data = in.input_data_view();
             if (!data.valid()) { throw std::logic_error(fmt::format("{}: input has no bound data", fn)); }
             return require_canonical_delta(data.layout().canonical_delta_binding, in.schema(), fn);
         }
@@ -286,7 +286,7 @@ namespace hgraph
             {
                 return current_state_ops(type.as_role(), fn);
             }
-            const auto &data = input.data_view();
+            const auto data = input.input_data_view();
             if (data.valid())
             {
                 const auto *ops = data.ops().current_state_ops;
@@ -887,21 +887,35 @@ namespace hgraph
             }
             auto mutation = target_dict.begin_mutation(target.evaluation_time());
             const auto source_dict = source.as_dict();
+            const TSCurrentReconcileOptions child_options{
+                TSCurrentReconcileScope::Full, options.sample_all, options.membership};
 
             if (options.scope == TSCurrentReconcileScope::Full)
             {
                 std::vector<Value> removals;
                 for (const auto key : target_dict.keys())
                 {
-                    const auto source_child = source_dict.at(key);
-                    if (!source_child_live(source_child))
-                    {
-                        removals.emplace_back(key);
-                    }
+                    const bool keep = options.membership ? source_dict.contains(key)
+                                                         : source_child_live(source_dict.at(key));
+                    if (!keep) { removals.emplace_back(key); }
                 }
                 for (const auto &key : removals)
                 {
                     static_cast<void>(mutation.erase(key.view()));
+                }
+                if (options.membership)
+                {
+                    for (const auto key : source_dict.keys())
+                    {
+                        const auto source_child = source_dict.at(key);
+                        TSOutputView target_child{target.output(), mutation.at(key), target.evaluation_time()};
+                        if (source_child_live(source_child))
+                        {
+                            reconcile_current(target_child, source_child, child_options);
+                        }
+                        else { invalidate_target(target_child); }
+                    }
+                    return;
                 }
                 for (auto &&[key, source_child] : source_dict.valid_items())
                 {
@@ -909,8 +923,7 @@ namespace hgraph
                     reconcile_current(
                         TSOutputView{target.output(), target_child, target.evaluation_time()},
                         source_child,
-                        TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
-                                                  options.sample_all});
+                        child_options);
                 }
                 return;
             }
@@ -931,6 +944,14 @@ namespace hgraph
                 {
                     static_cast<void>(mutation.erase(key));
                 }
+                if (options.membership)
+                {
+                    // A key joins whether or not its child has a value (TS-19).
+                    for (const auto key : source_dict.added_keys())
+                    {
+                        static_cast<void>(mutation.at(key));
+                    }
+                }
             }
             auto modified_items = [&]() {
                 if constexpr (std::same_as<Source, TSInputView>)
@@ -944,13 +965,21 @@ namespace hgraph
             }();
             for (auto &&[key, source_child] : modified_items)
             {
-                if (!source_child_live(source_child)) { continue; }
+                if (!source_child_live(source_child))
+                {
+                    // An exact mirror withdraws a child whose source child was
+                    // withdrawn while its key stayed a member.
+                    if (options.membership && target_dict.contains(key))
+                    {
+                        invalidate_target(TSOutputView{target.output(), mutation.at(key), target.evaluation_time()});
+                    }
+                    continue;
+                }
                 auto target_child = mutation.at(key);
                 reconcile_current(
                     TSOutputView{target.output(), target_child, target.evaluation_time()},
                     source_child,
-                    TSCurrentReconcileOptions{TSCurrentReconcileScope::Full,
-                                              options.sample_all});
+                    child_options);
             }
         }
 
@@ -1017,7 +1046,7 @@ namespace hgraph
                     target_child, source_child,
                     TSCurrentReconcileOptions{full ? TSCurrentReconcileScope::Full
                                                    : TSCurrentReconcileScope::Incremental,
-                                              options.sample_all});
+                                              options.sample_all, options.membership});
             }
 
             if (full && !resizable)
@@ -1419,7 +1448,8 @@ namespace hgraph
 
             const auto dict = in.as_dict();
             SetBuilder removed{key_binding};
-            for (const auto &key : dict.removed_keys())
+            const auto removed_keys = dict.structure_modified() ? dict.data_view().removed_keys() : Range<ValueView>{};
+            for (const auto &key : removed_keys)
             {
                 if (selects != nullptr && !selects(context, key)) { continue; }
                 const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
@@ -1786,7 +1816,7 @@ namespace hgraph
     Value capture_delta(const TSInputView &in)
     {
         if (const auto type = in.type_ref(); type) return type.ops_ref().capture_delta_impl(in);
-        const auto &data = in.data_view();
+        const auto data = in.input_data_view();
         if (data.valid()) return data.ops().capture_delta_impl(in);
         static_cast<void>(require_schema(in.schema(), "capture_delta"));
         throw std::logic_error("capture_delta requires a canonical input type record");

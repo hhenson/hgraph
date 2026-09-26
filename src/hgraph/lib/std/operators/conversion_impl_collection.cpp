@@ -17,8 +17,7 @@ namespace hgraph::stdlib
         register_overload<convert, convert_tsd_to_map_impl>();
         register_overload<convert, convert_map_to_tsd_impl>();
         register_overload<convert, convert_kv_to_map_impl>();
-        register_graph_overload<convert, convert_kv_to_tsd_impl>();
-        register_overload<convert_kv_to_tsd_ref_marker, convert_kv_to_tsd_ref_kernel>();
+        register_overload<convert, convert_kv_to_tsd_impl>();
         register_overload<convert, collection_impl_detail::convert_tsb_to_cs_impl>();
         register_overload<convert, collection_impl_detail::convert_tsb_to_cs_lenient_impl>();
         register_overload<convert, collection_impl_detail::convert_cs_to_tsb_impl>();

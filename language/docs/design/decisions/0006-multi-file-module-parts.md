@@ -20,8 +20,9 @@ module hgraph.std part arithmetic
 ```
 
 A multi-file compilation lists one anchor file and one or more additional
-parts. Every listed file must declare the same module identity and a unique
-`part` name. The `part` keyword is hard reserved and its following name is an
+parts. Every listed file declares the same module identity. At most one shared
+interface file may omit a part name; all named parts have unique names. The
+`part` keyword is hard reserved and its following name is an
 ordinary identifier local to the source set; that name is not a namespace,
 declaration, export, or nominal identity.
 

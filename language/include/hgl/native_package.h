@@ -129,6 +129,8 @@ namespace hgl::native
         Lifecycle,
     };
 
+    enum class ExecutionRole : std::uint8_t { LegacyValue, Value, Temporal };
+
     enum class Phase : std::uint8_t {
         Wiring,
         Start,
@@ -203,6 +205,8 @@ namespace hgl::native
         std::optional<ValueType>      result_type{};
         ValuePolicy                   result_policy{};
         std::vector<Phase>            phases{};
+        ExecutionRole                 execution_role{ExecutionRole::LegacyValue};
+        std::vector<std::string>      capabilities{};
         std::vector<Effect>           effects{};
         ExceptionPolicy               exception_policy{ExceptionPolicy::NoThrow};
         ThreadSafety                  thread_safety{ThreadSafety::NodeLocal};

@@ -1,6 +1,7 @@
 # Conformance
 
-Status: proposed. The cases are written expectations; no runtime runner exists yet.
+Status: proposed methodology; the bounded [dynamic cases](validation.md) have
+recorded Python/C++ runs. Other cases retain their stated evidence limits.
 
 An idle cycle keeps a value but has no delta. Publishing the same value later
 can still be a tick. Conformance compares the **trace**, not just the final
@@ -31,6 +32,8 @@ licence for arbitrary behaviour.
 - [Atomic](cases_atomic.md): first tick, idle cycles, equal publications and repeated reads.
 - [Collections](cases_collections.md): validity, membership, deltas and per-level time.
 - [Lifecycle](cases_lifecycle.md): activation, construction failure and teardown.
+- [References](cases_references.md): sampling, dictionary withdrawal and expiry.
+- [Nested graphs](cases_nested.md): keyed routing, state, deadlines and failure.
 - [Representations](representations.md) and [layout](layout_example.md): physical contracts.
 
 Each case names its rules, limits, initial state, actions and observation
@@ -49,6 +52,29 @@ two implementations is evidence, not proof.
 Record revisions, rules, cases, adapter, commands, results and untested work.
 Keep eligibility, behaviour, physical checks and measured performance separate.
 Document checks do not establish runtime conformance.
+
+## Accepting an expectation
+
+State the expected observations and their rule derivation before execution.
+Compare each observation with isolated Python and C++ runs:
+
+- Reasoning matches both: accept.
+- Reasoning matches either: accept; retain the other result as a variation.
+- Python and C++ agree against reasoning: recheck the derivation and adapter.
+  Record why an expectation changed; never regenerate it from actual output.
+- No pair agrees: ask the user and preserve all three results. A user ruling
+  accepts the contract, not a claim that either implementation conforms.
+- An explicit user ruling supersedes an earlier acceptance. Retain the old
+  expectation, the ruling and both measured results; do not rewrite history.
+
+Python has the stronger testing history and is the preferred guide where
+reasoning leaves an interpretation open. Compare fields separately: one
+matching field does not validate the whole trace. An unavailable observation,
+crash or harness failure is not a matching value. Record the failed phase.
+
+A variation names the case, rules, exact input and observation point, expected
+and actual results, implementation identities, repeats and any remaining
+uncertainty about the adapter or native core. Keep it until reviewed.
 
 ## An implementation card
 

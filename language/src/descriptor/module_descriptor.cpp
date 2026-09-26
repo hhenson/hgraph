@@ -495,9 +495,13 @@ namespace hgl::descriptor
             const auto        symbol = std::ranges::find(options.source_native_symbols, function.candidate_identity,
                                                          &std::pair<std::string, std::string>::first);
             NativeDeclaration declaration;
-            declaration.identity   = function.identity;
-            declaration.cpp_symbol = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
-            declaration.signature  = schema.native_signature(function);
+            declaration.identity       = function.identity;
+            declaration.cpp_symbol     = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
+            declaration.signature      = schema.native_signature(function);
+            declaration.execution_role = function.execution_role;
+            declaration.implementation_kind = function.implementation_kind;
+            declaration.lifecycle           = function.lifecycle;
+            declaration.capabilities   = function.capabilities;
             declaration.phases.clear();
             for (const ir::hir::NativePhase phase : function.phases) {
                 switch (phase) {

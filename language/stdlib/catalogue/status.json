@@ -84,19 +84,6 @@
         "include/hgraph/lib/std/operators/io.h"
       ]
     },
-    "__materialize": {
-      "status": "native-provider",
-      "priority": 3,
-      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
-      "completed_domains": [],
-      "blockers": [
-        "B2",
-        "B5"
-      ],
-      "evidence": [
-        "include/hgraph/lib/std/operators/impl/stream_impl.h"
-      ]
-    },
     "__print_sink": {
       "status": "blocked",
       "priority": 3,
@@ -2420,6 +2407,18 @@
       ],
       "evidence": [
         "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "table_schema": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "TABLE protocol, row schemas and record/replay ownership; a const-evaluable native operator over the table layout (RFC 0042).",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/table.h"
       ]
     },
     "take": {

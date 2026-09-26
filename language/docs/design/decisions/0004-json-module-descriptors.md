@@ -58,6 +58,18 @@ its type is an `atomic` record over a symbol of the descriptor's module.
 Readers reject version-five descriptors rather than read an edge as an
 ordinary field; a module is rebuilt to regenerate its descriptor.
 
+Version 7 requires a native `execution_role`: `value`, `temporal`, or
+`legacy-value` for the remaining inline compatibility declarations. It is part
+of the fingerprint and survives import. Readers reject version-six descriptors;
+phase permissions alone cannot determine whether a native call is temporal.
+
+Version 8 requires the native `capabilities` list and fingerprints it. Importing
+it preserves the requirements used to infer callers' injection lists. Readers
+reject older descriptors rather than emit a call without its service arguments.
+
+Version 9 requires native `implementation_kind` and `lifecycle`. Selected
+implementation shape, hooks and requests survive import and affect the fingerprint.
+
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
 order inside expressions, escapes every JSON control character, and writes one

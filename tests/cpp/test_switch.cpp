@@ -32,6 +32,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -791,6 +792,45 @@ namespace
         }
     };
 
+    /** Selects between a switch whose only branch returns its input
+        unchanged and that same input. The switch publishes the input's own
+        reference, so re-selecting between the two is the same reference and
+        ``if_then_else`` publishes nothing (hgraph: a switch_ output is always
+        a reference to what the branch returned). */
+    struct PassThroughReselectGraph
+    {
+        static constexpr auto name = "pass_through_reselect_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> through_switch, Port<TS<Int>> ts)
+        {
+            auto switched = wire<stdlib::switch_>(
+                w, wire<stdlib::const_, TS<Str>>(w, Str{"id"}),
+                stdlib::switch_cases({{Value{Str{"id"}}, fn<PassThrough>()}}), ts);
+            return wire<stdlib::if_then_else>(w, through_switch, switched, ts).as<TS<Int>>();
+        }
+    };
+
+    /** The structural form: the branch returns a composed bundle unchanged,
+        so the switch publishes a composite reference over the upstream
+        fields, equal to the bundle's own reference. */
+    struct BundlePassThroughReselectGraph
+    {
+        static constexpr auto name = "bundle_pass_through_reselect_graph";
+
+        static Port<SwitchSignalBundle> compose(Wiring &w,
+                                                Port<TS<Bool>> through_switch,
+                                                Port<TS<Int>> p1,
+                                                Port<TS<Str>> p2)
+        {
+            auto bundle = stdlib::to_tsb<SwitchSignalBundle>(w, p1, p2);
+            auto switched = wire<stdlib::switch_>(
+                w, wire<stdlib::const_, TS<Str>>(w, Str{"id"}),
+                stdlib::switch_cases({{Value{Str{"id"}}, fn<DirectBundleBranch>()}}), bundle);
+            return wire<stdlib::if_then_else>(w, through_switch, switched, bundle)
+                .as<SwitchSignalBundle>();
+        }
+    };
+
     struct SwitchStorageRecorderTag
     {
     };
@@ -1022,8 +1062,10 @@ TEST_CASE("switch_: value and interior-REF TSD branches share a reference-leaved
                     {{"partition"s, dict_delta<Int, TS<Int>>({{1, 11}})}})),
             values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
                           dict_delta<Int, TS<Int>>({{9, 91}})))),
+        // Replacing the selected dictionary withdraws the previous branch's
+        // keys as well as publishing the new branch's current children.
         values<Value>(dict_delta<Int, TS<Int>>({{9, 90}}),
-                      dict_delta<Int, TS<Int>>({{1, 11}})));
+                      dict_delta<Int, TS<Int>>({{1, 11}}, {9})));
 }
 
 TEST_CASE("switch_: a paused REF branch preserves the previous token until resume")
@@ -1157,6 +1199,30 @@ TEST_CASE("switch_: a branch may return a parent input directly")
                                            {Value{Str{"double"}}, fn<Doubler>()}}),
                      values<Int>(3, 4, none, 5, 6)),
                  values<Int>(3, 4, 8, 5, 6));
+}
+
+TEST_CASE("switch_: a pass-through branch publishes its input's own reference")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // Re-pointing between the switch and its input is the same reference:
+    // the consumer is not re-bound, so nothing ticks until the input does.
+    CHECK_OUTPUT(eval_node<PassThroughReselectGraph>(values<Bool>(true, false, true, none),
+                                                     values<Int>(1, none, none, 2)),
+                 values<Int>(1, none, none, 2));
+}
+
+TEST_CASE("switch_: a structural pass-through branch publishes the fields' own references")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<BundlePassThroughReselectGraph>(values<Bool>(true, false, true, none),
+                                                           values<Int>(1, none, none, 2),
+                                                           values<Str>(Str{"a"})),
+                 values<Value>(tsb_delta<SwitchSignalBundle>(Int{1}, Str{"a"}), none, none,
+                               tsb_delta<SwitchSignalBundle>(Int{2}, std::nullopt)));
 }
 
 TEST_CASE("switch_: peered and structural TSB branches notify SIGNAL on every retarget")

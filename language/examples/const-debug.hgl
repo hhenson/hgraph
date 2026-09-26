@@ -1,0 +1,19 @@
+module examples.const_debug
+
+native const fn print_i64(value: i64)
+
+export fn const_(const value: i64) -> i64 {
+    inject scheduler
+    start { scheduler.schedule(0s) }
+    when scheduled() { return value }
+}
+
+export fn debug_print(value: i64) {
+    when { print_i64(value) }
+}
+
+export fn main() -> i64 {
+    let value = const_(42)
+    debug_print(value)
+    return value
+}

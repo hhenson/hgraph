@@ -17,6 +17,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <type_traits>
 #include <limits>
 
 // Step 3 of the record/replay/table design record: the Arrow-backed Frame
@@ -579,6 +580,55 @@ namespace
         }
     };
 }  // namespace
+
+namespace
+{
+    struct TableSchemaGraph
+    {
+        static constexpr auto name = "table_schema_graph";
+
+        // The public C++ name is the runtime name, hgraph::TableSchema.
+        static Port<TS<hgraph::TableSchema>> compose(Wiring &w)
+        {
+            return wire<stdlib::table_schema>(w, ts_type<TS<Int>>()).template as<TS<hgraph::TableSchema>>();
+        }
+    };
+    static_assert(std::is_same_v<hgraph::TableSchema, stdlib::TableSchema>);
+}  // namespace
+
+TEST_CASE("table operators: table_schema publishes the layout as one constant tick (RFC 0042)")
+{
+    stdlib::register_standard_operators();
+
+    const auto ticks = eval_node<TableSchemaGraph>();
+    REQUIRE(ticks.size() == 1);
+    REQUIRE(ticks[0].has_value());
+    const auto schema = ticks[0]->view().as_bundle();
+    const auto keys = schema.at("keys").as_list();
+    REQUIRE(keys.size() == 3);
+    CHECK(keys.at(0).checked_as<Str>() == Str{"__date_time__"});
+    CHECK(keys.at(2).checked_as<Str>() == Str{"value"});
+    CHECK(schema.at("date_time_key").checked_as<Str>() == Str{"__date_time__"});
+    CHECK(schema.at("types").as_list().at(2).checked_as<TypeCarrier>().scalar() ==
+          scalar_descriptor<Int>::value_meta());
+}
+
+TEST_CASE("table column types use the Arrow vocabulary (RFC 0042)")
+{
+    stdlib::register_standard_operators();
+    CHECK(table_column_type_name(scalar_descriptor<Int>::value_meta()) == "int64");
+    CHECK(table_column_type_name(scalar_descriptor<Float>::value_meta()) == "double");
+    CHECK(table_column_type_name(scalar_descriptor<Str>::value_meta()) == "string");
+    CHECK(table_column_type_name(scalar_descriptor<DateTime>::value_meta()) == "timestamp[us, tz=UTC]");
+    CHECK(table_column_type_name(scalar_descriptor<CivilDateTime>::value_meta()) == "timestamp[us]");
+    // Arrow has no type of its own for these: utf8 is str's, the rest are structs.
+    CHECK(table_column_type_name(scalar_descriptor<ZoneId>::value_meta()) == "zone_id");
+    CHECK(table_column_type_name(scalar_descriptor<InstantRange>::value_meta()) == "instant_range");
+    CHECK(table_column_type_name(scalar_descriptor<HomogeneousTuple<Int>>::value_meta()) == "list<int64>");
+    CHECK(table_column_type_name(scalar_descriptor<HomogeneousTuple<ZoneId>>::value_meta()) == "list<zone_id>");
+    // Every leaf has a name.
+    for (const auto *leaf : table_atomic_leaf_metas()) { CHECK_FALSE(table_column_type_name(leaf).empty()); }
+}
 
 TEST_CASE("table operators: to_table emits one bitemporal tuple row per tick")
 {

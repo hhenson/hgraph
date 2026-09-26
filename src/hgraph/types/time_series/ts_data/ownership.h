@@ -41,8 +41,12 @@ namespace hgraph::detail
         child_at_fn    child_at{nullptr};
         stop_fn        stop{nullptr};
         auxiliary_metrics_fn auxiliary_dynamic_storage{nullptr};
+        /** Logical lifetime of a child slot; storage may remain allocated after expiry. */
+        bool (*child_alive_at)(const void *, const void *, std::size_t, DateTime) noexcept =
+            [](const void *, const void *, std::size_t, DateTime) noexcept { return true; };
     };
 
+    [[nodiscard]] bool ts_data_alive_at(TSDataView endpoint, DateTime time) noexcept;
     void attach_owned_ts_data_parents(TSDataView root);
     void attach_owned_ts_data_parent(TSDataView child, const TSDataView &parent, std::size_t child_id);
     void stop_owned_ts_data_tree(TSDataView root) noexcept;

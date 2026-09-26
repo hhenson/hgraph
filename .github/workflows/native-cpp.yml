@@ -15,13 +15,23 @@ permissions:
   contents: read
 
 env:
+  # Bound each sccache client; compiler workers remain independently parallel.
+  TOKIO_WORKER_THREADS: "2"
   GCC_VERSION: "14"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   native-cpp:
     name: Native C++ / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    # Linux and macOS routing can be enabled independently; see build_system.rst.
+    runs-on: >-
+      ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","linux","x64","hg-build"]')
+          || matrix.os == 'macos-26' && vars.HGRAPH_SELF_HOSTED_MACOS == 'true'
+          && !github.event.pull_request.head.repo.fork
+          && fromJSON('["self-hosted","macOS","ARM64","hg-build"]')
+          || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,19 +45,52 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Configure the persistent build environment
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(sysctl -n hw.logicalcpu)}"
+          else
+            workers="${HGRAPH_BUILD_PARALLELISM:-$(nproc)}"
+          fi
+          [[ "$workers" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid build parallelism" >&2; exit 1; }
+          echo "HGRAPH_BUILD_PARALLELISM=$workers" >> "$GITHUB_ENV"
+          tests="${HGRAPH_TEST_PARALLELISM:-8}"
+          [[ "$tests" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid test parallelism" >&2; exit 1; }
+          echo "HGRAPH_TEST_PARALLELISM=$tests" >> "$GITHUB_ENV"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$workers" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
-          version: v0.15.0
+          version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
+      - name: Start compiler cache before parallel compilation
+        if: runner.environment == 'self-hosted'
+        run: |
+          sccache --stop-server || true
+          sccache --start-server
+      # setup-python hard-codes a hosted account's tool-cache path on macOS.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        if: runner.os != 'macOS' || runner.environment != 'self-hosted'
         with:
           python-version: "3.12"
+      - name: Create a job-local Python environment on the macOS runner
+        if: runner.os == 'macOS' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3.12 -m venv "$RUNNER_TEMP/python"
+          echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
+          echo "pythonLocation=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/python" >> "$GITHUB_ENV"
       - name: Configure current Clang on macOS
         if: runner.os == 'macOS'
         shell: bash
         run: |
           echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=26.0" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
       - name: Configure GCC 14 on Linux
         if: runner.os == 'Linux'
@@ -77,9 +120,9 @@ jobs:
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
           -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Build native C++ tests
-        run: cmake --build build-native --parallel ${{ matrix.parallel }}
+        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || matrix.parallel }}
       - name: Run native C++ tests
-        run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
+        run: ctest --test-dir build-native --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || matrix.parallel }}
       - name: Run restartable Kafka broker conformance
         if: runner.os == 'Linux'
         run: >-
@@ -90,15 +133,17 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/h2spec.tar.gz \
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/h2spec.tar.gz" \
             https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz
-          tar -xzf /tmp/h2spec.tar.gz -C /tmp
+          tar -xzf "$RUNNER_TEMP/h2spec.tar.gz" -C "$RUNNER_TEMP"
           python3 extensions/web/tools/run_h2spec.py \
-            build-native/extensions/web/tests/hgraph_web_h2spec_server /tmp/h2spec
+            build-native/extensions/web/tests/hgraph_web_h2spec_server "$RUNNER_TEMP/h2spec"
       - name: Start the S3 conformance endpoint
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # A cancelled run on a persistent runner can leave the container behind.
+          docker rm --force hgraph-minio >/dev/null 2>&1 || true
           docker run --detach --name hgraph-minio -p 9010:9000 \
             -e MINIO_ROOT_USER=hgraphtest \
             -e MINIO_ROOT_PASSWORD=hgraphtest123 \
@@ -271,15 +316,35 @@ jobs:
 
   native-shared-install:
     name: Native C++ / Linux shared install with IPO
-    runs-on: ubuntu-24.04
+    # Opt-in self-hosted routing (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Isolate temporary files from other host users
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Configure the persistent build environment
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          workers="${HGRAPH_BUILD_PARALLELISM:-$(nproc)}"
+          tests="${HGRAPH_TEST_PARALLELISM:-8}"
+          [[ "$workers" =~ ^[1-9][0-9]*$ && "$tests" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid parallelism" >&2; exit 1; }
+          echo "HGRAPH_BUILD_PARALLELISM=$workers" >> "$GITHUB_ENV"
+          echo "HGRAPH_TEST_PARALLELISM=$tests" >> "$GITHUB_ENV"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$workers" >> "$GITHUB_ENV"
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
-          version: v0.15.0
+          version: ${{ runner.environment == 'self-hosted' && 'v0.16.0' || 'v0.15.0' }}
+      - name: Start compiler cache before parallel compilation
+        if: runner.environment == 'self-hosted'
+        run: |
+          sccache --stop-server || true
+          sccache --start-server
       - name: Configure GCC 14
         shell: bash
         run: |
@@ -291,6 +356,10 @@ jobs:
           "$cxx_path" --version
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
+          # A persistent runner must not reuse a previous job's installer paths.
+          micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+          micromamba-root-path: ${{ runner.temp }}/micromamba-root
+          post-cleanup: all
           environment-name: hgraph-native
           cache-environment: true
           create-args: >-
@@ -330,10 +399,10 @@ jobs:
           build-shared/compile_commands.json
       - name: Build optimized shared C++ tests
         shell: micromamba-shell {0}
-        run: cmake --build build-shared --parallel 2
+        run: cmake --build build-shared --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
       - name: Run optimized shared C++ tests
         shell: micromamba-shell {0}
-        run: ctest --test-dir build-shared --output-on-failure --parallel 2
+        run: ctest --test-dir build-shared --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || '2' }}
       - name: Install optimized shared C++ package
         shell: micromamba-shell {0}
         run: cmake --install build-shared --prefix "$GITHUB_WORKSPACE/install-shared"
@@ -346,7 +415,7 @@ jobs:
       - name: Build and test installed-package consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-consumer --parallel 2
+          cmake --build build-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-consumer --output-on-failure
       - name: Configure installed Kafka consumer
@@ -358,7 +427,7 @@ jobs:
       - name: Build and test installed Kafka consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-kafka-consumer --parallel 2
+          cmake --build build-kafka-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-kafka-consumer --output-on-failure
       - name: Configure installed analytics consumer
@@ -371,7 +440,7 @@ jobs:
       - name: Build and test installed analytics consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-analytics-consumer --parallel 2
+          cmake --build build-analytics-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-analytics-consumer --output-on-failure
       - name: Configure installed web consumer
@@ -383,7 +452,7 @@ jobs:
       - name: Build and test installed web consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-web-consumer --parallel 2
+          cmake --build build-web-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-web-consumer --output-on-failure
       - name: Configure installed persistence consumer
@@ -395,7 +464,7 @@ jobs:
       - name: Build and test installed persistence consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-persistence-consumer --parallel 2
+          cmake --build build-persistence-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-persistence-consumer --output-on-failure
       - name: Configure installed fabric consumer
@@ -407,7 +476,7 @@ jobs:
       - name: Build and test installed fabric consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-fabric-consumer --parallel 2
+          cmake --build build-fabric-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-fabric-consumer --output-on-failure
       - name: Configure installed fabric dependency consumer
@@ -420,6 +489,6 @@ jobs:
       - name: Build and test installed fabric dependency consumer
         shell: micromamba-shell {0}
         run: |
-          cmake --build build-fabric-dependency-consumer --parallel 2
+          cmake --build build-fabric-dependency-consumer --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_BUILD_PARALLELISM || '2' }}
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-fabric-dependency-consumer --output-on-failure

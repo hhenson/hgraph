@@ -1298,7 +1298,8 @@ TEST_CASE("TimeSeriesReference: same-time resurrected REF identity reconciles be
     }
 
     auto handle = source.view(t1).binding_for(*requested_schema);
-    REQUIRE(target_a.data_view().observer_count() == 1);
+    // One forwarding subscription and one shared reference-lifetime subscription.
+    REQUIRE(target_a.data_view().observer_count() == 2);
     REQUIRE(target_b.data_view().observer_count() == 0);
     {
         auto source_data = source.data_view();
@@ -1313,7 +1314,7 @@ TEST_CASE("TimeSeriesReference: same-time resurrected REF identity reconciles be
     auto reconciled = reconciled_view.as_dict();
     REQUIRE(reconciled.at(key.view()).value().checked_as<std::int32_t>() == 21);
     REQUIRE(target_a.data_view().observer_count() == 0);
-    REQUIRE(target_b.data_view().observer_count() == 1);
+    REQUIRE(target_b.data_view().observer_count() == 2);
     const auto reconciled_time = reconciled.at(key.view()).last_modified_time();
     REQUIRE(reconciled.at(key.view()).value().checked_as<std::int32_t>() == 21);
     REQUIRE(reconciled.at(key.view()).last_modified_time() == reconciled_time);
@@ -1342,7 +1343,8 @@ TEST_CASE("TimeSeriesReference: same-time resurrected REF identity reconciles be
         Value reference{TimeSeriesReference{target_a.view(t6)}};
         REQUIRE(child.begin_mutation(t6).copy_value_from(reference.view()));
     }
-    REQUIRE(target_a.data_view().observer_count() == 1);
+    // Two independently saved reference guards and the forwarding subscription.
+    REQUIRE(target_a.data_view().observer_count() == 3);
     REQUIRE(target_b.data_view().observer_count() == 0);
     auto after_rollover_view = handle.view(t6);
     REQUIRE(after_rollover_view.as_dict().at(key.view()).value().checked_as<std::int32_t>() == 12);

@@ -7,6 +7,7 @@
 #include <simdjson.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -16,9 +17,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace hgl::descriptor
@@ -1007,6 +1008,29 @@ namespace hgl::descriptor
                                     declaration.thread_safety)) {
                         return false;
                     }
+                    if (!required_string_array(fields, "capabilities", item_path, declaration.capabilities)) { return false; }
+                    if (!required_string_array(fields, "lifecycle", item_path, declaration.lifecycle)) { return false; }
+                    const Element *implementation = required(fields, "implementation_kind", item_path);
+                    if (!implementation || !enum_value(*implementation, member_path(item_path, "implementation_kind"),
+                                                       {{"declaration", NativeImplementationKind::Declaration},
+                                                        {"value", NativeImplementationKind::Value},
+                                                        {"graph", NativeImplementationKind::Graph},
+                                                        {"node", NativeImplementationKind::Node},
+                                                        {"inline_cpp", NativeImplementationKind::InlineCpp}},
+                                                       declaration.implementation_kind)) {
+                        return false;
+                    }
+                    const Element *role = required(fields, "execution_role", item_path);
+                    if (role == nullptr) { return false; }
+                    {
+                        if (!enum_value(*role, member_path(item_path, "execution_role"),
+                                        {{"legacy-value", NativeExecutionRole::LegacyValue},
+                                         {"value", NativeExecutionRole::Value},
+                                         {"temporal", NativeExecutionRole::Temporal}},
+                                        declaration.execution_role)) {
+                            return false;
+                        }
+                    }
                     out.push_back(std::move(declaration));
                     ++index;
                 }
@@ -1070,6 +1094,17 @@ namespace hgl::descriptor
                 }
                 if (descriptor_.module_identity.empty()) {
                     return ReadError{"$.module.identity", "module identity must not be empty"};
+                }
+                // An identity is not just a label: generated C++ derives a
+                // namespace from it and spells it into the source. A
+                // descriptor is an input, so anything not shaped like a
+                // dot-separated HGL identifier is refused here rather than
+                // interpolated -- otherwise a descriptor could carry
+                // characters that close the generated templates and reopen
+                // them around code of its own.
+                if (!is_qualified_identifier(descriptor_.module_identity)) {
+                    return ReadError{"$.module.identity",
+                                     "module identity must be dot-separated identifiers: '" + descriptor_.module_identity + "'"};
                 }
                 if (!descriptor_.descriptor_fingerprint.empty() && descriptor_.descriptor_fingerprint != fingerprint(descriptor_)) {
                     return ReadError{"$.module.descriptor_fingerprint", "descriptor fingerprint does not match canonical contents"};
@@ -1678,6 +1713,37 @@ namespace hgl::descriptor
             }
 
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
+                std::unordered_set<std::string> capability_names;
+                for (const auto &capability : declaration.capabilities) {
+                    if ((capability != "logger" && capability != "clock" &&
+                         (declaration.implementation_kind != NativeImplementationKind::Node ||
+                          (capability != "out" && capability != "scheduler"))) ||
+                        !capability_names.insert(capability).second) {
+                        return fail(member_path(path, "capabilities"), "unknown or duplicate native capability");
+                    }
+                }
+                std::unordered_set<std::string> hooks;
+                for (const auto &hook : declaration.lifecycle) {
+                    if (declaration.implementation_kind != NativeImplementationKind::Node ||
+                        (hook != "start" && hook != "when" && hook != "stop") || !hooks.insert(hook).second) {
+                        return fail(member_path(path, "lifecycle"), "invalid or duplicate native lifecycle hook");
+                    }
+                }
+                const auto kind = declaration.implementation_kind;
+                if ((kind == NativeImplementationKind::Node && !hooks.contains("when")) ||
+                    ((kind == NativeImplementationKind::Node || kind == NativeImplementationKind::Graph) &&
+                     declaration.execution_role != NativeExecutionRole::Temporal) ||
+                    (kind == NativeImplementationKind::Value && declaration.execution_role != NativeExecutionRole::Value)) {
+                    return fail(member_path(path, "implementation_kind"),
+                                "native implementation shape contradicts its execution role or hooks");
+                }
+                if (capability_names.contains("out") && declaration.signature.result == no_schema_id) {
+                    return fail(member_path(path, "capabilities"), "inject out requires a declared temporal result");
+                }
+                if ((kind == NativeImplementationKind::Graph || kind == NativeImplementationKind::Node) &&
+                    declaration.phases != std::vector{NativePhase::Wiring}) {
+                    return fail(member_path(path, "phases"), "native temporal calls require graph construction");
+                }
                 if (!signature(declaration.signature, member_path(path, "signature"), true) ||
                     !native_signature(declaration, member_path(path, "signature")) || !unique_native_overload(declaration, path)) {
                     return false;
@@ -1950,6 +2016,27 @@ namespace hgl::descriptor
             return ReadResult{.error = std::move(duplicate)};
         }
         return Decoder{}.run(root);
+    }
+
+    bool is_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        const auto head = static_cast<unsigned char>(text.front());
+        if (!(std::isalpha(head) != 0 || head == '_')) { return false; }
+        return std::ranges::all_of(text, [](char c) {
+            const auto value = static_cast<unsigned char>(c);
+            return std::isalnum(value) != 0 || value == '_';
+        });
+    }
+
+    bool is_qualified_identifier(std::string_view text) noexcept {
+        if (text.empty()) { return false; }
+        std::size_t begin = 0;
+        while (true) {
+            const std::size_t dot = text.find('.', begin);
+            if (!is_identifier(text.substr(begin, dot == std::string_view::npos ? dot : dot - begin))) { return false; }
+            if (dot == std::string_view::npos) { return true; }
+            begin = dot + 1;
+        }
     }
 
     std::optional<ReadError> validate(const ModuleDescriptor &descriptor) { return Validator{descriptor}.run(); }

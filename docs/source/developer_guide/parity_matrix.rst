@@ -39,13 +39,20 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The seventeen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The twenty-two accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
 two residual renderings on the same day; the mixed-numeric ordering comparison
 joined on 2026-09-16, ruled out of the #818 call-shape review rather than
-reported by the campaign, which cannot draw the shape at all.
+reported by the campaign, which cannot draw the shape at all. The bundle field
+re-pointed at the same ``map_`` reference adds another application of the
+no-change-means-no-tick ruling, as described below. The key-set reader tick
+joined on 2026-09-24, from the parity triage that derived the runtime
+specification's operator contracts (``runtime_spec/operators.md``), and the
+unordered text of a map and the first empty set-operator result the same
+day, by the owner's rulings, as did ``compare`` outside a component (#818
+item 5.4).
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -84,16 +91,53 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
        arithmetic shift. The ``unbounded-integer-width`` relation admits the
        difference only when the REFERENCE'S answer falls outside the word, so
        an in-range trace against a candidate crash stays reportable
-   * - ``ln`` of a non-positive argument
+   * - ``ln`` of a non-positive argument (family ``ieee-log-domain``)
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
+       (runtime spec OP-10). The ``ieee-log-domain`` relation admits the
+       difference only when every published value is the IEEE logarithm of
+       its input and some input is not positive
    * - ``str_`` of an **empty** TSS
      - ``set()``
      - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
        **not** accepted and are fixed under issue #819
-   * - Three-input ``intersection`` / ``symmetric_difference``
-     - Fails at wiring: no set zero exists for the fold
-     - Evaluates the fold. A superset, so no released program changes meaning
+   * - Three-input ``intersection`` / ``symmetric_difference`` (family
+       ``n-ary-set-fold``)
+     - Fails at wiring over sets: no set zero exists for the fold. Over
+       dictionaries, symmetric difference folds through ``nothing`` and never
+       publishes
+     - Evaluates the fold (runtime spec OP-7). A superset, so no released
+       program changes meaning. The ``n-ary-set-fold`` relation checks the
+       candidate's final members against the fold of the recipe's inputs
+   * - The first admitted result of ``^`` or ``|`` over dictionaries, when it
+       is empty (family ``first-empty-set-result``)
+     - Publishes nothing: both are built on ``map_``, which never publishes an
+       empty dictionary. A three-operand symmetric difference whose first two
+       operands cancel therefore never publishes at all
+     - Publishes the empty dictionary, validating the output, as
+       ``intersection`` and ``difference`` do in both runtimes and every set
+       operator over a TSS does (runtime spec OP-5, owner ruling 2026-09-24).
+       The relation admits only the candidate's first tick holding exactly
+       the empty dictionary at an admitted cycle
+   * - ``str_`` of a map (or a set) whose members were inserted in a
+       different order (family ``unordered-member-text``)
+     - Writes a dictionary's members in insertion order
+     - Writes storage order, which reuses a removed key's slot. Owner ruling
+       2026-09-24: a map is an unordered map with no ordering guarantee, so
+       the member order of its text is unspecified (runtime spec OP-9,
+       VAL-8). The ``unordered-member-text`` relation admits only renderings
+       that spell the same literal value containing a map or a set
+   * - A TSD's key set read by ``is_empty`` before the dictionary has ticked
+       (family ``key-set-reader-tick``)
+     - The read makes the key set tick: ``is_empty`` creates a child output
+       owned by the set, and initialising it marks the set modified. The
+       aggregates of the key set then publish the empty-set answers
+       (``len_`` 0, ``sum_`` 0, ``mean`` NaN, ``min_``/``max_`` their default)
+     - A reader never changes its producer (runtime spec OP-3, NOD-21,
+       TS-21), so the never-ticked key set stays invalid and its aggregates
+       publish nothing. The ``key-set-reader-tick`` relation admits only
+       reference-only fields holding exactly those empty-set answers, at a
+       tick where the dictionary has no key
    * - ``index_of`` answering the same index twice in a row -- a repeated
        miss or a repeated hit (family ``tsl-index-of-no-retick``)
      - Re-emits the index
@@ -125,6 +169,31 @@ These need call shapes the recipe templates cannot express, or produce values
 that are not comparable across the boundary, so they are documented rather than
 fingerprinted.
 
+- **A bundle field re-pointed at the reference it already holds, when that
+  field is a ``map_`` result.** Two ``switch_`` branches (or two
+  ``if_then_else`` inputs) that both pass the same ``map_`` output through as
+  one field of a composed bundle re-point that field at the same reference on
+  a flip. Released hgraph re-reports the whole unchanged dictionary, because
+  its ``map_`` output is reference-valued and a consumer re-binds it element
+  by element. This runtime treats the re-point as no change and ticks only the
+  fields whose series changed, under the no-change-means-no-tick ruling (see
+  :doc:`roadmap`). Both sides agree for a field backed by any other output,
+  and they agree again on the field's next real tick. ``if_then_else`` already
+  behaved this way. ``switch_`` / ``dispatch_`` joined it when their branches
+  started publishing the references they pass through (:doc:`nested_graphs`,
+  "``switch_`` output modes"), which fixed the far more common scalar case, where
+  a consumer re-pointed back to the upstream field re-ticked a stale value.
+  Pinned by ``python/tests/ported/_wiring/test_tsd_wiring.py::test_tsd_in_bundle_ref``.
+- **``compare`` outside any component, and its ``recordable_id``
+  keyword.** ``compare(lhs, rhs)`` wires on every backend and takes the
+  enclosing component's recordable id, as in released hgraph. With neither
+  an id nor a recordable trait, released hgraph wires and fails at stop
+  (``Trait recordable_id not found``); this runtime fails at start (``no
+  recordable id provided``), one phase earlier, before any tick is compared.
+  ``compare(lhs, rhs, recordable_id="x")`` is a documented superset that
+  released hgraph rejects at wiring. Ruling 2026-09-24 (issue #818 item 5.4,
+  option A of the question in PR #1635); pinned by ``tests/cpp/test_component.cpp``,
+  "compare: recordable_id defaults to the enclosing recordable id".
 - **``setattr_`` with an attribute the schema does not declare.** Released
   hgraph succeeds and leaves the value unchanged; this runtime raises a
   ``WiringError``. Rejecting a write to an undeclared field is the better

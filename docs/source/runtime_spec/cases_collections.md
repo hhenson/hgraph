@@ -1,6 +1,8 @@
 # Collection cases
 
-Status: proposed. See [Evidence](evidence.md) for current validity tests.
+Status: mixed. QUOTE-HISTORY, MEMBERSHIP-INDEPENDENT and same-cycle restoration
+have [executed evidence and variations](validation.md). Other cases remain
+proposed unless separately identified.
 
 ## VALIDITY-IMMEDIATE — TS-9
 
@@ -47,8 +49,9 @@ are empty. Read after each action below; 40 is idle.
 | 50: observe again | false | —, — | — | empty / X | 50 / — / — / — |
 | 60: publish bid 7 | true | 7, — | bid 7 | X / empty | 60 / 60 / 60 / never |
 
-After removal, `—` means no current child. TS-11 still keeps the removed child
-readable for that cycle.
+After removal, `—` means no current child. Both reads at 50 see the removed
+child `{bid: 7, ask: 9}`, with row/bid/ask times `30 / 30 / 20` (TS-11).
+That removed view expires at the cycle boundary; reinsertion at 60 is fresh.
 
 Initially all flags are false. Thereafter the root is valid and all_valid,
 including when empty; modified is true except at 40. A present row is valid;
@@ -64,3 +67,11 @@ that child later neither adds nor removes the key. Removing the key does.
 Replay needs both membership changes and published-value deltas (TS-5).
 [Evidence](evidence.md) names the C++ surfaces. This case extends beyond
 QUOTE-HISTORY.
+
+## SAME-CYCLE-RESTORE — TS-11
+
+Publish X=7 at 0. At 1 remove X, inspect the removed child twice, then restore
+X without publishing a value. Both removed reads give 7 with child time 0;
+restoration returns that value and time. The final added and removed sets are
+empty. The dictionary has still ticked. Remove at 2 and insert X=9 at 3:
+this is a new child. See the `restore` input and observations in the evidence.

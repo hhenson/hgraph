@@ -244,6 +244,7 @@ namespace hgraph::ts_data_detail
             t.slot_modified_impl                 = &sentinel_false_slot;
             t.next_modified_slot_impl            = &sentinel_next;
             t.membership_slot_added_impl         = &sentinel_false_slot;
+            t.membership_slot_removed_impl       = &sentinel_false_slot;
             t.next_membership_added_slot_impl    = &sentinel_next;
             t.next_membership_removed_slot_impl  = &sentinel_next;
             t.make_ts_values_range_impl          = &sentinel_ts_range;

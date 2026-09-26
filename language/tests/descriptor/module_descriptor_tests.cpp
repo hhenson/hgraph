@@ -387,7 +387,7 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
 
     CHECK(descriptor::to_json(module) == R"json({
   "format": "hgl.module",
-  "format_version": 6,
+  "format_version": 9,
   "module": {
     "identity": "acme.\"prices\"",
     "language_version": "test\nversion",

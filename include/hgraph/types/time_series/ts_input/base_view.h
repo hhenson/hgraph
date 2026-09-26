@@ -96,6 +96,8 @@ namespace hgraph
         }
         /** Underlying TSData projection; empty for unbound peered terminals. */
         [[nodiscard]] const TSDataView &data_view() const noexcept;
+        /** Erased input observation, retaining keyed sampling and withdrawal state. */
+        [[nodiscard]] TSDataView input_data_view() const noexcept;
 
         /** True when this view or at least one structural child has a current value. */
         [[nodiscard]] bool valid() const;
@@ -296,15 +298,15 @@ namespace hgraph
             [[nodiscard]] TSRoleTypeRef storage_type() const noexcept;
             [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
             [[nodiscard]] const TSValueTypeMetaData *target_path_schema() const noexcept;
-            [[nodiscard]] const TSDataView &resolved_value_data() const noexcept;
+            [[nodiscard]] const TSDataView &resolved_value_data(DateTime evaluation_time = MIN_DT) const noexcept;
             [[nodiscard]] bool value_live() const noexcept;
-            [[nodiscard]] DateTime last_modified_time() const;
+            [[nodiscard]] DateTime last_modified_time(DateTime evaluation_time) const;
             [[nodiscard]] bool modified(DateTime evaluation_time) const;
             [[nodiscard]] TSDataView &checked_value_data(const char *what) const;
             [[nodiscard]] InputDataCursor target_child(TSDataView child, std::size_t index) const;
             void bind_target(const TSOutputView &output);
             void bind_target_sampled(const TSOutputView &output, DateTime modified_time);
-            void unbind_target();
+            void unbind_target(DateTime evaluation_time);
             void make_active(TSInput *input, Notifiable *scheduling_notifier) const;
             void make_structural_active(TSInput *input, Notifiable *scheduling_notifier) const;
             void make_passive(TSInput *input) const;
@@ -346,7 +348,7 @@ namespace hgraph
         [[nodiscard]] bool inherited_sampled_transition() const noexcept;
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] const TSValueTypeMetaData *target_path_schema() const noexcept;
-        [[nodiscard]] TSDataView input_data_view() const noexcept;
+
         [[nodiscard]] TSDataView resolve_target_data_view() const noexcept;
         [[nodiscard]] bool target_view_live() const noexcept;
         [[nodiscard]] TSDataView &checked_target_data_view(const char *what) const;

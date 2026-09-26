@@ -424,8 +424,18 @@ namespace hgl::descriptor
                 quote_json(out, declaration.identity);
                 out << ",\n        \"cpp_symbol\": ";
                 quote_json(out, declaration.cpp_symbol);
+                out << ",\n        \"execution_role\": ";
+                quote_json(out, declaration.execution_role == NativeExecutionRole::Value      ? "value"
+                                : declaration.execution_role == NativeExecutionRole::Temporal ? "temporal"
+                                                                                              : "legacy-value");
                 out << ",\n        \"signature\": ";
                 signature(out, declaration.signature, "        ");
+                out << ",\n        \"capabilities\": ";
+                string_array(out, declaration.capabilities, "        ");
+                out << ",\n        \"implementation_kind\": ";
+                quote_json(out, native_implementation_name(declaration.implementation_kind));
+                out << ",\n        \"lifecycle\": ";
+                string_array(out, declaration.lifecycle, "        ");
                 out << ",\n        \"phases\": ";
                 enum_array(out, declaration.phases, "        ", native_phase_name);
                 out << ",\n        \"effects\": ";

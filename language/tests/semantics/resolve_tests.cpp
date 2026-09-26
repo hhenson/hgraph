@@ -96,6 +96,56 @@ namespace
         return resolved;
     }
 
+    /// A module that exports a struct, so a qualified source type has
+    /// something to resolve to (ADR 0013).
+    ModuleCatalog struct_catalog(std::string support_error = {}) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "checks.shapes";
+        hgl::semantics::ImportedStruct quote;
+        quote.module_identity = module.identity;
+        quote.name            = "Quote";
+        quote.identity        = "checks.shapes.Quote";
+        quote.fields          = {{"bid", hgl::semantics::ImportedScalarType::F64, false, false}};
+        quote.support_error   = std::move(support_error);
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedStruct mid;
+        mid.module_identity = module.identity;
+        mid.name            = "Mid";
+        mid.identity        = "checks.shapes.Mid";
+        mid.abstract        = true;
+        mid.fields          = {{"seq", hgl::semantics::ImportedScalarType::I64, false, false}};
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+        mid.parents               = {root_ref};
+        hgl::semantics::ImportedStruct expr;
+        expr.module_identity = module.identity;
+        expr.name            = "Expr";
+        expr.identity        = "checks.shapes.Expr";
+        expr.abstract        = true;
+        hgl::semantics::ImportedStruct pair;
+        pair.module_identity = module.identity;
+        pair.name            = "Pair";
+        pair.identity        = "checks.shapes.Pair";
+        pair.generics        = {{.name = "T", .binding_identity = "checks.shapes.Pair::T"}};
+        module.structs       = {std::move(quote), std::move(base), std::move(root),
+                                std::move(mid),   std::move(expr), std::move(pair)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog scalar_catalog(std::string support_error = {}) {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -562,7 +612,8 @@ fn make() -> atomic<Future> => Future(symbol: "F", expiry: @2026-12-18)
     const ast::DeclId future     = resolved.struct_id("Future");
     REQUIRE(resolved.result.structure(instrument).valid);
     REQUIRE(resolved.result.structure(future).valid);
-    REQUIRE(resolved.result.structure(future).parents == std::vector<ast::DeclId>{instrument});
+    REQUIRE(resolved.result.structure(future).parents ==
+            std::vector<StructSource>{StructSource{.decl = instrument}});
     const auto &fields = resolved.result.structure(future).fields;
     REQUIRE(fields.size() == 4);
     CHECK(fields[0].name == "symbol");
@@ -729,10 +780,15 @@ TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[s
                  "recursive edge 'boxed' of 'Node' reaches 'Node' again through a generic argument");
     }
     SECTION("a cross-module edge (rule 5)") {
-        // Source types cannot name another module's struct, and module imports
-        // are acyclic, so a cycle can never cross a module boundary.
-        rejected("module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n",
-                 "qualified source types require a module descriptor");
+        // A source type may now name another module's struct (ADR 0013), so
+        // rule 5 rests on the other half of its reason: module imports are
+        // acyclic, so an edge that leaves the module can never lead back and
+        // no cycle crosses a boundary. A module absent from the supplied
+        // package target is reported as such.
+        const Resolved resolved{"module t\nuse other as other\nstruct Node { next: atomic<other::Node> = null }\n"};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Module, "module 'other' is not available in the supplied package target"));
+        CHECK(resolved.has(Category::Name, "unknown module alias 'other'"));
     }
     SECTION("a cycle that runs through inheritance") {
         // hgraph declares a parent before its children; a parent's field that
@@ -748,6 +804,205 @@ TEST_CASE("recursive struct edges that break ADR 0012 are rejected by rule", "[s
                  "struct Leaf: Swapped<i64, f64> { inner: Two<f64, i64> = null }\n",
                  "recursive edge 'inner' of 'Leaf' must be an atomic boundary (ADR 0012, rule 3): declare it "
                  "'atomic<Two<f64, i64>>'");
+    }
+}
+
+// An importer rebuilds an exported struct from its layout, so everything that
+// layout reaches has to be exported too (ADR 0013, "Exports are closed under
+// reachability"). The check is on the exporting module, so the error lands on
+// whoever broke the contract rather than on a consumer.
+TEST_CASE("an exported struct may only reach exported types", "[semantics][export-closure]") {
+    const auto rejected = [](std::string text, std::string_view message) {
+        const Resolved resolved{std::move(text)};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK(resolved.has(Category::Type, message));
+    };
+    SECTION("a field naming a module-internal struct") {
+        rejected("module t\nstruct Venue { name: str }\nexport struct Quote { venue: Venue }\n",
+                 "exported struct 'Quote' reaches module-internal struct 'Venue' through field 'venue'");
+    }
+    SECTION("through a collection element") {
+        rejected("module t\nstruct Leg { size: i64 }\nexport struct Order { legs: list<Leg> }\n",
+                 "exported struct 'Order' reaches module-internal struct 'Leg' through field 'legs'");
+    }
+    SECTION("through a generic argument") {
+        rejected("module t\nstruct Key { id: i64 }\nstruct Box<T> { value: T }\n"
+                 "export struct Holder { boxed: Box<Key> }\n",
+                 "exported struct 'Holder' reaches module-internal struct 'Box' through field 'boxed'");
+    }
+    SECTION("through a recursive edge (ADR 0012)") {
+        rejected("module t\nstruct Node { next: atomic<Node> = null }\n"
+                 "export struct Chain { head: atomic<Node> = null }\n",
+                 "exported struct 'Chain' reaches module-internal struct 'Node' through field 'head'");
+    }
+    SECTION("an inherited abstract parent") {
+        rejected("module t\nabstract struct Base { at: i64 }\nexport struct Leaf: Base {}\n",
+                 "exported struct 'Leaf' inherits module-internal struct 'Base'");
+    }
+    SECTION("an exported struct reaching exported types is fine") {
+        const Resolved resolved =
+            resolve_clean("module t\nexport struct Venue { name: str }\n"
+                          "export abstract struct Base { at: i64 }\n"
+                          "export struct Quote: Base { venue: Venue\n legs: list<Venue> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Quote")).valid);
+    }
+    SECTION("an internal struct may reach internal structs freely") {
+        // The closure rule applies only from an exported root: a module-internal
+        // leaf or chain stays unconstrained.
+        const Resolved resolved = resolve_clean("module t\nstruct Venue { name: str }\n"
+                                                "struct Quote { venue: Venue }\n"
+                                                "struct Book { quote: Quote\n more: list<Quote> }\n");
+        CHECK(resolved.result.structure(resolved.struct_id("Book")).valid);
+    }
+}
+
+// A qualified source type names a struct another module exports (ADR 0013).
+// The identity stays the owner's: the importing module binds the name and
+// copies nothing into its own namespace.
+TEST_CASE("a qualified type resolves to an imported struct", "[semantics][struct-imports]") {
+    SECTION("a field may name one") {
+        const ModuleCatalog catalog  = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("the unqualified use form binds the name") {
+        // ADR 0013: a struct imports exactly as a function does, so
+        // `use m::{Quote}` must work and not only the alias spelling.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Quote}\nstruct Book { top: Quote }\n", catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Quote");
+    }
+    SECTION("an unqualified imported generic checks its arity too") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes::{Pair}\nstruct Book { top: Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
+    SECTION("repeated mentions share one binding") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Book { top: shapes::Quote\n next: shapes::Quote }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        CHECK_FALSE(resolved.diagnostics.has_errors());
+        CHECK(resolved.result.imported_structs.size() == 1U);
+    }
+    SECTION("an unknown alias is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Name, "unknown module alias 'shapes'"));
+    }
+    SECTION("a name the module does not export is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Missing }\n", catalog};
+        CHECK(resolved.has(Category::Module, "checks.shapes does not export struct 'Missing'"));
+    }
+    SECTION("a bare-name argument is resolved, not skipped") {
+        // A single identifier lands in GenericArgument::name with neither
+        // `type` nor `value` set, so a loop over those two skips it entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<Typo> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "unknown generic argument 'Typo'"));
+    }
+    SECTION("a value passed to a type generic is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair<3> }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "type generic 'T' takes a type argument"));
+    }
+    SECTION("a generic arity mismatch is reported") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Pair }\n", catalog};
+        CHECK(resolved.has(Category::Type, "imported generic struct 'checks.shapes.Pair' expects 1 arguments, got 0"));
+    }
+    SECTION("an unavailable struct is reported with its support error") {
+        const ModuleCatalog catalog = struct_catalog("field type is not supported by the catalog");
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book { top: shapes::Quote }\n", catalog};
+        CHECK(resolved.has(Category::Module, "struct 'checks.shapes.Quote' is unavailable"));
+    }
+}
+
+// Extending a family a library publishes is why a library is worth having
+// (ADR 0013). The imported parent is referenced, never absorbed: this module
+// gains no declaration for it, and each inherited field keeps the exporting
+// struct as its source rather than becoming an anonymous local copy.
+TEST_CASE("a local struct may inherit an imported abstract parent", "[semantics][struct-imports]") {
+    SECTION("the parent is referenced and its fields keep their source") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Tick: shapes::Base { bid: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const ast::DeclId  tick = resolved.struct_id("Tick");
+        const StructInfo  &info = resolved.result.structure(tick);
+        REQUIRE(info.valid);
+
+        // One parent, and it is the imported struct -- not a local declaration.
+        REQUIRE(info.parents.size() == 1U);
+        CHECK(info.parents.front().is_imported());
+        CHECK(info.parents.front().decl == ast::no_node);
+        REQUIRE(resolved.result.imported_structs.size() == 1U);
+        CHECK(resolved.result.imported_structs.front().identity == "checks.shapes.Base");
+
+        // The inherited field is visible for construction and keeps the
+        // exporting struct as its source; its type lives in that module's
+        // descriptor, not in this module's AST.
+        REQUIRE(info.fields.size() == 2U);
+        CHECK(info.fields[0].name == "at");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[0].type == ast::no_node);
+        CHECK(info.fields[1].name == "bid");
+        CHECK_FALSE(info.fields[1].origin.is_imported());
+        CHECK(info.fields[1].origin.decl == tick);
+    }
+    SECTION("the imported parent's own inherited fields are included") {
+        // The catalog records only what a struct DECLARES, keeping what it
+        // inherits in its parents, so reading `parent.fields` alone loses a
+        // grandparent's fields entirely.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Leaf: shapes::Mid { own: f64 }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        const StructInfo &info = resolved.result.structure(resolved.struct_id("Leaf"));
+        REQUIRE(info.fields.size() == 3U);
+        // Ancestors first, so a field keeps the position it has in the family.
+        CHECK(info.fields[0].name == "id");
+        CHECK(info.fields[0].origin.is_imported());
+        CHECK(info.fields[1].name == "seq");
+        CHECK(info.fields[2].name == "own");
+    }
+    SECTION("a field naming the imported family reaches this module's members") {
+        // Inheriting an imported family makes this struct a member of it, so a
+        // field typed by the family can hold this struct: the cycle is local
+        // and needs the ADR 0012 atomic boundary.
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: shapes::Expr }\n",
+                          catalog};
+        CHECK(resolved.has(Category::Type, "recursive edge 'next' of 'Node' must be an atomic boundary"));
+    }
+    SECTION("an atomic edge onto the imported family is a recursive edge") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\n"
+                                     "struct Node: shapes::Expr { next: atomic<shapes::Expr> = null }\n",
+                          catalog};
+        INFO(resolved.diagnostics.render(resolved.file));
+        REQUIRE_FALSE(resolved.diagnostics.has_errors());
+        CHECK(field_of(resolved, "Node", "next").recursive);
+    }
+    SECTION("a concrete imported struct is not inheritable") {
+        const ModuleCatalog catalog = struct_catalog();
+        Resolved            resolved{"module t\nuse checks.shapes as shapes\nstruct Book: shapes::Quote {}\n", catalog};
+        CHECK(resolved.has(Category::Type,
+                           "only an abstract struct may be inherited; 'checks.shapes.Quote' is concrete"));
     }
 }
 

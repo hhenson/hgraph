@@ -30,6 +30,21 @@ def _harness_fingerprint() -> str:
 HARNESS_FINGERPRINT = _harness_fingerprint()
 
 
+# Outcomes that say an environment fell over rather than that a graph ran.
+# A recipe that meets one was never compared, so it is evidence about the
+# harness and never about either implementation. ``error`` in the ``import``
+# or ``harness`` phase is how reports written before the runner reclassified
+# an unimportable installation spelled it (issue #1623 and 527 siblings).
+ENVIRONMENT_FAILURE_STATUSES = frozenset({"infrastructure-error", "harness-error"})
+
+
+def is_environment_failure(result: dict[str, Any]) -> bool:
+    status = result.get("status")
+    if status in ENVIRONMENT_FAILURE_STATUSES:
+        return True
+    return status == "error" and result.get("phase") in ("import", "harness")
+
+
 def _sanitized_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for name in (
@@ -119,6 +134,23 @@ def operator_inventory(
     if result.get("status") != "ok":
         raise RuntimeError(f"cannot inspect operator inventory: {result}")
     return result
+
+
+def require_importable(
+    interpreter: Path | str, *, role: str, timeout: float = 60.0
+) -> None:
+    """Fail the campaign when ``interpreter`` cannot import hgraph.
+
+    Recipe by recipe, an unimportable installation is quarantined rather than
+    compared; failing up front turns a broken environment into one loud error
+    instead of a campaign whose every result is quarantine.
+    """
+    result = _invoke(interpreter, ["--inventory"], timeout=timeout)
+    if result.get("status") != "ok":
+        raise RuntimeError(
+            f"the {role} environment cannot import hgraph, so no recipe can "
+            f"be compared:\n{result.get('diagnostic') or result}"
+        )
 
 
 def run_recipe(

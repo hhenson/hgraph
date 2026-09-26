@@ -430,8 +430,12 @@ live input schema on every evaluation.
 
 ## Function classification
 
-The classifier consumes resolved syntax and assigns `CompositionFn` or
-`RuntimeFn` (`src/semantics/resolve.cpp`, `classify`):
+For temporal `fn`, the classifier consumes resolved syntax and assigns
+`CompositionFn` or `RuntimeFn` (`src/semantics/resolve.cpp`, `classify`). A `const fn`
+may inject admitted services without becoming a node. After call resolution,
+capability requirements propagate transitively through value calls and imports.
+
+Temporal classification rules:
 
 - no runtime-only construct produces `CompositionFn`;
 - the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
@@ -807,9 +811,10 @@ A module descriptor records an exported struct's layout. Format 6 (ADR 0004)
 marks each field's `recursive` edge, so no reader takes an edge for an
 ordinary field; the reader checks that an edge is an optional `atomic` record
 over a struct of the same module, and `hgl check <module>.hgl-module.json`
-validates it without loading code. No module can import another module's
-struct type yet, recursive or not, so the mark is recorded for the importer
-that will read it.
+validates it without loading code. A second module imports that struct and
+rebuilds its edges from the mark (ADR 0013); the edge's mandatory `= null` is
+the one field default the catalog carries, which is what lets a recursive
+struct cross at all.
 
 ## Generic constraint IR and lowering
 
@@ -1102,9 +1107,11 @@ source `start` and `stop` blocks become the corresponding static hooks and may
 likewise read state and `const` parameters, but not temporal inputs or output.
 All state variables share one typed state schema. Scalar cache variables lower
 separately through one native `State<>`: multiple fields use a generated struct.
-Shared graph-IR planning rejects mixed HGL state/cache declarations until their
-initialization and recovery lowering is implemented. Native static nodes already
-support both selectors.
+A function may declare both, and the two storages are planned independently --
+native static nodes admit one of each. `start` seeds a state field only when it
+is not already valid, so a restored value wins, and assigns every cache field
+its initializer unconditionally; that asymmetry is what separates recordable
+history from reconstructible data.
 
 The shared runtime plan identifies scheduler sources whose complete runtime
 state is their endpoints and pending alarms. Generated C++ gives these sources
@@ -1684,7 +1691,12 @@ walk:
   structure with escaping assignments. Each selected result is remapped for
   subsequent composition. A branch that leaves an initialized escaping binding
   unchanged receives a `REF`-qualified input; generated branches adapt it to
-  the result slot's declared schema before returning it. A consumed conditional
+  the result slot's declared schema before returning it. Such a branch passes
+  its input through, so the switch publishes that input's reference and the
+  result port can be the `REF` of its declared schema (`nested_graphs.rst`,
+  "switch_ output modes"). A port conversion treats a REF-transparently
+  equivalent schema as already satisfied and re-describes the port rather than
+  wiring a `convert` node. A consumed conditional
   without `else` materializes a type-resolved native `nothing` source as its
   false result. An early return moves the remaining lexical body into ordered
   continuation segments; top-level and nested direct conditional statements
@@ -1763,7 +1775,7 @@ directly from graph-IR statements and blocks. The obsolete AST
 type/expression/call evaluator and source-declaration adapter have been removed.
 Codegen has no syntax AST or resolver dependency.
 
-`hgl emit-cpp <file.hgl> [--part <file.hgl>]...` writes one header/source pair
+`hgl emit-cpp <file.hgl> [--part <file.hgl>]...` normally writes one header/source pair
 named after the anchor source — `prices.hgl` becomes `prices.h` and
 `prices.cpp` — beside the
 source by default, into one directory with `--out-dir`, or split with
@@ -1985,7 +1997,7 @@ deterministic (basenames, no timestamps).
 
 Unsupported forms fail closed before either generated file is written. These
 include calls to another temporal HGL function during runtime evaluation,
-non-scalar or opaque state/cache, mixed state/cache declarations, lifecycle
+non-scalar or opaque state/cache, lifecycle
 access to temporal inputs/output, optional-field clearing, generic constructor
 inference and typed `const` generic struct metadata, compound constant
 literals, runtime-node `if` used as a value, zoned/civil temporal literals, and

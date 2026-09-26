@@ -1,3 +1,4 @@
+#include "../ts_data/ownership.h"
 #include <hgraph/types/time_series/ts_output/alternative.h>
 #include <hgraph/types/time_series/ts_output.h>
 
@@ -878,6 +879,11 @@ namespace hgraph::detail
             {
                 const auto &output = TSOutputAlternativeStore::peered_reference_target(reference);
                 auto output_view = output.view(modified_time);
+                if (!ts_data_alive_at(output_view.data_view().borrowed_ref(), modified_time))
+                {
+                    plan.ops->unbind(plan, target, modified_time, false);
+                    return;
+                }
                 plan.ops->apply_peered_reference(plan, target, output_view, modified_time);
                 return;
             }

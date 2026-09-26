@@ -83,3 +83,27 @@ TEST_CASE("const eval: a non-const-evaluable overload is a resolution error")
                         registry.ts(int_meta)),
                     OperatorResolutionError);
 }
+
+TEST_CASE("const eval: table_schema answers a layout eagerly (RFC 0042)")
+{
+    stdlib::register_standard_operators();
+    const auto *carrier_meta = scalar_descriptor<TypeCarrier>::value_meta();
+
+    std::vector<WiringArg> args{
+        scalar_arg(Value{TypeCarrier::of_ts(ts_type<TSD<Str, TS<Int>>>())}, carrier_meta)};
+    Value schema = OperatorRegistry::instance().evaluate_const(
+        "table_schema", std::span<const WiringArg>{args.data(), args.size()});
+
+    const auto fields = schema.view().as_bundle();
+    CHECK(fields.at("tp").checked_as<TypeCarrier>().ts() == ts_type<TSD<Str, TS<Int>>>());
+    const auto keys = fields.at("keys").as_list();
+    REQUIRE(keys.size() == 5);
+    CHECK(keys.at(3).checked_as<Str>() == Str{"__key_1__"});
+    CHECK(keys.at(4).checked_as<Str>() == Str{"value"});
+    const auto types = fields.at("types").as_list();
+    REQUIRE(types.size() == 5);
+    CHECK(types.at(3).checked_as<TypeCarrier>().scalar() == scalar_descriptor<Str>::value_meta());
+    CHECK(types.at(4).checked_as<TypeCarrier>().scalar() == scalar_descriptor<Int>::value_meta());
+    CHECK(fields.at("partition_keys").as_list().size() == 1);
+    CHECK(fields.at("is_multi_row").checked_as<Bool>() == false);
+}

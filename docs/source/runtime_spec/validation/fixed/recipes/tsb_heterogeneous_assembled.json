@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsb_heterogeneous_assembled",
+  "description": "TS-7: a heterogeneous TSB preserves each field type; false is a valid value.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "mode": "tsb_heterogeneous_assembled"
+  },
+  "features": []
+}

@@ -12,6 +12,7 @@
 #include <hgraph/types/series.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series_reference.h>
+#include <hgraph/types/type_carrier.h>
 #include <hgraph/types/value_callable.h>
 #include <hgraph/types/wired_fn.h>
 
@@ -103,7 +104,7 @@ namespace hgraph
 
 /** A hook pair the module installs at import: the Python glue for these
     types needs pyarrow (Frame, Series) or the DSL's wrappers (the
-    reference token, WiredFn, ValueCallable). Conversion before the hooks
+    reference token, WiredFn, ValueCallable, and a type value, RFC 0042). Conversion before the hooks
     are installed throws a *hook not installed* error. */
 #define HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(Type)                                                           \
     template <>                                                                                                \
@@ -123,6 +124,7 @@ namespace hgraph
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(TimeSeriesReference);
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(ValueCallable);
     HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(WiredFn);
+    HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS(TypeCarrier);
 
 #undef HGRAPH_DECLARE_PYTHON_CONVERSION_HOOKS
 }  // namespace hgraph

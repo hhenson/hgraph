@@ -138,12 +138,20 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
         module = re.search(r"(?m)^module\s+([\w.]+)", text)
         if module is None:
             raise ValueError(f"missing module declaration: {path}")
-        for match in re.finditer(r"(?m)^(operator|impl fn|native fn)\s+(\w+)", text):
-            following = re.search(r"(?m)^(?:operator |impl fn |native fn |instantiate |test\b)", text[match.end():])
+        for match in re.finditer(r"(?m)^(operator|impl fn|native(?: const)? fn)\s+(\w+)", text):
+            following = re.search(r"(?m)^(?:operator |impl fn |native(?: const)? fn |instantiate |test\b)", text[match.end():])
             end = match.end() + following.start() if following else len(text)
             body = text[match.start():end].strip()
-            kind = {"operator": "contract", "impl fn": "implementation", "native fn": "native-value"}[match[1]]
+            kind = {"operator": "contract", "impl fn": "implementation", "native fn": "native-value", "native const fn": "native-value"}[match[1]]
+            if match[1] == "native fn" and "cpp(" not in body:
+                kind = "native-temporal"
             form = None
+            if match[1].startswith("native") and "cpp(" not in body and "{" in body:
+                kind = "native-implementation"
+                if match[1] == "native const fn":
+                    form = "value"
+                else:
+                    form = "node" if re.search(r"\bwhen\s*;", body) else "graph"
             if kind == "implementation":
                 form = "native-delegation" if re.search(r"=>\s*core::", body) else "hgl-runtime" if "when" in body else "hgl-composition"
             result.append(dict(module=module[1], name=match[2], kind=kind, form=form,
@@ -179,7 +187,7 @@ def build_catalogue() -> dict:
         markers = {x["marker"] for x in contracts}
         sites = [x for x in source["registration_sites"] if x["scope"] == "core" and x["operator"].split("::")[-1] in markers]
         accepted_names = policy["operators"].get(name, {}).get("hgl_names", [name])
-        accepted = [x for x in hgl if x["name"] in accepted_names and x["kind"] != "native-value"]
+        accepted = [x for x in hgl if x["name"] in accepted_names and x["kind"] not in {"native-value", "native-implementation"}]
         review = policy["operators"].get(name, {"status": "unreviewed", "reason": "Candidate-domain review required."})
         if review["status"] not in {"implemented", "implemented-slice", "blocked", "native-provider", "unreviewed"}:
             raise ValueError(f"invalid review status for {name}")
@@ -201,6 +209,7 @@ def build_catalogue() -> dict:
                 source_fingerprint=source["source_fingerprint"], blockers=policy["blockers"],
                 operators=entries, other_surfaces=policy["other_surfaces"],
                 hgl_native_substrate=[x for x in hgl if x["kind"] == "native-value"],
+                hgl_native_implementations=[x for x in hgl if x["kind"] == "native-implementation"],
                 hgl_materializations=hgl_materializations(),
                 all_registration_sites=source["registration_sites"],
                 extension_contracts=[x for x in source["contracts"] if x["scope"] != "core"])

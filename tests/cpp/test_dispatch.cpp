@@ -26,6 +26,7 @@ namespace
     // The declared input types are ordinary C++ value-layer Bundle schemas.
     using Animal = Bundle<"tests.dispatch::Animal", Field<"id", Int>>;
     using Food = Bundle<"tests.dispatch::Food", Field<"id", Int>>;
+    using EmptyAnimal = Bundle<"tests.dispatch::EmptyAnimal">;
 
     struct DispatchTypes
     {
@@ -73,6 +74,22 @@ namespace
             "tests.dispatch", "Kibble", {{"id", integer}, {"size", integer}}, {food});
 
         return {animal, dog, puppy, cat, bird, left, right, both, food, meat, kibble};
+    }
+
+    struct EmptyDispatchTypes
+    {
+        const ValueTypeMetaData *animal;
+        const ValueTypeMetaData *dog;
+        const ValueTypeMetaData *puppy;
+    };
+
+    EmptyDispatchTypes register_empty_dispatch_types()
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *animal = scalar_descriptor<EmptyAnimal>::value_meta();
+        const auto *dog = registry.bundle("tests.dispatch", "EmptyDog", {}, {animal});
+        const auto *puppy = registry.bundle("tests.dispatch", "EmptyPuppy", {}, {dog});
+        return {animal, dog, puppy};
     }
 
     Value bundle_value(
@@ -173,6 +190,32 @@ namespace
         }
     };
 
+    struct DowncastRefSoundGraph
+    {
+        static constexpr auto name = "downcast_ref_sound_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Animal>> animal)
+        {
+            const auto types = register_dispatch_types();
+            auto source_ref = animal.template as<REF<TS<Animal>>>();
+
+            WiringArg input;
+            input.kind = WiringArg::Kind::TimeSeries;
+            input.port = source_ref.erased();
+            std::array<WiringArg, 1> inputs{std::move(input)};
+
+            auto &registry = TypeRegistry::instance();
+            const auto *dog_ref = registry.ref(registry.ts(types.dog));
+            OperatorWireResult narrowed = wire_operator(
+                w, "downcast_ref", std::span<const WiringArg>{inputs}, true, dog_ref);
+            if (!narrowed.has_output)
+            {
+                throw std::logic_error("downcast_ref did not produce an output");
+            }
+            return wire<stdlib::getattr_, TS<Str>>(w, narrowed.output, Str{"sound"});
+        }
+    };
+
     struct DowncastValueGraph
     {
         static constexpr auto name = "downcast_value_graph";
@@ -190,6 +233,60 @@ namespace
                 throw std::logic_error("downcast_ did not produce an output");
             }
             return Port<void>{w, std::move(narrowed.output)};
+        }
+    };
+
+    struct DowncastRefValueGraph
+    {
+        static constexpr auto name = "downcast_ref_value_graph";
+
+        static Port<void> compose(Wiring &w, Port<TS<Animal>> animal)
+        {
+            const auto types = register_dispatch_types();
+            auto source_ref = animal.template as<REF<TS<Animal>>>();
+
+            WiringArg input;
+            input.kind = WiringArg::Kind::TimeSeries;
+            input.port = source_ref.erased();
+            std::array<WiringArg, 1> inputs{std::move(input)};
+
+            auto &registry = TypeRegistry::instance();
+            const auto *dog_ts = registry.ts(types.dog);
+            const auto *dog_ref = registry.ref(dog_ts);
+            OperatorWireResult narrowed = wire_operator(
+                w, "downcast_ref", std::span<const WiringArg>{inputs}, true, dog_ref);
+            if (!narrowed.has_output)
+            {
+                throw std::logic_error("downcast_ref did not produce an output");
+            }
+
+            // Present the REF output as its dereferenced schema. Input binding
+            // inserts the reference adapter, matching Python's public Port view.
+            WiringPortRef dereferenced = narrowed.output;
+            dereferenced.schema = dog_ts;
+            return Port<void>{w, std::move(dereferenced)};
+        }
+    };
+
+    struct EmptyDowncastRefValueGraph
+    {
+        static constexpr auto name = "empty_downcast_ref_value_graph";
+
+        static Port<void> compose(Wiring &w, Port<TS<EmptyAnimal>> animal)
+        {
+            const auto types = register_empty_dispatch_types();
+            auto source_ref = animal.template as<REF<TS<EmptyAnimal>>>();
+            WiringArg input{.kind = WiringArg::Kind::TimeSeries, .port = source_ref.erased()};
+            std::array<WiringArg, 1> inputs{std::move(input)};
+
+            auto &registry = TypeRegistry::instance();
+            const auto *dog_ts = registry.ts(types.dog);
+            OperatorWireResult narrowed = wire_operator(
+                w, "downcast_ref", std::span<const WiringArg>{inputs}, true,
+                registry.ref(dog_ts));
+            WiringPortRef dereferenced = narrowed.output;
+            dereferenced.schema = dog_ts;
+            return Port<void>{w, std::move(dereferenced)};
         }
     };
 
@@ -536,6 +633,18 @@ TEST_CASE("dispatch_: C++ wiring dereferences selected REF inputs")
         testing::values<Str>(Str{"woof"}, Str{"meow"}));
 }
 
+TEST_CASE("downcast_ref: C++ wiring reads a registered derived Bundle without materializing it")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    CHECK_OUTPUT(
+        testing::eval_node<DowncastRefSoundGraph>(testing::values<Value>(
+            dog_value(types, 1, "woof"), puppy_value(types, 2, "yip"))),
+        testing::values<Str>("woof", "yip"));
+}
+
 TEST_CASE("downcast_: C++ wiring narrows compatible derived Bundle values")
 {
     using namespace hgraph;
@@ -560,6 +669,32 @@ TEST_CASE("downcast_: C++ wiring rejects an incompatible active Bundle leaf")
             testing::values<Value>(cat_value(types, 1))),
         Catch::Matchers::ContainsSubstring(
             "active Bundle value does not match the requested derived type"));
+}
+
+TEST_CASE("downcast_ref: C++ eval_node records the concrete derived Bundle")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    const auto dog = dog_value(types, 1, "woof");
+    const auto puppy = puppy_value(types, 2, "yip");
+    CHECK_OUTPUT(
+        testing::eval_node<DowncastRefValueGraph>(testing::values<Value>(dog, puppy)),
+        testing::values<Value>(dog, puppy));
+}
+
+TEST_CASE("downcast_ref: C++ eval_node records zero-storage derived Bundles")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_empty_dispatch_types();
+    const Value dog{ValuePlanFactory::instance().type_for(types.dog)};
+    const Value puppy{ValuePlanFactory::instance().type_for(types.puppy)};
+
+    CHECK_OUTPUT(
+        testing::eval_node<EmptyDowncastRefValueGraph>(testing::values<Value>(dog, puppy)),
+        testing::values<Value>(dog, puppy));
 }
 
 TEST_CASE("dispatch_: C++ wiring chooses the most-specific multi-argument case")

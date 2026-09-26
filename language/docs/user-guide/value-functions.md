@@ -113,12 +113,17 @@ Tuple/list literals, constant field access, and `if` used as a runtime value
 remain restricted.
 
 Generic and parameter-pack value functions are explicitly diagnosed, not
-silently emitted as incomplete templates. Exported value-function descriptors,
-`impl`/`native` modifier combinations, and selection of imported native
-overload families still need separate integration. Existing `native fn`
-declarations are unchanged; this feature does not implicitly migrate them.
+silently emitted as incomplete templates. Exported HGL value-function descriptors
+and `impl const fn` still need separate integration. `native const fn` value
+contracts, including imported overloads, follow the same value-call rules.
+Legacy inline native declarations still require explicit migration.
 
-A value function cannot declare `when`, state, injectables, or lifecycle hooks.
+A value function cannot declare `when`, node state or lifecycle hooks, or inject
+its own output or scheduler. It may `inject logger` or `inject clock` from its
+runtime call context. Calls silently add those requirements to callers,
+transitively and without duplicates; callers need not repeat the declarations.
+Wiring-time capability adapters remain unsupported. See
+[Native interfaces](../design/decisions/0014-native-implementation-interfaces.md#calling-from-a-node).
 It cannot treat its value parameters as live temporal endpoints. Native helper
 phase permissions propagate through value calls: an evaluation-only native
 dependency cannot be hidden inside a helper and then called during wiring,

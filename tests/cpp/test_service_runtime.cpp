@@ -175,6 +175,48 @@ namespace
         }
     };
 
+    using RuntimeReorderedFields =
+        TSB<"RuntimeReorderedFields", Field<"rhs", TS<Int>>, Field<"lhs", TS<Int>>>;
+
+    struct RuntimeReferenceLeafServiceAdaptor : service_adaptor::interface
+    {
+        static constexpr std::string_view name{"runtime_reference_leaf_service_adaptor"};
+        using input_schema = RuntimeMultiFields;
+        using output_schema = RuntimeReorderedFields;
+    };
+
+    struct RuntimeReferenceLeafServiceAdaptorImpl
+    {
+        static Port<TSD<Int, REF<RuntimeMultiFields>>> compose(
+            Wiring &w, Port<TSD<Int, RuntimeMultiFields>> requests)
+        {
+            auto group = wire<stdlib::const_>(w, Str{"all"}).as<TS<Str>>();
+            auto grouped = wire<stdlib::convert, TSD<Str, TSD<Int, RuntimeMultiFields>>>(
+                w, group, requests);
+            return wire<stdlib::unpartition>(w, grouped).as<TSD<Int, REF<RuntimeMultiFields>>>();
+        }
+    };
+
+    struct ErasedReferenceLeafServiceAdaptorGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            RuntimeServiceDescriptor descriptor;
+            descriptor.name = std::string{RuntimeReferenceLeafServiceAdaptor::name};
+            descriptor.flavour = ServiceFlavour::ServiceAdaptor;
+            descriptor.input_schema = schema_descriptor<RuntimeMultiFields>::ts_meta();
+            descriptor.output_schema = schema_descriptor<RuntimeReorderedFields>::ts_meta();
+            const auto *interned = &intern_service_descriptor(std::move(descriptor));
+            register_service_adaptor_impl(
+                w, *interned, "reference-leaves", fn<RuntimeReferenceLeafServiceAdaptorImpl>());
+            auto reply = wire<RuntimeReferenceLeafServiceAdaptor>(
+                w, service_adaptor::path("reference-leaves"), lhs, rhs);
+            auto reply_lhs = wire<stdlib::getattr_>(w, reply, Str{"lhs"}).as<TS<Int>>();
+            auto reply_rhs = wire<stdlib::getattr_>(w, reply, Str{"rhs"}).as<TS<Int>>();
+            return wire<stdlib::sub_>(w, reply_lhs, reply_rhs).as<TS<Int>>();
+        }
+    };
+
     struct RuntimeAutomaticAdaptor : adaptor::interface
     {
         static constexpr std::string_view name{"runtime_automatic_adaptor"};
@@ -369,6 +411,14 @@ TEST_CASE("service runtime: C++ service adaptors carry multi-field requests and 
     CHECK_OUTPUT(eval_node<RuntimeMultiFieldServiceAdaptorGraph>(
                      values<Int>(1, none, 2), values<Int>(10, none, 20)),
                  values<Int>(11, none, 22));
+}
+
+TEST_CASE("service runtime: erased service adaptor normalizes reordered reference leaves")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ErasedReferenceLeafServiceAdaptorGraph>(
+                     values<Int>(7, none, 9), values<Int>(2, none, 3)),
+                 values<Int>(5, none, 6));
 }
 
 TEST_CASE("service runtime: erased automatic adaptor registration serves a typed client")

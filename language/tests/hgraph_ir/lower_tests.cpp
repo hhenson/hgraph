@@ -85,6 +85,48 @@ namespace
         return nullptr;
     }
 
+    /// A module that exports an abstract struct, so a local struct can extend
+    /// an imported family (ADR 0013).
+    hgl::semantics::ModuleCatalog imported_family_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+        // A three-level family: Root <- Mid <- (local child), plus a struct a
+        // field can name, so the nominal-symbol path is exercised too.
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedType venue_ref;
+        venue_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        venue_ref.nominal_identity = "checks.shapes.Venue";
+
+        hgl::semantics::ImportedStruct root;
+        root.module_identity = module.identity;
+        root.name            = "Root";
+        root.identity        = "checks.shapes.Root";
+        root.abstract        = true;
+        root.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", venue_ref, false, false}};
+
+        hgl::semantics::ImportedType root_ref;
+        root_ref.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        root_ref.nominal_identity = "checks.shapes.Root";
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.parents         = {root_ref};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false}};
+        module.structs       = {std::move(base), std::move(root), std::move(venue)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     hgl::semantics::ModuleCatalog native_catalog(bool throws = false) {
         hgl::semantics::ModuleCatalog    catalog;
         hgl::semantics::ImportableModule module;
@@ -179,7 +221,7 @@ TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-
     // first native interface, and the restriction propagates through the
     // const fn helpers that wrap it.
     const std::string prelude = R"(module example
-native fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
+native const fn node_hooks_only(a: f64) -> f64 { cpp (double a) { return a; } }
 const fn inner(a: f64) -> f64 => node_hooks_only(a)
 const fn outer(a: f64) -> f64 => inner(a)
 )";
@@ -1090,4 +1132,101 @@ fn latest(node: atomic<Node>) -> i64 {
     }
     INFO(later.render(lowered.file));
     CHECK_FALSE(later.has_errors());
+}
+
+// A field inherited from a struct another module exports has no declaration
+// in this module to point at, so it carries its source as an identity through
+// both IRs (ADR 0013). Losing it would leave the outermost IR unable to say
+// which module declares the field, and both backends realize from that IR.
+TEST_CASE("hgraph IR keeps an imported field's declaring struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_origin
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_origin.Tick");
+    REQUIRE(tick != nullptr);
+    REQUIRE(tick->fields.size() == 4);
+
+    // A grandparent's fields name the ANCESTOR that declares them, not the
+    // immediate parent: each catalog record holds only what it declares, so a
+    // field stamped with the wrong source has no findable type.
+    CHECK(tick->fields[0].name == "id");
+    CHECK(tick->fields[0].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[0].type.valid());
+
+    // A layout field naming another struct resolves by identity rather than
+    // through the generic-binding path, which would leave it symbol-less.
+    CHECK(tick->fields[1].name == "venue");
+    CHECK(tick->fields[1].origin_identity == "checks.shapes.Root");
+    REQUIRE(tick->fields[1].type.valid());
+    CHECK(lowered.graph->types[tick->fields[1].type.value].nominal_identity == "checks.shapes.Venue");
+
+    CHECK(tick->fields[2].name == "at");
+    CHECK(tick->fields[2].origin_identity == "checks.shapes.Base");
+    // The locally declared one names this struct.
+    CHECK(tick->fields[3].name == "bid");
+    CHECK(tick->fields[3].origin_identity == tick->identity);
+}
+
+// The importer re-describes the owner's layout (ADR 0013), so a struct another
+// module exports appears as a contract of its own in hgraph IR -- that is the
+// record both backends register the schema from, under the OWNER's identity.
+TEST_CASE("hgraph IR emits a contract for an imported struct", "[hgraph-ir][struct-imports]") {
+    const hgl::semantics::ModuleCatalog catalog = imported_family_catalog();
+    Lowered                             lowered{R"(
+module checks.imported_contract
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    // The whole imported ancestry is described, each under its own identity.
+    const hgl::hgraph_ir::StructContract *base = structure(*lowered.graph, "checks.shapes.Base");
+    REQUIRE(base != nullptr);
+    CHECK(base->abstract);
+    // This module declares nothing for it and must not re-export it: doing so
+    // would claim ownership of another module's type.
+    CHECK_FALSE(base->exported);
+    // A contract carries the WHOLE layout, ancestors first, exactly as a local
+    // declaration's does. A catalog record holds only the fields it declares,
+    // so the ancestry is flattened when the struct is re-described; hgraph's
+    // registry holds the same rule from the other side -- `bundle()` refuses a
+    // child that does not preserve its parents' fields (ADR 0013 slice 5).
+    REQUIRE(base->fields.size() == 3);
+    CHECK(base->fields[0].name == "id");
+    CHECK(base->fields[0].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[1].name == "venue");
+    CHECK(base->fields[1].origin_identity == "checks.shapes.Root");
+    CHECK(base->fields[2].name == "at");
+    CHECK(base->fields[2].origin_identity == "checks.shapes.Base");
+
+    const hgl::hgraph_ir::StructContract *root = structure(*lowered.graph, "checks.shapes.Root");
+    REQUIRE(root != nullptr);
+    CHECK(root->abstract);
+    CHECK_FALSE(root->exported);
+
+    // The local struct is still its own contract, and IS exported.
+    const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_contract.Tick");
+    REQUIRE(tick != nullptr);
+    CHECK(tick->exported);
 }

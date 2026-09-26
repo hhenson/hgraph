@@ -58,6 +58,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/metadata/type_realization.cpp
     hgraph/types/metadata/schema_table.cpp
     hgraph/types/metadata/type_registry.cpp
+    hgraph/types/metadata/type_names.cpp
     hgraph/types/metadata/value_plan_factory.cpp
     hgraph/types/python_ops.cpp
     hgraph/types/primitive_types.cpp
@@ -102,6 +103,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/binary_session.cpp
     hgraph/types/value/json_codec.cpp
     hgraph/types/value/table_codec.cpp
+    hgraph/types/value/python_repr.cpp
     hgraph/types/value/value_view.cpp
     hgraph/types/value/value_conversion.cpp
     hgraph/types/value/value_type_ref.cpp
@@ -203,6 +205,13 @@ else()
     add_library(hgraph_stdlib ${HGRAPH_CORE_TARGET_TYPE} ${HGRAPH_STDLIB_SOURCES})
 endif()
 add_library(hgraph_core INTERFACE)
+
+if(BUILD_TESTING AND HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS AND UNIX)
+    # Debugger navigation needs endpoint types and notification targets whose
+    # definitions live in runtime translation units, not in the fixture.
+    # Keep Release optimization and IPO while supplying their debug information.
+    target_compile_options(hgraph_runtime PRIVATE -g)
+endif()
 
 add_library(hgraph::runtime ALIAS hgraph_runtime)
 add_library(hgraph::wiring ALIAS hgraph_wiring)

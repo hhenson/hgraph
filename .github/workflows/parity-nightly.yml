@@ -13,11 +13,17 @@ permissions:
   contents: read
 
 env:
+  # Bound each sccache client; compiler workers remain independently parallel.
+  TOKIO_WORKER_THREADS: "2"
   GCC_VERSION: "14"
 
 jobs:
   build-candidate:
     name: Build candidate wheel
+    # Never routed to the self-hosted host: the campaign shards install this
+    # wheel on hosted ubuntu-24.04, so it must be linked against that image's
+    # libc. A wheel built on a newer host could not be imported there
+    # (build_system.rst, "Self-hosted Linux runner").
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -44,7 +50,8 @@ jobs:
           python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
       - name: Build the stable-ABI candidate wheel
         env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+          # Empty on the self-hosted runner, which means Ninja's default (every core).
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ runner.environment != 'self-hosted' && '2' || '' }}
         run: >-
           uv build
           --wheel
@@ -98,7 +105,8 @@ jobs:
       - name: Build the candidate persistence wheel
         env:
           CMAKE_GENERATOR: Ninja
-          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+          # Empty on the self-hosted runner, which means Ninja's default (every core).
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ runner.environment != 'self-hosted' && '2' || '' }}
           CMAKE_PREFIX_PATH: ${{ env.HGRAPH_EXTENSION_SDK_PREFIX }}
         run: >-
           python -m build --wheel --no-isolation --skip-dependency-check

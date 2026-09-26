@@ -186,13 +186,15 @@ def test_try_except_preserves_keyed_map_errors():
     )
 
     assert result[0]["out"] == {0: 5}
-    assert result[0]["exception"] == {}
+    # No error yet: the exception field has no news, so it is absent from the
+    # bundle delta, as in released hgraph (TS-24, issue #835).
+    assert "exception" not in result[0]
     assert "division by zero" in result[1]["exception"][1].error_msg
     # issue #247: the back trace names the USER function (upstream parity)
     assert "divide" in result[1]["exception"][1].activation_back_trace
     assert "value={_0: 9, _1: 0}" in result[1]["exception"][1].activation_back_trace
     assert result[1]["out"] == {}
     assert result[2]["out"] == {2: 2}
-    assert result[2]["exception"] == {}
+    assert "exception" not in result[2]
     assert result[3]["exception"] == {1: REMOVE}
     assert result[3]["out"] == {}

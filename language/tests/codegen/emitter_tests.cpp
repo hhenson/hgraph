@@ -1,4 +1,6 @@
 #include "codegen/cpp_emitter.h"
+#include "codegen/native_rust.h"
+#include "descriptor/import_catalog.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/plan.h"
@@ -14,6 +16,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -131,6 +134,64 @@ namespace
         return result;
     }
 
+    [[nodiscard]] hgl::semantics::ImportedType nominal(std::string identity) {
+        hgl::semantics::ImportedType type;
+        type.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        type.nominal_identity = std::move(identity);
+        return type;
+    }
+
+    /// A module that exports a struct family, with the headers a consumer
+    /// needs in order to refer to its generated types (ADR 0013 slice 6).
+    ModuleCatalog exported_struct_catalog() {
+        ModuleCatalog                    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "checks.shapes";
+
+        hgl::semantics::ImportedStruct venue;
+        venue.module_identity = module.identity;
+        venue.name            = "Venue";
+        venue.identity        = "checks.shapes.Venue";
+        venue.public_headers  = {"checks/shapes.h"};
+        venue.fields          = {{"code", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        hgl::semantics::ImportedStruct base;
+        base.module_identity = module.identity;
+        base.name            = "Base";
+        base.identity        = "checks.shapes.Base";
+        base.abstract        = true;
+        base.public_headers  = {"checks/shapes.h"};
+        base.fields          = {{"at", hgl::semantics::ImportedScalarType::I64, false, false},
+                                {"venue", nominal("checks.shapes.Venue"), false, false}};
+
+        // A generic family, so an APPLIED imported struct is exercised too.
+        hgl::semantics::ImportedType parameter;
+        parameter.kind             = hgl::semantics::ImportedTypeKind::Symbol;
+        parameter.binding_identity = "checks.shapes.Box::T";
+
+        hgl::semantics::ImportedStruct box;
+        box.module_identity = module.identity;
+        box.name            = "Box";
+        box.identity        = "checks.shapes.Box";
+        box.public_headers  = {"checks/shapes.h"};
+        box.generics        = {{"T", "checks.shapes.Box::T", false, {}}};
+        box.fields          = {{"value", parameter, false, false}};
+
+        // A parameter NO field constrains, so a bare constructor has nothing
+        // to infer from.
+        hgl::semantics::ImportedStruct tag;
+        tag.module_identity = module.identity;
+        tag.name            = "Tag";
+        tag.identity        = "checks.shapes.Tag";
+        tag.public_headers  = {"checks/shapes.h"};
+        tag.generics        = {{"T", "checks.shapes.Tag::T", false, {}}};
+        tag.fields          = {{"id", hgl::semantics::ImportedScalarType::I64, false, false}};
+
+        module.structs = {std::move(base), std::move(venue), std::move(box), std::move(tag)};
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
+
     ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
         ModuleCatalog    catalog;
         ImportableModule module;
@@ -144,6 +205,7 @@ namespace
                                        {"window", hgl::semantics::ImportedScalarType::I64, true}},
             .result                 = hgl::semantics::ImportedScalarType::F64,
             .phases                 = {NativeCallPhase::Evaluation},
+            .execution_role         = hgl::NativeExecutionRole::Value,
             .public_headers         = {std::move(header)},
             .cmake_packages         = {"acme_stats"},
             .imported_targets       = {"acme::stats"},
@@ -2825,8 +2887,8 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
     CHECK(contains(emitted->header, "hgraph::TsVar<\"U\">"));
     CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
-    CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
-    CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
+    CHECK(contains(emitted->header, "hgraph::LoggerView hgl_cap_logger"));
+    CHECK(contains(emitted->header, "hgl_cap_logger.log(2, hgraph::Str{\"value\"});"));
 }
 
 TEST_CASE("emit-cpp preserves explicit reference schemas", "[codegen][ref]") {
@@ -3093,7 +3155,7 @@ export fn evaluations(value: i64) -> i64 {
     CHECK(contains(emitted->header, "hgl_output.set(hgl_cache.get());"));
 }
 
-TEST_CASE("emit-cpp reports the native limits on cache declarations", "[codegen][runtime][cache]") {
+TEST_CASE("emit-cpp aggregates cache declarations into one native slot", "[codegen][runtime][cache]") {
     Unit second{R"(
 module checks.two_caches
 export fn f(value: i64) -> i64 {
@@ -3113,6 +3175,15 @@ export fn f(value: i64) -> i64 {
     CHECK(contains(emitted->header, "hgraph::State<hgl_cache_fields>"));
     CHECK(contains(emitted->header, "hgl_cache.modify().field_"));
 
+}
+
+// ADR 0008 keeps the two storages apart: `state` is recordable and restored
+// before `start`, `cache` is reconstructible and rebuilt BY `start`. hgraph
+// admits one of each on a node (`static_node.h`, `state_count() <= 1` and
+// `recordable_state_count() <= 1` are separate asserts), so a function
+// declaring both lowers to both selectors rather than being refused.
+TEST_CASE("emit-cpp lowers a function declaring both state and cache to both selectors",
+          "[codegen][runtime][cache]") {
     Unit mixed{R"(
 module checks.cache_beside_state
 export fn f(value: i64) -> i64 {
@@ -3125,8 +3196,83 @@ export fn f(value: i64) -> i64 {
     }
 }
 )"};
-    CHECK_FALSE(mixed.emit());
-    CHECK(contains(mixed.diagnostics.render(mixed.file), "'cache' and 'state' cannot be combined in one runtime function yet"));
+    const auto emitted = mixed.emit();
+    INFO(mixed.diagnostics.render(mixed.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "using recordable_state = hgraph::TSB<\"checks.cache_beside_state.f.state\""));
+    CHECK(contains(emitted->header,
+                   "static void start(hgraph::RecordableState<recordable_state> hgl_state, hgraph::State<hgraph::Int> hgl_cache)"));
+    // The asymmetry is the contract: a restored state keeps its value, a cache
+    // is rebuilt whatever it held.
+    CHECK(contains(emitted->header, "if (!total.valid()) { total.set(hgraph::Int{0}); }"));
+    CHECK(contains(emitted->header, "hgl_cache.set(hgraph::Int{0});"));
+}
+
+// Initializers run in DECLARATION order, not states-then-caches: a state
+// initializer may name an earlier cache and a cache may be rebuilt from an
+// earlier state, and only source order makes both hold.
+TEST_CASE("emit-cpp seeds state and cache in declaration order", "[codegen][runtime][cache]") {
+    Unit first{R"(
+module checks.cache_before_state
+export fn f(x: i64) -> i64 {
+    cache seed: i64 = 7
+    state total: i64 = seed
+    when modified(x) && valid(x) {
+        total += x
+        return total
+    }
+}
+)"};
+    const auto cache_first = first.emit();
+    INFO(first.diagnostics.render(first.file));
+    REQUIRE(cache_first);
+    const auto seed_at  = cache_first->header.find("hgl_cache.set(hgraph::Int{7});");
+    const auto total_at = cache_first->header.find("if (!total.valid())");
+    REQUIRE(seed_at != std::string::npos);
+    REQUIRE(total_at != std::string::npos);
+    CHECK(seed_at < total_at);
+
+    Unit second{R"(
+module checks.state_before_cache
+export fn f(x: i64) -> i64 {
+    state total: i64 = 3
+    cache derived: i64 = total
+    when modified(x) && valid(x) {
+        total += x
+        return derived
+    }
+}
+)"};
+    const auto state_first = second.emit();
+    INFO(second.diagnostics.render(second.file));
+    REQUIRE(state_first);
+    const auto seeded_at   = state_first->header.find("if (!total.valid())");
+    const auto rebuilt_at  = state_first->header.find("hgl_cache.set(total.value()");
+    REQUIRE(seeded_at != std::string::npos);
+    REQUIRE(rebuilt_at != std::string::npos);
+    CHECK(seeded_at < rebuilt_at);
+}
+
+// `hgl_state` and `hgl_output` were already reserved; `hgl_cache` was not, so
+// a parameter spelled that way emitted two parameters of the same name and the
+// generated C++ did not compile.
+TEST_CASE("emit-cpp renames a source identifier that collides with the cache selector",
+          "[codegen][runtime][cache]") {
+    Unit unit{R"(
+module checks.cache_name_clash
+export fn f(hgl_cache: i64) -> i64 {
+    cache count: i64 = 0
+    when modified(hgl_cache) && valid(hgl_cache) {
+        count += 1
+        return hgl_cache + count
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgl_cache_"));
+    CHECK(contains(emitted->header, "hgraph::State<hgraph::Int> hgl_cache"));
 }
 
 // ADR 0012: an edge is an `Edge<T>` field, and one `TS<Edge<T>>` endpoint in
@@ -3187,4 +3333,393 @@ export struct Node {
     REQUIRE(fields.size() == 2U);
     CHECK_FALSE(fields[0].recursive);
     CHECK(fields[1].recursive);
+}
+
+TEST_CASE("generated C++ refers to an imported struct rather than re-declaring it", "[codegen][struct-imports]") {
+    // ADR 0013: one C++ definition per struct. A value then passes between two
+    // generated modules as itself -- no conversion, and no chance of two
+    // definitions drifting apart.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_cpp
+
+use checks.shapes as shapes
+
+export struct Tick: shapes::Base
+{
+    bid: f64
+}
+
+export fn reading(tick: atomic<Tick>, venue: atomic<shapes::Venue>) -> atomic<Tick> => tick
+)",
+                             catalog};
+    const std::optional<EmittedModule> emitted = unit.emit();
+    REQUIRE(emitted);
+
+    // The local struct IS declared here ...
+    CHECK(contains(emitted->header, "struct Tick"));
+    // ... and the imported ones are not, at all, in either artefact.
+    CHECK(occurrences(emitted->header, "struct Venue") == 0);
+    CHECK(occurrences(emitted->header, "struct Base") == 0);
+    CHECK(occurrences(emitted->source, "struct Venue") == 0);
+    CHECK(occurrences(emitted->source, "struct Base") == 0);
+
+    // They are referred to by the OWNER's C++ name ...
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Venue"));
+    CHECK(contains(emitted->header + emitted->source, "::checks::shapes::Base"));
+    // ... which only compiles because the exporter's header comes with it.
+    CHECK(contains(emitted->header, "#include <checks/shapes.h>"));
+}
+
+TEST_CASE("an applied imported generic substitutes its arguments into field types", "[codegen][struct-imports]") {
+    // The field types were lowered in the OWNER's generic scope, so
+    // `Box<i64>.value` reads as `T` unless the application's arguments are
+    // bound into it -- and `T` is loosely assignable, so the mistake is
+    // silent rather than loud.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_generic
+
+use checks.shapes as shapes
+
+export fn unbox(boxed: atomic<shapes::Box<i64>>) -> str => boxed.value
+)",
+                             catalog};
+    CHECK(unit.has(Category::Type, "has type i64"));
+}
+
+TEST_CASE("an imported struct satisfies struct reflection", "[codegen][struct-imports]") {
+    // `U is struct`, `fields(U)` and `field_type(U, ...)` reach a struct
+    // through its declaration; a struct another module exports has none here,
+    // and the re-description is what stands in for it.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_reflection
+
+use checks.shapes as shapes
+
+fn code_of<U>(value: atomic<U>) -> i64
+requires U is struct && has_fields(U, {"code"}) && field_type(U, "code") == i64
+=> value.code
+
+export fn venue_code(venue: atomic<shapes::Venue>) -> i64 => code_of(venue)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported struct can be named directly in a reflection constraint", "[codegen][struct-imports]") {
+    // `use m::{Venue}` then `Venue is struct` / `fields(Venue)` /
+    // `field_type(Venue, "code")`. Two gates excluded it: the resolver's
+    // constraint-name check and the solver's type-operand conversion, both of
+    // which accepted only a LOCAL struct symbol -- so the imported branch in
+    // the field walk was never reached for this spelling, although the
+    // qualified one worked.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_named_constraint
+
+use checks.shapes::{Venue}
+
+fn coded<U>(value: atomic<U>) -> i64
+requires Venue is struct
+      && has_fields(Venue, {"code"})
+      && field_type(Venue, "code") == i64
+      && U is struct
+=> 1
+
+export fn go(v: atomic<Venue>) -> i64 => coded(v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported constructor is checked for completeness", "[codegen][struct-imports]") {
+    // A catalog record carries only the fields it DECLARES, so the check has
+    // to run against the flattened layout: `Venue` declares `code`, and a
+    // child of an imported family inherits more.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("a missing required field") {
+        Unit unit{R"(
+module checks.import_missing
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue()
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "needs field 'code'"));
+    }
+    SECTION("a field given twice") {
+        Unit unit{R"(
+module checks.import_twice
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, code: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "is given twice"));
+    }
+    SECTION("an unknown field") {
+        Unit unit{R"(
+module checks.import_unknown
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(code: 1, nope: 2)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "has no field named 'nope'"));
+    }
+    SECTION("a positional argument") {
+        // The local rule, applied to an imported struct: accepting this in the
+        // front end only moved the failure to the backend, which reports it
+        // against generated code the author never wrote.
+        Unit unit{R"(
+module checks.import_positional
+
+use checks.shapes as shapes
+
+export fn build() -> atomic<shapes::Venue> => shapes::Venue(1)
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "struct construction uses named arguments"));
+    }
+}
+
+TEST_CASE("an applied imported generic constructs with its arguments spelled", "[codegen][struct-imports]") {
+    // `m::Box<i64>(...)` reaches the resolver as a Construct rather than a
+    // Call, and was refused there -- so the applied spelling worked only when
+    // the expected type happened to supply the arguments.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    Unit                unit{R"(
+module checks.import_applied
+
+use checks.shapes as shapes
+
+export fn build(v: i64) -> atomic<shapes::Box<i64>> => shapes::Box<i64>(value: v)
+)",
+                             catalog};
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("an imported generic constructor infers its arguments, or says which it cannot",
+          "[codegen][struct-imports]") {
+    // The same answer a local struct gives. Returning the constructor
+    // unapplied let the program pass type checking and fail in the backend
+    // with "constructed type ... is missing a generic type argument" --
+    // against generated code the author never wrote.
+    const ModuleCatalog catalog = exported_struct_catalog();
+    SECTION("inferred from an argument") {
+        Unit unit{R"(
+module checks.import_infer
+
+use checks.shapes as shapes
+
+export fn make(v: i64) -> i64 => shapes::Box(value: v).value
+)",
+                  catalog};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+    }
+    SECTION("no field constrains the parameter, so it is rejected here") {
+        Unit unit{R"(
+module checks.import_uninferable
+
+use checks.shapes as shapes
+
+export fn make() -> i64 => shapes::Tag(id: 1).id
+)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "cannot infer generic 'T' for struct constructor"));
+    }
+}
+
+TEST_CASE("split C++ preserves public contracts and ordered registration", "[codegen][split]") {
+    Unit       unit{R"(
+module checks.split
+operator adjust(value: i64) -> i64
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+export fn first(value: i64) -> i64 => value + 1
+export fn second(value: i64) -> i64 => first(value) + 2
+export fn hgl_detail(value: i64) -> i64 => second(value)
+export fn register_part_0(value: i64) -> i64 => hgl_detail(value)
+)"};
+    const auto single = unit.emit();
+    REQUIRE(single);
+    const auto split = unit.emit(EmitOptions{.source_parts = 3});
+    REQUIRE(split);
+    CHECK(split->header == single->header);
+    CHECK(split->descriptor == single->descriptor);
+    REQUIRE(split->implementation_sources.size() == 3);
+    CHECK(contains(split->implementation_header, "namespace hgl_detail"));
+    CHECK(contains(split->header, "struct hgl_detail_"));
+    CHECK_FALSE(contains(split->source, "hgraph::register_overload<"));
+    CHECK_FALSE(contains(split->source, "hgraph::register_graph_overload<"));
+    const auto registration_lines = [](const std::string &text) {
+        std::vector<std::string> result;
+        std::istringstream       input{text};
+        for (std::string line; std::getline(input, line);) {
+            const auto start = line.find_first_not_of(' ');
+            if (start == std::string::npos) { continue; }
+            line.erase(0, start);
+            if (line.starts_with("hgraph::register_overload<") || line.starts_with("hgraph::register_graph_overload<")) {
+                result.push_back(line);
+            }
+        }
+        return result;
+    };
+    std::vector<std::string> split_registrations;
+    std::string              definitions;
+    std::size_t              previous = 0;
+    for (std::size_t part = 0; part < split->implementation_sources.size(); ++part) {
+        const auto &source  = split->implementation_sources[part];
+        const auto  entries = registration_lines(source);
+        split_registrations.insert(split_registrations.end(), entries.begin(), entries.end());
+        definitions += source;
+        const auto call = split->source.find("hgl_detail::register_operators(std::integral_constant<std::size_t, " +
+                                             std::to_string(part) + ">{});");
+        REQUIRE(call != std::string::npos);
+        CHECK(call > previous);
+        previous = call;
+    }
+    CHECK(split_registrations == registration_lines(single->source));
+    CHECK(occurrences(definitions, "first::compose(") == 1);
+    CHECK(occurrences(definitions, "second::compose(") == 1);
+    CHECK(occurrences(definitions, "hgl_detail_::compose(") == 1);
+    CHECK(occurrences(split->source, "registry.register_installer(") == 1);
+    CHECK(contains(split->source, "registry.remove_provider(provider)"));
+}
+
+TEST_CASE("split C++ rejects invalid part counts", "[codegen][split]") {
+    for (const std::size_t count : {0U, 65U}) {
+        Unit unit{"module checks.split\nexport fn first(value: i64) -> i64 => value\n"};
+        CHECK_FALSE(unit.emit(EmitOptions{.source_parts = count}));
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("external native interface generates exact source-owned binding checks", "[codegen][native][interface]") {
+    Unit unit{R"hgl(module checks.binding
+native const fn bit_and(lhs: i64, rhs: i64) -> i64
+native const fn bit_and(lhs: bool, rhs: bool) -> bool
+native const fn checked(value: i64) -> i64 throws
+native const fn bit_and(lhs: i64, rhs: i64) -> i64 {}
+native const fn bit_and(lhs: bool, rhs: bool) -> bool {}
+native const fn checked(value: i64) -> i64 throws {}
+)hgl"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"});
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "concept Implementation = requires"));
+    CHECK(contains(emitted->header, "bit_and(const hgraph::Int & lhs, const hgraph::Int & rhs) noexcept;"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::bit_and)"));
+    CHECK(contains(emitted->header, "static_cast<hgraph::Int (*)(hgraph::Int)>(&T::checked)"));
+    CHECK(contains(emitted->header, "constexpr auto bind() noexcept"));
+    CHECK_FALSE(contains(emitted->header, "#include \"provider.h\""));
+    CHECK(contains(emitted->source, "#include \"provider.h\""));
+    CHECK(contains(emitted->source, "return example::native.bit_and(lhs, rhs);"));
+    CHECK(contains(emitted->source, "static_assert(native_interface::Implementation<std::remove_cvref_t<decltype(example::native)>>)"));
+    CHECK(contains(emitted->descriptor, "checks.binding::bit_and"));
+}
+
+TEST_CASE("external native interface requires a selected package provider", "[codegen][native][interface]") {
+    Unit unit{
+        "module t\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64 {}\n"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file), "package provider header and bound provider object"));
+}
+
+TEST_CASE("temporal native interfaces cannot use the scalar provider ABI", "[codegen][native][interface]") {
+    for (const auto signature : {"value: i64", "const value: i64"}) {
+        Unit unit{std::string{"module t\nnative fn temporal("} + signature + ") -> i64\nnative fn temporal(" + signature +
+                  ") -> i64 {}\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"}));
+        CHECK(contains(unit.diagnostics.render(unit.file), "external native interface requires a concrete native const fn"));
+    }
+}
+
+TEST_CASE("Rust native traits use the same resolved value contract", "[codegen][native][interface]") {
+    Unit unit{"module hgraph.native\nnative const fn bit_and(lhs: i64, rhs: i64) -> i64\nnative const fn bit_and(lhs: i64, rhs: "
+              "i64) -> i64 {}\n"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
+    REQUIRE(emitted);
+    CHECK(contains(*emitted, "pub trait Native"));
+    CHECK(contains(*emitted, "fn r#bit_and(r#lhs: i64, r#rhs: i64) -> i64;"));
+    CHECK(contains(*emitted, "hgraph.native::bit_and"));
+}
+
+TEST_CASE("Rust native interfaces reject unsupported ABI shapes", "[codegen][native][interface]") {
+    for (const auto declaration : {"native const fn f(value: str) -> i64", "native const fn f(value: i64) -> i64 throws",
+                                   "native const fn f(value: i64) -> i64\nnative const fn f(value: i64) -> i64 { inject clock }",
+                                   "native const fn f(value: i64) -> i64\nnative const fn f(value: bool) -> bool"}) {
+        Unit unit{std::string{"module t\n"} + declaration + "\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics));
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("native capability interfaces explicitly pass borrowed services", "[codegen][native][capabilities]") {
+    Unit unit{R"hgl(module services
+native const fn audit(value: i64) -> i64
+native const fn audit(value: i64) -> i64 {
+    inject logger
+}
+const fn middle(value: i64) -> i64 => audit(value)
+export fn caller(value: i64) -> i64 {
+    when { return middle(value) }
+}
+)hgl"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto emitted = unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"});
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::LoggerView hgl_cap_logger"));
+    CHECK(contains(emitted->source, "example::native.audit(value, hgl_cap_logger)"));
+    const auto rust = hgl::codegen::emit_native_rust(unit.graph, unit.diagnostics);
+    REQUIRE(rust);
+    CHECK(contains(*rust, "hgl_cap_logger: &mut dyn Logger"));
+}
+
+TEST_CASE("imported native graph and node contracts admit graph construction", "[codegen][native][interface][catalog]") {
+    for (const auto body : {"{}", "{ inject out, logger start; when; stop; }"}) {
+        Unit provider{std::string{"module provider\nnative fn filter(value: i64, const limit: i64) -> i64\n"
+                                  "native fn filter(value: i64, const limit: i64) -> i64 "} +
+                      body + "\n"};
+        INFO(provider.diagnostics.render(provider.file));
+        REQUIRE_FALSE(provider.diagnostics.has_errors());
+        hgl::descriptor::DescribeOptions options;
+        options.source_native_symbols.emplace_back(provider.graph.native_functions.front().candidate_identity, "provider::filter");
+        const auto descriptor = hgl::descriptor::describe_module(provider.graph, options);
+        const auto parsed     = hgl::descriptor::read_json(hgl::descriptor::to_json(descriptor));
+        INFO((parsed.error ? parsed.error->message : ""));
+        REQUIRE(parsed.value);
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(hgl::descriptor::add_to_catalog(*parsed.value, catalog));
+        Unit consumer{"module consumer\nuse provider::{filter}\nexport fn caller(value: i64) -> i64 => filter(value, 3)\n",
+                      catalog};
+        INFO(consumer.diagnostics.render(consumer.file));
+        REQUIRE_FALSE(consumer.diagnostics.has_errors());
+        REQUIRE(consumer.graph.native_functions.size() == 1);
+        CHECK(consumer.graph.native_functions.front().implementation_kind ==
+              provider.graph.native_functions.front().implementation_kind);
+        CHECK_FALSE(consumer.emit());
+        CHECK(consumer.has(Category::Backend, "native graph/node construction is not supported"));
+        Unit hook{
+            "module consumer\nuse provider::{filter}\nexport fn caller(value: i64) -> i64 { when { return filter(value, 3) } }\n",
+            catalog};
+        CHECK(hook.has(Category::Type, "a temporal native fn can only be called during graph construction"));
+    }
 }

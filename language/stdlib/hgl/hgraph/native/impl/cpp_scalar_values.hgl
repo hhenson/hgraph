@@ -1,0 +1,32 @@
+module hgraph.native part cpp_scalar_values
+
+native const fn len(value: str) -> i64 {}
+native const fn is_empty(value: str) -> bool {}
+native const fn contains(value: str, needle: str) -> bool {}
+native const fn starts_with(value: str, prefix: str) -> bool {}
+native const fn ends_with(value: str, suffix: str) -> bool {}
+native const fn truthy(value: bool) -> bool {}
+native const fn truthy(value: i64) -> bool {}
+native const fn truthy(value: f64) -> bool {}
+native const fn truthy(value: str) -> bool {}
+native const fn absolute(value: i64) -> i64 {}
+native const fn absolute(value: f64) -> f64 {}
+native const fn logarithm(value: f64) -> f64 {}
+native const fn round_decimal(value: f64, digits: i64) -> f64 throws {}
+native const fn invert(value: bool) -> i64 {}
+native const fn bit_and(lhs: bool, rhs: bool) -> bool {}
+native const fn bit_or(lhs: bool, rhs: bool) -> bool {}
+native const fn bit_xor(lhs: bool, rhs: bool) -> bool {}
+native const fn invert(value: i64) -> i64 {}
+native const fn bit_or(lhs: i64, rhs: i64) -> i64 {}
+native const fn bit_xor(lhs: i64, rhs: i64) -> i64 {}
+native const fn as_int(value: bool) -> i64 {}
+native const fn require_positive_delay(delay: duration) throws {}
+native const fn power(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn power(lhs: f64, rhs: f64) -> f64 throws {}
+native const fn shift_left(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn shift_right(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn slice(value: str, begin: i64, end: i64) -> str {}
+native const fn as_int(value: f64) -> i64 {}
+native const fn as_float(value: bool) -> f64 {}
+native const fn as_float(value: i64) -> f64 {}

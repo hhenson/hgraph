@@ -813,6 +813,36 @@ TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload"
     CHECK(resolved.impl->label == "dog");
 }
 
+TEST_CASE("operators: identical conversion schemas select identity through references too")
+{
+    auto &registry = TypeRegistry::instance();
+    stdlib::register_conversion_operators();
+    const auto *bundle = registry.bundle(
+        "tests.operator.identity", "Record", {{"id", registry.value_type("int")}});
+    const auto *opaque = registry.opaque_python("tests.operator.identity.Object", {registry.any()});
+
+    for (const auto *value : {registry.value_type("int"), registry.value_type("bool"),
+                              registry.value_type("str"), registry.any(), bundle, opaque})
+    {
+        const auto *target = registry.ts(value);
+        for (const auto *source : {target, registry.ref(target)})
+        {
+            std::array<WiringArg, 1> args{ts_arg(source)};
+            const auto resolved = OperatorRegistry::instance().resolve(
+                "convert", std::span<const WiringArg>{args}, true, target);
+            REQUIRE(resolved.impl != nullptr);
+            CHECK(resolved.impl->label.find("convert_identity") != std::string::npos);
+        }
+    }
+
+    // The narrower convert candidate must not change explicit downcast_.
+    std::array<WiringArg, 1> args{ts_arg(registry.ts(bundle))};
+    const auto downcast = OperatorRegistry::instance().resolve(
+        "downcast_", std::span<const WiringArg>{args}, true, registry.ts(bundle));
+    REQUIRE(downcast.impl != nullptr);
+    CHECK(downcast.impl->label.find("downcast_bundle") != std::string::npos);
+}
+
 TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and conversion")
 {
     auto &registry = TypeRegistry::instance();
@@ -1223,16 +1253,17 @@ TEST_CASE("operators: repeated input variables accept equivalent interior refere
     ResolutionMap runtime;
     REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), runtime));
     REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
-    CHECK(runtime.find_ts("S") == ts_type<RefDict>());
+    CHECK(runtime.find_ts("S") == ts_type<ValueDict>());
     CHECK_FALSE(input_ts_pattern_match(variable, ts_type<TSD<Str, TS<Float>>>(), runtime));
 
-    // Output matching remains representation-strict once the input selected S.
-    CHECK_FALSE(output_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+    // The inferred output is dereferenced; an explicit REF output is still strict.
+    CHECK(output_ts_pattern_match(variable, ts_type<ValueDict>(), runtime));
+    CHECK_FALSE(output_ts_pattern_match(variable, ts_type<RefDict>(), runtime));
 
     ResolutionMap typed;
     ts_unifier<TsVar<"S">>::unify(ts_type<RefDict>(), typed);
     ts_unifier<TsVar<"S">>::unify(ts_type<ValueDict>(), typed);
-    CHECK(typed.find_ts("S") == ts_type<RefDict>());
+    CHECK(typed.find_ts("S") == ts_type<ValueDict>());
     CHECK_THROWS_AS((ts_unifier<TsVar<"S">>::unify(
                         ts_type<TSD<Str, TS<Float>>>(), typed)),
                     std::logic_error);
@@ -1242,6 +1273,133 @@ TEST_CASE("operators: repeated input variables accept equivalent interior refere
     REQUIRE(input_ts_pattern_match(variable, ts_type<RefDict>(), output_first));
     REQUIRE(input_ts_pattern_match(variable, ts_type<ValueDict>(), output_first));
     CHECK(output_first.find_ts("S") == ts_type<ValueDict>());
+}
+
+TEST_CASE("operators: resolving a generic dereferences everything at every depth (#847)")
+{
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<Int>("int");
+    (void)registry.register_scalar<Str>("str");
+
+    const TSValueTypeMetaData *refs   = ts_type<TSD<Str, REF<TS<Int>>>>();  // a map_ output
+    const TSValueTypeMetaData *values = ts_type<TSD<Str, TS<Int>>>();
+    const TypePattern          var    = TypePattern::var("S");
+
+    // The matcher: a variable binds the schema with every reference followed.
+    ResolutionMap nested;
+    REQUIRE(input_ts_pattern_match(var, refs, nested));
+    CHECK(nested.find_ts("S") == values);
+    ResolutionMap wrapped;
+    REQUIRE(ts_pattern_match(var, ts_type<REF<TSD<Str, REF<TS<Int>>>>>(), wrapped));
+    CHECK(wrapped.find_ts("S") == values);
+    ResolutionMap in_list;
+    REQUIRE(ts_pattern_match(var, ts_type<TSL<REF<TS<Int>>, 2>>(), in_list));
+    CHECK(in_list.find_ts("S") == ts_type<TSL<TS<Int>, 2>>());
+
+    // The static unifier agrees.
+    ResolutionMap unified;
+    ts_unifier<TsVar<"S">>::unify(refs, unified);
+    CHECK(unified.find_ts("S") == values);
+
+    // Code that depends on a reference expresses it. A REF pattern binds under it:
+    ResolutionMap element;
+    REQUIRE(input_ts_pattern_match(to_pattern<TSD<ScalarVar<"K">, REF<TsVar<"V">>>>(), refs, element));
+    CHECK(element.find_ts("V") == ts_type<TS<Int>>());
+    // an initial resolution states the schema, so the port matches as supplied:
+    ResolutionMap stated;
+    stated.bind_ts("S", refs);
+    CHECK(input_ts_pattern_match(var, refs, stated));
+    CHECK(stated.find_ts("S") == refs);
+    ResolutionMap stated_ref;  // a top-level REF too
+    stated_ref.bind_ts("S", ts_type<REF<TS<Int>>>());
+    CHECK(input_ts_pattern_match(var, ts_type<REF<TS<Int>>>(), stated_ref));
+    // A TSB schema variable bound up front matches its pack as supplied too.
+    const TSValueTypeMetaData *pack = registry.un_named_tsb({{"a", ts_type<REF<TS<Int>>>()}});
+    ResolutionMap              pinned;
+    pinned.bind_ts("P", pack);
+    CHECK(input_ts_pattern_match(TypePattern::tsb_var("P"), pack, pinned));
+    // And a requested output keeps a nested REF verbatim, on the runtime
+    // matcher and on the static path's explicit output schema alike.
+    ResolutionMap requested;
+    REQUIRE(output_ts_pattern_match(var, refs, requested));
+    CHECK(requested.find_ts("S") == refs);
+    ResolutionMap requested_pinned;  // pinned to the same shape: accepted
+    requested_pinned.bind_ts("S", refs);
+    CHECK(output_ts_pattern_match(var, refs, requested_pinned));
+    ResolutionMap requested_conflict;  // pinned to the values: the REF would be lost
+    requested_conflict.bind_ts("S", values);
+    CHECK_FALSE(output_ts_pattern_match(var, refs, requested_conflict));
+    stdlib::register_standard_operators();
+    Wiring wiring;
+    auto   routed = wire<stdlib::replay_impl, TSD<Str, REF<TS<Int>>>>(wiring, std::string{"routed"});
+    CHECK(routed.erased().schema == refs);
+    // The static path mirrors the runtime matcher's pre-bound case: the
+    // explicit output schema binds first, and the input as supplied then
+    // matches it instead of re-binding the dereferenced schema.
+    auto ref_source = wire<stdlib::replay_impl, REF<TS<Int>>>(wiring, std::string{"ref"});
+    auto through    = wire<gated_passthrough, REF<TS<Int>>>(wiring, ref_source);
+    CHECK(through.erased().schema == ts_type<REF<TS<Int>>>());
+    // A requested output pack binds as requested; a pinned one matches as supplied.
+    ResolutionMap requested_pack;
+    ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, requested_pack);
+    CHECK(requested_pack.find_ts("P") == pack);
+    ResolutionMap pinned_pack;
+    pinned_pack.bind_ts("P", pack);
+    CHECK_NOTHROW(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, pinned_pack));
+    // The pre-bound shortcut skips only the dereference: constraints and the
+    // pack's TSB kind are still enforced.
+    ResolutionMap constrained;
+    constrained.bind_ts("S", ts_type<TS<Float>>());
+    CHECK_THROWS(ts_unifier<TsVar<"S", TS<Int>>>::unify(ts_type<TS<Float>>(), constrained));
+    ResolutionMap not_a_pack;
+    not_a_pack.bind_ts("P", ts_type<TS<Int>>());
+    CHECK_THROWS(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(ts_type<TS<Int>>(), not_a_pack));
+
+    // The contract rows (writing_nodes.rst) on the runtime side for a TSB
+    // schema variable, and the strict matcher alongside the input one.
+    const TSValueTypeMetaData *value_pack = registry.un_named_tsb({{"a", ts_type<TS<Int>>()}});
+    ResolutionMap              strict_pack;  // an input-side schema variable dereferences
+    REQUIRE(ts_pattern_match(TypePattern::tsb_var("P"), pack, strict_pack));
+    CHECK(strict_pack.find_ts("P") == value_pack);
+    ResolutionMap strict_ref;  // a pre-bound top-level REF matches as supplied
+    strict_ref.bind_ts("S", ts_type<REF<TS<Int>>>());
+    CHECK(ts_pattern_match(var, ts_type<REF<TS<Int>>>(), strict_ref));
+    ResolutionMap requested_top_pack;  // a top-level requested pack binds verbatim
+    REQUIRE(output_ts_pattern_match(TypePattern::tsb_var("P"), pack, requested_top_pack));
+    CHECK(requested_top_pack.find_ts("P") == pack);
+    // A pack nested in a structural requested output binds dereferenced, on
+    // both sides.
+    const TSValueTypeMetaData *list_of_packs = registry.tsl(pack, 1);
+    ResolutionMap              nested_runtime;
+    REQUIRE(output_ts_pattern_match(to_pattern<TSL<UnNamedTSB<TsVar<"P">>, 1>>(), list_of_packs, nested_runtime));
+    CHECK(nested_runtime.find_ts("P") == value_pack);
+    ResolutionMap nested_static;
+    ts_output_unifier<TSL<UnNamedTSB<TsVar<"P">>, 1>>::unify(list_of_packs, nested_static);
+    CHECK(nested_static.find_ts("P") == value_pack);
+    // An earlier pack binding is compared structurally on both sides: a named
+    // bundle agrees with the same unnamed one, as an input and as a request.
+    const TSValueTypeMetaData *named_value_pack = registry.tsb("hgraph.test.g847::Values", {{"a", ts_type<TS<Int>>()}});
+    const TSValueTypeMetaData *named_ref_pack = registry.tsb("hgraph.test.g847::Refs", {{"a", ts_type<REF<TS<Int>>>()}});
+    ResolutionMap named_runtime;
+    named_runtime.bind_ts("P", named_value_pack);
+    CHECK(input_ts_pattern_match(TypePattern::tsb_var("P"), value_pack, named_runtime));
+    ResolutionMap named_static;
+    named_static.bind_ts("P", named_value_pack);
+    CHECK_NOTHROW(ts_unifier<UnNamedTSB<TsVar<"P">>>::unify(value_pack, named_static));
+    ResolutionMap named_requested_runtime;
+    named_requested_runtime.bind_ts("P", named_ref_pack);
+    CHECK(output_ts_pattern_match(TypePattern::tsb_var("P"), pack, named_requested_runtime));
+    ResolutionMap named_requested_static;
+    named_requested_static.bind_ts("P", named_ref_pack);
+    CHECK_NOTHROW(ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(pack, named_requested_static));
+    // A REF around a whole requested bundle is followed on both sides; the
+    // bundle's own REF fields are kept.
+    ResolutionMap wrapped_runtime;
+    REQUIRE(output_ts_pattern_match(TypePattern::tsb_var("P"), registry.ref(pack), wrapped_runtime));
+    CHECK(wrapped_runtime.find_ts("P") == pack);
+    ResolutionMap wrapped_static;
+    ts_output_unifier<UnNamedTSB<TsVar<"P">>>::unify(registry.ref(pack), wrapped_static);
+    CHECK(wrapped_static.find_ts("P") == pack);
 }
 
 TEST_CASE("operators: TypePattern supports recursive scalar container patterns")
@@ -1327,7 +1485,7 @@ TEST_CASE("operators: a bare tuple conversion target resolves a Series element t
     CHECK(resolved->value_schema->element_type == integer);
 }
 
-TEST_CASE("operators: bare TSD conversion distinguishes live values from tuple zip")
+TEST_CASE("operators: bare TSD conversion distinguishes nested values from tuple zip")
 {
     auto &registry = TypeRegistry::instance();
     const auto *integer = registry.value_type("int");
@@ -1340,8 +1498,10 @@ TEST_CASE("operators: bare TSD conversion distinguishes live values from tuple z
     const auto *live = stdlib::resolve_convert_target(pattern, live_inputs);
     REQUIRE(live != nullptr);
     REQUIRE(live->kind == TSTypeKind::TSD);
-    REQUIRE(live->element_ts()->kind == TSTypeKind::REF);
-    CHECK(live->element_ts()->referenced_ts() == nested);
+    // Pin the observed nested type, allowing the current runtime to choose
+    // owned or reference-backed storage. The public wiring test below the
+    // operator layer verifies that later value ticks remain live.
+    CHECK(registry.dereference(live->element_ts()) == nested);
 
     const auto *key_tuple = registry.ts(registry.list(text, 0, true));
     const auto *value_tuple = registry.ts(registry.list(integer, 0, true));
@@ -1544,7 +1704,8 @@ TEST_CASE("operators: wired callable parameter inspection reports names and posi
     const auto parameters =
         OperatorRegistry::instance().wired_fn_parameters("zero");
     CHECK(parameters.names == std::vector<std::string>{"op"});
-    CHECK(parameters.positions == std::vector<std::size_t>{0});
+    // zero(tp, op), released hgraph's order (parity #818 item 2.1).
+    CHECK(parameters.positions == std::vector<std::size_t>{1});
     CHECK(OperatorRegistry::instance()
               .wired_fn_parameters("not_registered")
               .names.empty());
@@ -2043,6 +2204,9 @@ TEST_CASE("operators: explicit output schemas participate in operator resolution
     // zero_int composes const_, so the conversion family supplies both.
     stdlib::register_conversion_operators();
 
+    CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(arg<"op">(fn<stdlib::add_>()))), values<Int>(0));
+    // A positional operation passes over the defaulted type argument onto op
+    // (RFC 0033 call normalisation, amended 2026-09-24).
     CHECK_OUTPUT((eval_node<stdlib::zero_, TS<Int>>(fn<stdlib::add_>())), values<Int>(0));
 }
 

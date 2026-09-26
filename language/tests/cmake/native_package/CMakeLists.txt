@@ -66,15 +66,23 @@ if(NOT HGL_STDLIB_SOURCE)
     message(FATAL_ERROR "HGL_STDLIB_SOURCE is required")
 endif()
 hgl_add_module(rebuilt_native STATIC
+    NATIVE_PROVIDER_HEADER native_scalar.h
+    NATIVE_PROVIDER hgl::stdlib::scalar_native
     HGL ${HGL_STDLIB_SOURCE}/native.hgl
     PARTS
         ${HGL_STDLIB_SOURCE}/native/sequences.hgl
         ${HGL_STDLIB_SOURCE}/native/sets_maps.hgl
         ${HGL_STDLIB_SOURCE}/native/windows.hgl
         ${HGL_STDLIB_SOURCE}/native/scalar_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/scalar_values_i64.hgl
         ${HGL_STDLIB_SOURCE}/native/temporal_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_scalar_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_scalar_values_i64.hgl
+        ${HGL_STDLIB_SOURCE}/native/impl/cpp_temporal_values.hgl
 )
+target_include_directories(rebuilt_native PRIVATE "${HGL_STDLIB_SOURCE}/../cpp")
 hgl_add_module(rebuilt_standard STATIC
+    SOURCE_PARTS 8
     HGL ${HGL_STDLIB_SOURCE}/standard.hgl
     PARTS ${HGL_STDLIB_SOURCE}/control.hgl ${HGL_STDLIB_SOURCE}/stream.hgl ${HGL_STDLIB_SOURCE}/temporal.hgl
     LINK_LIBRARIES rebuilt_native)

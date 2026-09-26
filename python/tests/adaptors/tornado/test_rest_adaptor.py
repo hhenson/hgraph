@@ -261,6 +261,27 @@ def free_tcp_port():
     raise RuntimeError("no free TCP port found")
 
 
+def _delete_when_route_ready(port, path, deadline):
+    # The listener starts before subscription deltas install its routes. Retry
+    # that transport response, but return application-level 404s for assertions.
+    while True:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2.0)
+        try:
+            connection.request("DELETE", path)
+            response = connection.getresponse()
+            result = (response.status, response.read())
+            if result != (404, b"no such route"):
+                return result
+        except OSError:
+            if time.monotonic() >= deadline:
+                raise
+        finally:
+            connection.close()
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"REST route {path} was not ready before the deadline")
+        time.sleep(0.02)
+
+
 def test_rest_handler_maps_live_delete_request(free_tcp_port):
     route = f"/rest-{free_tcp_port}"
     client_responses = []
@@ -281,21 +302,9 @@ def test_rest_handler_maps_live_delete_request(free_tcp_port):
         def run():
             deadline = time.monotonic() + 10.0
             try:
-                while True:
-                    connection = http.client.HTTPConnection(
-                        "127.0.0.1", free_tcp_port, timeout=2.0
-                    )
-                    try:
-                        connection.request("DELETE", f"{route}/abc")
-                        response = connection.getresponse()
-                        client_responses.append((response.status, response.read()))
-                        break
-                    except (ConnectionRefusedError, OSError):
-                        if time.monotonic() >= deadline:
-                            raise
-                        time.sleep(0.02)
-                    finally:
-                        connection.close()
+                client_responses.append(
+                    _delete_when_route_ready(free_tcp_port, f"{route}/abc", deadline)
+                )
             except BaseException as error:
                 client_errors.append(error)
             finally:
@@ -361,23 +370,9 @@ def test_rest_handler_maps_batch_requests(free_tcp_port):
             try:
                 deadline = time.monotonic() + 10.0
                 for identifier in ("one", "two"):
-                    while True:
-                        connection = http.client.HTTPConnection(
-                            "127.0.0.1",
-                            free_tcp_port,
-                            timeout=2.0,
-                        )
-                        try:
-                            connection.request("DELETE", f"{route}/{identifier}")
-                            response = connection.getresponse()
-                            client_responses.append((response.status, response.read()))
-                            break
-                        except (ConnectionRefusedError, OSError):
-                            if time.monotonic() >= deadline:
-                                raise
-                            time.sleep(0.02)
-                        finally:
-                            connection.close()
+                    client_responses.append(
+                        _delete_when_route_ready(free_tcp_port, f"{route}/{identifier}", deadline)
+                    )
             except BaseException as error:
                 client_errors.append(error)
             finally:
@@ -444,21 +439,9 @@ def test_rest_handler_preserves_auxiliary_outputs(free_tcp_port):
         def run():
             try:
                 deadline = time.monotonic() + 10.0
-                while True:
-                    connection = http.client.HTTPConnection(
-                        "127.0.0.1", free_tcp_port, timeout=2.0
-                    )
-                    try:
-                        connection.request("DELETE", f"{route}/abc")
-                        response = connection.getresponse()
-                        client_responses.append((response.status, response.read()))
-                        break
-                    except (ConnectionRefusedError, OSError):
-                        if time.monotonic() >= deadline:
-                            raise
-                        time.sleep(0.02)
-                    finally:
-                        connection.close()
+                client_responses.append(
+                    _delete_when_route_ready(free_tcp_port, f"{route}/abc", deadline)
+                )
             except BaseException as error:
                 client_errors.append(error)
             finally:
@@ -537,21 +520,9 @@ def test_batch_rest_handler_preserves_auxiliary_outputs(free_tcp_port):
         def run():
             try:
                 deadline = time.monotonic() + 10.0
-                while True:
-                    connection = http.client.HTTPConnection(
-                        "127.0.0.1", free_tcp_port, timeout=2.0
-                    )
-                    try:
-                        connection.request("DELETE", f"{route}/abc")
-                        response = connection.getresponse()
-                        client_responses.append((response.status, response.read()))
-                        break
-                    except (ConnectionRefusedError, OSError):
-                        if time.monotonic() >= deadline:
-                            raise
-                        time.sleep(0.02)
-                    finally:
-                        connection.close()
+                client_responses.append(
+                    _delete_when_route_ready(free_tcp_port, f"{route}/abc", deadline)
+                )
             except BaseException as error:
                 client_errors.append(error)
             finally:

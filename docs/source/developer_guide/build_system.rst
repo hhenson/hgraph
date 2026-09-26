@@ -18,6 +18,11 @@ Current Targets
 ``hgraph_core``
     Core runtime target. This is exported publicly as ``hgraph::core``.
 
+With ``BUILD_TESTING`` and ``HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS`` enabled on
+Unix, the runtime also emits debug information. Debugger navigation needs
+endpoint and notification-target types defined outside the test fixture.
+Release optimization and IPO remain enabled; normal builds are unaffected.
+
 Third-Party Dependencies
 ------------------------
 
@@ -98,7 +103,10 @@ the list). They are outside the registration budget — a packaged build
 (``BUILD_TESTING=OFF``) never compiles them — and they set the parallelism
 of the ``BUILD_TESTING=ON`` workflow jobs: two jobs on the 7 GB macOS
 runners, four on the 16 GB Linux runners. Splitting the largest suites by
-operator family would let those jobs use every core.
+operator family would let those jobs use every core. The
+:ref:`self-hosted Linux runner <self-hosted-linux-runner>` does not have that
+constraint and builds with every core: a full ``BUILD_TESTING=ON`` build with
+all extensions at 128 parallel jobs measured about 75 GB peak.
 
 Version Header
 --------------
@@ -169,6 +177,156 @@ machine on 26 or later compiles such code happily, so only the wheel job, which
 pins the target, ever saw the error. With the floor at 26 the wheel is built
 against the same library surface developers and the ``macos-26`` native leg
 already use.
+
+.. _self-hosted-linux-runner:
+
+Self-hosted Linux runner
+------------------------
+
+The heavy Linux validation jobs can run on a self-hosted build host instead of
+GitHub's hosted runners. Routing is opt-in: unless the repository variable
+``HGRAPH_SELF_HOSTED`` is ``true``, every job stays on ``ubuntu-24.04``.
+Clearing it is also the fallback when the host is down, because a job aimed
+at an offline self-hosted runner waits in the queue rather than failing over.
+
+The routed jobs are the Linux legs of ``native-cpp`` and ``language``,
+``native-shared-install``, the docs ``doctest`` and the packaging
+``container`` image. Each selects its runner
+with the same expression (the matrix jobs also require
+``matrix.os == 'ubuntu-24.04'`` and fall back to ``matrix.os``)::
+
+   runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true'
+                && !github.event.pull_request.head.repo.fork
+                && fromJSON('["self-hosted","linux","x64","hg-build"]')
+                || 'ubuntu-24.04' }}
+
+Self-hosted native and language jobs respect ``HGRAPH_BUILD_PARALLELISM``;
+without a cap they use the available CPU count. The native shared-install job
+uses the same cap. ``HGRAPH_TEST_PARALLELISM`` controls their test concurrency,
+with self-hosted defaults of eight native tests and six language tests.
+Hosted jobs retain their existing limits. ``CMAKE_BUILD_PARALLEL_LEVEL`` carries
+the build cap into nested SDK consumer builds. Self-hosted native and language
+jobs use sccache 0.16 or newer and set ``TOKIO_WORKER_THREADS=2``. The released
+Linux client can otherwise create a CPU-sized thread pool for every compiler
+invocation, exhausting the shared account's task limit when builds overlap. This limit bounds cache-client threads, not compiler workers. Start the
+cache server before parallel compilation so concurrent clients do not each
+try to start a server.
+Micromamba's binary and root
+prefix live under ``RUNNER_TEMP`` so a later job can install them afresh even
+when an earlier job was cancelled. Native and language jobs also set ``TMPDIR``
+to ``RUNNER_TEMP`` on self-hosted runners, keeping test files separate from
+other host users and clearing them between jobs.
+
+Release artifacts never come from the self-hosted host. ``release-wheels.yml``
+is not routed at all, because a tag publishes the wheels that the push run of
+the same commit built (``reuse-build``). Routing that push build would
+therefore route the release. The parity campaign shards and every job with a
+write scope also stay on hosted runners.
+
+A job whose native artifact another job installs runs where that consumer
+runs. The self-hosted host has a newer libc than ``ubuntu-24.04``, and a
+binary linked there can require symbol versions the hosted image lacks. The
+nightly parity ``build-candidate`` was routed until 2026-09-23, when its wheel
+failed to import on every hosted campaign shard (``GLIBC_ABI_GNU2_TLS`` not
+found) and the publisher filed each recipe as a parity issue. It is no longer
+routed, and the campaign now refuses to start against a candidate that cannot
+import hgraph (:doc:`parity_testing`).
+
+Two independent checks keep fork pull requests off the host. The routing
+expression sends them to a hosted runner, but a ``pull_request`` run uses the
+workflow file from the pull request itself, so a fork could edit that
+expression. The host therefore also runs a job-started hook
+(``ACTIONS_RUNNER_HOOK_JOB_STARTED``). The hook rejects every job except a
+``push``, ``workflow_dispatch`` or ``schedule`` event of this repository, or
+a pull request whose head branch is in this repository. The repository also
+requires approval before workflows run for any outside contributor.
+
+The hook entry point must be a ``.sh``, ``.js`` or ``.ps1`` file supported by
+the runner. A shell wrapper may delegate its policy check to Python. On a
+rejected event, terminate that job's ``Runner.Worker`` process before workflow
+steps can execute: returning a nonzero status alone still permits steps using
+``failure()`` or ``always()``. Validate both permitted events and rejected
+fork events, including an unconditional follow-up step.
+
+The runner account cannot install software, so the host provides:
+
+- an unprivileged runner account registered with the ``hg-build`` label;
+- GCC 14 as ``gcc-14``/``g++-14`` and ``pipx`` on ``PATH``, which the
+  workflows assume as they do on GitHub's image;
+- rootless Docker for the runner account, reachable through ``DOCKER_HOST``,
+  for the container jobs and the S3 and Kafka conformance services;
+- the job-started hook, owned by root so the runner account cannot modify it;
+- CPU, I/O and memory limits on the runner service and the runner account's
+  slice, so CI stays within the host's aggregate budget.
+
+Concurrent runner instances
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use a separate ``hg-language`` runner for the Linux language job; retain
+``hg-build`` for native, container and other existing jobs. The same separation
+applies on macOS. This lets native and language jobs overlap without scheduling
+two native conformance jobs against the same fixed Docker names or ports.
+Do not add ``hg-build`` to the dedicated language runner.
+
+Each instance needs its own runner installation, work directory, tool cache,
+``SCCACHE_DIR`` and ``SCCACHE_SERVER_PORT``. Otherwise one job's cleanup or
+``sccache --stop-server`` can interrupt the other. Divide the host's compiler
+budget between the services and set test concurrency for each role. For example,
+a 24-core host can run two services with 12 compiler workers each, eight native
+tests and six language tests. Benchmark the complete jobs because serial code
+generation and linking still limit an individual build.
+
+On Linux, apply CPU and memory limits to the shared account slice so both
+services and their rootless containers fit within the host's aggregate budget.
+Keep the existing event guard on every instance. Provision both role labels
+before enabling self-hosted routing.
+
+Self-hosted macOS runner
+------------------------
+
+The macOS legs of ``native-cpp`` and ``language`` can use a private Apple Silicon
+build host. Set the repository variable ``HGRAPH_SELF_HOSTED_MACOS`` to ``true``
+to select ``self-hosted``, ``macOS`` and ``ARM64`` runners. Native jobs require
+``hg-build``; language jobs require ``hg-language``.
+The Linux variable ``HGRAPH_SELF_HOSTED`` remains independent. An unset or false
+macOS variable selects ``macos-26``; fork pull requests always use hosted runners.
+Disable the variable before taking the host offline. Already queued jobs must
+be cancelled and rerun to pick up that change.
+
+Provision a dedicated, unprivileged account and a root-owned ``launchd`` service
+that runs it independently of an interactive login. Use the same root-owned
+repository event guard described above, including terminating rejected workers
+before unconditional workflow steps can run. On macOS, inspect worker ancestry
+through ``ps`` rather than Linux's ``/proc`` filesystem. Validate the rejection
+path on the actual host before enabling routing. Keep the configured hook path
+free of spaces: the runner invokes it as shell text. A root-owned alias can
+provide a suitable path to a script in a directory containing spaces.
+
+The host needs a supported macOS version, a matching current Apple compiler and
+SDK, ``python3.12`` on the service's ``PATH``, and permission to debug its own
+test processes with LLDB. The Mac jobs create a fresh virtual environment under
+``RUNNER_TEMP``; ``setup-python`` assumes a hosted account's cache path on macOS. Validate a breakpoint stop and successful process
+exit from the actual service context before routing jobs. An SSH-only check is
+insufficient: the service needs an audit session owned by the runner account,
+and macOS developer authorization rejects a locked normal account. Use a
+normal account credential with key-only SSH management. Any privileged session
+launcher must drop privileges before executing runner or repository code.
+Pin the service's developer directory and SDK
+together, so login-shell overrides cannot mix incompatible toolchain versions.
+The language job installs its pinned ``clang-format`` Python wheel under the
+runner account; it does not require administrative Homebrew access.
+
+The service may set ``HGRAPH_BUILD_PARALLELISM`` and
+``HGRAPH_TEST_PARALLELISM`` to positive integers, as on Linux. Normal CPU and
+I/O priority suits a dedicated builder; lower priority is an optional preference
+for an interactive machine, rather than an aggregate resource limit.
+
+The persistent-runner temporary-directory, sccache startup and micromamba cleanup
+rules above apply to macOS too. Homebrew packaging and release wheel jobs retain
+their hosted environments. In particular, validation on a newer private macOS
+host does not replace release compatibility checks on the hosted target version.
+If FileVault is enabled, a person must unlock the startup volume after reboot
+before the runner service becomes available.
 
 Downstream Native Extensions
 ----------------------------

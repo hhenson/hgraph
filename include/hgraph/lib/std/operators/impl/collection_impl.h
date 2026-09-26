@@ -27,6 +27,7 @@
 #include <hgraph/types/lift.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/time_series/ts_delta.h>   // reconcile_current_state
 #include <hgraph/types/value/value_hash.h>
 
 #include <ankerl/unordered_dense.h>
@@ -386,7 +387,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              Out<TS<ScalarVar<"K">>> out)
             {
                 const TSSInputView &set = ts;
@@ -407,7 +408,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              Out<TS<ScalarVar<"K">>> out)
             {
                 const TSSInputView &set = ts;
@@ -430,7 +431,7 @@ namespace hgraph::stdlib
             static constexpr auto name = Min ? "min_tss_default" : "max_tss_default";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
                              In<"default_value", TS<ScalarVar<"K">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"K">>> out)
             {
@@ -459,7 +460,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 const TSDInputView &dict = ts;
@@ -481,7 +482,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 const TSDInputView &dict = ts;
@@ -503,7 +504,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "min_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 std::optional<Value> best;
@@ -526,7 +527,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "max_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSL<TS<ScalarVar<"V">>, SIZE<"N">>> ts,
                              Out<TS<ScalarVar<"V">>> out)
             {
                 std::optional<Value> best;
@@ -550,7 +551,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "sum_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (const T &key : ts.values()) { total += key; }
@@ -560,7 +561,7 @@ namespace hgraph::stdlib
 
         template <typename T, auto N>
         [[nodiscard]] inline std::tuple<Float, std::size_t, std::size_t> tsl_sum_valid_and_size(
-            const In<"ts", TSL<TS<T>, N>, InputValidity::Unchecked> &ts)
+            const In<"ts", TSL<TS<T>, N>> &ts)
         {
             Float       total       = 0.0;
             std::size_t valid_count = 0;
@@ -581,7 +582,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "sum_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (std::size_t i = 0; i < ts.size(); ++i)
@@ -599,7 +600,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, _, size] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -614,7 +615,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, valid_count, _] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -643,7 +644,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tsl_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSL<TS<T>, SIZE<"N">>> ts, Out<TS<Float>> out)
             {
                 const auto [total, valid_count, _] = tsl_sum_valid_and_size(ts);
                 static_cast<void>(_);
@@ -668,7 +669,7 @@ namespace hgraph::stdlib
 
         template <typename T>
         [[nodiscard]] inline std::pair<Float, std::size_t> tss_sum_and_count(
-            const In<"ts", TSS<T>, InputValidity::Unchecked> &ts)
+            const In<"ts", TSS<T>> &ts)
         {
             Float       total = 0.0;
             std::size_t count = 0;
@@ -686,7 +687,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 out.set(count == 0 ? std::numeric_limits<Float>::quiet_NaN() : total / static_cast<Float>(count));
@@ -699,7 +700,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 if (count <= 1)
@@ -725,7 +726,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tss_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSS<T>, InputValidity::Unchecked> ts, Out<TS<Float>> out)
+            static void eval(In<"ts", TSS<T>> ts, Out<TS<Float>> out)
             {
                 const auto [total, count] = tss_sum_and_count(ts);
                 if (count <= 1)
@@ -758,9 +759,8 @@ namespace hgraph::stdlib
             }
         };
 
-        template <typename T>
-        [[nodiscard]] inline std::pair<Float, std::size_t> tsd_sum_and_count(
-            const In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> &ts)
+        template <typename Input>
+        [[nodiscard]] inline std::pair<Float, std::size_t> tsd_sum_and_count(const Input &ts)
         {
             Float       total = 0.0;
             std::size_t count = 0;
@@ -778,6 +778,9 @@ namespace hgraph::stdlib
             static constexpr auto name = "mean_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
+            // Unchecked by contract: released hgraph's mean over a dictionary is
+            // default(div_(sum_, len_), NaN), so a never-valid dictionary's
+            // mean is NaN (runtime spec operators.md, "Admission and nil").
             static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
                              Out<TS<Float>> out)
             {
@@ -792,7 +795,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "var_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts,
                              Out<TS<Float>> out)
             {
                 const auto [total, count] = tsd_sum_and_count(ts);
@@ -819,7 +822,7 @@ namespace hgraph::stdlib
             static constexpr auto name = "std_tsd_unary";
             static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts,
                              Out<TS<Float>> out)
             {
                 const auto [total, count] = tsd_sum_and_count(ts);
@@ -1026,6 +1029,61 @@ namespace hgraph::stdlib
             mutation.set(key, source.value());
         }
 
+        /** Reconcile the output child at ``key`` with a collection-valued
+            ``source``, mirroring its membership exactly: in full when the
+            child is new, else only what changed, so an unchanged inner child
+            is never republished. A forwarded tick
+            republishes every visited value and publishes the child even when
+            only its structure moved, as a reference to ``source`` would tick;
+            a derived change of source elides what is already equal. */
+        inline void reconcile_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                        const ValueView &key, const TSInputView &source, bool forwarded)
+        {
+            const TSOutputView &out = out_dict.base();
+            TSOutputView child{out.output(), mutation.at(key), out.evaluation_time()};
+            const bool fresh = !child.data_view().has_current_value();
+            const auto scope = fresh || !forwarded ? TSCurrentReconcileScope::Full
+                                                   : TSCurrentReconcileScope::Incremental;
+            reconcile_current_state(child, source, TSCurrentReconcileOptions{scope, forwarded, true});
+            if (forwarded && !child.modified())
+            {
+                child.data_view().begin_mutation(out.evaluation_time()).mark_modified();
+            }
+        }
+
+        /** Forward a source child's tick to the output child (runtime spec
+            OP-4): the tick is the news, so an equal value is published again.
+            A collection child forwards its own changes, not a copy of its
+            whole value, which would re-tick every unchanged inner child.
+            ``adopt_tsd_child`` is the DERIVED counterpart, for a child that
+            changes source without its new source ticking. */
+        inline void forward_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                      const ValueView &key, const TSInputView &source)
+        {
+            if (!source.valid()) { return; }
+            if (source.schema()->is_collection())
+            {
+                reconcile_tsd_child(mutation, out_dict, key, source, true);
+                return;
+            }
+            mutation.set(key, source.value());
+        }
+
+        /** A derived change of a set operator's output child: it takes
+            ``source``'s current state, eliding what is already equal, so a
+            collection child publishes only the inner children that differ. */
+        inline void adopt_tsd_child(TSDDataMutationView &mutation, const TSDOutputView &out_dict,
+                                    const ValueView &key, const TSInputView &source)
+        {
+            if (!source.valid()) { return; }
+            if (source.schema()->is_collection())
+            {
+                reconcile_tsd_child(mutation, out_dict, key, source, false);
+                return;
+            }
+            copy_tsd_child_if_changed(mutation, out_dict, key, source);
+        }
+
         inline void copy_value_if_changed(TSDDataMutationView &mutation, const TSDOutputView &out,
                                           const ValueView &key, const ValueView &value)
         {
@@ -1057,10 +1115,17 @@ namespace hgraph::stdlib
             (void)inner_mutation.erase(inner_key);
         }
 
+        /** True when ``tsd`` holds ``key`` and that child ticked in THIS cycle.
+            Asks the child, not ``slot_modified``: the slot bitset is cleared
+            lazily by the dictionary's next mutation, so on a dictionary that
+            did not tick it still reports its last tick (it silenced a
+            union's rhs whenever the lhs held the key, parity #1069). */
         inline bool tsd_key_has_modified_valid_child(const TSDInputView &tsd, const ValueView &key)
         {
             const std::size_t slot = tsd.find_slot(key);
-            return slot != TS_DATA_NO_CHILD_ID && tsd.slot_modified(slot) && tsd.at_slot(slot).valid();
+            if (slot == TS_DATA_NO_CHILD_ID) { return false; }
+            const TSInputView child = tsd.at_slot(slot);
+            return child.modified() && child.valid();
         }
 
         using FlippedPreviousIndex = ankerl::unordered_dense::map<Value, Value, ValueHash, ValueEqual>;
@@ -1984,6 +2049,10 @@ namespace hgraph::stdlib
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // Validity gating admits the node once both operands are
+                // valid; its first evaluation always validates the output, so
+                // an invalid output marks the first admission.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
@@ -1992,27 +2061,30 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
                 // Gated first cycles: lhs keys the output never saw (ticked
-                // while rhs was still invalid) backfill on this evaluation.
-                for (const auto [key, child] : lhs.items())
+                // while rhs was still invalid) backfill once, on admission.
+                if (first_admission)
                 {
-                    if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                    for (const auto [key, child] : lhs.items())
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            adopt_tsd_child(mutation, out_dict, key, child);
+                        }
                     }
                 }
-                // Equal key sets still produce a valid empty difference.
-                // Publish that identity once so downstream nodes can observe
-                // it, without re-ticking an already-valid empty output.
+                // The first admitted evaluation has a value even when every
+                // lhs key is also in rhs: validate with the empty dict, as
+                // intersection does and hgraph 0.5 does (parity #961).
                 if (!out.valid()) { mutation.touch(); }
             }
         };
@@ -2028,6 +2100,9 @@ namespace hgraph::stdlib
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // The first admitted evaluation always validates the output
+                // (below), so an invalid output marks it.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
@@ -2036,20 +2111,23 @@ namespace hgraph::stdlib
 
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : rhs.added_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
-                for (const auto [key, child] : lhs.items())
+                if (first_admission)
                 {
-                    if (rhs_dict.contains(key) && !out_dict.contains(key))
+                    for (const auto [key, child] : lhs.items())
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        if (rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            adopt_tsd_child(mutation, out_dict, key, child);
+                        }
                     }
                 }
                 // A DISJOINT first tick still validates (emits the empty
@@ -2077,31 +2155,38 @@ namespace hgraph::stdlib
                     return lhs_dict.contains(key) || rhs_dict.contains(key);
                 });
 
+                // Each output child forwards the operand whose child ticked
+                // most recently, lhs on a same-cycle tie (runtime spec OP-5).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                    forward_tsd_child(mutation, out_dict, key, child);
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
                     if (!tsd_key_has_modified_valid_child(lhs_dict, key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, child);
+                        forward_tsd_child(mutation, out_dict, key, child);
                     }
                 }
                 for (const ValueView &key : lhs.removed_keys())
                 {
                     if (rhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, rhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, rhs_dict.at(key));
                     }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
+                // Admitted once an operand is valid (OP-6): the first admitted
+                // result is a value even when it is empty, so it validates the
+                // output (runtime spec OP-5, owner ruling 2026-09-24). Touch last,
+                // and only to validate.
+                if (!out.valid() && (lhs.valid() || rhs.valid())) { mutation.touch(); }
             }
         };
 
@@ -2109,41 +2194,73 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "symmetric_difference_tsd";
 
-            static void eval(In<"lhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> lhs,
-                             In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> rhs,
+            // Both operands must be valid (runtime spec OP-6): a never-ticked
+            // operand is nil, not the empty dictionary (parity #959).
+            static void eval(In<"lhs", TSD<ScalarVar<"K">, TsVar<"V">>> lhs,
+                             In<"rhs", TSD<ScalarVar<"K">, TsVar<"V">>> rhs,
                              Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
             {
                 const TSDInputView  &lhs_dict = lhs;
                 const TSDInputView  &rhs_dict = rhs;
                 const TSDOutputView &out_dict = out;
+                // The first admitted evaluation always validates the output
+                // (below), so an invalid output marks it.
+                const bool first_admission = !out.valid();
 
                 auto mutation = out_dict.begin_mutation(out_dict.evaluation_time());
                 erase_tsd_keys_not_matching(mutation, out_dict, [&](const ValueView &key) {
                     return lhs_dict.contains(key) != rhs_dict.contains(key);
                 });
 
+                // The one operand holding a key forwards it (OP-4, OP-5): a key
+                // whose holder changes in the same cycle as the new holder
+                // ticks is forwarded, equal value or not (parity #1040).
                 for (const auto [key, child] : lhs.modified_items())
                 {
-                    if (!rhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!rhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const auto [key, child] : rhs.modified_items())
                 {
-                    if (!lhs_dict.contains(key)) { copy_tsd_child_if_changed(mutation, out_dict, key, child); }
+                    if (!lhs_dict.contains(key)) { forward_tsd_child(mutation, out_dict, key, child); }
                 }
                 for (const ValueView &key : lhs.removed_keys())
                 {
                     if (rhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, rhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, rhs_dict.at(key));
                     }
                 }
                 for (const ValueView &key : rhs.removed_keys())
                 {
                     if (lhs_dict.contains(key))
                     {
-                        copy_tsd_child_if_changed(mutation, out_dict, key, lhs_dict.at(key));
+                        adopt_tsd_child(mutation, out_dict, key, lhs_dict.at(key));
                     }
                 }
+                // Gated first cycles: keys that ticked while the other operand
+                // was still invalid backfill once, on admission.
+                if (first_admission)
+                {
+                    for (const auto [key, child] : lhs.items())
+                    {
+                        if (!rhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            adopt_tsd_child(mutation, out_dict, key, child);
+                        }
+                    }
+                    for (const auto [key, child] : rhs.items())
+                    {
+                        if (!lhs_dict.contains(key) && !out_dict.contains(key))
+                        {
+                            adopt_tsd_child(mutation, out_dict, key, child);
+                        }
+                    }
+                }
+                // The first admitted result validates the output even when both
+                // operands hold the same keys (OP-5, owner ruling 2026-09-24):
+                // a three-operand fold whose first two operands cancel would
+                // otherwise never publish.
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 

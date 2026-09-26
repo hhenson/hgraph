@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -153,9 +154,20 @@ namespace hgl::driver
         }
 
         const std::string executable = formatter();
-        const std::vector<std::string> command    = {
+        std::vector<std::string> command    = {
             executable, "-i", "--style=" + std::string{generated_code_style}, header.string(), source.string(),
         };
+        std::vector<std::pair<std::filesystem::path, std::string *>> parts;
+        if (!module.implementation_header.empty()) {
+            parts.emplace_back(*directory / "module.impl.h", &module.implementation_header);
+        }
+        for (std::size_t i = 0; i < module.implementation_sources.size(); ++i) {
+            parts.emplace_back(*directory / ("part" + std::to_string(i) + ".cpp"), &module.implementation_sources[i]);
+        }
+        for (const auto &[path, contents] : parts) {
+            if (!write(path, *contents, error)) { return false; }
+            command.push_back(path.string());
+        }
         const ProcessResult result = run_process(command);
         if (result.status != 0)
         {
@@ -173,6 +185,14 @@ namespace hgl::driver
         {
             error = "cannot read clang-format output";
             return false;
+        }
+        for (const auto &[path, contents] : parts) {
+            auto formatted = read(path);
+            if (!formatted) {
+                error = "cannot read clang-format output";
+                return false;
+            }
+            *contents = std::move(*formatted);
         }
         module.header = std::move(*formatted_header);
         module.source = std::move(*formatted_source);

@@ -276,9 +276,32 @@ hgl_add_module(prices
     PYTHON_MODULE _prices)
 ```
 
-With `PARTS`, `prices.hgl` is the anchor whose filename determines the three
-generated artifact names. It and every listed part declare the same module
-with `part <name>`, and the compiler emits one logical module. Without
+Large modules can distribute C++ compilation across several translation units:
+
+```cmake
+hgl_add_module(prices STATIC HGL prices.hgl PARTS signals.hgl statistics.hgl
+    SOURCE_PARTS 8)
+```
+
+`SOURCE_PARTS` accepts 1–64 and defaults to 1. The equivalent CLI option is
+`hgl emit-cpp prices.hgl --source-parts 8 --out-dir generated`. Values above one
+produce the usual public header, descriptor and registration source plus
+`prices.part0.cpp` through `prices.part7.cpp` and a build-private
+`prices.h.impl.h`. Compile every part together; CMake declares the complete
+output list before the build, so Ninja can schedule them in parallel. The
+private header stays beside the implementation files and is not an SDK header.
+
+The module still has one identity, descriptor, registration entry point and
+removable provider. Candidate registration order and rollback remain unchanged.
+Private generated types have one shared C++ identity across the parts. This
+option controls compilation layout independently of the HGL source `PARTS`.
+The standard-library modules use eight implementation parts, including when
+an installed-SDK consumer rebuilds them from source.
+
+With `PARTS`, `prices.hgl` is the anchor whose filename determines the
+generated artifact basenames. It and every listed part declare the same module
+identity; at most one shared interface omits `part <name>`. The compiler emits
+one logical module. Without
 `PARTS`, multiple files in `HGL` remain independent modules which happen to be
 built into the same CMake library.
 
@@ -327,8 +350,8 @@ implicit node. The generated package tests compile every example and execute a
 native-call fixture as C++.
 
 It reports unsupported forms before writing output: calls to other temporal
-HGL functions from runtime evaluation, non-scalar or opaque state/cache, mixed
-state/cache declarations, lifecycle access to temporal inputs or output,
+HGL functions from runtime evaluation, non-scalar or opaque state/cache,
+lifecycle access to temporal inputs or output,
 optional-field clearing in a sparse delta, generic constructor inference, typed
 `const` generic struct metadata, compound constant literals, runtime-node `if`
 used as a value, and zoned or civil literals. See the

@@ -204,6 +204,7 @@ namespace hgraph
             // a target link: the bound target output's value / delta
             ToPythonFn      target_link_to_python{nullptr};
             DeltaToPythonFn target_link_delta_to_python{nullptr};
+            DeltaToPythonFn target_link_dict_delta_to_python{nullptr};
         } ts_data;
 
         /** The retained-object cache of a ``NativeWithPythonCache`` output:

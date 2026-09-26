@@ -28,6 +28,7 @@ namespace hgl::semantics
         Generic,           ///< `decl` is the function, `index` the generic parameter
         ConstraintLocal,   ///< type variable introduced by `each` in a requires clause
         Struct,            ///< `decl` is the nominal struct declaration
+        ImportedStruct,    ///< `index` names ResolvedModule::imported_structs (ADR 0013)
         Function,          ///< `decl` is the `fn`
         NativeFunction,    ///< `index` names a local native overload family
         ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
@@ -72,13 +73,36 @@ namespace hgl::semantics
         std::string module;
     };
 
+    /// No imported source; the entry belongs to a struct of this module.
+    inline constexpr std::uint32_t no_imported_source = 0xFFFFFFFFU;
+
+    /// Where a struct a module inherits or names comes from (ADR 0013). A
+    /// local one is a declaration of this module. An imported one is another
+    /// module's struct, referenced by its index in
+    /// `ResolvedModule::imported_structs` -- never copied in, and never given
+    /// a local declaration, so its identity stays its owner's.
+    struct StructSource
+    {
+        ast::DeclId   decl{ast::no_node};
+        std::uint32_t imported{no_imported_source};
+
+        [[nodiscard]] bool is_imported() const noexcept { return imported != no_imported_source; }
+        [[nodiscard]] bool empty() const noexcept { return decl == ast::no_node && !is_imported(); }
+
+        friend bool operator==(const StructSource &, const StructSource &) = default;
+    };
+
     struct StructField
     {
         std::string name;
         ast::TypeId type{ast::no_node};
         ast::ExprId default_value{ast::no_node};
-        ast::DeclId origin{ast::no_node};
-        bool        optional{false};
+        /// The struct that declares this field. An inherited field keeps its
+        /// declaring struct, so it stays a reference to that source rather
+        /// than an anonymous copy -- including when the source is another
+        /// module's struct (ADR 0013), which a bare DeclId cannot name.
+        StructSource origin{};
+        bool         optional{false};
         /// An admitted recursive edge (ADR 0012): through this field a value of
         /// the struct can hold another value of the same struct, so the field
         /// is an optional `atomic<T>` whose target is realized as an owner.
@@ -87,9 +111,9 @@ namespace hgl::semantics
 
     struct StructInfo
     {
-        bool                     valid{false};
-        std::vector<ast::DeclId> parents;
-        std::vector<StructField> fields;
+        bool                      valid{false};
+        std::vector<StructSource> parents;
+        std::vector<StructField>  fields;
     };
 
     struct ResolvedModule
@@ -102,6 +126,9 @@ namespace hgl::semantics
         std::vector<std::vector<Binding>>     instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
         std::vector<FunctionKind>             kinds;                    ///< indexed by DeclId
         std::vector<ImportedOperator>         imports;
+        /// Structs other modules export, bound by qualified type (ADR 0013).
+        /// The identity stays the owner's; nothing is copied into this module.
+        std::vector<ImportedStruct>           imported_structs;
         std::vector<ImportedFunction>         imported_functions;
         std::vector<ImportedOperatorContract> imported_contracts;
         std::vector<ModuleAlias>              aliases;

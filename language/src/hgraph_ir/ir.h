@@ -232,6 +232,13 @@ namespace hgl::hgraph_ir
     {
         std::string                   identity{};
         bool                          exported{false};
+        /// Described by this module but declared by another (ADR 0013): the
+        /// importer re-described the owner's layout so a backend can register
+        /// the same schema. It is not a declaration of this module, so it has
+        /// no source-order handle, and generated C++ includes the exporter's
+        /// headers rather than re-declaring the type.
+        bool                          imported{false};
+        std::vector<std::string>      public_headers{};
         bool                          abstract{false};
         std::vector<GenericParameter> generics{};
         std::vector<TypeId>           parents{};
@@ -291,6 +298,10 @@ namespace hgl::hgraph_ir
         std::vector<std::string> imported_targets{};
         std::vector<std::string> runtime_images{};
         std::string              descriptor_fingerprint{};
+        std::vector<std::string> capabilities{};
+        NativeExecutionRole      execution_role{NativeExecutionRole::LegacyValue};
+        NativeImplementationKind implementation_kind{NativeImplementationKind::Declaration};
+        std::vector<std::string> lifecycle{};
         bool                     source_defined{false};
         std::string              cpp_parameters{};
         std::string              cpp_body{};
@@ -639,6 +650,14 @@ namespace hgl::hgraph_ir
         TypeId              type{};
         ValueId             init{};
         syntax::SourceRange range{};
+        /// Position among ALL state and cache declarations of the function, so
+        /// a backend can run the initializers in source order. Splitting them
+        /// into two vectors loses that, and one initializer may name an
+        /// earlier declaration of the other kind -- rebuilding a cache from
+        /// recordable state is the whole point of the pair (ADR 0011).
+        /// Resolution already requires a declaration to precede its use, so
+        /// source order is the order in which every dependency is ready.
+        std::size_t declaration_order{0};
     };
 
     struct RuntimeActivation

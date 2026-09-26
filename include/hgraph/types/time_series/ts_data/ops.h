@@ -444,6 +444,8 @@ namespace hgraph
          * inherited added/removed surface describes value publication. */
         bool (*membership_slot_added_impl)(const void *, const void *, std::size_t) =
             &ts_data_detail::missing_slot_predicate;
+        bool (*membership_slot_removed_impl)(const void *, const void *, std::size_t) =
+            &ts_data_detail::missing_slot_predicate;
         std::size_t (*next_membership_added_slot_impl)(const void *, const void *, std::size_t) =
             &ts_data_detail::missing_next_delta_slot;
         std::size_t (*next_membership_removed_slot_impl)(const void *, const void *, std::size_t) =

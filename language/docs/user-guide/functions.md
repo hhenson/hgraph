@@ -838,9 +838,12 @@ and unconsumed events belong in `state`. In particular, pending schedules and
 finite-schedule progress must survive recovery; current native parity alone
 does not establish that guarantee.
 
-Multiple scalar cache variables are supported. Combining `cache` and `state`
-in one function is not yet supported. Non-scalar caches and generic recordable
-state initialization also remain unsupported. See
+Multiple scalar cache variables are supported, and a function may declare
+`cache` and `state` together: the node then carries both storages, a restored
+state keeps its value, and every cache is rebuilt by `start` -- so a cache may
+take its value from restored state. Initializers run in declaration order, so
+one may name an earlier declaration of either kind. Non-scalar caches and
+generic recordable state initialization remain unsupported. See
 [ADR 0011](../design/decisions/0011-cache-declarations.md) for the recovery
 contract and current limits.
 
@@ -868,7 +871,10 @@ inject
 ```
 
 Capabilities are function-level declarations at the same level as `state`.
-Duplicate, unknown, and phase-incompatible injectables are errors.
+Calling a value helper silently adds its required injectables to the caller's
+list, transitively and without duplicates. This includes native descriptor
+imports. Explicit duplicate declarations, unknown capabilities and unsupported
+phases remain errors; an omitted caller declaration is not an error.
 Any other name is rejected as unapproved, and `out` requires a function
 output. Reading or writing `out` inside `start` or `stop` is rejected while
 lifecycle output access remains an open question.

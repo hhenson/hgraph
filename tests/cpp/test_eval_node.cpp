@@ -214,7 +214,10 @@ namespace
                 REQUIRE(out.erase(Str{"a"}));
                 REQUIRE_FALSE(out.contains(Str{"a"}));
                 auto removed = out.removed_keys();
-                REQUIRE(removed.begin() == removed.end());
+                // TS-19: the key was present in the preceding cycle even though
+                // its child never published a value.
+                REQUIRE(removed.begin() != removed.end());
+                REQUIRE((*removed.begin()).checked_as<Str>() == "a");
             }
         }
     };

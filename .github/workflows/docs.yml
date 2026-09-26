@@ -55,7 +55,8 @@ jobs:
     # makes that claim true: it builds the extension, then runs every
     # `testcode`/`testoutput` pair in the tree against the real runtime.
     name: Doctest the examples
-    runs-on: ubuntu-24.04
+    # Opt-in self-hosted routing (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || 'ubuntu-24.04' }}
     env:
       GCC_VERSION: "14"
     steps:

@@ -460,6 +460,8 @@ namespace hgraph::ts_data_plan_factory_detail
             }
             [[nodiscard]] bool membership_slot_added(std::size_t slot) const noexcept
             { return slot < membership_added_.size() && membership_added_.test(slot); }
+            [[nodiscard]] bool membership_slot_removed(std::size_t slot) const noexcept
+            { return slot < membership_removed_.size() && membership_removed_.test(slot); }
             [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous) const noexcept
             { return next_delta_slot(membership_added_, previous); }
             [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous) const noexcept
@@ -652,6 +654,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!slot_live(slot)) { return; }
                 prepare_delta(modified_time);
 
+                // Publishing or invalidating a child's value changes the
+                // dictionary delta, but not membership or its key-set clock.
                 if (!child_has_current_value(slot))
                 {
                     modified_.reset(slot);
@@ -660,7 +664,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.reset(slot);
                     if (slot_added(slot)) { added_.reset(slot); }
                     else { removed_.set(slot); }
-                    (void)key_set_tracking_.record_modified(modified_time);
                     return;
                 }
 
@@ -669,7 +672,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     value_published_.set(slot);
                     if (slot_removed(slot)) { removed_.reset(slot); }
                     else { added_.set(slot); }
-                    (void)key_set_tracking_.record_modified(modified_time);
                 }
                 modified_.set(slot);
             }
@@ -934,9 +936,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 storage (``schema`` above is the key set's TSS schema, so the
                 seams cannot dispatch on it). */
             bool dict_storage{false};
+            bool membership_surface{false};
         };
 
-        template <typename Storage>
+        template <typename Storage, bool Membership = false>
         struct TSSContextBase : SlotContextCommon
         {
             friend struct ts_data_seams::SlotSeamAccess;  // the RFC 0035 seams' one route in
@@ -1345,23 +1348,27 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] static bool tss_slot_added(const void *, const void *memory, std::size_t slot)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).membership_slot_added(slot); }
                 return storage<Storage>(memory).slot_added(slot);
             }
 
             [[nodiscard]] static bool tss_slot_removed(const void *, const void *memory, std::size_t slot)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).membership_slot_removed(slot); }
                 return storage<Storage>(memory).slot_removed(slot);
             }
 
             [[nodiscard]] static std::size_t tss_next_added_slot(const void *, const void *memory,
                                                                  std::size_t previous)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).next_membership_added_slot(previous); }
                 return storage<Storage>(memory).next_added_slot(previous);
             }
 
             [[nodiscard]] static std::size_t tss_next_removed_slot(const void *, const void *memory,
                                                                    std::size_t previous)
             {
+                if constexpr (Membership) { return storage<Storage>(memory).next_membership_removed_slot(previous); }
                 return storage<Storage>(memory).next_removed_slot(previous);
             }
 
@@ -1466,6 +1473,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static bool set_slot_in_surface(const Storage &store, std::size_t slot) noexcept
             {
                 if constexpr (Surface == SlotSetSurface::Live) { return store.slot_live(slot); }
+                if constexpr (Membership)
+                {
+                    if constexpr (Surface == SlotSetSurface::Added) { return store.membership_slot_added(slot); }
+                    return store.membership_slot_removed(slot);
+                }
                 if constexpr (Surface == SlotSetSurface::Added) { return store.slot_added(slot); }
                 return store.slot_removed(slot);
             }
@@ -1813,6 +1825,7 @@ namespace hgraph::ts_data_plan_factory_detail
             TypeRole                  role{TypeRole::Invalid};
             TSDDataOps              dict_ops{};
             TSSDataOps              key_set_ts_ops{};
+            TSSContextBase<TSDSlotStorage, true> key_set_context{};
             TSDDataLayout           dict_layout{};
             MapValueOps             value_map_ops{};
             MapValueOps             modified_map_ops{};
@@ -1872,6 +1885,11 @@ namespace hgraph::ts_data_plan_factory_detail
                             .data = store.child_memory_for_write(slot),
                             .parent_child_id = slot,
                         };
+                    },
+                    .child_alive_at = [](const void *, const void *memory, std::size_t slot, DateTime time) noexcept {
+                        const auto &store = storage<TSDSlotStorage>(memory);
+                        return store.slot_live(slot) ||
+                               (store.slot_occupied(slot) && store.structural_delta_current(time));
                     },
                 };
                 return ops;
@@ -2043,6 +2061,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_ops.slot_modified_impl = &tsd_slot_modified;
                 dict_ops.next_modified_slot_impl = &tsd_next_modified_slot;
                 dict_ops.membership_slot_added_impl = &tsd_membership_slot_added;
+                dict_ops.membership_slot_removed_impl = &tsd_membership_slot_removed;
                 dict_ops.next_membership_added_slot_impl = &tsd_next_membership_added_slot;
                 dict_ops.next_membership_removed_slot_impl = &tsd_next_membership_removed_slot;
                 dict_ops.make_ts_values_range_impl = &tsd_ts_values_range;
@@ -2172,7 +2191,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 // ``modified`` reports actual membership changes only, not the
                 // dictionary's value ticks (subscriptions stay on the shared
                 // root set, so notification wiring is unchanged).
-                key_set_ts_ops = set_ops;
+                // Key membership and child value publication have independent deltas.
+                // Keep the key-set's erased value/delta context separate from the
+                // dictionary's publication surfaces over the same slot storage.
+                const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
+                key_set_context.dict_storage = true;
+                key_set_context.membership_surface = true;
+                key_set_context.initialise_tss_common(*key_set_schema, plan_, key_binding, false, element_type);
+                key_set_ts_ops = key_set_context.set_ops;
                 // The projection is STRICTLY read-only: it reports the
                 // owner's mutations (dedicated tracking + observers) but can
                 // never perform one. strip_to_read_only is the single place
@@ -2181,7 +2207,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 key_set_ts_ops.tracking_impl          = &tsd_key_set_tracking;
                 key_set_ts_ops.mutable_tracking_impl  = &tsd_key_set_mutable_tracking;  // subscriptions only
                 key_set_ts_ops.has_current_value_impl = &tsd_key_set_has_current_value;
-                const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
                 // The key-set projection captures as a TSS: its layout records
                 // the key set's own canonical delta, not the dictionary's.
                 set_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*key_set_schema);
@@ -2411,6 +2436,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] static bool tsd_membership_slot_added(const void *, const void *memory, std::size_t slot)
             { return storage<TSDSlotStorage>(memory).membership_slot_added(slot); }
+            [[nodiscard]] static bool tsd_membership_slot_removed(const void *, const void *memory, std::size_t slot)
+            { return storage<TSDSlotStorage>(memory).membership_slot_removed(slot); }
             [[nodiscard]] static std::size_t tsd_next_membership_added_slot(const void *, const void *memory, std::size_t previous)
             { return storage<TSDSlotStorage>(memory).next_membership_added_slot(previous); }
             [[nodiscard]] static std::size_t tsd_next_membership_removed_slot(const void *, const void *memory, std::size_t previous)
@@ -2579,7 +2606,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &added_slot_predicate,
+                    .predicate = &tsd_membership_slot_added,
                     .projector = &ts_value_projector,
                 };
             }
@@ -2590,7 +2617,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &removed_slot_predicate,
+                    .predicate = &tsd_membership_slot_removed,
                     .projector = &ts_value_projector,
                 };
             }
@@ -2602,7 +2629,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &added_slot_predicate,
+                    .predicate = &tsd_membership_slot_added,
                     .projector = &ts_kv_projector,
                 };
             }
@@ -2614,7 +2641,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .context   = context,
                     .memory    = memory,
                     .limit     = storage<TSDSlotStorage>(memory).slot_capacity(),
-                    .predicate = &removed_slot_predicate,
+                    .predicate = &tsd_membership_slot_removed,
                     .projector = &ts_kv_projector,
                 };
             }
@@ -3421,13 +3448,20 @@ namespace hgraph::ts_data_seams
         return SlotSeamAccess::common(context).removed_set_binding;
     }
 
-    const TSDataTracking &tss_tracking(const void *memory) noexcept { return storage<TSSSlotStorage>(memory).tracking(); }
+    const TSDataTracking &tss_tracking(const void *context, const void *memory) noexcept
+    {
+        return SlotSeamAccess::common(context).dict_storage
+                   ? storage<TSDSlotStorage>(memory).key_set_tracking()
+                   : storage<TSSSlotStorage>(memory).tracking();
+    }
 
     Range<ValueView> tss_keys(const void *context, const void *memory, SetSurface surface)
     {
         // The set surfaces (live / added / removed) exist on a TSS and on a
         // TSD's key set alike, over their own storages: dispatch on the
         // context's kind, as the per-storage instantiation used to.
+        if (SlotSeamAccess::common(context).membership_surface)
+            return SlotSeamAccess::keys<TSSContextBase<TSDSlotStorage, true>>(context, memory, surface);
         return SlotSeamAccess::common(context).dict_storage
                    ? SlotSeamAccess::keys<SlotSeamAccess::DictCtx>(context, memory, surface)
                    : SlotSeamAccess::keys<SlotSeamAccess::SetBase>(context, memory, surface);

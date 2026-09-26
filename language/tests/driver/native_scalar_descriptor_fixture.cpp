@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
                             },
                         .result_type = ValueType::canonical(ScalarType::F64),
                         .phases      = {Phase::Evaluation},
+                        .execution_role = ExecutionRole::Value,
                     },
                     Declaration{
                         .identity   = "checks.native_dependency::len",

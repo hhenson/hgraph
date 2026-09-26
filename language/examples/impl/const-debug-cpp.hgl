@@ -1,0 +1,2 @@
+module examples.const_debug part cpp_impl
+native const fn print_i64(value: i64) {}

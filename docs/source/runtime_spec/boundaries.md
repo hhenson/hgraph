@@ -70,8 +70,8 @@ algebraic laws need explicit scalar/operator rules.
 | OPEN-07 | Wiring; complete resolution algorithm |
 | OPEN-08 | Lifecycle; nested capture and effects after failure |
 | OPEN-09 | Recovery |
-| OPEN-10 | Special-node library contracts |
-| OPEN-11 | Numerical and string contracts |
+| OPEN-10 | Special-node library contracts; set operators, aggregates, formatting and recording begun in [Operator contracts](operators.md) |
+| OPEN-11 | Numerical and string contracts; `ln` domain and container `repr` begun in [Operator contracts](operators.md) |
 | OPEN-12 | Native, resource, concurrency and ABI contracts |
 
 There was no OPEN-02. Single-level `all_valid` is settled in TS-9.

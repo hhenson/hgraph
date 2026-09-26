@@ -509,7 +509,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object tss_delta_to_python(const void *context, const void *memory, DateTime evaluation_time)
         {
-            if (seams::tss_tracking(memory).last_modified_time != evaluation_time) { return nb::none(); }
+            if (seams::tss_tracking(context, memory).last_modified_time != evaluation_time) { return nb::none(); }
             return to_python(seams::tss_layout(context).delta_binding, memory);
         }
 
@@ -524,7 +524,7 @@ namespace hgraph::python_bridge
             const bool has_removed = python_named_field(source, "removed", removed);
             if (has_added || has_removed)
             {
-                const bool first_for_parent = seams::tss_tracking(memory).last_modified_time != modified_time;
+                const bool first_for_parent = seams::tss_tracking(context, memory).last_modified_time != modified_time;
                 if (has_added && !added.is_none())
                 {
                     for_each_python_iterable(added, "TSS added update", [&](nb::handle item) {

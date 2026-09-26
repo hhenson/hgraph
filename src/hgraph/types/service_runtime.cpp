@@ -1005,9 +1005,10 @@ namespace hgraph
         w.register_service_implementation_stub(endpoint, "adaptor");
         WiringPortRef shared = shared_output_source_node(
             w, std::type_index(typeid(adaptor::detail::output_source_marker)), descriptor.output_schema, endpoint);
+        WiringPortRef output = describe_service_output(descriptor, descriptor.output_schema, out);
         const WiringInstance *capture = shared_output_capture_node(
             w, std::type_index(typeid(adaptor::detail::output_capture_marker)),
-            out.schema != nullptr ? out.schema : descriptor.output_schema, endpoint, out, shared);
+            descriptor.output_schema, endpoint, output, shared);
         w.register_service_rank_anchor(endpoint, capture);
     }
 
@@ -1226,9 +1227,10 @@ namespace hgraph
             std::type_index(typeid(service_adaptor::detail::output_source_marker)));
         const auto *dict_meta = TypeRegistry::instance().tsd(
             scalar_descriptor<Int>::value_meta(), descriptor.output_schema);
+        WiringPortRef output = describe_service_output(descriptor, dict_meta, out);
         const WiringInstance *capture = shared_output_capture_node(
             w, std::type_index(typeid(service_adaptor::detail::output_capture_marker)),
-            out.schema != nullptr ? out.schema : dict_meta, endpoint, out, shared);
+            dict_meta, endpoint, output, shared);
         w.register_service_rank_anchor(endpoint, capture);
     }
 

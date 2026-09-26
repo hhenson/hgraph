@@ -168,7 +168,12 @@ not a second matcher.
 **REF transparency.** ``REF[X]`` is type-compatible with ``X`` (Python parity):
 both the runtime matcher (``ts_pattern_match``) and the static unifier
 (``ts_unifier``) look *through* a reference schema unless the pattern asks for a
-``REF`` explicitly — a type variable always binds the **dereferenced** type. A
+``REF`` explicitly — a type variable always binds the **dereferenced** type, at
+every depth (``TypeRegistry::dereference``: ``TSD[str, REF[TS[int]]]`` binds
+``TSD[str, TS[int]]``; owner ruling 2026-09-24, #847). Code that depends on a
+reference expresses it -- a ``REF`` pattern, an initial resolution, a requested
+output, or an erased port (``writing_nodes.rst``, "A generic time-series
+parameter binds the DEREFERENCED type"). A
 port whose producer computes a ``REF`` output (e.g. ``default``) keeps that
 computed schema — the result schema is **never rewritten**; consumers bind
 through the reference at runtime, and matching simply treats the two shapes as
@@ -980,16 +985,24 @@ or materialised (``TypeArg::value()``).
 
 1. call normalisation -- a concrete carrier default is synthesised like any
    default and therefore binds; a deferred carrier fills its slot with an
-   empty carrier value and counts as one default;
+   empty carrier value and counts as one default. A positional argument that
+   is not a type (a port or a non-carrier value) passes over a type argument
+   that has a default when the next positional parameter is required, and
+   the type argument takes its default: ``zero[TS[int]](add_)`` reaches
+   ``op`` (ruling 2026-09-24, a superset of 0.5, which rejects it). When the
+   next parameter is optional, or keyword-only, or the variadic tail, the
+   0.5 positions stand, so ``const(value, delay)`` and ``replay(key, id)``
+   are still rejected (RFC 0033);
 2. parameter matching in declared order -- a supplied carrier goes through
    ``type_carrier_match``: the form must agree (a time-series where a
    scalar is expected is *"expects a scalar type, got a time-series type"*),
    then ``output_ts_pattern_match`` / ``scalar_pattern_match`` /
    ``size_pattern_match`` binds the carried pattern's variables. A carried
-   type is a schema value, not an input edge, so a top-level ``REF`` binds
-   verbatim (``nothing[REF[TS[int]]]`` produces the reference it names)
-   while a structural pattern keeps the usual REF transparency below the
-   top level. A supplied carrier on a parameter with a deferred default is
+   type is a schema value, not an input edge, so a top-level variable binds
+   a carried schema that holds a ``REF`` at any depth verbatim
+   (``nothing[REF[TS[int]]]`` and ``nothing[TSD[str, REF[TS[int]]]]``
+   produce what they name), while a structural pattern keeps the usual REF
+   transparency for the variables it binds below the top level. A supplied carrier on a parameter with a deferred default is
    also matched against that default pattern (``deferred_pattern_match``):
    ``to=TS[X]`` on ``to: type[TS[SCALAR]] = OUT`` binds ``OUT``, and a
    default already bound elsewhere fails the candidate (*"does not agree

@@ -87,6 +87,16 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT std::vector<const ValueTypeMetaData *> table_atomic_leaf_metas();
 
     /**
+     * The name of a table column's type in the Arrow vocabulary (RFC 0042):
+     * Arrow's own name where Arrow has a type of its own for the leaf
+     * (``int64``, ``timestamp[us, tz=UTC]``); the hgraph name where Arrow's
+     * type is structural or shared with an earlier leaf (``zone_id``,
+     * ``instant_range``); ``list<element>`` for a sequence. Generated from the
+     * leaf list, so a new leaf is named where it is added.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string table_column_type_name(const ValueTypeMetaData *leaf);
+
+    /**
      * Node-State payload carrying the converter resolved in ``start`` (the
      * lifecycle form of the builder pattern: compose once, read per tick).
      */

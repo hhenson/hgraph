@@ -13,6 +13,7 @@
 #include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/time_series/ts_delta.h>  // reconcile_current_state
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/series.h>
@@ -259,7 +260,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_int";
 
-        static Port<TS<Int>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Int>> compose(Wiring &w, TypeArg<"tp", TS<Int>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Int            value{};
@@ -276,7 +277,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_float";
 
-        static Port<TS<Float>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Float>> compose(Wiring &w, TypeArg<"tp", TS<Float>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             Float          value{};
@@ -296,7 +297,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_str";
 
-        static Port<TS<Str>> compose(Wiring &w, Scalar<"op", WiredFn> op)
+        static Port<TS<Str>> compose(Wiring &w, TypeArg<"tp", TS<Str>, AutoResolve>, Scalar<"op", WiredFn> op)
         {
             const WiredFn &f = op.value();
             if (f == fn<add_>() || f == fn<sum_>() || f == fn<mul_>())
@@ -312,7 +313,7 @@ namespace hgraph::stdlib
     {
         static constexpr auto name = "zero_tsd";
 
-        static void eval(Scalar<"op", WiredFn> op,
+        static void eval(TypeArg<"tp", TSD<ScalarVar<"K">, TsVar<"V">>, AutoResolve>, Scalar<"op", WiredFn> op,
                          Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
         {
             static_cast<void>(op);
@@ -428,6 +429,7 @@ namespace hgraph::stdlib
             const auto *in = ts_value_schema_at(context, 0);
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
+                   input != out &&
                    in != nullptr && out->value_schema != nullptr &&
                    TypeRegistry::instance().value_is_a(in, out->value_schema);
         }
@@ -496,6 +498,7 @@ namespace hgraph::stdlib
             const auto *in = ts_value_schema_at(context, 0);
             return out != nullptr && out->kind == TSTypeKind::TS &&
                    input != nullptr && input->kind == TSTypeKind::TS &&
+                   input != out &&
                    in != nullptr && in->is_opaque_python() &&
                    out->value_schema != nullptr && out->value_schema->is_opaque_python() &&
                    TypeRegistry::instance().value_is_a(out->value_schema, in);
@@ -555,6 +558,19 @@ namespace hgraph::stdlib
             }
             auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
             static_cast<void>(mutation.copy_value_from(concrete));
+        }
+    };
+
+    /** Conversion leaves identical schemas to convert_identity. The explicit
+        downcast_ operator still accepts a Bundle's own schema. */
+    struct convert_bundle_downcast_impl : downcast_bundle_impl
+    {
+        static constexpr auto name = "convert_bundle_downcast";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            return time_series_schema_at(context, 0) != output_schema(resolution) &&
+                   downcast_bundle_impl::requires_(resolution, context);
         }
     };
 
@@ -1052,7 +1068,8 @@ namespace hgraph::stdlib
             const auto *out         = output_ts_value_schema(resolution);
             const auto *in          = ts_value_schema_at(context, 0);
             const auto *out_element = collection_element_schema(out);
-            const auto *in_element  = tuple_element_schema(in);
+            const auto *in_element  = collection_element_schema(in);
+            if (in_element == nullptr) { in_element = tuple_element_schema(in); }
             return out != nullptr && in != nullptr && out != in &&
                    out_element != nullptr && out_element == in_element;
         }
@@ -1382,119 +1399,24 @@ namespace hgraph::stdlib
         }
     };
 
-    struct convert_kv_to_tsd_ref_marker
-        : Operator<"__convert_kv_to_tsd_ref", In<"key", TsVar<"K">>,
-                   In<"ts", REF<TsVar<"S">>>, Out<TsVar<"O">>>
-    {
-    };
-
-    /** REF-backed kernel for convert[TSD](keys, value). The dictionary owns
-        reference tokens, so arbitrary structured values remain live without
-        copying their current state on every update. */
-    struct convert_kv_to_tsd_ref_kernel
-    {
-        static constexpr auto name = "convert_kv_to_tsd_ref_kernel";
-
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
-        {
-            if (output_bound(resolution)) { return; }
-            const auto *keys = time_series_schema_at(context, 0);
-            const auto *value = resolution.find_ts("S");
-            if (keys == nullptr || value == nullptr) { return; }
-
-            const ValueTypeMetaData *key = nullptr;
-            if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))
-            {
-                key = key_set->value_schema->element_type;
-            }
-            else if (const auto *key_ts = time_series_schema_as<AnyTS>(keys))
-            {
-                key = key_ts->value_schema->value_kind() == ValueTypeKind::Set
-                          ? key_ts->value_schema->element_type
-                          : key_ts->value_schema;
-            }
-            if (key == nullptr) { return; }
-            auto &registry = TypeRegistry::instance();
-            bind_output(resolution, registry.tsd(key, registry.ref(value)));
-        }
-
-        static void eval(In<"key", TsVar<"K">> key, In<"ts", REF<TsVar<"S">>> ts,
-                         Out<TsVar<"__out__">> out)
-        {
-            const auto &erased  = static_cast<const TSOutputView &>(out);
-            auto        dict    = erased.as_dict();
-            auto        mutation = dict.begin_mutation(erased.evaluation_time());
-
-            // The desired key set for THIS cycle.
-            std::vector<Value> desired;
-            const auto *key_schema = key.base().schema();
-            if (key_schema->kind == TSTypeKind::TSS)
-            {
-                const TSSInputView set_input{key.base().borrowed_ref()};
-                auto data = set_input.data_view();
-                for (const ValueView &element : data.values()) { desired.emplace_back(element); }
-            }
-            else
-            {
-                const auto value = key.base().value();
-                if (value.schema()->value_kind() == ValueTypeKind::Set)
-                {
-                    auto items = value.as_indexed_view();
-                    for (std::size_t index = 0; index < items.size(); ++index)
-                    {
-                        desired.emplace_back(items.at(index));
-                    }
-                }
-                else { desired.emplace_back(value); }
-            }
-
-            // Asked once per existing key; ``desired`` is complete, so its
-            // keys can be borrowed. Searching it per key was quadratic.
-            BorrowedValueSet wanted;
-            wanted.reserve(desired.size());
-            for (const Value &want : desired) { wanted.insert(&want); }
-            std::vector<Value> stale;
-            const auto mutation_view = mutation.view();
-            for (const ValueView &existing : mutation_view.keys())
-            {
-                if (!wanted.contains(existing)) { stale.emplace_back(existing); }
-            }
-            for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
-
-            Value reference{ts.value()};
-            for (const Value &want : desired)
-            {
-                auto element = mutation.at(want.view());
-                if (element.has_current_value() &&
-                    element.value().checked_as<TimeSeriesReference>() ==
-                        reference.view().checked_as<TimeSeriesReference>())
-                {
-                    continue;
-                }
-                auto element_mutation =
-                    TSOutputView{erased.output(), element, erased.evaluation_time()}
-                        .begin_mutation(erased.evaluation_time());
-                static_cast<void>(element_mutation.copy_value_from(reference.view()));
-            }
-        }
-    };
-
     /** convert[TSD](keys, value): the desired dictionary {current keys ->
-        live value}; previous keys drop out. Keys may arrive as a scalar TS[K],
-        a set-valued TS[Set[K]], or a TSS[K] membership. */
+        current value}; previous keys drop out. Keys may arrive as a scalar
+        TS[K], a set-valued TS[Set[K]], or a TSS[K] membership. */
     struct convert_kv_to_tsd_impl
     {
         static constexpr auto name = "convert_kv_to_tsd";
 
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
         {
-            const auto *out   = output_schema(resolution);
-            const auto *value = time_series_schema_at(context, 1);
-            if (!output_matches<AnyTSD>(resolution) || value == nullptr ||
-                !time_series_value_equivalent(out->element_ts(), value))
-            {
-                return false;
-            }
+            const auto *out = output_schema(resolution);
+            if (!output_matches<AnyTSD>(resolution)) { return false; }
+            // Upstream declares the value as REF[TIME_SERIES_TYPE] and the
+            // output as TSD[K, REF[TIME_SERIES_TYPE]], so ANY time series may
+            // be the entry -- a nested TSD included (parity #818 item 2.7).
+            // Requiring an AnyTS element rejected everything but a leaf, and
+            // the fuzzer that found it had to route around through map_.
+            const auto *value_ts = time_series_schema_at(context, 1);
+            if (value_ts == nullptr || out->element_ts() != value_ts) { return false; }
             const auto *keys = time_series_schema_at(context, 0);
             if (keys == nullptr) { return false; }
             if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))
@@ -1504,17 +1426,104 @@ namespace hgraph::stdlib
             const auto *key_ts = time_series_schema_as<AnyTS>(keys);
             if (key_ts == nullptr) { return false; }
             const auto *key_value = key_ts->value_schema;
-            if (key_value->value_kind() == ValueTypeKind::Set)
-            {
-                return key_value->element_type == out->key_type();
-            }
+            if (key_value->value_kind() == ValueTypeKind::Set) { return key_value->element_type == out->key_type(); }
             return key_value == out->key_type();
         }
 
-        static WiringPortRef compose(Wiring &w, NamedPort<"key", TsVar<"K">> key,
-                                     NamedPort<"ts", REF<TsVar<"S">>> ts)
+        static void eval(In<"key", TsVar<"K">> key,
+                         In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                         Out<TsVar<"__out__">> out)
         {
-            return wire<convert_kv_to_tsd_ref_marker>(w, key, ts);
+            const auto &erased  = static_cast<const TSOutputView &>(out);
+            auto        dict    = erased.as_dict();
+            std::vector<Value> desired;
+            {
+                auto mutation = dict.begin_mutation(erased.evaluation_time());
+
+                // The desired key set for THIS cycle.
+                const auto *key_schema = key.base().schema();
+                if (key_schema->kind == TSTypeKind::TSS)
+                {
+                    const TSSInputView set_input{key.base().borrowed_ref()};
+                    auto data = set_input.data_view();
+                    for (const ValueView &element : data.values()) { desired.emplace_back(element); }
+                }
+                else
+                {
+                    const auto value = key.base().value();
+                    if (value.schema()->value_kind() == ValueTypeKind::Set)
+                    {
+                        auto items = value.as_indexed_view();
+                        for (std::size_t index = 0; index < items.size(); ++index)
+                        {
+                            desired.emplace_back(items.at(index));
+                        }
+                    }
+                    else { desired.emplace_back(value); }
+                }
+
+                // Asked once per existing key; ``desired`` is complete, so its
+                // keys can be borrowed. Searching it per key was quadratic.
+                BorrowedValueSet wanted;
+                wanted.reserve(desired.size());
+                for (const Value &want : desired) { wanted.insert(&want); }
+                std::vector<Value> stale;
+                const auto mutation_view = mutation.view();
+                for (const ValueView &existing : mutation_view.keys())
+                {
+                    if (!wanted.contains(existing)) { stale.emplace_back(existing); }
+                }
+                for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
+
+                // The dictionary's STRUCTURE follows the KEYS: a key appears as soon
+                // as the key input says so, and its entry fills in when the value
+                // arrives. That is why ``ts`` is unchecked -- upstream reaches the
+                // same behaviour by taking the value as a ``REF``, which is valid
+                // before the output it references has ever ticked, so the node runs
+                // on a key tick alone. Requiring the value valid instead made the
+                // key set wait for a value it does not describe, and the whole
+                // dictionary stayed invalid (parity #852 and siblings). So the
+                // structure is settled here, before any entry is written.
+                for (const Value &want : desired) { static_cast<void>(mutation.at(want.view())); }
+            }
+            if (!ts.base().valid()) { return; }
+
+            // Upstream keeps a REF to ``ts`` in every entry, so an entry ticks
+            // exactly when the referenced output does -- a re-send of the value
+            // it already holds included (parity #909 and siblings), and it
+            // reads ``ts``'s time-series state, not a value-layer copy of it.
+            // A value copy cannot say that a child is invalid, so a nested
+            // dictionary entry published a default ``0`` for a child that had
+            // never ticked (parity #963-#965). Each entry therefore reconciles
+            // with ``ts`` through the representation's current-state ops, with
+            // exact membership and child validity: in full when the entry has
+            // nothing yet, incrementally -- forwarding every change, equal or
+            // not (runtime spec OP-4) -- when ``ts`` ticked. A key change while
+            // ``ts`` stood still leaves the existing entries alone.
+            // Reconciling copies structure without publishing it, so an entry
+            // whose new state is only membership -- keys whose children have not
+            // ticked -- is then published explicitly: the entry ticks whenever
+            // it is filled or ``ts`` ticks, as a reference to ``ts`` would.
+            const bool ts_ticked = ts.modified();
+            for (const Value &want : desired)
+            {
+                TSOutputView entry = dict.at(want.view());
+                if (!entry.data_view().has_current_value())
+                {
+                    reconcile_current_state(entry, ts.base(),
+                                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, true, true});
+                }
+                else if (ts_ticked)
+                {
+                    reconcile_current_state(entry, ts.base(),
+                                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Incremental, true, true});
+                }
+                else { continue; }
+                if (!entry.modified())
+                {
+                    entry.data_view().begin_mutation(erased.evaluation_time()).mark_modified();
+                }
+            }
         }
     };
 

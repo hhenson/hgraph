@@ -1812,7 +1812,7 @@ TEST_CASE("TSD delta window survives a stale child record within the cycle")
     REQUIRE(data.modified(t2));
 }
 
-TEST_CASE("TSD key set records a child becoming published after slot creation")
+TEST_CASE("TSD child publication preserves the earlier key membership clock")
 {
     using namespace hgraph;
 
@@ -1837,6 +1837,9 @@ TEST_CASE("TSD key set records a child becoming published after slot creation")
     const auto slot = before.find_slot(key.view());
     REQUIRE(slot != TS_DATA_NO_CHILD_ID);
     REQUIRE_FALSE(before.slot_added(slot));
+    REQUIRE(before.membership_slot_added(slot));
+    REQUIRE(before.key_set().base().modified(t1));
+    REQUIRE(std::ranges::distance(before.key_set().added()) == 1);
 
     {
         auto view = output.view(t2);
@@ -1848,7 +1851,11 @@ TEST_CASE("TSD key set records a child becoming published after slot creation")
     auto after_view = output.data_view();
     auto after = after_view.as_dict();
     REQUIRE(after.slot_added(slot));
-    REQUIRE(after.key_set().base().modified(t2));
+    REQUIRE(after.slot_modified(slot));
+    REQUIRE_FALSE(after.membership_slot_added(slot));
+    REQUIRE_FALSE(after.key_set().base().modified(t2));
+    REQUIRE(after.key_set().base().last_modified_time() == t1);
+    REQUIRE(std::ranges::empty(after.key_set().added()));
 }
 
 TEST_CASE("TSD structural ranges ignore stale bits when only the root reticks")

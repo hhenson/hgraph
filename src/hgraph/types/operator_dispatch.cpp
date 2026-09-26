@@ -462,9 +462,33 @@ namespace hgraph
 
             std::vector<std::optional<WiringArg>> filled(fixed);
             std::vector<WiringArg>                tail;
+            // A positional value that is not a type passes over a type
+            // argument with a default onto the next positional parameter,
+            // when that parameter is required: ``zero[TS[int]](add_)``
+            // reaches ``op`` (ruling 2026-09-24). An optional next parameter
+            // keeps the 0.5 positions (RFC 0033): ``const(value, delay)`` and
+            // ``replay(key, id)`` are still rejected.
+            const auto passes_over = [&](std::size_t slot, const WiringArg &arg) {
+                const ParamPattern &param = impl.params[slot];
+                if (param.kind != ParamPattern::Kind::TypeArg || !param.has_default()) { return false; }
+                if (impl.params[slot + 1].has_default()) { return false; }
+                if (arg.kind == WiringArg::Kind::TimeSeries) { return true; }
+                return arg.scalar_value.has_value() && arg.scalar_value.try_as<TypeCarrier>() == nullptr;
+            };
+            std::size_t slot = 0;
             for (std::size_t i = 0; i < positional; ++i)
             {
-                if (i < positional_limit) { filled[i] = args[i]; }
+                while (slot + 1 < positional_limit && passes_over(slot, args[i])) { ++slot; }
+                if (slot < positional_limit) { filled[slot++] = args[i]; }
+                else if (!impl.variadic)
+                {
+                    if (why != nullptr)
+                    {
+                        *why = fmt::format("expects at most {} positional argument(s), got {}", positional_limit,
+                                           positional);
+                    }
+                    return false;
+                }
                 else if (!append_tail_arg(args[i], tail, why)) { return false; }
             }
 
@@ -554,7 +578,7 @@ namespace hgraph
             }
 
             out.args.reserve(fixed + tail.size());
-            for (auto &slot : filled) { out.args.push_back(std::move(*slot)); }
+            for (auto &filled_arg : filled) { out.args.push_back(std::move(*filled_arg)); }
             for (auto &arg : tail) { out.args.push_back(std::move(arg)); }
             return true;
         }

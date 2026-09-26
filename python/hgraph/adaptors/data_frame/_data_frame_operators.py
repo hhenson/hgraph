@@ -334,7 +334,35 @@ def _columns_output_type(mapping, _tp_out):
     return mapping.get("ROW_1", mapping["ROW"])
 
 
-@graph(overloads=with_columns, resolvers={ROW_1: _columns_output_type})
+def _columns_fit_row(mapping) -> bool:
+    """Every column named in the call is a field of the input row: released
+    hgraph's ``with_columns_default`` condition."""
+    row_fields = {name for name, _ in mapping[ROW].fields}
+    return all(name in row_fields for name in _hgraph.tsb_field_names(mapping[TS_SCHEMA]))
+
+
+def _projects(mapping, _tp_out) -> bool:
+    """The projecting overload applies unless the call only replaces or adds
+    the input row's own columns: a supplied ``_tp_out``, a specialised output
+    row different from the input's, or a column the input row lacks. It is the
+    exact complement of ``_with_columns_default``'s condition, so a column
+    named ``_tp_out`` reaches ``**columns`` there instead (issue #833)."""
+    if _tp_out is not AUTO_RESOLVE:
+        return True
+    if mapping.get("ROW_1", mapping[ROW]) != mapping[ROW]:
+        return True
+    return not _columns_fit_row(mapping)
+
+
+@graph(overloads=with_columns, requires=lambda m: _columns_fit_row(m))
+def _with_columns_default(ts: TS[Frame[ROW]], **columns: TSB[TS_SCHEMA]) -> TS[Frame[ROW]]:
+    """Released hgraph's ``with_columns_default``: every column is one of the
+    input row's own, so the row schema is kept. A column may be named
+    ``_tp_out`` (issue #833)."""
+    return with_columns[ts.output_type](ts, _pack_tsb(columns))
+
+
+@graph(overloads=with_columns, resolvers={ROW_1: _columns_output_type}, requires=_projects)
 def _with_columns_adapter(
     ts: TS[Frame[ROW]], *, _tp_out: type[ROW_1] = AUTO_RESOLVE, **columns: TSB[TS_SCHEMA]
 ) -> TS[Frame[ROW_1]]:

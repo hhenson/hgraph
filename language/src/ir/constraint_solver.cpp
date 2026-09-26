@@ -351,12 +351,61 @@ namespace hgl::ir::detail
         const Type &value = module_.type(type);
         if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return false; }
         const Symbol &symbol = module_.symbol(value.symbol);
+        // A struct another module exports IS a struct to everything that asks
+        // (ADR 0013) -- `T is struct`, `fields(T)`, `field_type(T, "x")`.
+        // Only its declaration lives elsewhere, and the re-description is what
+        // stands in for it.
+        if (symbol.kind == SymbolKind::ImportedStruct) { return imported_struct(type) != nullptr; }
         return symbol.kind == SymbolKind::Struct && symbol.owner.valid() &&
                std::holds_alternative<StructDecl>(module_.declaration(symbol.owner).node);
     }
 
+    const ImportedStructDecl *ConstraintSolver::imported_struct(TypeId type_id) const noexcept {
+        type_id = types_.canonical(type_id);
+        if (!type_id.valid()) { return nullptr; }
+        const Type &value = module_.type(type_id);
+        if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return nullptr; }
+        if (module_.symbol(value.symbol).kind != SymbolKind::ImportedStruct) { return nullptr; }
+        for (const ImportedStructDecl &candidate : module_.imported_structs) {
+            if (candidate.symbol == value.symbol) { return &candidate; }
+        }
+        return nullptr;
+    }
+
     void ConstraintSolver::append_fields(TypeId type_id, EffectiveFields &fields) {
         type_id = types_.canonical(type_id);
+        // A struct another module exports has no declaration here (ADR 0013),
+        // so it is reached through its re-description rather than a
+        // `StructDecl`. Its fields are already the whole layout, ancestors
+        // first, so they are the effective list as they stand -- and a generic
+        // imported family still refuses by name, so nothing here substitutes.
+        if (const ImportedStructDecl *imported = imported_struct(type_id)) {
+            // An applied family substitutes exactly as a local one does: the
+            // field types were lowered in the OWNER's generic scope, so
+            // `Box<i64>.value` reads as `T` unless the application's arguments
+            // are bound into it.
+            const Type         &applied = module_.type(type_id);
+            GenericSubstitution substitution{module_, types_};
+            for (std::size_t index = 0; index < imported->generics.size() && index < applied.arguments.size(); ++index) {
+                const GenericParameter &generic  = imported->generics[index];
+                const TypeArgument     &argument = applied.arguments[index];
+                if (generic.is_const && argument.kind == TypeArgumentKind::Value) {
+                    (void)substitution.bind_value(generic.symbol, argument.value);
+                } else if (!generic.is_const && argument.kind == TypeArgumentKind::Type) {
+                    (void)substitution.bind_type(generic.symbol, argument.type);
+                }
+            }
+            for (const StructField &field : imported->fields) {
+                const TypeId resolved = substitution.apply(field.type);
+                if (const auto existing = fields.index.find(field.name); existing != fields.index.end()) {
+                    fields.fields[existing->second].type = resolved;
+                } else {
+                    fields.index.emplace(field.name, fields.fields.size());
+                    fields.fields.push_back(EffectiveField{field.name, resolved});
+                }
+            }
+            return;
+        }
         if (!is_struct(type_id)) { return; }
         const Type       &applied = module_.type(type_id);
         const Symbol     &symbol  = module_.symbol(applied.symbol);
@@ -432,7 +481,10 @@ namespace hgl::ir::detail
                                        .variable = node.symbol,
                                        .symbolic = "value:" + std::to_string(node.symbol.value)};
                     }
-                    if (symbol.kind == SymbolKind::Struct) {
+                    // A struct another module exports is a type operand the
+                    // same way a local one is (ADR 0013); only its declaration
+                    // lives elsewhere.
+                    if (symbol.kind == SymbolKind::Struct || symbol.kind == SymbolKind::ImportedStruct) {
                         return Operand{
                             .kind = OperandKind::Type, .known = true, .type = types_.make(TypeKind::Symbol, {}, node.symbol)};
                     }

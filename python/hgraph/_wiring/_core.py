@@ -232,9 +232,23 @@ def _apply_wired_fn_roles(name, args, kwargs):
             return _as_wired(value)
         return value
 
+    _, carrier_positions = _hgraph.operator_carrier_parameters(name)
+
+    def fn_position(index, value):
+        # Dispatch passes a non-type over a defaulted type argument onto the
+        # required parameter after it (RFC 0033, amended 2026-09-24), so a
+        # callable in that slot is the next parameter's function:
+        # zero[TS[int]](add_). Where dispatch does not pass it over, a
+        # WiredFn in a type slot is rejected exactly as the callable was.
+        if index in positions:
+            return True
+        return (index in carrier_positions and index + 1 in positions
+                and callable(value) and not _is_type_like(value)
+                and not isinstance(value, (WiringPort, _TsExpr, _hgraph.TsType, _hgraph.Port)))
+
     if positions:
         args = tuple(
-            adapt(value) if index in positions else value
+            adapt(value) if fn_position(index, value) else value
             for index, value in enumerate(args))
     if any(key in kwargs for key in names):
         kwargs = {
@@ -966,13 +980,27 @@ def _port_reduce(self, fn, zero=_REDUCE_ZERO, is_associative=True):
 
 
 def _port_keys(self):
-    """hgraph's TSB mapping protocol: field names (dict(**tsb) works)."""
-    tp = _unwrap(self).ts_type
-    return tuple(_hgraph.tsb_field_names(tp))
+    """hgraph's TSB mapping protocol: field names (dict(**tsb) works;
+    REF[TSB] names the referenced fields)."""
+    return tuple(_port_bundle_field_names(self))
 
 
 WiringPort.reduce = _port_reduce
-WiringPort.keys = _port_keys
+class _KeysAttribute:
+    """``port.keys``: on a TSB or REF[TSB] port, the mapping protocol's
+    ``keys()`` (so ``dict(**tsb)`` works); on any other port, attribute sugar
+    for a field named ``keys``, such as ``table_schema(tp).keys`` (parity
+    #821)."""
+
+    def __get__(self, port, owner=None):
+        if port is None:
+            return self
+        if _port_bundle_field_names(port) is not None:
+            return _port_keys.__get__(port, owner)
+        return _port_getattr(port, "keys")
+
+
+WiringPort.keys = _KeysAttribute()
 WiringPort.__getattr__ = _port_getattr
 
 class WiringError(RuntimeError):

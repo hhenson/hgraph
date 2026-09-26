@@ -56,8 +56,13 @@ The marker does not mean compile-time-only, constant folding, purity, immutable
 arguments, or absence of side effects. A native helper may mutate an explicitly
 permitted cache argument. Mutation, allocation, I/O, borrowing, and allowed
 lifecycle phases need their own contracts; `const fn` does not authorize them.
-Nor may a value function declare node state, inject a node capability, or
-contain `when`, `start`, or `stop` blocks. Its calls must remain value-level.
+A value function cannot declare its own node state or contain `when`, `start`,
+or `stop` blocks. Its calls remain value-level. The agreed
+[capability contract](0014-native-implementation-interfaces.md#outputs-and-capabilities)
+allows context-supplied services such as logging without creating a node;
+ownership and phase checks govern access. Value helpers support `logger` and
+`clock`; their requirements silently propagate to callers. Native temporal
+provider bindings and borrowed access to a caller's output remain pending.
 
 Parameter-level `const` retains its existing meaning: fixed wiring-time
 configuration on a temporal callable. Function-level `const` is not shorthand
@@ -183,10 +188,11 @@ does not automatically register a new implementation of an unrelated nominal
 operator or define an `impl const fn` syntax. Conversely, having a temporal
 operator does not make it callable as scalar work inside a node.
 
-The modifier combinations for operator implementations, native declarations,
-and exports are not settled here. Existing source `native fn` value/view
-helpers remain the implemented interface; their migration or compatibility
-with `const fn` is follow-up work, not an immediate syntax change.
+Native declarations now follow [ADR 0014](0014-native-implementation-interfaces.md):
+`native fn` is temporal and `native const fn` is value-level. Operator
+implementation and export modifier combinations remain separate work. Scalar
+helpers now use `native const fn`; legacy inline view helpers remain until
+the explicit collection-borrow contract is settled.
 
 ## Cache versus recordable state
 
@@ -256,9 +262,11 @@ A node may need both recordable history and a derived cache. The
 [C++ static-node API](../../../../include/hgraph/types/static_node.h) supports one
 `State` and one `RecordableState` together, with independent planned storage.
 Checkpoint restoration precedes `start`, which rebuilds the fresh cache. HGL
-scalar cache declarations and aggregation are implemented; HGL mixed state/cache
-lowering and generic native cache construction remain separate implementation
-work. Shared graph-IR admission continues to reject the mixed HGL case.
+scalar cache declarations, aggregation and mixed state/cache lowering are
+implemented; generic native cache construction remains separate implementation
+work. Shared graph-IR admission no longer rejects the mixed HGL case: a function
+may declare both, and the generated node carries one `RecordableState` and one
+`State` with independent planned storage.
 
 For **HGL-MIG-005**, this settles the reconstructible-cache distinction, not
 generic recordable-state construction. Non-default-constructible generic

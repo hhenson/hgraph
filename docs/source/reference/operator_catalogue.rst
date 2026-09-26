@@ -79,10 +79,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TSS[K]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TSS[K]``
    Left-hand value. A tick triggers a new result once the overload's validity requirements are met.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
    Right-hand value; compatible plain values are lifted to constants.
 
 ``month_end_policy`` : scalar; ``month_end_policy``
@@ -361,7 +361,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``instant`` : time-series; ``TS[date]``, ``TS[datetime]``
+``instant`` : time-series; ``TS[datetime]``
    Absolute UTC-line timestamp.
 
 ``zone`` : time-series; ``TS[zone_id]``
@@ -640,10 +640,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -943,7 +943,7 @@ are fixed when the graph is built.
    Expected or reference stream.
 
 ``recordable_id`` : scalar; ``str``
-   Optional explicit identity; context supplies it when omitted.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
 ``model`` : scalar; ``str``
    Optional per-call backend id (``"memory"``, ``"testing"``, or an extension id such as ``"hgraph.persistence.frame"``; legacy model names are translated); an empty value inherits the graph configuration. Optional in overloads that show ``= ...``.
@@ -964,7 +964,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str, model: str = ...) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ..., model: str = ...) -> None
 
 .. _python-operator-concat:
 
@@ -1111,7 +1111,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[Any]``, ``TS[int]``, ``TS[float]``, ``TS[bool]``, ``TS[str]``, ``TS[bytes]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[SCALAR]``, ``TS[tuple[K, ...]]``
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[Any]``, ``TS[int]``, ``TS[float]``, ``TS[bool]``, ``TS[str]``, ``TS[bytes]``, ``TS[date]``, ``TS[datetime]``, ``TS[SCALAR]``, ``TS[tuple[K, ...]]``
    Input time series to convert.
 
 ``key`` : time-series; ``K``
@@ -1160,6 +1160,9 @@ Accepted native overloads
    convert(ts: TS[bool]) -> TS[int]
    convert(ts: TS[float]) -> TS[bool]
    convert(ts: TS[bool]) -> TS[float]
+   convert(ts: TS[str]) -> TS[int]
+   convert(ts: TS[str]) -> TS[bool]
+   convert(ts: TS[str]) -> TS[float]
    convert(ts: TS[str]) -> TS[bytes]
    convert(ts: TS[bytes]) -> TS[str]
    convert(ts: TS[int]) -> TS[str]
@@ -1231,13 +1234,13 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[datetime]``
    The primary time-series input.
 
 Returns
 ~~~~~~~
 
-A wired output with one of the overload-selected shapes: ``TS[date]``, ``TS[datetime]``.
+A wired output with one of the overload-selected shapes: ``TS[datetime]``.
 
 Python example
 ~~~~~~~~~~~~~~
@@ -1267,7 +1270,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -1304,7 +1307,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -1893,10 +1896,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
+``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE_1``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
+``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE_1``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
    Right-hand value.
 
 ``epsilon`` : scalar, time-series; ``float``, ``TS[float]``
@@ -1949,10 +1952,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``start_time`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[time]``
+``start_time`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[time]``
    The start time value used by the selected overload.
 
-``end_time`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[time]``
+``end_time`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[time]``
    The end time value used by the selected overload.
 
 Returns
@@ -2278,10 +2281,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
    Dividend.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``
    Divisor.
 
 ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -2315,6 +2318,7 @@ Accepted native overloads
    floordiv_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT
    floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT
    floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   floordiv_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[int]
 
 .. _python-operator-format_:
 
@@ -2668,10 +2672,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -2715,7 +2719,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[datetime]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TIME_SERIES_TYPE``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[datetime]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
    Structured input.
 
 ``attr`` : scalar; ``str``
@@ -2751,6 +2755,7 @@ Accepted native overloads
    getattr_(ts: TSD[K, TS[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT
+   getattr_(ts: TS[date], attr: str) -> TS[int]
    getattr_(ts: TS[datetime], attr: str) -> TS[date]
    getattr_(ts: TS[datetime], attr: str) -> TS[time]
    getattr_(ts: TS[Any], attr: str) -> TS[str]
@@ -2771,7 +2776,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
+``ts`` : time-series; ``TS[Mapping[K, SCALAR]]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_2``, ``TS[SCALAR_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
    Collection, mapping, list, bundle, or other indexable input.
 
 ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
@@ -2869,10 +2874,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -2916,7 +2921,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[time]``
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
    The primary time-series input.
 
 Returns
@@ -3309,7 +3314,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -3601,24 +3606,27 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Dynamic JSON value.
 
+``_tp`` : type-argument; ``type[str]``, ``type[bytes]``
+   The encoded scalar type, ``str`` or ``bytes``; a type argument (``json_encode(value, str)`` or ``json_encode[SCALAR: str](value)``), as released hgraph declares it (parity #818 item 2.2). Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
-Compact JSON string.
+Compact JSON text of the selected type.
 
 Python example
 ~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   text = hg.json_encode(json_value)
+   text = hg.json_encode(json_value, str)
 
 Accepted native overloads
 
 .. code-block:: text
 
-   json_encode(ts: TIME_SERIES_TYPE) -> TS[str]
-   json_encode(ts: TIME_SERIES_TYPE) -> TS[bytes]
+   json_encode(ts: TIME_SERIES_TYPE, _tp: type[str] = ...) -> TS[str]
+   json_encode(ts: TIME_SERIES_TYPE, _tp: type[bytes] = ...) -> TS[bytes]
 
 .. _python-operator-keys_:
 
@@ -3832,10 +3840,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -4047,10 +4055,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -4238,10 +4246,10 @@ are fixed when the graph is built.
 ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
    Value used when an input collection is empty.
 
-``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
    Left-hand value in binary overloads.
 
-``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
    Right-hand value in binary overloads.
 
 ``__strict__`` : scalar; ``bool``
@@ -4500,7 +4508,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[time]``
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
    The primary time-series input.
 
 Returns
@@ -4579,10 +4587,10 @@ are fixed when the graph is built.
 ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
    Value used when an input collection is empty.
 
-``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
    Left-hand value in binary overloads.
 
-``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
    Right-hand value in binary overloads.
 
 ``__strict__`` : scalar; ``bool``
@@ -4667,7 +4675,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[time]``
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
    The primary time-series input.
 
 Returns
@@ -4793,7 +4801,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -4830,7 +4838,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -4870,7 +4878,7 @@ are fixed when the graph is built.
 ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``, ``TS[SCALAR]``
    Left-hand multiplicand.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[period]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[period]``
    Right-hand multiplicand.
 
 Returns
@@ -4900,7 +4908,9 @@ Accepted native overloads
    mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT
    mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    mul_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]
+   mul_(lhs: TS[int], rhs: TS[timedelta]) -> TS[timedelta]
    mul_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]
+   mul_(lhs: TS[float], rhs: TS[timedelta]) -> TS[timedelta]
    mul_(lhs: TS[period], rhs: TS[int]) -> TS[period]
    mul_(lhs: TS[int], rhs: TS[period]) -> TS[period]
    mul_(lhs: TS[SCALAR], rhs: TS[int]) -> OUT
@@ -4920,10 +4930,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``
+``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``
    Left-hand value.
 
-``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``
+``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``
    Right-hand value.
 
 Returns
@@ -5426,7 +5436,7 @@ are fixed when the graph is built.
 ``range`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
    The range value used by the selected overload.
 
-``value`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[instant_range]``, ``TS[civil_date_range]``
+``value`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[instant_range]``, ``TS[civil_date_range]``
    Value used to construct or update the output.
 
 Returns
@@ -6473,7 +6483,7 @@ are fixed when the graph is built.
 ``use_wall_clock`` : scalar; ``bool``
    Use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
 
-``start`` : time-series; ``TS[date]``, ``TS[datetime]``
+``start`` : time-series; ``TS[datetime]``
    Optional time-series start instant that re-bases the schedule grid.
 
 Returns
@@ -6511,7 +6521,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``, ``TS[time]``
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
    The primary time-series input.
 
 Returns
@@ -6909,10 +6919,10 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
    Value from which ``rhs`` is subtracted.
 
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
    Value to subtract; compatible plain values are lifted to constants.
 
 ``month_end_policy`` : scalar; ``month_end_policy``
@@ -7167,6 +7177,42 @@ Accepted native overloads
 
    symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT
 
+.. _python-operator-table_schema:
+
+``table_schema``
+----------------
+
+``table_schema`` — the ``TableSchema`` that ``to_table`` produces for ``tp``, under the graph's table configuration (the date and as-of column names). Const-evaluable: the eager kernel answers at wiring time, and the wired form is a constant ``TS[TableSchema]`` whose fields a graph reads with ``getattr_``.
+
+Python entry point: ``table_schema(tp)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tp`` : type-argument; ``type[TIME_SERIES_TYPE]``
+   The time-series type whose table layout is described.
+
+Returns
+~~~~~~~
+
+A constant tick of the layout.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   keys = hg.getattr_(hg.table_schema(hg.TSD[str, hg.TS[int]]), "keys")
+
+Accepted native overloads
+
+.. code-block:: text
+
+   table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[hgraph::TableSchema]
+
 .. _python-operator-take:
 
 ``take``
@@ -7185,7 +7231,7 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
    Stream to truncate.
 
-``count`` : scalar; ``int``
+``count`` : scalar; ``timedelta``, ``int``
    Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
 ``reset`` : time-series; ``SIGNAL``
@@ -7207,6 +7253,8 @@ Accepted native overloads
 
 .. code-block:: text
 
+   take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]
+   take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE
    take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]
    take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE
    take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE
@@ -7226,7 +7274,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : time-series; ``TS[date]``, ``TS[datetime]``
+``value`` : time-series; ``TS[datetime]``
    Instant to classify.
 
 ``width`` : time-series; ``TS[timedelta]``
@@ -7268,7 +7316,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : time-series; ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
    Instant or supported temporal value to round.
 
 ``quantum`` : time-series; ``TS[timedelta]``
@@ -7311,7 +7359,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : time-series; ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
    Instant or supported temporal value to round.
 
 ``quantum`` : time-series; ``TS[timedelta]``
@@ -7354,7 +7402,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``value`` : time-series; ``TS[timedelta]``, ``TS[date]``, ``TS[datetime]``
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
    Instant or supported temporal value to round.
 
 ``quantum`` : time-series; ``TS[timedelta]``
@@ -7442,7 +7490,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -7566,7 +7614,7 @@ are fixed when the graph is built.
 Returns
 ~~~~~~~
 
-A wired output with one of the overload-selected shapes: ``TS[date]``, ``TS[datetime]``.
+A wired output with one of the overload-selected shapes: ``TS[datetime]``.
 
 Python example
 ~~~~~~~~~~~~~~
@@ -7982,7 +8030,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]
+   unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, REF[V]]
 
 .. _python-operator-until_true:
 
@@ -8114,7 +8162,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -8234,7 +8282,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TS[date]``, ``TS[date]``, ``TS[datetime]``
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
    The primary time-series input.
 
 Returns
@@ -8271,6 +8319,9 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
+``tp`` : type-argument; ``type[TS[int]]``, ``type[TS[float]]``, ``type[TS[str]]``, ``type[TSD[K, V]]``
+   The output time-series type, a type argument in released hgraph's position (``zero(TS[int], add_)``; parity #818 item 2.1). Optional in overloads that show ``= ...``.
+
 ``op`` : scalar; ``fn``
    Operator whose identity is required. This choice is fixed at wiring time.
 
@@ -8284,13 +8335,13 @@ Python example
 
 .. code-block:: python
 
-   additive_identity = hg.zero[TS[int]](hg.add_)
+   additive_identity = hg.zero(TS[int], hg.add_)
 
 Accepted native overloads
 
 .. code-block:: text
 
-   zero(op: fn) -> TS[int]
-   zero(op: fn) -> TS[float]
-   zero(op: fn) -> TS[str]
-   zero(op: fn) -> TSD[K, V]
+   zero(tp: type[TS[int]] = ..., op: fn) -> TS[int]
+   zero(tp: type[TS[float]] = ..., op: fn) -> TS[float]
+   zero(tp: type[TS[str]] = ..., op: fn) -> TS[str]
+   zero(tp: type[TSD[K, V]] = ..., op: fn) -> TSD[K, V]

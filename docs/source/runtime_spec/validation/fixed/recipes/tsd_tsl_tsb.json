@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "fixed-tsd_tsl_tsb",
+  "description": "TS-7, TS-11: TSD contains a complete nested fixed subtree; removal retains all descendants for that cycle and reinsertion is initially partial.",
+  "template": "fixed_contract_probe",
+  "inputs": {
+    "step": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "mode": "tsd_tsl_tsb"
+  },
+  "features": []
+}

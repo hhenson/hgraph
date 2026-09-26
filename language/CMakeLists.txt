@@ -284,6 +284,7 @@ include(cmake/HglStageRuntimeDlls.cmake)
 # struct layouts, defaults, lexical bindings, dependency order, composition
 # bodies, and runtime-node bodies.
 add_library(hgl_codegen STATIC
+    src/codegen/native_rust.cpp
     src/codegen/cpp_emitter.cpp
 )
 add_library(hgl::codegen ALIAS hgl_codegen)
@@ -416,14 +417,21 @@ set(_hgl_core_native_parts
     stdlib/hgl/hgraph/native/sets_maps.hgl
     stdlib/hgl/hgraph/native/windows.hgl
     stdlib/hgl/hgraph/native/scalar_values.hgl
+    stdlib/hgl/hgraph/native/scalar_values_i64.hgl
     stdlib/hgl/hgraph/native/temporal_values.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_scalar_values_i64.hgl
+    stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
+    NATIVE_PROVIDER_HEADER native_scalar.h
+    NATIVE_PROVIDER hgl::stdlib::scalar_native
     HGL stdlib/hgl/hgraph/native.hgl
     PARTS ${_hgl_core_native_parts}
     INCLUDE_DIR ${_hgl_core_native_include_dir}
     SRC_DIR ${_hgl_core_native_src_dir}
 )
+target_include_directories(hgl_core_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/cpp)
 add_library(hgl::core_native ALIAS hgl_core_native)
 set_target_properties(hgl_core_native PROPERTIES EXPORT_NAME core_native)
 # hgl_add_module publishes a build-tree include directory. This target is also
@@ -440,7 +448,9 @@ hgl_apply_warnings(hgl_core_native)
 # materialization, activation, and output policy in readable HGL source.
 set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/include)
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
+set(_hgl_stdlib_source_parts 8)
 hgl_add_module(hgl_standard_library STATIC
+    SOURCE_PARTS ${_hgl_stdlib_source_parts}
     HGL stdlib/hgl/hgraph/standard.hgl
     PARTS stdlib/hgl/hgraph/control.hgl stdlib/hgl/hgraph/stream.hgl
           stdlib/hgl/hgraph/temporal.hgl
@@ -450,12 +460,20 @@ hgl_add_module(hgl_standard_library STATIC
 )
 # PARTS applies to one anchor only. Compile the independent operators module
 # without standard.hgl's control part, while keeping one installed library.
+set(_hgl_operators_part_sources)
+math(EXPR _hgl_last_stdlib_part "${_hgl_stdlib_source_parts} - 1")
+foreach(_part RANGE 0 ${_hgl_last_stdlib_part})
+    list(APPEND _hgl_operators_part_sources "${_hgl_standard_library_src_dir}/operators.part${_part}.cpp")
+endforeach()
 add_custom_command(
     OUTPUT
+        ${_hgl_operators_part_sources}
+        ${_hgl_standard_library_src_dir}/operators.h.impl.h
         ${_hgl_standard_library_include_dir}/operators.h
         ${_hgl_standard_library_src_dir}/operators.cpp
         ${_hgl_standard_library_src_dir}/operators.hgl-module.json
     COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/operators.hgl
+        --source-parts ${_hgl_stdlib_source_parts}
         --include-dir ${_hgl_standard_library_include_dir}
         --src-dir ${_hgl_standard_library_src_dir}
         --module-descriptor ${_hgl_core_native_src_dir}/native.hgl-module.json
@@ -464,6 +482,7 @@ add_custom_command(
     VERBATIM
 )
 target_sources(hgl_standard_library PRIVATE
+    ${_hgl_operators_part_sources}
     ${_hgl_standard_library_include_dir}/operators.h
     ${_hgl_standard_library_src_dir}/operators.cpp
 )
@@ -482,6 +501,7 @@ set(_hgl_generated_cpp_snapshot_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/HglGene
 set(_hgl_generated_cpp_snapshot_dir ${CMAKE_CURRENT_SOURCE_DIR}/generated/cpp/hgraph)
 set(_hgl_generated_cpp_snapshot_work_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/cpp-snapshot-check)
 set(_hgl_generated_cpp_snapshot_args
+    "-DHGL_STDLIB_SOURCE_PARTS=${_hgl_stdlib_source_parts}"
     "-DHGL_SNAPSHOT_DIRECTORY=${_hgl_generated_cpp_snapshot_dir}"
     "-DHGL_SNAPSHOT_WORK_DIRECTORY=${_hgl_generated_cpp_snapshot_work_dir}"
     "-DHGL_GENERATED_NATIVE_HEADER=${_hgl_core_native_include_dir}/native.h"
@@ -581,10 +601,16 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )
-install(FILES ${_hgl_core_native_parts}
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native
-    COMPONENT Development
-)
+install(FILES stdlib/cpp/native_scalar.h
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/cpp
+    COMPONENT Development)
+foreach(_part IN LISTS _hgl_core_native_parts)
+    get_filename_component(_part_directory "${_part}" DIRECTORY)
+    string(REPLACE "stdlib/hgl/hgraph/native" "" _relative_directory "${_part_directory}")
+    install(FILES ${_part}
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native${_relative_directory}
+        COMPONENT Development)
+endforeach()
 install(FILES
     cmake/HglLanguage.cmake
     cmake/hgl_python_module.cpp.in

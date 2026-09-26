@@ -45,13 +45,16 @@ export fn invalid(trigger: bool, x: i64) -> i64 {
     when modified(trigger) && valid(trigger) { return x }
 }
 ]=] "may be invalid here")
-rejected(mixed_state [=[
+# `cache` beside `state` is admitted now (ADR 0011): the node carries one
+# RecordableState and one State. What stays fail-closed is the storage's shape
+# -- a non-scalar cache has no planned native slot yet -- and it has to be
+# refused by every command, not only the one that would emit it.
+rejected(non_scalar_cache [=[
 export fn invalid(x: i64) -> i64 {
-    state total: i64 = 0
-    cache count: i64 = 0
-    when { return x + total + count }
+    cache seen: list<i64, 2> = [0, 0]
+    when modified(x) && valid(x) { return x + seen[0] }
 }
-]=] "'cache' and 'state' cannot be combined")
+]=] "supports scalar state fields")
 
 rejected(generic_traversal [=[
 use hgraph.std::{null_sink}

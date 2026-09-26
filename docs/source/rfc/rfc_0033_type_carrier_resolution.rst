@@ -403,6 +403,11 @@ For every candidate of ``OperatorRegistry::resolve``:
 1. Call normalisation: positional and named arguments fill declared
    parameters; omitted parameters with a ``default_value`` are synthesised.
    A concrete carrier default is a supplied argument from here on.
+   *Amended 2026-09-24:* a positional argument that is not a type passes
+   over a ``TypeArg`` that has a default when the next positional parameter
+   is required (``zero[TS[int]](add_)`` reaches ``op``). An optional next
+   parameter keeps the 0.5 positions, so the ``const`` and ``replay`` rows
+   of the behaviour table below are unchanged.
 2. Parameter matching in declared order: ``Input`` through
    ``input_ts_pattern_match``; ``Scalar`` through ``scalar_pattern_match``;
    a supplied ``TypeArg`` through ``type_carrier_match``; an omitted

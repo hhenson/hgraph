@@ -179,6 +179,7 @@ class CompoundScalar:
         # not leak into object.__init_subclass__.
         super().__init_subclass__()
         enclosing = cls.__qualname__.rsplit(".", 1)[0] if "." in cls.__qualname__ else ""
+        explicit_namespace = namespace is not None
         if namespace is None:
             # ``::`` cannot occur in a Python module or qualified class name,
             # so it preserves the boundary between them. A dotted join would
@@ -220,6 +221,9 @@ class CompoundScalar:
             cls.__serialise_children__ = {}
 
         cls.__compound_namespace__ = namespace
+        # An explicit namespace may name a native schema this class is the
+        # Python face of (RFC 0042); a module-derived one never does.
+        cls.__compound_namespace_explicit__ = explicit_namespace
         cls.__compound_abstract__ = bool(abstract)
         cls.__compound_discriminator__ = discriminator
         cls.__compound_discriminator_value__ = discriminator_value
