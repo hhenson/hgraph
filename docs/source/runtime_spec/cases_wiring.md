@@ -155,10 +155,12 @@ a `Foo` and an unnamed input.
 
 ## WIRE-OPERATOR-CONTRACT — WIR-21 to WIR-24
 
-Three operators and their candidates. `_declares_generic(ts: T)` has one
+Four operators and their candidates. `_declares_generic(ts: T)` has one
 candidate, `(ts: TS[int], scale: int = 2)`, with a parameter the operator
 does not declare. `_refinable(ts: T)` has one candidate accepting only
-`TS[int]`. `_declares_int(ts: TS[int])` gets a candidate accepting any
+`TS[int]`. `_needs_extra(ts: T)` has a fallback candidate `(ts: T)` and one
+registered here, `(ts: TS[int], scale: int)`, whose extra parameter has no
+default. `_declares_int(ts: TS[int])` gets a candidate accepting any
 `TIME_SERIES_TYPE`.
 
 | Call | Expected |
@@ -166,13 +168,20 @@ does not declare. `_refinable(ts: T)` has one candidate accepting only
 | `_declares_generic(TS[int])` | `extra 2`: the extra parameter's default (WIR-22) |
 | `_declares_generic(TS[int], scale=5)` | `extra 5`: the call supplies it (WIR-22) |
 | `_refinable(TS[int])` | `refined`: a narrower candidate is selected (WIR-23) |
-| Registering the wider candidate for `_declares_int`, and calling it with `TS[float]` | recorded, not asserted: point to settle 6 |
+| Registering `(ts: TS[int], scale: int)` | registered: no default is needed (WIR-22) |
+| `_needs_extra(TS[int])` | `fallback`: the scaled candidate requires `scale` and does not match |
+| `_needs_extra(TS[int], scale=3)` | `scaled 3`: both match; `TS[int]` is more specific |
+| Registering the wider candidate for `_declares_int` | rejected (WIR-23, WIR-24) |
+| `_declares_int(TS[float])` | fails: no candidate remains |
 
-The HGL module [contract_superset.hgl](validation/wiring/contract_superset.hgl)
-declares an implementation with a `const scale` parameter its operator does
-not declare; HGL must accept it (WIR-22, WIR-14).
-[contract_widening.hgl](validation/wiring/contract_widening.hgl) is the
-wider implementation; recorded, not asserted.
+The HGL modules [contract_superset.hgl](validation/wiring/contract_superset.hgl)
+and [contract_required_extra.hgl](validation/wiring/contract_required_extra.hgl)
+declare an implementation with a `const scale` parameter its operator does
+not declare, with and without a default; HGL must accept both (WIR-22).
+[contract_extra_argument.hgl](validation/wiring/contract_extra_argument.hgl)
+passes `scale=5.0` through the operator's call; HGL must accept it.
+[contract_widening.hgl](validation/wiring/contract_widening.hgl) is a wider
+implementation; HGL must reject it (WIR-23, WIR-24).
 
 ## WIRE-FRONT-END — WIR-14, WIR-7
 

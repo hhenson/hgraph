@@ -1,5 +1,23 @@
 {
   "hgl": {
+    "extra_argument_call": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
+    "required_extra_implementation": {
+      "expected": "accepted",
+      "observed": "rejected",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "verdict": "varies"
+    },
     "superset_implementation": {
       "expected": "accepted",
       "observed": "rejected",
@@ -28,8 +46,14 @@
       "verdict": "varies"
     },
     "widening_implementation": {
+      "expected": "rejected",
       "observed": "rejected",
-      "verdict": "recorded"
+      "rules": [
+        "WIR-23",
+        "WIR-24",
+        "WIR-14"
+      ],
+      "verdict": "match"
     }
   },
   "runtimes": {
@@ -185,6 +209,47 @@
         ],
         "verdict": "both"
       },
+      "required_extra_missing": {
+        "cpp": [
+          "fallback"
+        ],
+        "expected": [
+          "fallback"
+        ],
+        "python": [
+          "fallback"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-16"
+        ],
+        "verdict": "both"
+      },
+      "required_extra_registers": {
+        "cpp": "registered",
+        "expected": "registered",
+        "python": "registered",
+        "rules": [
+          "WIR-22"
+        ],
+        "verdict": "both"
+      },
+      "required_extra_supplied": {
+        "cpp": [
+          "scaled 3"
+        ],
+        "expected": [
+          "scaled 3"
+        ],
+        "python": [
+          "scaled 3"
+        ],
+        "rules": [
+          "WIR-22",
+          "WIR-18"
+        ],
+        "verdict": "both"
+      },
       "superset_default_used": {
         "cpp": [
           "extra 2"
@@ -216,19 +281,26 @@
         ],
         "verdict": "both"
       },
+      "widening_call_for_float": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "wires",
+        "rules": [
+          "WIR-24",
+          "WIR-16",
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      },
       "widening_registers": {
         "cpp": "registered",
+        "expected": "rejected",
         "python": "registered",
-        "verdict": "recorded"
-      },
-      "widening_selected_for_float": {
-        "cpp": [
-          "wider"
+        "rules": [
+          "WIR-23",
+          "WIR-24"
         ],
-        "python": [
-          "wider"
-        ],
-        "verdict": "recorded"
+        "verdict": "neither"
       }
     },
     "operator_failures": {
@@ -488,9 +560,11 @@
     }
   },
   "totals": {
-    "both": 31,
+    "both": 34,
     "cpp": 1,
-    "hgl:varies": 3,
+    "hgl:match": 1,
+    "hgl:varies": 5,
+    "neither": 2,
     "python": 2
   }
 }

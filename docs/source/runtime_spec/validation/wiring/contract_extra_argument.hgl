@@ -1,0 +1,8 @@
+# WIR-22: a call may pass an argument the operator does not declare.
+module runtime_spec.wiring.contract_extra_argument
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+export fn use_pick(value: f64) -> f64 => pick(value, scale=5.0)

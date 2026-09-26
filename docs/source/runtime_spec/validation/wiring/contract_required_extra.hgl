@@ -1,0 +1,8 @@
+# WIR-22: an implementation may declare a parameter its operator does not,
+# without a default. It matches only calls that supply it; the declaration
+# alone is observed here (contract_extra_argument.hgl observes the call).
+module runtime_spec.wiring.contract_required_extra
+
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale

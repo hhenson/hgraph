@@ -258,9 +258,32 @@
       ],
       "derivation": "An implementation may declare a parameter its operator does not (here a const with a default): it is a superset of the operator's signature."
     },
-    "_recorded": [
-      "widening_implementation"
-    ]
+    "_recorded": [],
+    "required_extra_implementation": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "An implementation may declare a parameter its operator does not, without a default."
+    },
+    "extra_argument_call": {
+      "expected": "accepted",
+      "rules": [
+        "WIR-22",
+        "WIR-14"
+      ],
+      "derivation": "A call may pass an argument the operator does not declare; it goes to the candidates."
+    },
+    "widening_implementation": {
+      "expected": "rejected",
+      "rules": [
+        "WIR-23",
+        "WIR-24",
+        "WIR-14"
+      ],
+      "derivation": "An implementation cannot widen its operator."
+    }
   },
   "bundle_identity": {
     "named_and_unnamed_repeat": {
@@ -312,10 +335,6 @@
     }
   },
   "operator_contract": {
-    "recorded": [
-      "widening_registers",
-      "widening_selected_for_float"
-    ],
     "superset_default_used": {
       "expected": [
         "extra 2"
@@ -344,6 +363,50 @@
         "WIR-21"
       ],
       "derivation": "A candidate may accept a narrower type than the operator declares, and is selected for a call it matches."
+    },
+    "required_extra_registers": {
+      "expected": "registered",
+      "rules": [
+        "WIR-22"
+      ],
+      "derivation": "A candidate may declare a parameter the operator does not, with or without a default."
+    },
+    "required_extra_missing": {
+      "expected": [
+        "fallback"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-16"
+      ],
+      "derivation": "A candidate that requires an argument the call does not supply does not match; the other candidate is selected."
+    },
+    "required_extra_supplied": {
+      "expected": [
+        "scaled 3"
+      ],
+      "rules": [
+        "WIR-22",
+        "WIR-18"
+      ],
+      "derivation": "The call supplies the extra argument by name (the operator's implicit **kwargs); both candidates match and the TS[int] one is more specific."
+    },
+    "widening_registers": {
+      "expected": "rejected",
+      "rules": [
+        "WIR-23",
+        "WIR-24"
+      ],
+      "derivation": "A candidate cannot widen its operator (TIME_SERIES_TYPE for a declared TS[int]); the check at registration rejects it."
+    },
+    "widening_call_for_float": {
+      "expected": "fails",
+      "rules": [
+        "WIR-24",
+        "WIR-16",
+        "WIR-4"
+      ],
+      "derivation": "With the wider candidate rejected, no candidate accepts TS[float]: the call fails."
     }
   }
 }

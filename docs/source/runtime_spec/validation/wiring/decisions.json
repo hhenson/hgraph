@@ -82,6 +82,18 @@
         "WIR-24"
       ],
       "note": "Whether a candidate wider than its operator violates the constraints is point to settle 6."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "May a candidate be wider than its operator, and must a candidate's extra parameters have defaults?",
+      "ruling": "The implementation can't widen the operator it implements. Think of an operator as having an automatic *args, **kwargs present: an implementation can accept, via an operator call, additional arguments or parameters. Defaults are not required; the implementation just does not match if the additional arguments or kwargs are not supplied. The operator provides a minimum requirement; the implementations provide the potential set of matches. The impl can be validated to make sure it at least looks like the shape of the operator; after that the caller provides the actual args and kwargs to do the matching with.",
+      "rules": [
+        "WIR-22",
+        "WIR-23",
+        "WIR-24"
+      ],
+      "note": "Settles point 6. Both runtimes register a wider candidate (WV-6); expectations follow this ruling."
     }
   ]
 }

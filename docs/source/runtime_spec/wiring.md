@@ -257,14 +257,15 @@ variable inside a structure is more specific than a bare one. `TS[int]` is
 more specific than `TS[SCALAR]`, which is more specific than
 `TIME_SERIES_TYPE`; `TSL[TS[int], SIZE]` than `TSL[TIME_SERIES_TYPE, SIZE]`.
 
-**The operator's signature and its candidates.** The operator's own
-signature is the minimum every candidate meets, and a guide to its callers;
-it is not what a call is matched against. A candidate may be a superset of
-it, with parameters the operator does not declare, and may refine it,
-accepting a narrower type than a parameter declares. It still follows the
-constraints the operator lists. The operator's signature can be used to
-validate a candidate when the candidate is registered or compiled (owner
-ruling 2026-09-26).
+**The operator's signature and its candidates.** An operator states a
+minimum shape; its candidates are the potential matches. Every operator
+behaves as if its signature ended with `*args, **kwargs`: a call may pass
+arguments the operator does not declare, and they go to the candidates. A
+candidate has the operator's parameters and may declare more, with or
+without defaults; it may refine a declared type but never widen it. The
+operator's signature checks that each candidate has that shape when the
+candidate is registered or compiled; after that, the arguments a call
+actually supplies decide which candidates match (owner rulings 2026-09-26).
 
 ### Behaviour
 
@@ -302,17 +303,20 @@ flowchart TD
 - **WIR-21** A call is matched against each candidate's own signature
   (WIR-16 to WIR-18), not against the operator's. The operator's signature
   is the minimum each candidate meets and a guide to callers.
-- **WIR-22** A candidate has every parameter the operator declares, and may
-  declare more: a superset. A call supplies an extra parameter by name or
-  position; a candidate that needs one the call does not supply, and that
-  has no default for it, does not match.
+- **WIR-22** Every operator accepts arguments beyond those it declares, as
+  if its signature ended with `*args, **kwargs`, and a call passes them to
+  the candidates. A candidate has every parameter the operator declares and
+  may declare more, with or without defaults. A candidate that requires an
+  argument the call does not supply does not match; that is not an error.
 - **WIR-23** A candidate may refine a declared parameter or output to a
   narrower type (a concrete type for a variable, a structure for a bare
-  variable). It follows the constraints the operator lists: a variable the
-  operator constrains stays within those constraints.
-- **WIR-24** A front end may check each candidate against the operator's
-  signature when it registers or compiles the candidate, and reject one
-  that does not meet WIR-22 and WIR-23.
+  variable). It never widens one: every type a candidate accepts for a
+  declared parameter is one the operator's parameter accepts, and a
+  variable the operator constrains stays within those constraints.
+- **WIR-24** A front end checks each candidate against the operator's
+  signature when it registers or compiles the candidate, and rejects one
+  that does not have the operator's shape (WIR-22, WIR-23). The arguments a
+  call supplies then decide which of the remaining candidates match.
 
 
 Deferred
@@ -369,14 +373,9 @@ Points to settle
    the error and keep wiring, and those nodes stay in the description.
    Should a failed call remove what it added, so that a caught failure
    leaves the description as it was?
-6. **A candidate wider than the operator.** An operator declares
-   `ts: TS[int]` and a candidate accepts `TIME_SERIES_TYPE`. Python 0.5.41
-   and the C++ runtime register it and select it for a `TS[float]` call:
-   neither checks a candidate against its operator. HGL rejects it
-   ("does not conform to its operator contract"). WIR-23 allows refining;
-   is widening a violation of the operator's constraints, to be rejected
-   when checked (WIR-24), or allowed because the operator's types are a
-   guide?
+6. **A candidate wider than the operator.** Settled 2026-09-26 (owner): a
+   candidate cannot widen the operator it implements (WIR-23), and the check
+   of WIR-24 rejects it.
 
 
 Evidence and cases

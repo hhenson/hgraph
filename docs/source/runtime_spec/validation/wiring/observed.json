@@ -60,31 +60,41 @@
         "refined_selected": [
           "refined"
         ],
+        "required_extra_missing": [
+          "fallback"
+        ],
+        "required_extra_registers": "registered",
+        "required_extra_supplied": [
+          "scaled 3"
+        ],
         "superset_default_used": [
           "extra 2"
         ],
         "superset_extra_passed": [
           "extra 5"
         ],
-        "widening_registers": "registered",
-        "widening_selected_for_float": [
-          "wider"
-        ]
+        "widening_call_for_float": "wires",
+        "widening_registers": "registered"
       },
       "python": {
         "refined_selected": [
           "refined"
         ],
+        "required_extra_missing": [
+          "fallback"
+        ],
+        "required_extra_registers": "registered",
+        "required_extra_supplied": [
+          "scaled 3"
+        ],
         "superset_default_used": [
           "extra 2"
         ],
         "superset_extra_passed": [
           "extra 5"
         ],
-        "widening_registers": "registered",
-        "widening_selected_for_float": [
-          "wider"
-        ]
+        "widening_call_for_float": "wires",
+        "widening_registers": "registered"
       }
     },
     "operator_failures": {

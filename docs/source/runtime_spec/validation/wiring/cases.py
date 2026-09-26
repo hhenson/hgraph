@@ -409,8 +409,18 @@ def _refined(ts: TS[int]) -> TS[str]:
     return "refined"
 
 
+@hg.operator
+def _needs_extra(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """Declares a generic; one candidate requires an extra parameter."""
+
+
+@compute_node(overloads=_needs_extra)
+def _needs_extra_fallback(ts: TIME_SERIES_TYPE) -> TS[str]:
+    return "fallback"
+
+
 def operator_contract():
-    """WIR-21 to WIR-23: a candidate may be a superset of its operator and refine it."""
+    """WIR-21 to WIR-24: a candidate may add parameters and refine types, never widen."""
     seen = {}
 
     @graph
@@ -429,20 +439,44 @@ def operator_contract():
     seen["superset_extra_passed"] = _values(lambda: eval_node(extra_passed, [1]))
     seen["refined_selected"] = _values(lambda: eval_node(refined, [1]))
 
-    try:  # point to settle 6: a candidate wider than its operator
+    try:  # a candidate with an extra parameter and no default (WIR-22)
+        @compute_node(overloads=_needs_extra)
+        def _needs_extra_scaled(ts: TS[int], scale: int) -> TS[str]:
+            return f"scaled {scale}"
+
+        seen["required_extra_registers"] = "registered"
+    except Exception:  # noqa: BLE001 - recorded as the observation
+        seen["required_extra_registers"] = "rejected"
+
+    @graph
+    def extra_missing(v: TS[int]) -> TS[str]:
+        return _needs_extra(v)
+
+    @graph
+    def extra_supplied(v: TS[int]) -> TS[str]:
+        return _needs_extra(v, scale=3)
+
+    seen["required_extra_missing"] = _values(lambda: eval_node(extra_missing, [1]))
+    seen["required_extra_supplied"] = _values(lambda: eval_node(extra_supplied, [1]))
+
+    try:  # a candidate wider than its operator (WIR-23, WIR-24)
         @compute_node(overloads=_declares_int)
         def _wider(ts: TIME_SERIES_TYPE) -> TS[str]:
             return "wider"
 
         seen["widening_registers"] = "registered"
-    except Exception as error:  # noqa: BLE001 - recorded as the observation
-        seen["widening_registers"] = f"raised {type(error).__name__}"
+    except Exception:  # noqa: BLE001 - recorded as the observation
+        seen["widening_registers"] = "rejected"
 
     @graph
     def wider_float(v: TS[float]) -> TS[str]:
         return _declares_int(v)
 
-    seen["widening_selected_for_float"] = _values(lambda: eval_node(wider_float, [1.0]))
+    try:
+        eval_node(wider_float, [1.0])
+        seen["widening_call_for_float"] = "wires"
+    except Exception:  # noqa: BLE001 - the observation is only whether wiring failed
+        seen["widening_call_for_float"] = "fails"
     return seen
 
 

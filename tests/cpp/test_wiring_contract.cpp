@@ -252,6 +252,36 @@ namespace
         static void eval(In<"ts", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"refined"}); }
     };
 
+    // A candidate whose extra parameter has no default matches only a call
+    // that supplies it (WIR-22).
+    struct needs_extra_ : Operator<"wiring_contract_needs_extra", In<"ts", TsVar<"S">>, Out<TS<Str>>>
+    {
+    };
+    struct NeedsExtraFallback
+    {
+        static void eval(In<"ts", TsVar<"S">>, Out<TS<Str>> out) { out.set(Str{"fallback"}); }
+    };
+    struct NeedsExtraScaled
+    {
+        static void eval(In<"ts", TS<Int>>, Scalar<"scale", Int> scale, Out<TS<Str>> out)
+        {
+            out.set(Str{"scaled " + std::to_string(scale.value())});
+        }
+    };
+    struct ExtraMissingGraph
+    {
+        static constexpr auto name = "wiring_contract_extra_missing";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v) { return wire<needs_extra_>(w, v).as<TS<Str>>(); }
+    };
+    struct ExtraSuppliedGraph
+    {
+        static constexpr auto name = "wiring_contract_extra_supplied";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            return wire<needs_extra_>(w, v, arg<"scale">(Int{3})).as<TS<Str>>();
+        }
+    };
+
     struct DefaultUsedGraph
     {
         static constexpr auto name = "wiring_contract_default_used";
@@ -281,6 +311,8 @@ namespace
         register_overload<only_int_, OnlyInt>();
         register_overload<declares_generic_, WithExtra>();
         register_overload<refinable_, Refined>();
+        register_overload<needs_extra_, NeedsExtraFallback>();
+        register_overload<needs_extra_, NeedsExtraScaled>();
     }
 
     struct PickIntGraph
@@ -393,6 +425,9 @@ TEST_CASE("wiring contract: WIRE-OPERATOR-CONTRACT allows a superset and a refin
     CHECK_OUTPUT(eval_node<DefaultUsedGraph>(values<Int>(1)), values<Str>("extra 2"s));
     CHECK_OUTPUT(eval_node<ExtraPassedGraph>(values<Int>(1)), values<Str>("extra 5"s));
     CHECK_OUTPUT(eval_node<RefinedGraph>(values<Int>(1)), values<Str>("refined"s));
+    // An extra parameter without a default: no match without it, a match with it.
+    CHECK_OUTPUT(eval_node<ExtraMissingGraph>(values<Int>(1)), values<Str>("fallback"s));
+    CHECK_OUTPUT(eval_node<ExtraSuppliedGraph>(values<Int>(1)), values<Str>("scaled 3"s));
 }
 
 TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")

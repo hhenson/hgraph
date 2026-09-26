@@ -1,6 +1,6 @@
 """Record what the HGL front end decides: the binding it makes for each call
 in front_end.hgl, and whether it accepts the implementations in
-contract_superset.hgl and contract_widening.hgl.
+the contract_*.hgl modules.
 
     python observe_hgl.py --hgl <path to hgl> --revision <hgraph revision>
 
@@ -54,6 +54,8 @@ def main() -> None:
     bound = [_render(types, int(m.group(1))) for m in CALL.finditer(dump)]
     observed = {"revision": args.revision, "front_end": "hgl", "through_ref": bound[0], "through_list": bound[1]}
     for field, module in (("superset_implementation", "contract_superset.hgl"),
+                          ("required_extra_implementation", "contract_required_extra.hgl"),
+                          ("extra_argument_call", "contract_extra_argument.hgl"),
                           ("widening_implementation", "contract_widening.hgl")):
         checked = subprocess.run([str(hgl), "check", str(HERE / module)], capture_output=True, text=True)
         observed[field] = "accepted" if checked.returncode == 0 else "rejected"
