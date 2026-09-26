@@ -142,6 +142,14 @@ namespace hgraph
                        time_series_schema_equivalent(lhs->element_ts(), rhs->element_ts());
 
             case TSTypeKind::TSB:
+                // A bundle's name counts only when both bundles are named;
+                // otherwise the fields alone decide (runtime spec WIR-15).
+                if (lhs->is_named_tsb() && rhs->is_named_tsb())
+                {
+                    const std::string_view lname = lhs->bundle_name() != nullptr ? lhs->bundle_name() : "";
+                    const std::string_view rname = rhs->bundle_name() != nullptr ? rhs->bundle_name() : "";
+                    if (lname != rname) { return false; }
+                }
                 if (lhs->field_count() != rhs->field_count()) { return false; }
                 for (std::size_t index = 0; index < lhs->field_count(); ++index)
                 {

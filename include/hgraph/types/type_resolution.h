@@ -662,9 +662,17 @@ namespace hgraph
             // port as supplied is kept when it IS that schema -- only the
             // dereference is skipped; the constraints below still apply, as
             // in the runtime matcher.
-            if (concrete == nullptr || m.find_ts(Name.sv()) != concrete)
+            const TSValueTypeMetaData *bound = m.find_ts(Name.sv());
+            if (bound != nullptr && concrete != nullptr && time_series_schema_equivalent(bound, concrete))
+            {
+                concrete = bound;  // as supplied: the binding stays (WIR-11, WIR-15)
+            }
+            else
             {
                 concrete = TypeRegistry::instance().dereference(concrete);
+                // An earlier binding of the same type, compared as types are
+                // (WIR-15), keeps that binding.
+                if (bound != nullptr && concrete != nullptr && time_series_schema_equivalent(bound, concrete)) { concrete = bound; }
             }
             if constexpr (sizeof...(C) > 0)
             {

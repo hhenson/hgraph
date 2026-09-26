@@ -194,6 +194,53 @@ namespace
         }
     };
 
+    // WIRE-BUNDLE-IDENTITY: two named bundles and an unnamed one, all with
+    // the single field a: TS[int].
+    using Foo     = TSB<"WiringContractFoo", Field<"a", TS<Int>>>;
+    using Bar     = TSB<"WiringContractBar", Field<"a", TS<Int>>>;
+    using Unnamed = UnNamedTSB<Field<"a", TS<Int>>>;
+
+    template <typename Bundle>
+    struct MakeBundle
+    {
+        static constexpr auto name = "wiring_contract_make_bundle";
+
+        static void eval(In<"v", TS<Int>> v, Out<Bundle> out) { out.template field<"a">().set(v.value()); }
+    };
+
+    template <typename Bundle>
+    struct TakesBundle
+    {
+        static constexpr auto name = "wiring_contract_takes_bundle";
+
+        static void eval(In<"b", Bundle> b, Out<TS<Int>> out) { out.set(b.template field<"a">().value()); }
+    };
+
+    template <typename Left, typename Right>
+    struct SameBundlesGraph
+    {
+        static constexpr auto name = "wiring_contract_same_bundles";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            return wire<Same>(w, wire<MakeBundle<Left>>(w, v), wire<MakeBundle<Right>>(w, v)).template as<TS<Bool>>();
+        }
+    };
+
+    template <typename Declared, typename Supplied>
+    struct TakesBundleGraph
+    {
+        static constexpr auto name = "wiring_contract_takes_bundle_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            // An erased port: the supplied bundle is matched against the
+            // declared input when the call is wired, not at compile time.
+            const Port<void> supplied{w, wire<MakeBundle<Supplied>>(w, v).erased()};
+            return wire<TakesBundle<Declared>>(w, supplied);
+        }
+    };
+
     // WIRE-SPECIFICITY and WIRE-FAILURES: operators registered for these cases.
     struct pick_ : Operator<"wiring_contract_pick", In<"ts", TsVar<"S">>, Out<TS<Str>>>
     {
@@ -406,6 +453,17 @@ TEST_CASE("wiring contract: WIRE-REPEATED binds a repeated variable once, derefe
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<RepeatedGraph>(values<Int>(1)), values<Bool>(true));
     CHECK_THROWS(eval_node<RepeatedMismatchGraph>(values<Int>(1), values<Float>(1.0)));
+}
+
+TEST_CASE("wiring contract: WIRE-BUNDLE-IDENTITY counts names only when both bundles are named (WIR-15, WIR-17)")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT((eval_node<SameBundlesGraph<Foo, Unnamed>>(values<Int>(1))), values<Bool>(true));
+    CHECK_OUTPUT((eval_node<SameBundlesGraph<Foo, Foo>>(values<Int>(1))), values<Bool>(true));
+    CHECK_THROWS((eval_node<SameBundlesGraph<Foo, Bar>>(values<Int>(1))));
+    CHECK_OUTPUT((eval_node<TakesBundleGraph<Foo, Unnamed>>(values<Int>(1))), values<Int>(1));
+    CHECK_OUTPUT((eval_node<TakesBundleGraph<Unnamed, Foo>>(values<Int>(1))), values<Int>(1));
+    CHECK_THROWS((eval_node<TakesBundleGraph<Foo, Bar>>(values<Int>(1))));
 }
 
 TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate (WIR-16, WIR-18)")
