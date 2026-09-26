@@ -5,17 +5,19 @@ and are derived in [wiring cases](../../cases_wiring.md). The runtimes are
 unchanged by this record; the HGL correction it calls for lands separately
 and cites it.
 
-Twelve cases ran three times each, each run in a fresh process, on Python
-hgraph 0.5.41 and on the C++ runtime's Python surface at `main` @
-`dea948136`, on macOS arm64 with Python 3.14.7. Every repeat agreed. The HGL
-front end was observed on the same generic calls at the same revision.
+Fourteen cases ran three times each, each run in a fresh process, on Python
+hgraph 0.5.41 and on the C++ runtime's Python surface, on macOS arm64 with
+Python 3.14.7. Every repeat agreed. The C++ runtime was first observed at
+`main` @ `dea948136`, then again at this branch's `96d364e87` when the two
+failure cases were added; no earlier observation changed. The HGL front end
+was observed on the same generic calls at `dea948136`.
 
 | Result | Observations |
 |---|---:|
-| Reasoning matches both runtimes | 34 |
+| Reasoning matches both runtimes | 37 |
 | Reasoning matches C++ only; Python varies | 1 |
-| Reasoning matches Python only; C++ varies | 2 |
-| Reasoning matches neither runtime; the owner's ruling decides | 2 |
+| Reasoning matches Python only; C++ varies | 3 |
+| Reasoning matches neither runtime; the owner's ruling decides | 4 |
 | HGL front end matches | 1 |
 | HGL front end varies (WIR-14, WIR-22) | 5 |
 
@@ -30,6 +32,11 @@ as if it ended with `*args, **kwargs` (WIR-22 to WIR-24); the widening and
 extra-argument observations are asserted from that ruling. Both runtimes
 agree with each other against it on widening, so per
 [Conformance](../../conformance.md) the ruling decides: both vary (WV-6).
+
+The failure_report and caught_failure cases were added on 2026-09-26 from
+the owner's rulings on WIR-4: a failure fails the graph, even when the
+graph's code catches it, and the error says where and why. Their
+expectations were written from those rulings before they ran.
 
 Recorded, not asserted: the printed names of the bundles used as sources.
 They differ between the runtimes and no rule states them.
@@ -78,6 +85,9 @@ rule:
 | WV-5 | HGL front end, an implementation with a `const scale` parameter its operator does not declare, with a default and without one; WIR-22 | R + both runtimes (their candidates may add parameters): accepted | HGL rejects both: "implementation parameter count does not match its operator contract" |
 | WV-6 | operator_contract, a candidate accepting `TIME_SERIES_TYPE` for an operator declaring `TS[int]`; WIR-23, WIR-24 | Owner ruling: rejected when registered, so a `TS[float]` call fails | Both runtimes register it and select it for `TS[float]`: neither checks a candidate against its operator. HGL rejects it |
 | WV-7 | HGL front end, a call passing `scale=5.0`, which the operator does not declare; WIR-22 | R + both runtimes: accepted, the argument goes to the candidates | HGL binds a call's arguments against the operator's signature and rejects the extra one |
+| WV-8 | failure_report, the graph path; WIR-4 | Owner ruling: the error names the path of graph calls that led to the failed call, `failing_outer` then `_failing_inner` | Neither runtime names it. Both name the call, the argument's type and each candidate's reason. The C++ `Wiring` keeps the path (`current_wiring_path`) but passes it only to wiring observers |
+| WV-9 | failure_report, the operator's name; WIR-4 | R + Python: the error names `_only_int` | C++ names the operator by its registry name, `__pyop____main__._only_int_1` |
+| WV-10 | caught_failure; WIR-4 | Owner ruling: the graph fails to wire | Both runtimes let the graph's code catch the error and wire its fallback; the node the failed attempt added stays in the graph and runs. The Python port's own wiring layer relies on catching in three places: `hgraph.arrow`'s argument-shape retries, port attribute sugar (`port.year`) and `convert`'s target handlers |
 | WV-2 | HGL front end, `pass(value: ref<f64>)` and `pass(values: list<ref<f64>, 2>)`; WIR-14, WIR-7 | R + both runtimes: `T` binds `f64` and `list<f64, 2>` | HGL binds `ref<f64>` and `list<ref<f64>, 2>`: its generic inference (`GenericSubstitution::unify`) binds a variable to the argument as supplied. The emitted C++ still wires correctly, because the runtime resolves the emitted generic call, but HGL's own checker works from a different type than the graph it builds |
 
 WV-2 is corrected in the HGL compiler, citing WIR-14; the correction's tests

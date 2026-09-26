@@ -118,6 +118,64 @@
         "verdict": "both"
       }
     },
+    "caught_failure": {
+      "outcome": {
+        "cpp": "wires",
+        "expected": "fails",
+        "python": "wires",
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      }
+    },
+    "failure_report": {
+      "fails": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "gives_each_candidate_reason": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "names_the_argument_type": {
+        "cpp": true,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "both"
+      },
+      "names_the_graph_path": {
+        "cpp": false,
+        "expected": true,
+        "python": false,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "neither"
+      },
+      "names_the_operator": {
+        "cpp": false,
+        "expected": true,
+        "python": true,
+        "rules": [
+          "WIR-4"
+        ],
+        "verdict": "python"
+      }
+    },
     "generic_depth": {
       "bound": {
         "cpp": "TSD[str,TS[int]]",
@@ -560,11 +618,11 @@
     }
   },
   "totals": {
-    "both": 34,
+    "both": 37,
     "cpp": 1,
     "hgl:match": 1,
     "hgl:varies": 5,
-    "neither": 2,
-    "python": 2
+    "neither": 4,
+    "python": 3
   }
 }

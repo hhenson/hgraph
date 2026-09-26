@@ -1,5 +1,5 @@
 {
-  "candidate_revision": "dea948136",
+  "candidate_revision": "96d364e87",
   "cases": {
     "bundle_identity": {
       "cpp": {
@@ -17,6 +17,30 @@
         "same_name_repeat": "wires",
         "two_names_repeat": "fails",
         "unnamed_input_from_named": "wires"
+      }
+    },
+    "caught_failure": {
+      "cpp": {
+        "outcome": "wires"
+      },
+      "python": {
+        "outcome": "wires"
+      }
+    },
+    "failure_report": {
+      "cpp": {
+        "fails": true,
+        "gives_each_candidate_reason": true,
+        "names_the_argument_type": true,
+        "names_the_graph_path": false,
+        "names_the_operator": false
+      },
+      "python": {
+        "fails": true,
+        "gives_each_candidate_reason": true,
+        "names_the_argument_type": true,
+        "names_the_graph_path": false,
+        "names_the_operator": true
       }
     },
     "generic_depth": {

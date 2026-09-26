@@ -408,5 +408,51 @@
       ],
       "derivation": "With the wider candidate rejected, no candidate accepts TS[float]: the call fails."
     }
+  },
+  "failure_report": {
+    "fails": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "A call inside a graph inside a graph fails: the graph fails to wire."
+    },
+    "names_the_operator": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Where: the call, named as its author declared it (_only_int), not an internal name."
+    },
+    "names_the_argument_type": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Why: the argument's type, TS[str]."
+    },
+    "gives_each_candidate_reason": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Why: each candidate's reason for not matching, which names its parameter type TS[int]."
+    },
+    "names_the_graph_path": {
+      "expected": true,
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "Where: the path of graph calls that led to the call, failing_outer then _failing_inner."
+    }
+  },
+  "caught_failure": {
+    "outcome": {
+      "expected": "fails",
+      "rules": [
+        "WIR-4"
+      ],
+      "derivation": "The graph's own code catches the failed call's error and wires a fallback; the failure still fails the graph, since the node the failed attempt added cannot be undone."
+    }
   }
 }

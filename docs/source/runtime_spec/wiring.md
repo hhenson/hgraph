@@ -101,8 +101,8 @@ variables.
 
 A port's type is fixed when the port is made and never changes. A session
 is open until it produces its description. A call that fails fails the
-graph: it does not wire, and no description is produced (WIR-4). Whether
-author code may catch a failure and go on wiring is point to settle 5.
+graph: it does not wire, and the error says where and why (WIR-4). Catching
+the error does not reopen the session.
 
 ```mermaid
 stateDiagram-v2
@@ -148,8 +148,12 @@ flowchart TD
 - **WIR-4** A call that cannot be wired fails at that call, with an error
   that names the call and the reason. The call is not repaired: wiring never
   substitutes another candidate, drops an argument or skips the call. The
-  failure fails the graph: it does not wire, and no description is produced
-  (owner ruling 2026-09-26).
+  failure fails the graph: it does not wire, even when the graph's own
+  wiring code catches the error, because what the failed call already
+  wired cannot easily be undone (owner rulings 2026-09-26). The error says
+  where and why. Where: the call, named as its author declared it, and the
+  path of graph calls that led to it. Why: the arguments' types, and each
+  candidate's reason for not matching.
 - **WIR-5** Selecting a field of a bundle port, or an element of a
   fixed-size list port, by a name or index known at wiring time, is a
   **structural projection**: it adds no node and yields that part of the
@@ -350,6 +354,11 @@ rules and cases here as type resolution has.
   scope rather than by an argument.
 - **Wiring diagnostics**: labels and source locations carried into the
   description.
+- **Conditional wiring**: a test made while wiring (can this call be
+  wired?) that includes a block of wiring only when it passes, as Swift's
+  `#if` and `canImport` conditions include code (owner direction
+  2026-09-26). Since a failure cannot be caught (WIR-4), this is how a graph
+  chooses between two ways of wiring. It needs an RFC.
 - **Nested graphs**: `map_`, `switch_`, `reduce` and `mesh_` build their
   child graphs from the ports as supplied; they are library, not runtime
   (see [Overview](overview.md)).
@@ -375,13 +384,12 @@ Points to settle
 4. **HGL's map of references.** Settled 2026-09-26 (owner): HGL's
    `map<K, ref<V>>` is a map containing references, `TSD[K, REF[V]]`. There
    is no reference around the map itself.
-5. **A failure that author code catches.** Settled for a failure nothing
-   catches: the graph fails to wire (WIR-4; owner ruling 2026-09-26). Open:
-   wiring code may catch a failure and go on, as a fallback. A graph that
-   makes three calls, the third of which fails, has by then added the first
-   two calls' nodes; in C++ and the Python port the catch works and those
-   nodes stay in the description, consumed by nothing. Is catching a
-   supported pattern, and if so does a failed call remove what it added?
+5. **A failure that wiring code catches.** Settled 2026-09-26 (owner): a
+   wiring failure always fails the graph, even when the graph's own code
+   catches the error, because what the failed call already wired cannot
+   easily be undone. This is WIR-4. A choice between two ways of wiring is
+   made by an explicit test instead; that construct is deferred.
+
 6. **A candidate wider than the operator.** Settled 2026-09-26 (owner): a
    candidate cannot widen the operator it implements (WIR-23), and the check
    of WIR-24 rejects it.

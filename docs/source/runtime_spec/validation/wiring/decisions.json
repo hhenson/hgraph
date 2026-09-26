@@ -114,6 +114,36 @@
         "WIR-4"
       ],
       "note": "A failure that author code catches (a fallback) remains point to settle 5."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Does a graph that fails to wire produce anything?",
+      "ruling": "It fails; that does not mean there should not be a good description of where and why.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Where: the call and the path of graph calls that led to it. Why: the arguments' types and each candidate's reason. Case failure_report."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "May a graph's own wiring code catch a wiring failure and wire something else instead?",
+      "ruling": "The idea feels like: test -> can this be done, yes do it, no don't do it. To support the kind of behaviour we should instead follow something along the lines of Swift, where it allows for tests to be performed to optionally include blocks based on things such as OS level etc.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Recorded under Deferred as conditional wiring; it needs an RFC."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Should a caught wiring failure still fail the graph?",
+      "ruling": "We should always fail when the graph fails to wire, because it is not possible to easily clean up partial consequences of wiring.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "Settles point 5. Case caught_failure."
     }
   ]
 }

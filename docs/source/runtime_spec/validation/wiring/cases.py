@@ -300,6 +300,52 @@ def operator_failures():
     }
 
 
+@graph
+def _failing_inner(s: TS[str]) -> TS[str]:
+    return _only_int(s)
+
+
+def failure_report():
+    """WIR-4: a failed call fails the graph, and the error says where and why."""
+
+    @graph
+    def failing_outer(s: TS[str]) -> TS[str]:
+        return _failing_inner(s)
+
+    try:
+        eval_node(failing_outer, ["x"])
+    except Exception as error:  # noqa: BLE001 - the observation is the error's text
+        message = str(error)
+    else:
+        return {"fails": False}
+    outer, inner = message.find("failing_outer"), message.find("_failing_inner")
+    return {
+        "fails": True,
+        "names_the_operator": re.search(r"(?<![\w.])_only_int(?!\w)", message) is not None,
+        "names_the_argument_type": "TS[str]" in message,
+        "gives_each_candidate_reason": "TS[int]" in message,
+        "names_the_graph_path": 0 <= outer < inner,
+    }
+
+
+def caught_failure():
+    """WIR-4: a failure the graph's own code catches still fails the graph."""
+
+    @graph
+    def attempt(s: TS[str]) -> TS[str]:
+        hg.null_sink(s)
+        return _only_int(s)
+
+    @graph
+    def g(s: TS[str]) -> TS[str]:
+        try:
+            return attempt(s)
+        except hg.WiringError:
+            return s
+
+    return {"outcome": "fails" if _raises(lambda: eval_node(g, ["x"])) else "wires"}
+
+
 @compute_node
 def _same(a: TIME_SERIES_TYPE, b: TIME_SERIES_TYPE) -> TS[bool]:
     return True
@@ -492,6 +538,8 @@ CASES = {
         projection_through_ref,
         operator_specificity,
         operator_failures,
+        failure_report,
+        caught_failure,
         repeated_variable,
         bundle_identity,
         operator_contract,

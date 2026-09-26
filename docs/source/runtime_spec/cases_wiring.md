@@ -128,6 +128,24 @@ one, and a reference adds no specificity.
 | An operator with two `TS[int]` candidates, called with `TS[int]` | fails (ambiguous) |
 | An operator with only a `TS[int]` candidate, called with `TS[str]` | fails (no candidate) |
 
+A graph `failing_outer` calls a graph `_failing_inner`, which calls that
+operator, `_only_int`, with `TS[str]`. The graph fails to wire, and the
+error says:
+
+| Observation | Expected |
+|---|---|
+| The operator, as declared (`_only_int`) | named |
+| The argument's type, `TS[str]` | named |
+| The candidate's parameter type, `TS[int]` | named |
+| The graph path, `failing_outer` then `_failing_inner` | named |
+
+A graph `g` calls a graph `attempt`, which adds a node and then makes that
+failing call. `g` catches the error and returns its input instead.
+
+| Observation | Expected |
+|---|---|
+| Wiring `g` | fails: a caught failure still fails the graph |
+
 ## WIRE-REPEATED — WIR-7, WIR-17
 
 A node `_same(a: TIME_SERIES_TYPE, b: TIME_SERIES_TYPE)`.
