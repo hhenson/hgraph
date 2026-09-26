@@ -467,3 +467,28 @@ TEST_CASE("wiring contract: a failure names the operator, the reasons and the wi
     CHECK_THROWS_WITH(compile_subgraph<FailingInnerGraph>(),
                       Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_failing_inner"));
 }
+
+namespace
+{
+    // A C++ operator supplied to map_ compiles as a child graph.
+    struct MapsOnlyIntGraph
+    {
+        static constexpr auto name = "wiring_contract_maps_only_int";
+        static Port<TSD<Str, TS<Str>>> compose(Wiring &w)
+        {
+            auto v = wire<stdlib::nothing, TSD<Str, TS<Str>>>(w);
+            return wire<stdlib::map_>(w, fn<only_int_>(), v).as<TSD<Str, TS<Str>>>();
+        }
+    };
+}  // namespace
+
+TEST_CASE("wiring contract: a callable's child graph names itself when unobserved (WIR-4)")
+{
+    stdlib::register_standard_operators();
+    register_case_operators();
+    // The callable's own failure is on its path, and the call that supplied it
+    // on the calling graph's.
+    CHECK_THROWS_WITH(eval_node<MapsOnlyIntGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_only_int") &&
+                          Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_maps_only_int"));
+}

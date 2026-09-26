@@ -1812,7 +1812,9 @@ WiringPathScope::WiringPathScope(Wiring &wiring, std::string label)
 }
 
 WiringPathScope::~WiringPathScope() noexcept {
-  if (!wiring_->impl_->wiring_path.empty()) {
+  // The wiring may have been moved (finish / finish_subgraph) while the
+  // scope was open; a moved-from wiring has no path left to pop.
+  if (wiring_->impl_ != nullptr && !wiring_->impl_->wiring_path.empty()) {
     wiring_->impl_->wiring_path.pop_back();
   }
 }

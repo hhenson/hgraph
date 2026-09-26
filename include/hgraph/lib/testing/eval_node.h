@@ -574,14 +574,16 @@ namespace hgraph::testing
             };
 
             // The graph under test holds its label on the wiring path, as
-            // build_graph's does, so a failure names it (runtime spec WIR-4).
-            auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+            // build_graph's does, until its wiring is finished, so a failure
+            // anywhere in it names it (runtime spec WIR-4).
+            GraphBuilder gb = [&] {
                 const WiringPathScope path{w, static_node_detail::diagnostic_name<GraphT>()};
-                return GraphT::compose(w, wire_arg.template operator()<I>()...);
-            }(std::make_index_sequence<sig::param_count()>{});
-
-            ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"});
-            GraphBuilder gb = std::move(w).finish();
+                auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    return GraphT::compose(w, wire_arg.template operator()<I>()...);
+                }(std::make_index_sequence<sig::param_count()>{});
+                ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"});
+                return std::move(w).finish();
+            }();
             label_if_named<GraphT>(gb);
 
             GraphExecutorBuilder eb;
@@ -638,23 +640,26 @@ namespace hgraph::testing
             };
 
             // The graph under test holds its label on the wiring path, as
-            // build_graph's does, so a failure names it (runtime spec WIR-4).
-            auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+            // build_graph's does, until its wiring is finished, so a failure
+            // anywhere in it names it (runtime spec WIR-4).
+            GraphBuilder gb = [&] {
                 const WiringPathScope path{w, static_node_detail::diagnostic_name<GraphT>()};
-                return GraphT::compose(w, wire_arg.template operator()<I>()...);
-            }(std::make_index_sequence<sig::param_count()>{});
+                auto out_port = [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    return GraphT::compose(w, wire_arg.template operator()<I>()...);
+                }(std::make_index_sequence<sig::param_count()>{});
 
-            if (sparse_output)
-            {
-                wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"},
-                                                arg<"sparse">(true));
-            }
-            else
-            {
-                if constexpr (std::is_void_v<out_schema>) { wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"}); }
-                else { ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"}); }
-            }
-            GraphBuilder gb = std::move(w).finish();
+                if (sparse_output)
+                {
+                    wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"},
+                                                    arg<"sparse">(true));
+                }
+                else
+                {
+                    if constexpr (std::is_void_v<out_schema>) { wire<stdlib::dense_record_impl>(w, out_port, std::string{"eval_node::out"}); }
+                    else { ts_harness<out_schema>::wire_record(w, out_port, std::string{"eval_node::out"}); }
+                }
+                return std::move(w).finish();
+            }();
             label_if_named<GraphT>(gb);
 
             // Pass 2: seed each Port parameter's replay buffer; track the longest input.
