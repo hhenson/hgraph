@@ -2253,7 +2253,11 @@ namespace hgl::ir
                     if (is_type_pack(candidate.signature.parameters[index].type, candidate.generics)) { continue; }
                     const TypeId parameter = bindings.apply(candidate.signature.parameters[index].type);
                     for (ExprId argument : arguments.parameters[index]) {
-                        if (argument.valid() && !same(parameter, module_.expr(argument).type)) { return false; }
+                        // A parameter matches its argument ignoring references
+                        // (runtime spec WIR-6): inference bound it without them.
+                        if (argument.valid() && !canonical_types_.same_ignoring_references(parameter, module_.expr(argument).type)) {
+                            return false;
+                        }
                     }
                 }
                 if (substitutions != nullptr) {

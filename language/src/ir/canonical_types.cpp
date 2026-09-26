@@ -339,6 +339,40 @@ namespace hgl::ir::detail
         return changed ? intern(std::move(value)) : id;
     }
 
+    bool CanonicalTypes::satisfies_request(TypeId requested, TypeId produced) const noexcept {
+        requested = canonical(requested);
+        produced  = canonical(produced);
+        if (same(requested, produced)) { return true; }
+        if (!requested.valid() || !produced.valid()) { return false; }
+        const Type &want = module_.type(requested);
+        const Type &have = module_.type(produced);
+        const bool  want_ref = want.kind == TypeKind::Reference && want.children.size() == 1U;
+        const bool  have_ref = have.kind == TypeKind::Reference && have.children.size() == 1U;
+        if (want_ref && have_ref) { return satisfies_request(want.children.front(), have.children.front()); }
+        if (want_ref) { return satisfies_request(want.children.front(), produced); }
+        if (have_ref) { return false; }
+        if (want.kind != have.kind || want.scalar != have.scalar || want.symbol != have.symbol ||
+            want.children.size() != have.children.size() || want.arguments.size() != have.arguments.size() ||
+            want.unbounded != have.unbounded || !same_value(want.size, have.size) ||
+            !same_value(want.min_size, have.min_size)) {
+            return false;
+        }
+        for (std::size_t index = 0; index < want.children.size(); ++index) {
+            if (!satisfies_request(want.children[index], have.children[index])) { return false; }
+        }
+        for (std::size_t index = 0; index < want.arguments.size(); ++index) {
+            const TypeArgument &a = want.arguments[index];
+            const TypeArgument &b = have.arguments[index];
+            if (a.kind != b.kind) { return false; }
+            if (a.kind == TypeArgumentKind::Type) {
+                if (!satisfies_request(a.type, b.type)) { return false; }
+            } else if (!same_value(a.value, b.value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool CanonicalTypes::same_value(ExprId lhs, ExprId rhs) const { return value_key(lhs) == value_key(rhs); }
 
     std::string CanonicalTypes::name(TypeId id) const {

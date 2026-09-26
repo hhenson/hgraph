@@ -1463,6 +1463,54 @@ fn forwarded(value: ref<f64>) -> ref<f64> => wrap(value)
     CHECK(bindings_of(lowered, "checks.reference_pattern.wrap") == std::vector<std::string>{"f64"});
 }
 
+TEST_CASE("typed HIR selects a materialized local candidate for a reference argument (runtime spec WIR-6, WIR-7)",
+          "[ir][typed][generics][operators][ref]") {
+    // T binds f64 from ref<f64>; the candidate's f64 parameter then matches
+    // the argument ignoring references, so the call is not left deferred.
+    Lowered lowered{R"(
+module checks.local_reference_candidate
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<f64>
+
+fn choose_ref(value: ref<f64>) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (std::holds_alternative<hir::Call>(expression.node) && expression.operation.identity.find("choose") != std::string::npos) {
+            CHECK_FALSE(expression.operation.deferred);
+        }
+    }
+}
+
+TEST_CASE("typed HIR requirements reject a candidate that adds a reference to the requested result (runtime spec WIR-12)",
+          "[ir][typed][constraints][operators][ref]") {
+    // The request is a plain T; an implementation producing ref<f64> cannot
+    // produce it, as the runtime's directional output matching decides.
+    Lowered lowered{R"(
+module checks.requested_result_reference
+
+operator wrap<T>(value: T) -> ref<T>
+impl fn wrap(value: f64) -> ref<f64> => value
+
+fn keep<T>(value: T) -> T
+requires wrap(T) -> T
+=> value
+
+fn apply(value: f64) -> f64 => keep(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("operator requirement has no implementation") != std::string::npos);
+}
+
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
     Lowered lowered{R"(
 module checks.constraints

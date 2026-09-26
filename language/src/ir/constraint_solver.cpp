@@ -810,8 +810,10 @@ namespace hgl::ir::detail
                     candidate_substitution.apply(candidate->signature.parameters[index].type), query.arguments[index].type);
             }
             if (matches && query.expected_result.valid()) {
-                matches = types_.same_ignoring_references(candidate_substitution.apply(candidate->signature.result),
-                                                          query.expected_result);
+                // Output matching is directional (runtime spec WIR-12): a
+                // candidate may not add a reference the request lacks.
+                matches = types_.satisfies_request(query.expected_result,
+                                                   candidate_substitution.apply(candidate->signature.result));
             }
             if (matches) {
                 matches = solve(candidate->requirements, candidate_substitution, {}, "implementation", false, premises);
