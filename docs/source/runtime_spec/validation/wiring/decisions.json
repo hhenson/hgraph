@@ -104,6 +104,16 @@
         "WIR-22"
       ],
       "note": "A declared optional parameter may be absent from a candidate. The C++ declaration cleanup and the registration check follow (WV-6)."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "If a call fails part-way through wiring (a graph function whose later call fails), what happens?",
+      "ruling": "If a graph function fails whilst wiring a graph, the graph fails to wire.",
+      "rules": [
+        "WIR-4"
+      ],
+      "note": "A failure that author code catches (a fallback) remains point to settle 5."
     }
   ]
 }

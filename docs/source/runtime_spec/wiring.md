@@ -100,15 +100,18 @@ variables.
 ### State
 
 A port's type is fixed when the port is made and never changes. A session
-is open until it produces its description. A call that fails (WIR-4) fails
-alone; it does not close the session (point to settle 6).
+is open until it produces its description. A call that fails fails the
+graph: it does not wire, and no description is produced (WIR-4). Whether
+author code may catch a failure and go on wiring is point to settle 5.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Open
-    Open --> Open : a call succeeds, or fails (WIR-4)
+    Open --> Open : a call succeeds
+    Open --> Failed : a call fails (WIR-4)
     Open --> Described : wiring completes
     Described --> [*]
+    Failed --> [*]
 ```
 
 ### Behaviour
@@ -144,7 +147,9 @@ flowchart TD
   callee's scalars (GRF-8).
 - **WIR-4** A call that cannot be wired fails at that call, with an error
   that names the call and the reason. The call is not repaired: wiring never
-  substitutes another candidate, drops an argument or skips the call.
+  substitutes another candidate, drops an argument or skips the call. The
+  failure fails the graph: it does not wire, and no description is produced
+  (owner ruling 2026-09-26).
 - **WIR-5** Selecting a field of a bundle port, or an element of a
   fixed-size list port, by a name or index known at wiring time, is a
   **structural projection**: it adds no node and yields that part of the
@@ -370,12 +375,13 @@ Points to settle
 4. **HGL's map of references.** Settled 2026-09-26 (owner): HGL's
    `map<K, ref<V>>` is a map containing references, `TSD[K, REF[V]]`. There
    is no reference around the map itself.
-5. **What a failed call leaves behind.** A call can fail after part of its
-   work is done: a graph that makes three calls, the third of which fails,
-   has already added the first two calls' nodes. In C++ the caller can catch
-   the error and keep wiring, and those nodes stay in the description.
-   Should a failed call remove what it added, so that a caught failure
-   leaves the description as it was?
+5. **A failure that author code catches.** Settled for a failure nothing
+   catches: the graph fails to wire (WIR-4; owner ruling 2026-09-26). Open:
+   wiring code may catch a failure and go on, as a fallback. A graph that
+   makes three calls, the third of which fails, has by then added the first
+   two calls' nodes; in C++ and the Python port the catch works and those
+   nodes stay in the description, consumed by nothing. Is catching a
+   supported pattern, and if so does a failed call remove what it added?
 6. **A candidate wider than the operator.** Settled 2026-09-26 (owner): a
    candidate cannot widen the operator it implements (WIR-23), and the check
    of WIR-24 rejects it.
