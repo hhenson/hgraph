@@ -1,0 +1,27 @@
+{
+  "_about": "Owner rulings behind the Wiring chapter. A ruling keeps the question it answered.",
+  "rulings": [
+    {
+      "date": "2026-09-24",
+      "issue": "#847",
+      "question": "debug_print over a map_-shaped TSD[str, REF[TS[int]]] printed reference tokens and missed value ticks. Should a generic parameter ever bind a reference?",
+      "ruling": "WHENEVER resolving a generic, we de-reference everything. If the code depends on REF it must express that.",
+      "rules": ["WIR-7", "WIR-8", "WIR-9"]
+    },
+    {
+      "date": "2026-09-24",
+      "issue": "#847",
+      "question": "Should getitem_ work on references rather than values?",
+      "ruling": "Be explicit and always deal with ref.",
+      "rules": ["WIR-13"],
+      "note": "Applied to the structural projections (TSB getitem_ / getattr_). Selection by a key known only at run time is point to settle 3."
+    },
+    {
+      "date": "2026-09-26",
+      "issue": null,
+      "question": "Where do the wiring rules live, so that HGL and the runtime keep in line?",
+      "ruling": "Extend the runtime specification with the wiring rules, following the same pattern as the rest of the runtime.",
+      "rules": ["WIR-1", "WIR-14"]
+    }
+  ]
+}

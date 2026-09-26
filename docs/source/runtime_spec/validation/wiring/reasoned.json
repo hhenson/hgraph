@@ -1,0 +1,254 @@
+{
+  "_about": "Expectations for the wiring cases, derived from the Wiring chapter's rules before either runtime was run. Types are normalised (whitespace removed). An observation listed under 'recorded' is kept as context, not asserted.",
+  "generic_depth": {
+    "source": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [],
+      "derivation": "Premise: tsl_to_tsd publishes a reference per key (a map_-shaped output)."
+    },
+    "bound": {
+      "expected": "TSD[str,TS[int]]",
+      "rules": [
+        "WIR-7"
+      ],
+      "derivation": "A variable bound from an argument binds its type with every reference removed, at every depth."
+    },
+    "values": {
+      "expected": [
+        "a=1,b=2,c=3",
+        "a=1,b=30,c=3"
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The generic input observes values: it follows each element's reference and ticks when a referenced value ticks (b becomes 30 at the second cycle)."
+    }
+  },
+  "generic_top": {
+    "source": {
+      "expected": "REF[TS[int]]",
+      "rules": [],
+      "derivation": "Premise: _to_ref publishes REF[TS[int]]."
+    },
+    "bound": {
+      "expected": "TS[int]",
+      "rules": [
+        "WIR-7"
+      ],
+      "derivation": "The top-level reference is removed like any other."
+    },
+    "values": {
+      "expected": [
+        "1",
+        "2"
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The generic input follows the reference and sees each value tick."
+    }
+  },
+  "ref_pattern": {
+    "bound_below_ref": {
+      "expected": "REF[TSD[str,TS[int]]]",
+      "rules": [
+        "WIR-10",
+        "WIR-7"
+      ],
+      "derivation": "The variable binds beneath the declared REF; below it, references are removed (the element REFs go)."
+    },
+    "receives_reference": {
+      "expected": [
+        true
+      ],
+      "rules": [
+        "WIR-10",
+        "WIR-6"
+      ],
+      "derivation": "A REF input bound to a value output receives a reference to that output (Time-series types: interchangeable at a binding)."
+    }
+  },
+  "stated_resolution": {
+    "stated_nested": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [
+        "WIR-11"
+      ],
+      "derivation": "A stated resolution keeps its references; the supplied port is that type as supplied."
+    },
+    "stated_top": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-11"
+      ],
+      "derivation": "Likewise for a top-level reference."
+    }
+  },
+  "requested_output": {
+    "nested": {
+      "expected": "TSD[str,REF[TS[int]]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "A bare output variable binds the requested type as requested, a REF at any depth kept."
+    },
+    "top": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "Likewise for a top-level reference."
+    },
+    "plain": {
+      "expected": "TSD[str,TS[int]]",
+      "rules": [
+        "WIR-12"
+      ],
+      "derivation": "A request without references is produced as requested."
+    }
+  },
+  "projection": {
+    "recorded": [
+      "bundle"
+    ],
+    "by_key": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "Selecting a declared field is a structural projection: it resolves no variable and keeps the field's type as supplied."
+    },
+    "by_attribute": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "The attribute spelling is the same projection."
+    },
+    "by_getattr": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5",
+        "WIR-13"
+      ],
+      "derivation": "getattr_ with a name known at wiring is the same projection."
+    },
+    "plain_by_key": {
+      "expected": "TS[int]",
+      "rules": [
+        "WIR-5"
+      ],
+      "derivation": "A field without a reference projects as declared."
+    },
+    "values": {
+      "expected": [
+        1,
+        2
+      ],
+      "rules": [
+        "WIR-8",
+        "TS-17"
+      ],
+      "derivation": "The TS[int] graph output follows the projected reference and sees each value tick."
+    }
+  },
+  "projection_through_ref": {
+    "recorded": [
+      "bundle"
+    ],
+    "field": {
+      "expected": "REF[TS[int]]",
+      "rules": [
+        "WIR-5"
+      ],
+      "derivation": "A field beneath a reference is only known at run time: a node publishes a reference to it."
+    },
+    "values": {
+      "expected": [
+        1,
+        null
+      ],
+      "rules": [
+        "TS-15",
+        "TS-17"
+      ],
+      "derivation": "When the condition turns false the true field's reference becomes empty: the follower unbinds, which does not tick."
+    }
+  },
+  "operator_specificity": {
+    "selected": {
+      "expected": [
+        "int",
+        "generic",
+        "tsl-generic",
+        "int"
+      ],
+      "rules": [
+        "WIR-15",
+        "WIR-17",
+        "WIR-6"
+      ],
+      "derivation": "Concrete beats a variable; a variable inside a structure beats a bare one; a reference adds no specificity, so REF[TS[int]] selects the TS[int] candidate."
+    }
+  },
+  "operator_failures": {
+    "ambiguous_raises": {
+      "expected": true,
+      "rules": [
+        "WIR-15",
+        "WIR-4"
+      ],
+      "derivation": "Two equally specific candidates: the call fails as ambiguous."
+    },
+    "no_candidate_raises": {
+      "expected": true,
+      "rules": [
+        "WIR-15",
+        "WIR-4"
+      ],
+      "derivation": "No candidate matches: the call fails."
+    }
+  },
+  "repeated_variable": {
+    "ref_and_value_values": {
+      "expected": [
+        true
+      ],
+      "rules": [
+        "WIR-7",
+        "WIR-16"
+      ],
+      "derivation": "REF[TS[int]] and TS[int] both bind the variable to TS[int]: one binding."
+    },
+    "different_types_raise": {
+      "expected": true,
+      "rules": [
+        "WIR-16",
+        "WIR-4"
+      ],
+      "derivation": "TS[int] then TS[float] cannot bind one variable: the call fails."
+    }
+  },
+  "hgl_front_end": {
+    "through_ref": {
+      "expected": "f64",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "derivation": "The same call wired by the runtime binds the variable to the argument's type with the reference removed; HGL must reach that binding."
+    },
+    "through_list": {
+      "expected": "list<f64>",
+      "rules": [
+        "WIR-14",
+        "WIR-7"
+      ],
+      "derivation": "Likewise at depth: the element references are removed."
+    }
+  }
+}
