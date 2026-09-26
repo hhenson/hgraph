@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- An operator call may pass arguments its contract does not declare
+  (runtime spec Wiring, WIR-22; the variation WV-7). Every operator behaves
+  as if its signature ended with `*args, **kwargs`. The extra arguments go
+  to the implementations: positional ones in order after the contract's
+  parameters, keywords by name. An implementation without a parameter for
+  one does not match. An extra that no implementation of a module's own
+  operator accepts is an error naming the operator and the argument.
+  Generated C++ passes every argument to the runtime. The compiler used to
+  reject the argument ("unknown parameter", or "too many positional
+  arguments").
+- An operator implementation may extend its contract (runtime spec Wiring,
+  WIR-22): after the contract's parameters it may declare more, with or
+  without defaults. A call through the contract uses a default; an
+  implementation whose extra parameter has no default does not match a call
+  that omits it. The compiler used to reject any implementation whose
+  parameter count differed from the contract's.
+- Accept `map<K, ref<V>>` as a map containing references, lowered to
+  `TSD[K, REF[V]]` with no reference around the map (owner ruling
+  2026-09-26). The compiler previously rejected the form pending that
+  ruling; the mapping recorded during the discussion,
+  `REF[TSD[K, REF[V]]]`, is withdrawn. Nested `ref<ref<T>>` stays rejected.
+- Infer a generic's type parameter from an argument with every `ref` removed,
+  at every depth, as the runtime does (runtime spec Wiring, WIR-7 and
+  WIR-14): `pass<T>(value: T)` given a `ref<f64>` binds `T` to `f64`, not
+  `ref<f64>`. A `ref` in the parameter's own type binds beneath it; a call's
+  expected result binds a whole-result type parameter no argument bound;
+  contract conformance still compares declared types exactly. A program that
+  was rejected because inference formed `ref<ref<T>>` (for example
+  `wrap<T>(value: T) -> ref<T>` given a reference) now binds `T` beneath the
+  reference and is accepted.
 - Document recursive struct fields (ADR 0012): the user guide's "Recursive
   fields" section, and `examples/recursive-fields.hgl`, a linked list and a
   generic tree whose `test` blocks run under `hgl test` and again on the

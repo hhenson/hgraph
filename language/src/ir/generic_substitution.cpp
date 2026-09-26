@@ -119,20 +119,48 @@ namespace hgl::ir::detail
         return types_.same_value(pattern, actual);
     }
 
-    bool GenericSubstitution::unify(TypeId pattern, TypeId actual) {
+    bool GenericSubstitution::unify(TypeId pattern, TypeId actual) { return unify_as(pattern, actual, Inference::Exact); }
+
+    bool GenericSubstitution::infer_from_argument(TypeId pattern, TypeId actual) {
+        return unify_as(pattern, actual, Inference::Argument);
+    }
+
+    bool GenericSubstitution::infer_from_result(TypeId pattern, TypeId actual) {
+        // The whole result is a type parameter: the requested type is stated,
+        // references included. Anything structural binds its parts as an
+        // argument's would.
+        if (type_parameter(pattern)) { return unify_as(pattern, actual, Inference::Exact); }
+        return unify_as(pattern, actual, Inference::Argument);
+    }
+
+    bool GenericSubstitution::type_parameter(TypeId id) const {
+        id = types_.canonical(id);
+        if (!id.valid()) { return false; }
+        const Type &type = module_.type(id);
+        return type.kind == TypeKind::Symbol && type.symbol.valid() &&
+               module_.symbol(type.symbol).kind == SymbolKind::TypeParameter;
+    }
+
+    bool GenericSubstitution::unify_as(TypeId pattern, TypeId actual, Inference inference) {
         pattern = types_.canonical(pattern);
         actual  = types_.canonical(actual);
         if (!pattern.valid() || !actual.valid()) { return false; }
+        if (type_parameter(pattern)) {
+            const SymbolId parameter = module_.type(pattern).symbol;
+            if (inference == Inference::Exact) { return bind_type(parameter, actual); }
+            // WIR-11: bound up front, the parameter matches the argument as
+            // supplied. WIR-7: otherwise it binds the argument's type with
+            // every reference removed.
+            if (const auto bound = type_binding(parameter); bound && types_.same(*bound, actual)) { return true; }
+            return bind_type(parameter, types_.without_references(actual));
+        }
         const Type &lhs = module_.type(pattern);
         const Type &rhs = module_.type(actual);
-        if (lhs.kind == TypeKind::Symbol && lhs.symbol.valid() && module_.symbol(lhs.symbol).kind == SymbolKind::TypeParameter) {
-            return bind_type(lhs.symbol, actual);
-        }
         if (lhs.kind == TypeKind::Reference && rhs.kind != TypeKind::Reference && lhs.children.size() == 1U) {
-            return unify(lhs.children.front(), actual);
+            return unify_as(lhs.children.front(), actual, inference);
         }
         if (rhs.kind == TypeKind::Reference && lhs.kind != TypeKind::Reference && rhs.children.size() == 1U) {
-            return unify(pattern, rhs.children.front());
+            return unify_as(pattern, rhs.children.front(), inference);
         }
         if (lhs.kind != rhs.kind || lhs.scalar != rhs.scalar || lhs.symbol != rhs.symbol ||
             lhs.children.size() != rhs.children.size() || lhs.arguments.size() != rhs.arguments.size() ||
@@ -140,14 +168,14 @@ namespace hgl::ir::detail
             return types_.assignable(pattern, actual);
         }
         for (std::size_t index = 0; index < lhs.children.size(); ++index) {
-            if (!unify(lhs.children[index], rhs.children[index])) { return false; }
+            if (!unify_as(lhs.children[index], rhs.children[index], inference)) { return false; }
         }
         for (std::size_t index = 0; index < lhs.arguments.size(); ++index) {
             const TypeArgument &a = lhs.arguments[index];
             const TypeArgument &b = rhs.arguments[index];
             if (a.kind != b.kind) { return false; }
             if (a.kind == TypeArgumentKind::Type) {
-                if (!unify(a.type, b.type)) { return false; }
+                if (!unify_as(a.type, b.type, inference)) { return false; }
             } else if (!unify_value(a.value, b.value)) {
                 return false;
             }

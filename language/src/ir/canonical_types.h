@@ -31,6 +31,14 @@ namespace hgl::ir::detail
         [[nodiscard]] bool        boolean(hir::TypeId id) const noexcept;
         [[nodiscard]] bool        assignable(hir::TypeId expected, hir::TypeId actual) const noexcept;
         [[nodiscard]] bool        same_ignoring_references(hir::TypeId lhs, hir::TypeId rhs) const noexcept;
+        /// `id` with every `ref<>` removed, at every depth: the type a generic
+        /// parameter binds from an argument (runtime spec WIR-7).
+        [[nodiscard]] hir::TypeId without_references(hir::TypeId id);
+        /// Whether a candidate producing `produced` satisfies a request for
+        /// `requested`, as the runtime's output matching decides: the request
+        /// may hold a reference the result lacks (it is followed), but the
+        /// result may not add a reference the request lacks.
+        [[nodiscard]] bool satisfies_request(hir::TypeId requested, hir::TypeId produced) const noexcept;
         [[nodiscard]] bool        same_value(hir::ExprId lhs, hir::ExprId rhs) const;
         [[nodiscard]] std::string name(hir::TypeId id) const;
 

@@ -248,8 +248,7 @@ Status: partially implemented. Explicit `ref<T>` signatures, transparent
 underlying-type compatibility, opaque node access, forwarding, and fixed-list
 reference selection are available. Wiring-time access through a reference and
 imported native types remain compiler work. See
-[Type extensions](../design/type-extensions.md) for the complete agreement and
-the collection-reference mapping still under discussion.
+[Type extensions](../design/type-extensions.md) for the complete agreement.
 
 Imported C++ and Python types are scalar values, like `i64`, `f64`, and `str`.
 They are atomic leaves in a temporal signature, require no `atomic` annotation,
@@ -268,6 +267,13 @@ The user or component designer specifies `ref` to express an intention to
 pass through a time series without observing or interacting with its values.
 It is not the default form of a connection. A conditional branch can forward
 an existing connection without copying its values.
+
+A generic does not pick up a reference by accident. Given a `ref<f64>`, a
+`fn pass<T>(value: T) -> T` binds `T` to `f64` and its input sees the values;
+given a `list<ref<f64>, 2>`, `T` is `list<f64, 2>`. A generic receives a
+reference only where its own signature writes `ref`, as in
+`fn route<T>(values: list<ref<T>, 3>) -> ref<T>`. See
+[Generic inference through references](../design/type-extensions.md#generic-inference-through-references).
 See [forwarding an existing binding](../design/control-flow.md#forwarding-an-existing-binding).
 
 Inside a node, a reference is opaque and ticks only when its binding changes.
@@ -285,8 +291,9 @@ index changes and selected-reference rebinding. See the
 
 The executable form is in
 [`examples/reference-routing.hgl`](../../examples/reference-routing.hgl). The
-compiler rejects `map<K, ref<V>>` until its outer-reference rule is settled,
-and rejects nested `ref<ref<T>>` rather than normalizing it implicitly.
+`map<K, ref<V>>` is a map containing references, `TSD[K, REF[V]]`, with no
+reference around the map. The compiler rejects nested `ref<ref<T>>` rather
+than normalizing it implicitly.
 
 ## `signal` inputs
 
