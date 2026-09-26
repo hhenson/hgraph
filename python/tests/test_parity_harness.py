@@ -3885,7 +3885,8 @@ def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
         "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
         "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
         "eighteen": 18, "nineteen": 19, "twenty": 20, "twenty-one": 21,
-        "twenty-two": 22,
+        "twenty-two": 22, "twenty-three": 23, "twenty-four": 24,
+        "twenty-five": 25,
     }
     stated = re.search(r"The ([\w-]+) accepted here are", text)
     assert stated is not None, "the matrix no longer states a count"
@@ -4257,6 +4258,58 @@ def test_unordered_member_text_family_admits_only_a_reordering():
     assert not classify(["set()"], ["{}"])
     # Unparseable renderings stay reportable.
     assert not classify(["{'a': datetime.date(2020, 1, 1)}"], ["{'a': 2020-01-01}"])
+
+
+def test_unpartition_removes_partition_keys_family_admits_only_the_owned_removal():
+    """Owner ruling 2026-09-26 (runtime spec OP-12): removing a partition
+    removes the keys it owns; released hgraph keeps them."""
+    families = _family_named("unpartition-removes-partition-keys")
+    recipe = {
+        "template": "tsd_operator",
+        "parameters": {"operation": "unpartition"},
+        "inputs": {"ts": [
+            {"x": {"a": 1}, "y": {"b": 2}},
+            {"x": {"a": {"$remove": True}, "c": 3}},
+            {"y": {"$remove": True}},
+        ]},
+    }
+
+    def classify(reference_trace, candidate_trace, source=recipe):
+        return _classify(
+            source,
+            {"status": "ok", "trace": reference_trace},
+            {"status": "ok", "trace": candidate_trace},
+            families,
+        )
+
+    remove = {"$remove": True}
+    earlier = [{"$map": [["a", 1], ["b", 2]]}, {"$map": [["a", remove], ["c", 3]]}]
+    # coverage-tsd-unpartition: y owned b, so b leaves with y.
+    assert classify([*earlier, None], [*earlier, {"$map": [["b", remove]]}])
+    # x still owns c: removing c, or anything but y's keys, is a defect.
+    assert not classify([*earlier, None], [*earlier, {"$map": [["c", remove]]}])
+    assert not classify([*earlier, None], [*earlier, {"$map": [["b", remove], ["c", remove]]}])
+    # A difference at a tick that removes no partition is a defect.
+    assert not classify([*earlier, None], [earlier[0], {"$map": [["c", 3]]}, {"$map": [["b", remove]]}])
+    # Outside unpartition the family does not apply.
+    other = dict(recipe, parameters={"operation": "flip"})
+    assert not classify([*earlier, None], [*earlier, {"$map": [["b", remove]]}], source=other)
+    # A key another partition republished in the same tick stays.
+    moved = dict(recipe, inputs={"ts": [
+        {"x": {"a": 1}, "y": {"b": 2}},
+        {"y": {"$remove": True}, "x": {"b": 5}},
+    ]})
+    first = {"$map": [["a", 1], ["b", 2]]}
+    assert not classify([first, {"$map": [["b", 5]]}], [first, {"$map": [["b", remove]]}], source=moved)
+    # Two partitions removed at once: each partition's keys, and no others.
+    both = dict(recipe, inputs={"ts": [
+        {"x": {"a": 1}, "y": {"b": 2}, "z": {"d": 4}},
+        {"x": {"$remove": True}, "y": {"$remove": True}},
+    ]})
+    start = {"$map": [["a", 1], ["b", 2], ["d", 4]]}
+    assert classify([start, None], [start, {"$map": [["b", remove], ["a", remove]]}], source=both)
+    assert not classify([start, None], [start, {"$map": [["a", remove]]}], source=both)
+    assert not classify([start, None], [start, {"$map": [["a", remove], ["b", remove], ["d", remove]]}], source=both)
 
 
 def test_first_empty_set_result_family_admits_only_the_validating_tick():

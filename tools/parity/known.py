@@ -52,6 +52,7 @@ N_ARY_SET_FOLD = "n-ary-set-fold"
 KEY_SET_READER_TICK = "key-set-reader-tick"
 UNORDERED_MEMBER_TEXT = "unordered-member-text"
 FIRST_EMPTY_SET_RESULT = "first-empty-set-result"
+UNPARTITION_REMOVES_PARTITION_KEYS = "unpartition-removes-partition-keys"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -1223,6 +1224,108 @@ def _first_empty_set_result_relation(
     return len(valid) == len(first_ticks) and bool(valid) and index == max(valid)
 
 
+_REMOVED = {"$remove": True}
+
+
+def _map_entry_list(tick: Any) -> list[tuple[str, Any]] | None:
+    """A canonical TSD tick's ``(key, value)`` entries, keys JSON-encoded so
+    they compare whatever their type; ``[]`` for silence; ``None`` for a tick
+    that is not a TSD delta."""
+    if tick is None:
+        return []
+    if not isinstance(tick, dict) or set(tick) != {"$map"} or not isinstance(tick["$map"], list):
+        return None
+    entries = []
+    for entry in tick["$map"]:
+        if not isinstance(entry, list) or len(entry) != 2:
+            return None
+        entries.append((json.dumps(entry[0], sort_keys=True), entry[1]))
+    return entries
+
+
+def _unpartition_removes_partition_keys_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Owner ruling 2026-09-26 (runtime spec OP-12): removing a partition
+    removes, in the same cycle, every flattened key that partition owns.
+    Released hgraph keeps them, each holding a reference that designates
+    nothing. The recipe's ownership is replayed as the runtime keeps it (the
+    partition that last published a key owns it); a tick agrees exactly
+    unless it removes a partition, and then the candidate's delta is the
+    reference's plus exactly the removal of the removed partitions' live
+    keys. At least one tick must differ that way."""
+    if difference.get("classification") != "value":
+        return False
+    if (recipe.get("parameters") or {}).get("operation") != "unpartition":
+        return False
+    ticks = (recipe.get("inputs") or {}).get("ts")
+    candidate_trace = candidate.get("trace")
+    reference_trace = reference.get("trace")
+    if not isinstance(ticks, list) or not isinstance(candidate_trace, list):
+        return False
+    if reference_trace is None:
+        reference_trace = [None] * len(candidate_trace)
+    if not isinstance(reference_trace, list) or not (
+        len(ticks) == len(reference_trace) == len(candidate_trace)
+    ):
+        return False
+
+    owner: dict[str, str] = {}
+    owned: dict[str, set[str]] = {}
+
+    def disown(key: str) -> None:
+        previous = owner.pop(key, None)
+        if previous is not None:
+            owned[previous].discard(key)
+
+    explained = False
+    for tick, expected, actual in zip(ticks, reference_trace, candidate_trace):
+        dropped: set[str] = set()
+        if tick is not None:
+            if not isinstance(tick, dict):
+                return False
+            for partition, inner in tick.items():
+                if inner == _REMOVED:
+                    for key in owned.pop(partition, set()):
+                        owner.pop(key, None)
+                        dropped.add(key)
+            for partition, inner in tick.items():
+                if inner == _REMOVED:
+                    continue
+                if not isinstance(inner, dict):
+                    return False
+                for key, value in inner.items():
+                    encoded = json.dumps(key, sort_keys=True)
+                    if value == _REMOVED:
+                        disown(encoded)
+                        continue
+                    dropped.discard(encoded)
+                    if owner.get(encoded) != partition:
+                        disown(encoded)
+                        owner[encoded] = partition
+                        owned.setdefault(partition, set()).add(encoded)
+        if not dropped:
+            if expected != actual:
+                return False
+            continue
+        reference_entries = _map_entry_list(expected)
+        candidate_entries = _map_entry_list(actual)
+        if reference_entries is None or candidate_entries is None:
+            return False
+        if any(key in dropped for key, _ in reference_entries):
+            return False
+        wanted = reference_entries + [(key, _REMOVED) for key in dropped]
+        order = lambda entry: (entry[0], json.dumps(entry[1], sort_keys=True))  # noqa: E731
+        if sorted(candidate_entries, key=order) != sorted(wanted, key=order):
+            return False
+        explained = True
+    return explained
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -1249,6 +1352,9 @@ RELATIONS = {
     KEY_SET_READER_TICK: _key_set_reader_tick_relation,
     UNORDERED_MEMBER_TEXT: _unordered_member_text_relation,
     FIRST_EMPTY_SET_RESULT: _first_empty_set_result_relation,
+    UNPARTITION_REMOVES_PARTITION_KEYS: (
+        _unpartition_removes_partition_keys_relation
+    ),
 }
 
 #: Relations that reason about a ``status`` difference and therefore run

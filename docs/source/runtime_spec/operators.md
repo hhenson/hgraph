@@ -112,6 +112,31 @@ results. Python 0.5.41 raises `ValueError` from `math.log`. Accepted
 deviation (`parity_matrix.rst`).
 
 
+Partitioned dictionaries
+------------------------
+
+`unpartition` flattens a dictionary of dictionaries, `TSD[K1, TSD[K, V]]`,
+into one dictionary `TSD[K, REF[V]]`: each inner key `k` of each partition
+becomes an output key holding a reference to that partition's child. The
+partition that last published `k` **owns** it; the partitions' key spaces
+are expected to be disjoint, and which partition owns a key published by two
+in one cycle is unspecified.
+
+- An inner key removed from its partition is removed from the output.
+- **Removing a partition removes every key it owns from the output, in the
+  same cycle** (owner ruling 2026-09-26). A consumer of the output sees those
+  keys removed (TS-19); an input bound through one of the references unbinds
+  (TS-15), and a dictionary input reports the key removed.
+- Removing a partition costs the keys that partition owns, never the size of
+  the output (guardrail iv, `CLAUDE.md`).
+
+Python 0.5.41 keeps a removed partition's keys. Each holds a reference that
+designates nothing from the next engine cycle (TS-23), so a consumer bound
+through it unbinds without a tick (TS-15) while the key stays in the
+dictionary; a nested dictionary child reports its elements removed instead of
+its key. Accepted deviation (`parity_matrix.rst`).
+
+
 Recording
 ---------
 
@@ -152,6 +177,10 @@ Rules
 - **OP-10** `ln` of a non-positive float is `-inf` for zero and NaN below zero.
 - **OP-11** A recording exists from its recording node's start; one that
   recorded no tick is empty, not absent.
+- **OP-12** `unpartition` publishes each partition's inner keys as references
+  to their children. A key leaves the output when it leaves its partition, or
+  when the partition that owns it is removed; the latter costs the removed
+  partition's own keys.
 
 A TSD delta holding a nested dictionary includes the inner dictionary's delta:
 its valid modified children only. An invalid inner child contributes nothing,

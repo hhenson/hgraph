@@ -364,6 +364,49 @@ namespace
     }
 }
 
+namespace
+{
+    // unpartition's ownership (owners and per-partition members) is recordable
+    // state: a removal after recovery must find the partition's keys (OP-12).
+    // References cannot leave a component, so it publishes the flattened keys.
+    struct UnpartitionStrategy
+    {
+        static Port<TSS<Int>> compose(Wiring &w, NamedPort<"ts", TSD<Str, TSD<Int, TS<Int>>>> input)
+        {
+            return wire<stdlib::keys_>(w, wire<stdlib::unpartition>(w, input)).as<TSS<Int>>();
+        }
+    };
+    struct UnpartitionComponent
+    {
+        static Port<TSS<Int>> compose(Wiring &w, Port<TSD<Str, TSD<Int, TS<Int>>>> input)
+        {
+            return stdlib::component<UnpartitionStrategy>(w, "strategy", input);
+        }
+    };
+}  // namespace
+
+TEST_CASE("component checkpoint restores unpartition's partition ownership", "[checkpoint][component]")
+{
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "strategy", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    const auto both = dict_delta<Str, TSD<Int, TS<Int>>>({{"x"s, dict_delta<Int, TS<Int>>({{1, 1}})},
+                                                          {"y"s, dict_delta<Int, TS<Int>>({{2, 2}})}});
+    CHECK_OUTPUT(eval_node_with_options<UnpartitionComponent>(interval(0, 1), values<Value>(both)),
+                 values<Value>(set_delta<Int>({1, 2}, {})));
+    REQUIRE(completed);
+    // Resumed: y publishes only a new key, 3. Key 2 is known to belong to y
+    // through the restored ownership alone, so removing y removes both.
+    CHECK_OUTPUT(eval_node_with_options<UnpartitionComponent>(interval(1, 3),
+                     values<Value>(dict_delta<Str, TSD<Int, TS<Int>>>({{"y"s, dict_delta<Int, TS<Int>>({{3, 3}})}}),
+                                   dict_delta<Str, TSD<Int, TS<Int>>>({}, {"y"s}))),
+                 values<Value>(set_delta<Int>({3}, {}), set_delta<Int>({}, {2, 3})));
+}
+
 TEST_CASE("component checkpoint preserves until_true passivation across completed days", "[checkpoint][component]")
 {
     stdlib::register_standard_operators();

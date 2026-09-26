@@ -1969,37 +1969,85 @@ namespace hgraph::stdlib
             }
         };
 
+        /**
+         * ``unpartition(TSD[K1, TSD[K, V]]) -> TSD[K, REF[V]]`` (runtime spec
+         * OP-12). The partition that last published an inner key owns it; a
+         * removed partition takes the keys it owns with it (owner ruling
+         * 2026-09-26). Ownership is recordable: ``owners`` maps each flattened
+         * key to its partition and ``members`` each partition to the keys it
+         * owns, kept equal to that inverse so removing a partition costs its
+         * own keys, never the size of the output.
+         */
+        using UnpartitionOwnership =
+            UnNamedTSB<Field<"owners", TSD<ScalarVar<"K">, TS<ScalarVar<"K1">>>>,
+                       Field<"members", TSD<ScalarVar<"K1">, TSS<ScalarVar<"K">>>>>;
+
         struct unpartition_tsd
         {
             static constexpr auto name = "unpartition_tsd";
 
             static void eval(In<"ts", TSD<ScalarVar<"K1">, TSD<ScalarVar<"K">, TsVar<"V">>>,
                                 InputValidity::Unchecked> ts,
-                             RecordableState<TSD<ScalarVar<"K">, TS<ScalarVar<"K1">>>> owners,
+                             RecordableState<UnpartitionOwnership> ownership,
                              Out<TSD<ScalarVar<"K">, REF<TsVar<"V">>>> out)
             {
                 const auto    &erased = out.base();
                 TSDOutputView &out_dict = out;
-                TSDOutputView &owner_dict = owners;
+                const auto     owners_field  = ownership.template field<"owners">();
+                const auto     members_field = ownership.template field<"members">();
+                const TSDOutputView &owner_dict  = owners_field;
+                const TSDOutputView &member_dict = members_field;
                 const auto     evaluation_time = out_dict.evaluation_time();
-                auto           out_mutation = out_dict.begin_mutation(evaluation_time);
-                auto           owner_mutation = owner_dict.begin_mutation(owner_dict.evaluation_time());
+                const auto     state_time      = owner_dict.evaluation_time();
+                auto           out_mutation    = out_dict.begin_mutation(evaluation_time);
+                auto           owner_mutation  = owner_dict.begin_mutation(state_time);
+                auto           member_mutation = member_dict.begin_mutation(state_time);
 
-                // The outer key is deliberately absent from the result, so
-                // retain just enough ownership information to remove all of a
-                // partition's flattened keys when the partition disappears.
+                const auto owner_of = [&](const ValueView &inner_key) -> std::optional<Value> {
+                    if (!owner_dict.contains(inner_key)) { return std::nullopt; }
+                    TSOutputView owner = owner_dict.at(inner_key);
+                    if (!owner.valid()) { return std::nullopt; }
+                    return Value{owner.value()};
+                };
+                // Take an inner key out of its owner's member set (O(1)).
+                const auto disown = [&](const ValueView &inner_key) {
+                    const std::optional<Value> owner = owner_of(inner_key);
+                    if (!owner || !member_dict.contains(owner->view())) { return; }
+                    auto element = member_mutation.at(owner->view());
+                    auto members = element.as_set();
+                    auto members_mutation = members.begin_mutation(state_time);
+                    (void)members_mutation.remove(inner_key);
+                };
+
+                // The outer key is deliberately absent from the result, so a
+                // removed partition's flattened keys are found through its
+                // member set: the cost is the partition's own keys.
                 for (const ValueView &outer_key : ts.removed_keys())
                 {
+                    if (!member_dict.contains(outer_key)) { continue; }
                     std::vector<Value> removed;
-                    for (const auto [inner_key, owner] : owner_dict.items())
                     {
-                        if (owner.valid() && owner.value().equals(outer_key)) { removed.emplace_back(inner_key); }
+                        TSOutputView members = member_dict.at(outer_key);
+                        if (members.valid())
+                        {
+                            // Held in locals: the range must not outlive its views
+                            // (GCC 14 -Wdangling-reference).
+                            const auto &member_data = members.data_view();
+                            const auto  member_set  = member_data.as_set();
+                            for (const ValueView &inner_key : member_set.values())
+                            {
+                                removed.emplace_back(inner_key);
+                            }
+                        }
                     }
                     for (const Value &inner_key : removed)
                     {
+                        const std::optional<Value> owner = owner_of(inner_key.view());
+                        if (!owner || !owner->view().equals(outer_key)) { continue; }
                         (void)out_mutation.erase(inner_key.view());
                         (void)owner_mutation.erase(inner_key.view());
                     }
+                    (void)member_mutation.erase(outer_key);
                 }
 
                 // Apply removals before additions, matching the legacy
@@ -2009,6 +2057,7 @@ namespace hgraph::stdlib
                     const TSDInputView &inner_dict = inner;
                     for (const ValueView &inner_key : inner_dict.removed_keys())
                     {
+                        disown(inner_key);
                         (void)out_mutation.erase(inner_key);
                         (void)owner_mutation.erase(inner_key);
                     }
@@ -2031,7 +2080,14 @@ namespace hgraph::stdlib
                                 TSOutputView{erased.output(), element, evaluation_time}.begin_mutation(evaluation_time);
                             static_cast<void>(element_mutation.move_value_from(std::move(reference)));
                         }
+                        const std::optional<Value> owner = owner_of(inner_key);
+                        if (owner && owner->view().equals(outer_key)) { continue; }
+                        disown(inner_key);
                         owner_mutation.set(inner_key, outer_key);
+                        auto partition = member_mutation.at(outer_key);
+                        auto members   = partition.as_set();
+                        auto members_mutation = members.begin_mutation(state_time);
+                        (void)members_mutation.add(inner_key);
                     }
                 }
             }

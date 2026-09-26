@@ -275,6 +275,18 @@
       "issue": "https://github.com/hhenson/hgraph/issues/983",
       "reason": "Owner ruling 2026-09-24 (runtime spec OP-5): a dictionary set operator's first admitted evaluation publishes its result even when empty, as intersection and difference do in both runtimes and as every set operator over TSS does. Released hgraph builds ^ and | over dictionaries on map_, which publishes nothing for an empty result (#983, #984, #1004, #1008). Admitted only for the candidate's first tick, holding exactly the empty dictionary, where the reference is silent, at an admitted cycle; every other position agrees.",
       "review_after": "2027-09-24"
+    },
+    {
+      "family": "unpartition-removes-partition-keys",
+      "template": "tsd_operator",
+      "parameters_equal": {
+        "operation": "unpartition"
+      },
+      "parameters_not_equal": {},
+      "relation": "unpartition-removes-partition-keys",
+      "issue": "https://github.com/hhenson/hgraph/pull/1651",
+      "reason": "Owner ruling 2026-09-26 (parity_matrix.rst; runtime spec OP-12): removing a partition removes every flattened key it owns from unpartition's output in the same cycle (PR #1651). Released hgraph keeps those keys, each holding a reference that designates nothing from the next cycle (TS-23), so a consumer unbinds without a tick (TS-15). Admitted only when replaying the recipe's ownership explains every differing tick: a tick that removes a partition, where the candidate's delta is the reference's plus exactly the removal of that partition's live keys; every other tick agrees.",
+      "review_after": "2027-09-26"
     }
   ]
 }

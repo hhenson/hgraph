@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The twenty-two accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The twenty-three accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
@@ -52,7 +52,9 @@ joined on 2026-09-24, from the parity triage that derived the runtime
 specification's operator contracts (``runtime_spec/operators.md``), and the
 unordered text of a map and the first empty set-operator result the same
 day, by the owner's rulings, as did ``compare`` outside a component (#818
-item 5.4).
+item 5.4). ``unpartition``'s removal of a removed partition's keys joined on
+2026-09-26 by the owner's ruling, when PR #1651 introduced it (runtime spec
+OP-12).
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -138,6 +140,18 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
        publish nothing. The ``key-set-reader-tick`` relation admits only
        reference-only fields holding exactly those empty-set answers, at a
        tick where the dictionary has no key
+   * - ``unpartition`` when a whole partition is removed (family
+       ``unpartition-removes-partition-keys``)
+     - Keeps the removed partition's flattened keys. Each holds a reference
+       that designates nothing from the next cycle, so a consumer bound
+       through it unbinds without a tick; a nested dictionary child reports
+       its elements removed rather than its key
+     - Removes every key the partition owned, in the same cycle (runtime spec
+       OP-12, owner ruling 2026-09-26). The
+       ``unpartition-removes-partition-keys`` relation replays the recipe's
+       ownership and admits only ticks where a partition is removed, each
+       differing from the reference by exactly the removal of that
+       partition's live keys; every other tick agrees
    * - ``index_of`` answering the same index twice in a row -- a repeated
        miss or a repeated hit (family ``tsl-index-of-no-retick``)
      - Re-emits the index
