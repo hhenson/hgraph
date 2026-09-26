@@ -1228,6 +1228,7 @@ namespace hgraph::python_bridge
         .def("__enter__", [](WiringObservationScope &self) -> WiringObservationScope & {
             return self;
         }, nb::rv_policy::reference_internal)
+        .def_prop_ro("path", [](const WiringObservationScope &self) { return self.path(); })
         .def("__exit__", [](WiringObservationScope &self, nb::object,
                             nb::object error, nb::object) {
             if (error.is_none()) { self.complete(); }

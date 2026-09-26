@@ -365,7 +365,9 @@ A process-wide singleton maps an operator name to its candidates:
 3. **Rank** — sort survivors ascending by ``rank``.
 4. **Select** — the unique lowest-rank survivor wins. **No survivor** → an error
    listing the rejected candidates and why. **A tie at the lowest rank** → an
-   ambiguity error listing the tied candidates and their ranks.
+   ambiguity error listing the tied candidates and their ranks. Both errors
+   name the operator as declared and end with the wiring path that led to the
+   call (``graph_wiring.rst``, "Failure reports"; runtime spec WIR-4).
 
 Resolution is deterministic: rank is a precomputed total order, the candidate
 vector preserves registration order, and no decision is ever made from

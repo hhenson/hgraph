@@ -555,6 +555,10 @@ therefore cannot bind a later declaration's overload family. Operator overloads
 are durable registry entries: collecting the wrapper does not deregister them.
 Repeated declarations remain isolated, including REPL and parametrised test
 fixtures; this identity rule does not introduce automatic module unloading.
+The registry name is identity only. The bridge records the operator's
+declared name beside it (``OperatorRegistry::set_display_name``), so an error
+names ``_only_int``, not ``__pyop__…``; a Python candidate is labelled with its
+implementation's function name, as a C++ candidate is with its struct's.
 
 The ``hgraph`` package exposes every registered operator as a module-level
 attribute via PEP 562 (``__getattr__`` in ``__init__.py`` resolving through
@@ -854,7 +858,7 @@ Operator missing from ``dir(hgraph)``                 PEP 562 lazy surface; it a
 ``log_`` output goes to stdout by default              ``GraphConfiguration`` installs a stdout handler when nothing else would receive the records.
 Python node gets ``None`` for an input                Unwired optional input: the null-source contract.
 ``frozenset`` set-delta replaced the whole TSS        Full-value vs ``_SetDelta`` class-identity shaping.
-Ugly ``__pyop__…_1f3a`` registry names                Durable registration IDs isolate overload families.
+Ugly ``__pyop__…_1f3a`` registry names                Durable registration IDs isolate overload families; errors show the declared name.
 Two identical register_overload lists (historical)    Now single ``register_python_overloads()`` — keep it so.
 Python tests fail right after C++ edits               Stale editable install; ``uv pip install -e . --reinstall``.
 No ``hgraph._runtime`` module                         Split into ``hgraph._wiring/`` (2026-07); import from there.

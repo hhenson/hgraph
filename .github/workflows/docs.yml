@@ -81,8 +81,13 @@ jobs:
       # third-party wheels are prebuilt. `--extra test` is needed alongside
       # `docs`: two tutorial examples use pytest.raises to show the wiring error
       # they are teaching.
+      # --reinstall-package rebuilds hgraph from this checkout every run. On a
+      # persistent self-hosted runner uv otherwise reuses a wheel it built for
+      # an earlier commit: it keys a local package's build on pyproject.toml,
+      # which a reused checkout leaves unchanged, so the doctests imported this
+      # commit's Python against an older native module.
       - name: Build hgraph and install the docs dependencies
-        run: uv sync --frozen --extra docs --extra test --python 3.12
+        run: uv sync --frozen --extra docs --extra test --python 3.12 --reinstall-package hgraph
       - name: Run doctests
         run: .venv/bin/python -m sphinx -W --keep-going -b doctest docs/source docs/_build/doctest
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

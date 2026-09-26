@@ -157,7 +157,9 @@ def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False,
         return None if result is None else WiringPort(result)
 
     if __label__:
-        with _current_wiring()._graph_wiring_scope(str(__label__)):
+        from ._wiring._core import _graph_scope
+
+        with _graph_scope(_current_wiring(), str(__label__)):
             return wire_call()
     return wire_call()
 

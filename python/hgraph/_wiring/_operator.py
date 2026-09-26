@@ -76,6 +76,8 @@ class _Operator:
             pass
         registration_id = _hgraph._allocate_python_operator_id()
         self._registry_name = f"__pyop__{fn.__module__}.{self.__qualname__}_{registration_id:x}"
+        # Errors name the operator as declared, not by its registry identity.
+        _hgraph._set_operator_display_name(self._registry_name, self.__name__)
         self._delegate = _OperatorFunction(
             self._registry_name,
             signature=fn,
@@ -480,7 +482,8 @@ def _register_overload(target, impl, requires=None):
             name, list(params), output, wire_fn, resolver_fn, requires_fn,
             variadic, has_kwargs, positional, kwargs_pattern,
             callable_params, _adapt_wired_callable,
-            getattr(impl, "_compose_resolves_operator_output", False))
+            getattr(impl, "_compose_resolves_operator_output", False),
+            getattr(fn, "__name__", None) or getattr(impl, "__name__", None) or "")
 
 
 # ---------------------------------------------------------------------------

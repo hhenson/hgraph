@@ -862,6 +862,8 @@ namespace hgraph
 
         void complete();
         void fail(std::string_view error);
+        /** The wiring path while this scope is open, its own label last. */
+        [[nodiscard]] const std::vector<std::string> &path() const noexcept { return event_.path; }
 
       private:
         void cancel_noexcept() noexcept;
@@ -869,6 +871,24 @@ namespace hgraph
         Wiring         *wiring_{nullptr};
         WiringScopeEvent event_{};
         bool            active_{false};
+    };
+
+    /**
+     * Holds a graph's label on the wiring path while it wires without
+     * observers, so a failure can say where it happened (runtime spec WIR-4;
+     * ``graph_wiring.rst``, "Failure reports"). An observed graph holds its
+     * label through its ``WiringObservationScope`` instead.
+     */
+    class HGRAPH_CLASS_EXPORT WiringPathScope
+    {
+      public:
+        WiringPathScope(Wiring &wiring, std::string label);
+        WiringPathScope(const WiringPathScope &)            = delete;
+        WiringPathScope &operator=(const WiringPathScope &) = delete;
+        ~WiringPathScope() noexcept;
+
+      private:
+        Wiring *wiring_;
     };
 
     /**
@@ -1369,6 +1389,7 @@ namespace hgraph
 
       private:
         friend class WiringObservationScope;
+        friend class WiringPathScope;
 
         Wiring(WiringKind kind,
                WiringOptions options,
@@ -3628,9 +3649,12 @@ namespace hgraph
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
-            if (!w.has_wiring_observers()) { return compose(); }
-
             const std::string label = static_node_detail::diagnostic_name<X>();
+            if (!w.has_wiring_observers())
+            {
+                const WiringPathScope path{w, label};
+                return compose();
+            }
             return w.observe(
                 WiringScopeEvent{
                     .kind = WiringScopeKind::NestedGraph,
@@ -3836,8 +3860,12 @@ namespace hgraph
 #pragma warning(pop)
 #endif
         GraphBuilder graph_builder = [&] {
-            if (!w.has_wiring_observers()) { return build(); }
             const std::string label = static_node_detail::diagnostic_name<G>();
+            if (!w.has_wiring_observers())
+            {
+                const WiringPathScope path{w, label};
+                return build();
+            }
             return w.observe(
                 WiringScopeEvent{
                     .kind = WiringScopeKind::Graph,
