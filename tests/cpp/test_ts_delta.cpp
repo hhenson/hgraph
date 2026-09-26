@@ -377,6 +377,13 @@ TEST_CASE("ts_delta: an input bound to an owned layout captures the output's val
   // The delta has the consumer's declared type, not the producer's storage:
   // a recorder typed from the input (List[Node]) accepts it.
   CHECK(captured.view().schema() == node);
+
+  // An empty owner (a null allocation) has nothing to project: it crosses as
+  // a typed null of the consumer's type.
+  const Value empty{value_factory.type_for(registry.owned(node))};
+  REQUIRE(output.view(MIN_ST + MIN_TD).begin_mutation(MIN_ST + MIN_TD).copy_value_from(empty.view()));
+  const Value captured_empty = capture_delta(input.view(nullptr, MIN_ST + MIN_TD));
+  CHECK(captured_empty.view().schema() == node);
 }
 
 TEST_CASE("ts_delta: atomic capture constructs an immutable canonical owner") {

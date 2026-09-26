@@ -1328,16 +1328,22 @@ namespace hgraph
             if (value.type())
             {
                 auto binding = canonical_delta_binding(in, "capture_delta");
-                if (value.binding() == binding) { return Value{value}; }
                 // Bound across a storage category (an input declared TS[X] on
                 // an output laid out as TS[Owned[X]]): the delta is the value
-                // in its own owning type, as the consumer declared it, not the
-                // producer's storage (require_canonical_delta).
+                // in the type the consumer declared, not the producer's storage
+                // (require_canonical_delta). A wrapper holding an allocation
+                // projects to it, so the view already has the consumer's type;
+                // an empty wrapper (a null owner) has nothing to project and
+                // crosses as a typed null of that type, resolved as the
+                // no-value case below is.
                 if (const auto *declared = in.schema(); declared != nullptr &&
                     binding.schema() != declared->delta_value_schema)
                 {
+                    const auto *viewed = value.binding().schema();
+                    if (viewed != nullptr && viewed->is_indirect()) { return Value{*declared->delta_value_schema}; }
                     return Value{value};
                 }
+                if (value.binding() == binding) { return Value{value}; }
                 if (!binding.ops_ref().accepts_source(binding, value.binding()))
                 {
                     const auto realized = value_type_for_active_realization(binding.schema());
