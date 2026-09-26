@@ -268,6 +268,13 @@ The user or component designer specifies `ref` to express an intention to
 pass through a time series without observing or interacting with its values.
 It is not the default form of a connection. A conditional branch can forward
 an existing connection without copying its values.
+
+A generic does not pick up a reference by accident. Given a `ref<f64>`, a
+`fn pass<T>(value: T) -> T` binds `T` to `f64` and its input sees the values;
+given a `list<ref<f64>, 2>`, `T` is `list<f64, 2>`. A generic receives a
+reference only where its own signature writes `ref`, as in
+`fn route<T>(values: list<ref<T>, 3>) -> ref<T>`. See
+[Generic inference through references](../design/type-extensions.md#generic-inference-through-references).
 See [forwarding an existing binding](../design/control-flow.md#forwarding-an-existing-binding).
 
 Inside a node, a reference is opaque and ticks only when its binding changes.

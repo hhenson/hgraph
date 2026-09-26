@@ -302,6 +302,32 @@ map<ref<i64>, str> -> error
 
 Ignoring REF for compatibility does not make an invalid type formation legal.
 
+## Generic inference through references
+
+HGL resolves a generic call by the runtime specification's
+[Wiring](../../../docs/source/runtime_spec/wiring.md) rules, which every front
+end shares (WIR-14): the bindings HGL infers are the bindings the runtime
+reaches for the same call.
+
+- A type parameter inferred from an **argument** binds the argument's type
+  with every `ref` removed, at every depth (WIR-7). `fn pass<T>(value: T) -> T`
+  called with a `ref<f64>` binds `T` to `f64`; with a `list<ref<f64>, 2>`, to
+  `list<f64, 2>`. The generic's input then observes values.
+- A `ref` written in the parameter's own type binds the type parameter beneath
+  it (WIR-10): `fn wrap<T>(value: T) -> ref<T>` given a `ref<f64>` binds `T` to
+  `f64`, so no nested reference is formed.
+- A type **stated** through a type application or `instantiate` keeps its
+  references (WIR-11).
+- A call's **expected result** binds a type parameter that is the whole result
+  and that no argument bound, as given (WIR-12); a type parameter nested in
+  the result binds as from an argument.
+- An implementation's conformance to its operator contract compares the two
+  declared signatures exactly; it infers nothing.
+
+A generic therefore sees a reference only where its signature writes `ref`.
+The compiler's inference is `GenericSubstitution::infer_from_argument` and
+`infer_from_result`; exact comparison is `unify`.
+
 ## Node access and ticks
 
 Inside node evaluation, including a `when` handler, a reference is an opaque

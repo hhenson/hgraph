@@ -762,9 +762,10 @@ namespace hgl::ir::detail
             } else if (argument.kind != OperandKind::Type) {
                 return Truth::False;
             }
-            if (!contract_substitution.unify(parameter.type, query.arguments[index].type)) { return Truth::False; }
+            if (!contract_substitution.infer_from_argument(parameter.type, query.arguments[index].type)) { return Truth::False; }
         }
-        if (query.expected_result.valid() && !contract_substitution.unify(contract->signature.result, query.expected_result)) {
+        if (query.expected_result.valid() &&
+            !contract_substitution.infer_from_result(contract->signature.result, query.expected_result)) {
             return Truth::False;
         }
         if (!solve(contract->requirements, contract_substitution, range, "operator contract", false, premises)) {
@@ -797,18 +798,20 @@ namespace hgl::ir::detail
                 } else {
                     matches = argument.kind == OperandKind::Type && matches;
                 }
-                matches = candidate_substitution.unify(candidate->signature.parameters[index].type, query.arguments[index].type) &&
+                matches = candidate_substitution.infer_from_argument(candidate->signature.parameters[index].type,
+                                                                     query.arguments[index].type) &&
                           matches;
             }
             if (query.expected_result.valid()) {
-                matches = candidate_substitution.unify(candidate->signature.result, query.expected_result) && matches;
+                matches = candidate_substitution.infer_from_result(candidate->signature.result, query.expected_result) && matches;
             }
             for (std::size_t index = 0; matches && index < query.arguments.size(); ++index) {
-                matches = types_.same(candidate_substitution.apply(candidate->signature.parameters[index].type),
-                                      query.arguments[index].type);
+                matches = types_.same_ignoring_references(
+                    candidate_substitution.apply(candidate->signature.parameters[index].type), query.arguments[index].type);
             }
             if (matches && query.expected_result.valid()) {
-                matches = types_.same(candidate_substitution.apply(candidate->signature.result), query.expected_result);
+                matches = types_.same_ignoring_references(candidate_substitution.apply(candidate->signature.result),
+                                                          query.expected_result);
             }
             if (matches) {
                 matches = solve(candidate->requirements, candidate_substitution, {}, "implementation", false, premises);

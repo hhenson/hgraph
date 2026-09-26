@@ -101,8 +101,24 @@ rule:
 | WV-10 | caught_failure; WIR-4 | Owner ruling: the graph fails to wire | Both runtimes let the graph's code catch the error and wire its fallback; the node the failed attempt added stays in the graph and runs. The Python port's own wiring layer relies on catching in three places: `hgraph.arrow`'s argument-shape retries, port attribute sugar (`port.year`) and `convert`'s target handlers |
 | WV-2 | HGL front end, `pass(value: ref<f64>)` and `pass(values: list<ref<f64>, 2>)`; WIR-14, WIR-7 | R + both runtimes: `T` binds `f64` and `list<f64, 2>` | HGL binds `ref<f64>` and `list<ref<f64>, 2>`: its generic inference (`GenericSubstitution::unify`) binds a variable to the argument as supplied. The emitted C++ still wires correctly, because the runtime resolves the emitted generic call, but HGL's own checker works from a different type than the graph it builds |
 
-WV-2 is corrected in the HGL compiler, citing WIR-14; the correction's tests
-replay `front_end.hgl`.
+## HGL correction
+
+WV-2 is corrected in the HGL compiler. `GenericSubstitution` infers a type
+parameter from an argument with every `ref` removed (`infer_from_argument`,
+WIR-7, WIR-11) and from a call's expected result as WIR-12 says
+(`infer_from_result`); contract conformance keeps the exact `unify`. The
+checks after a match compare types ignoring references (WIR-6). HGL's design
+record is `language/docs/design/type-extensions.md`, "Generic inference
+through references".
+
+Regression coverage: `language/tests/ir/lower_tests.cpp`, "typed HIR binds a
+generic with every reference removed (runtime spec WIR-7, WIR-14)", compiles
+[front_end.hgl](front_end.hgl)'s module and checks the bindings `f64` and
+`list<f64>`; "typed HIR binds a generic beneath a reference pattern
+(runtime spec WIR-10)" covers `wrap<T>(value: T) -> ref<T>`. Replaying
+`observe_hgl.py` against the corrected compiler gives `f64` and `list<f64>`.
+The archived [observed_hgl.json](observed_hgl.json) keeps the original
+measurement.
 
 ## Observations after the rebase
 

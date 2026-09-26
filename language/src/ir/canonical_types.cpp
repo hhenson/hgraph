@@ -317,6 +317,28 @@ namespace hgl::ir::detail
         return true;
     }
 
+    TypeId CanonicalTypes::without_references(TypeId id) {
+        id = canonical(id);
+        if (!id.valid()) { return id; }
+        Type value = module_.type(id);  // a copy: interning below may grow the table
+        if (value.kind == TypeKind::Reference && value.children.size() == 1U) {
+            return without_references(value.children.front());
+        }
+        bool changed = false;
+        for (TypeId &child : value.children) {
+            const TypeId stripped = without_references(child);
+            changed               = changed || stripped != child;
+            child                 = stripped;
+        }
+        for (TypeArgument &argument : value.arguments) {
+            if (argument.kind != TypeArgumentKind::Type) { continue; }
+            const TypeId stripped = without_references(argument.type);
+            changed               = changed || stripped != argument.type;
+            argument.type         = stripped;
+        }
+        return changed ? intern(std::move(value)) : id;
+    }
+
     bool CanonicalTypes::same_value(ExprId lhs, ExprId rhs) const { return value_key(lhs) == value_key(rhs); }
 
     std::string CanonicalTypes::name(TypeId id) const {

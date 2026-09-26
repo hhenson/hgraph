@@ -1395,17 +1395,72 @@ fn select_plain(values: list<f64, 3>) -> ref<f64> => route3(values, 0)
     CHECK_FALSE(lowered.diagnostics.has_errors());
 }
 
-TEST_CASE("typed HIR rejects nested references formed by generic substitution", "[ir][typed][generics][ref]") {
-    Lowered lowered{R"(
-module checks.nested_reference_substitution
+namespace
+{
+    // The binding of the single type parameter of each call to `callee`,
+    // in HGL spelling: `f64`, `ref<f64>`, `list<f64>`.
+    std::string spell(const hir::Module &module, hir::TypeId id) {
+        const hir::Type &type = module.type(id);
+        switch (type.kind) {
+            case hir::TypeKind::Scalar: return type.scalar == hir::ScalarType::F64 ? "f64" : "scalar";
+            case hir::TypeKind::Reference: return "ref<" + spell(module, type.children.front()) + ">";
+            case hir::TypeKind::List: return "list<" + spell(module, type.children.front()) + ">";
+            default: return "?";
+        }
+    }
 
-fn wrap<T>(value: T) -> ref<T> => value
-fn invalid(value: ref<f64>) -> ref<f64> => wrap(value)
+    std::vector<std::string> bindings_of(const Lowered &lowered, std::string_view callee) {
+        std::vector<std::string> result;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            if (expression.operation.identity != callee) { continue; }
+            REQUIRE(expression.operation.substitutions.size() == 1U);
+            result.push_back(spell(lowered.hir, expression.operation.substitutions.front().type));
+        }
+        return result;
+    }
+}  // namespace
+
+TEST_CASE("typed HIR binds a generic with every reference removed (runtime spec WIR-7, WIR-14)",
+          "[ir][typed][generics][ref]") {
+    // docs/source/runtime_spec/validation/wiring/front_end.hgl: the runtime
+    // binds T to the argument's type without its references, and so must HGL.
+    Lowered lowered{R"(
+module checks.wiring_front_end
+
+fn pass<T>(value: T) -> T {
+    when modified(value) {
+        return value
+    }
+}
+
+export fn through_ref(value: ref<f64>) -> f64 =>
+    pass(value)
+
+export fn through_list(values: list<ref<f64>, 2>) -> list<f64, 2> =>
+    pass(values)
 )"};
     require_clean(lowered);
-    CHECK_FALSE(complete(lowered));
-    CHECK(lowered.diagnostics.render(lowered.file).find("generic substitution produces an unsupported reference shape") !=
-          std::string::npos);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(bindings_of(lowered, "checks.wiring_front_end.pass") == std::vector<std::string>{"f64", "list<f64>"});
+}
+
+TEST_CASE("typed HIR binds a generic beneath a reference pattern (runtime spec WIR-10)",
+          "[ir][typed][generics][ref]") {
+    // Inference removes the argument's reference, so wrap's T is f64 and its
+    // ref<T> result is ref<f64>: no nested reference is formed.
+    Lowered lowered{R"(
+module checks.reference_pattern
+
+fn wrap<T>(value: T) -> ref<T> => value
+fn forwarded(value: ref<f64>) -> ref<f64> => wrap(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(bindings_of(lowered, "checks.reference_pattern.wrap") == std::vector<std::string>{"f64"});
 }
 
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {

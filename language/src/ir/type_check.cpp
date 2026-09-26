@@ -1975,14 +1975,15 @@ namespace hgl::ir
                                 type_error(argument.range, "const parameter has an inconsistent value binding");
                             }
                         }
-                        if (!is_type_pack(parameter.type, fn.generics) && !bindings.unify(parameter.type, argument.type)) {
+                        if (!is_type_pack(parameter.type, fn.generics) &&
+                            !bindings.infer_from_argument(parameter.type, argument.type)) {
                             type_error(argument.range,
                                        "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type));
                         }
                     }
                     bind_type_pack(parameter, fn.generics, bound.parameters[index], bound.names[index], bindings);
                 }
-                if (expected.valid()) { (void)bindings.unify(fn.signature.result, expected); }
+                if (expected.valid()) { (void)bindings.infer_from_result(fn.signature.result, expected); }
                 const auto premises = active_constraint_premises();
                 (void)constraint_solver_.solve(fn.requirements, bindings, expression.range, "function call", true, premises);
                 require_complete_bindings(fn.generics, bindings, expression.range, "function call");
@@ -2055,7 +2056,8 @@ namespace hgl::ir
                 // an implicit value conversion: the call passes the live
                 // TSInputView and never exposes the argument payload to HGL.
                 if (signal_marker(parameter)) { return assignable(parameter, argument); }
-                return bindings.unify(parameter, argument) && same(bindings.apply(parameter), argument);
+                return bindings.infer_from_argument(parameter, argument) &&
+                       canonical_types_.same_ignoring_references(bindings.apply(parameter), argument);
             }
 
             [[nodiscard]] bool native_input_view_argument(ExprId id) const {
@@ -2105,7 +2107,7 @@ namespace hgl::ir
                     }
                     if (!native_parameter_matches(bindings, parameter.type, argument.type)) { return false; }
                 }
-                if (expected.valid() && !bindings.unify(function.result, expected)) { return false; }
+                if (expected.valid() && !bindings.infer_from_result(function.result, expected)) { return false; }
                 for (const GenericParameter &generic : function.generics) {
                     if (generic.is_const) {
                         const std::optional<ExprId> value = bindings.value_binding(generic.symbol);
@@ -2228,13 +2230,14 @@ namespace hgl::ir
                         const Expr &argument = module_.expr(argument_id);
                         if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
                         if (parameter.is_const && !bindings.bind_value(parameter.symbol, argument_id)) { return false; }
-                        if (!is_type_pack(parameter.type, candidate.generics) && !bindings.unify(parameter.type, argument.type)) {
+                        if (!is_type_pack(parameter.type, candidate.generics) &&
+                            !bindings.infer_from_argument(parameter.type, argument.type)) {
                             return false;
                         }
                     }
                     bind_type_pack(parameter, candidate.generics, arguments.parameters[index], arguments.names[index], bindings);
                 }
-                if (expected.valid() && !bindings.unify(candidate.signature.result, expected)) { return false; }
+                if (expected.valid() && !bindings.infer_from_result(candidate.signature.result, expected)) { return false; }
                 const auto premises = active_constraint_premises();
                 if (!constraint_solver_.solve(candidate.requirements, bindings, {}, "implementation", false, premises)) {
                     return false;
@@ -2313,13 +2316,14 @@ namespace hgl::ir
                                 type_error(argument.range, "const parameter has an inconsistent value binding");
                             }
                         }
-                        if (!is_type_pack(parameter.type, op.generics) && !contract_bindings.unify(parameter.type, argument.type)) {
+                        if (!is_type_pack(parameter.type, op.generics) &&
+                            !contract_bindings.infer_from_argument(parameter.type, argument.type)) {
                             type_error(argument.range, "operator argument does not match its contract");
                         }
                     }
                     bind_type_pack(parameter, op.generics, bound.parameters[index], bound.names[index], contract_bindings);
                 }
-                if (expected.valid()) { (void)contract_bindings.unify(op.signature.result, expected); }
+                if (expected.valid()) { (void)contract_bindings.infer_from_result(op.signature.result, expected); }
                 const auto premises = active_constraint_premises();
                 (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call", true,
                                                premises);
@@ -2917,7 +2921,7 @@ namespace hgl::ir
                         continue;
                     }
                     Expr &value = check_expr(argument.value);
-                    (void)bindings.unify(*expected, value.type);
+                    (void)bindings.infer_from_argument(*expected, value.type);
                 }
 
                 Type inferred = nominal;

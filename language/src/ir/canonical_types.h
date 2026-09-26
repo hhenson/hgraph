@@ -31,6 +31,9 @@ namespace hgl::ir::detail
         [[nodiscard]] bool        boolean(hir::TypeId id) const noexcept;
         [[nodiscard]] bool        assignable(hir::TypeId expected, hir::TypeId actual) const noexcept;
         [[nodiscard]] bool        same_ignoring_references(hir::TypeId lhs, hir::TypeId rhs) const noexcept;
+        /// `id` with every `ref<>` removed, at every depth: the type a generic
+        /// parameter binds from an argument (runtime spec WIR-7).
+        [[nodiscard]] hir::TypeId without_references(hir::TypeId id);
         [[nodiscard]] bool        same_value(hir::ExprId lhs, hir::ExprId rhs) const;
         [[nodiscard]] std::string name(hir::TypeId id) const;
 
