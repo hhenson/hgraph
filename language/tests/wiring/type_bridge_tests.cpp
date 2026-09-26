@@ -187,6 +187,7 @@ fn forms(
     series_map: map<str, f64>,
     reference: ref<map<str, f64>>,
     reference_list: list<ref<f64>, 3>,
+    reference_map: map<str, ref<f64>>,
     tick_window: rolling<f64, 20, 5>,
     duration_window: rolling<f64, 2s, 1s>,
     wrapped: atomic<Wrapper<i64>>,
@@ -225,6 +226,9 @@ fn forms(
     CHECK(bridge.schema(unit.parameter("forms", "reference")) ==
           registry.ref(registry.tsd(types.str_type, registry.ts(types.float_type))));
     CHECK(bridge.schema(unit.parameter("forms", "reference_list")) == registry.tsl(registry.ref(registry.ts(types.float_type)), 3));
+    // A map containing references, with no reference around the map.
+    CHECK(bridge.schema(unit.parameter("forms", "reference_map")) ==
+          registry.tsd(types.str_type, registry.ref(registry.ts(types.float_type))));
     CHECK(bridge.schema(unit.parameter("forms", "tick_window")) == registry.tsw(types.float_type, 20, 5));
     CHECK(bridge.schema(unit.parameter("forms", "duration_window")) ==
           registry.tsw_duration(types.float_type, hgraph::TimeDelta{2'000'000}, hgraph::TimeDelta{1'000'000}));
@@ -251,8 +255,8 @@ fn forms(
     CHECK(box_contract->generics.front().binding != wrapper_contract->generics.front().binding);
 
     const hgl::hgraph_ir::Callable    &forms = unit.callable("forms");
-    const std::optional<hgraph::Value> count = bridge.literal(forms.parameters[11].default_value);
-    const std::optional<hgraph::Value> delay = bridge.literal(forms.parameters[12].default_value);
+    const std::optional<hgraph::Value> count = bridge.literal(forms.parameters[12].default_value);
+    const std::optional<hgraph::Value> delay = bridge.literal(forms.parameters[13].default_value);
     REQUIRE(count);
     REQUIRE(delay);
     CHECK(count->view().checked_as<hgraph::Int>() == 3);

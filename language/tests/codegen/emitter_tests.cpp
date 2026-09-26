@@ -2910,6 +2910,21 @@ export fn forward(value: ref<f64>) -> ref<f64> {
     CHECK(contains(emitted->header, "hgl_output.set(value.value());"));
 }
 
+TEST_CASE("emit-cpp maps a map of references to a TSD of references", "[codegen][ref]") {
+    // map<K, ref<V>> is a map containing reference values, TSD[K, REF[V]],
+    // with no reference around the map (owner ruling 2026-09-26).
+    Unit unit{R"(
+module t
+
+export fn forward(values: map<str, ref<f64>>) -> map<str, ref<f64>> => values
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "hgraph::TSD<hgraph::Str, hgraph::REF<hgraph::TS<hgraph::Float>>>"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::REF<hgraph::TSD<"));
+}
+
 TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
     SECTION("a different selected child is not covered") {
         Unit unit{R"(

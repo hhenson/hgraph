@@ -248,8 +248,7 @@ Status: partially implemented. Explicit `ref<T>` signatures, transparent
 underlying-type compatibility, opaque node access, forwarding, and fixed-list
 reference selection are available. Wiring-time access through a reference and
 imported native types remain compiler work. See
-[Type extensions](../design/type-extensions.md) for the complete agreement and
-the collection-reference mapping still under discussion.
+[Type extensions](../design/type-extensions.md) for the complete agreement.
 
 Imported C++ and Python types are scalar values, like `i64`, `f64`, and `str`.
 They are atomic leaves in a temporal signature, require no `atomic` annotation,
@@ -292,8 +291,9 @@ index changes and selected-reference rebinding. See the
 
 The executable form is in
 [`examples/reference-routing.hgl`](../../examples/reference-routing.hgl). The
-compiler rejects `map<K, ref<V>>` until its outer-reference rule is settled,
-and rejects nested `ref<ref<T>>` rather than normalizing it implicitly.
+`map<K, ref<V>>` is a map containing references, `TSD[K, REF[V]]`, with no
+reference around the map. The compiler rejects nested `ref<ref<T>>` rather
+than normalizing it implicitly.
 
 ## `signal` inputs
 

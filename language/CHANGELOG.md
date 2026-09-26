@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Accept `map<K, ref<V>>` as a map containing references, lowered to
+  `TSD[K, REF[V]]` with no reference around the map (owner ruling
+  2026-09-26). The compiler previously rejected the form pending that
+  ruling; the mapping recorded during the discussion,
+  `REF[TSD[K, REF[V]]]`, is withdrawn. Nested `ref<ref<T>>` stays rejected.
 - Infer a generic's type parameter from an argument with every `ref` removed,
   at every depth, as the runtime does (runtime spec Wiring, WIR-7 and
   WIR-14): `pass<T>(value: T)` given a `ref<f64>` binds `T` to `f64`, not

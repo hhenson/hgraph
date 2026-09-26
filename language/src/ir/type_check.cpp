@@ -317,10 +317,6 @@ namespace hgl::ir
                     const TypeId child = canonical(value.children.front());
                     if (child.valid() && type(child).kind == TypeKind::Reference) { return true; }
                 }
-                if (value.kind == TypeKind::Map && value.children.size() == 2U) {
-                    const TypeId mapped = canonical(value.children[1]);
-                    if (mapped.valid() && type(mapped).kind == TypeKind::Reference) { return true; }
-                }
                 for (TypeId child : value.children) {
                     if (invalid_reference_shape(child)) { return true; }
                 }
