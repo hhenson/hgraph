@@ -151,9 +151,8 @@ Reference types remain explicit canonical shapes. Assignability compares their
 underlying types recursively without erasing the endpoint representation. In a
 runtime function, unary and binary value operations, Boolean tests, field
 access, and indexing through a top-level `ref<T>` are type errors; metadata
-intrinsics and forwarding remain available. The unresolved
-`map<K, ref<V>>` mapping and nested reference boundaries fail during type
-formation.
+intrinsics and forwarding remain available. `map<K, ref<V>>` lowers to
+`TSD[K, REF[V]]`; nested reference boundaries fail during type formation.
 
 Native candidate selection crosses the narrow `OperatorResolver` port. The
 hgraph adapter constructs schema-only `WiringArg` values and calls

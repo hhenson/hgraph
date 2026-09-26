@@ -5,4 +5,4 @@ operator pick<T>(value: T) -> T
 
 impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
 
-export fn use_pick(value: f64) -> f64 => pick(value, scale=5.0)
+export fn use_pick(value: f64) -> f64 => pick(value, scale: 5.0)

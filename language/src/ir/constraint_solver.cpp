@@ -1,4 +1,5 @@
 #include "ir/constraint_solver.h"
+#include "ir/operator_shape.h"
 
 #include <algorithm>
 #include <ranges>
@@ -752,6 +753,13 @@ namespace hgl::ir::detail
         if (contract == nullptr || contract->signature.parameters.size() != arguments.size()) { return Truth::False; }
 
         GenericSubstitution contract_substitution{module_, types_};
+        // The requested result is matched before the arguments (runtime spec
+        // WIR-17): a result type holding a reference binds as requested, and
+        // an argument then matches that binding as supplied (WIR-11, WIR-12).
+        if (query.expected_result.valid() &&
+            !contract_substitution.infer_from_result(contract->signature.result, query.expected_result)) {
+            return Truth::False;
+        }
         for (std::size_t index = 0; index < arguments.size(); ++index) {
             const Parameter &parameter = contract->signature.parameters[index];
             const Operand   &argument  = arguments[index];
@@ -762,10 +770,7 @@ namespace hgl::ir::detail
             } else if (argument.kind != OperandKind::Type) {
                 return Truth::False;
             }
-            if (!contract_substitution.unify(parameter.type, query.arguments[index].type)) { return Truth::False; }
-        }
-        if (query.expected_result.valid() && !contract_substitution.unify(contract->signature.result, query.expected_result)) {
-            return Truth::False;
+            if (!contract_substitution.infer_from_argument(parameter.type, query.arguments[index].type)) { return Truth::False; }
         }
         if (!solve(contract->requirements, contract_substitution, range, "operator contract", false, premises)) {
             return Truth::False;
@@ -781,13 +786,18 @@ namespace hgl::ir::detail
         std::size_t admitted = 0;
         for (const Declaration &declaration : module_.declarations) {
             const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
+            // A candidate may extend the contract (runtime spec WIR-22): a
+            // requirement supplies the contract's arguments only, so every
+            // extra parameter needs a default for the candidate to match.
             if (!candidate || candidate->visibility != Visibility::Implementation ||
-                candidate->operator_contract != requirement.op ||
-                candidate->signature.parameters.size() != query.arguments.size()) {
+                candidate->operator_contract != requirement.op || !reachable_with(*candidate, query.arguments.size())) {
                 continue;
             }
             GenericSubstitution candidate_substitution{module_, types_};
             bool                matches = true;
+            if (query.expected_result.valid()) {  // requested result first (WIR-17)
+                matches = candidate_substitution.infer_from_result(candidate->signature.result, query.expected_result);
+            }
             for (std::size_t index = 0; index < query.arguments.size(); ++index) {
                 const Parameter &parameter = candidate->signature.parameters[index];
                 const Operand   &argument  = arguments[index];
@@ -797,18 +807,19 @@ namespace hgl::ir::detail
                 } else {
                     matches = argument.kind == OperandKind::Type && matches;
                 }
-                matches = candidate_substitution.unify(candidate->signature.parameters[index].type, query.arguments[index].type) &&
+                matches = candidate_substitution.infer_from_argument(candidate->signature.parameters[index].type,
+                                                                     query.arguments[index].type) &&
                           matches;
             }
-            if (query.expected_result.valid()) {
-                matches = candidate_substitution.unify(candidate->signature.result, query.expected_result) && matches;
-            }
             for (std::size_t index = 0; matches && index < query.arguments.size(); ++index) {
-                matches = types_.same(candidate_substitution.apply(candidate->signature.parameters[index].type),
-                                      query.arguments[index].type);
+                matches = types_.same_ignoring_references(
+                    candidate_substitution.apply(candidate->signature.parameters[index].type), query.arguments[index].type);
             }
             if (matches && query.expected_result.valid()) {
-                matches = types_.same(candidate_substitution.apply(candidate->signature.result), query.expected_result);
+                // Output matching is directional (runtime spec WIR-12): a
+                // candidate may not add a reference the request lacks.
+                matches = types_.satisfies_request(query.expected_result,
+                                                   candidate_substitution.apply(candidate->signature.result));
             }
             if (matches) {
                 matches = solve(candidate->requirements, candidate_substitution, {}, "implementation", false, premises);

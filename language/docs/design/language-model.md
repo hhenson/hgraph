@@ -369,7 +369,24 @@ such operator brought into local scope by a selective import; the binding is
 written, never inferred from a name coincidence. `impl fn` with no operator in
 scope is an error, and a plain `fn` that shares a name with an in-scope
 operator is a conflict rather than a candidate. The function signature must be
-compatible specialization of the contract and may itself be generic. Its body
+a compatible specialization of the contract and may itself be generic. The
+contract is the minimum an implementation meets, not an exact shape (runtime
+spec Wiring, WIR-21 to WIR-24; owner rulings 2026-09-26). An operator
+behaves as if its signature ended with `*args, **kwargs`: an implementation
+declares every contract parameter, in order, and may declare more after
+them, with or without defaults. One whose extra parameter has no default
+does not match a call that does not supply it; that is not an error. An
+implementation may refine a contract parameter to a narrower type and never
+widens one; the compiler rejects an implementation that does not have the
+contract's shape. A call through the operator may pass arguments the
+contract does not declare (WIR-22; formerly the variation WV-7). They bind
+none of the contract's variables and go to the implementations: positional
+extras in order after the contract's parameters, keywords by name. An
+implementation without a parameter for one of them does not match. An extra
+that no implementation of a module's own operator accepts is an error naming
+the operator and the argument. An imported operator's implementations are
+not all known, so the runtime decides there. Generated code passes every
+argument to the runtime, which ranks the candidates with them. Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the

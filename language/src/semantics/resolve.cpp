@@ -1494,11 +1494,6 @@ namespace hgl::semantics
                     module_.type(type.children.front()).kind == ast::TypeKind::Reference) {
                     report(Category::Type, type.range, "nested 'ref' boundaries are not supported");
                 }
-                if (type.kind == ast::TypeKind::Map && type.children.size() == 2U &&
-                    module_.type(type.children[1]).kind == ast::TypeKind::Reference) {
-                    report(Category::Type, type.range,
-                           "map values wrapped in 'ref' require the collection-reference mapping to be resolved");
-                }
                 if (type.kind == ast::TypeKind::Named) {
                     // A qualified type names a struct another module exports
                     // (ADR 0013). The identity stays the owner's; this module

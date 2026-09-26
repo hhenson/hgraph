@@ -209,7 +209,7 @@ and [contract_required_extra.hgl](validation/wiring/contract_required_extra.hgl)
 declare an implementation with a `const scale` parameter its operator does
 not declare, with and without a default; HGL must accept both (WIR-22).
 [contract_extra_argument.hgl](validation/wiring/contract_extra_argument.hgl)
-passes `scale=5.0` through the operator's call; HGL must accept it.
+passes `scale: 5.0` through the operator's call; HGL must accept it.
 [contract_widening.hgl](validation/wiring/contract_widening.hgl) is a wider
 implementation; HGL must reject it (WIR-23, WIR-24).
 

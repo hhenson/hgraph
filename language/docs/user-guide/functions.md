@@ -403,6 +403,26 @@ operator contract rather than change its public argument roles. Its body is
 classified normally: an ordinary body becomes graph composition, while
 node-only constructs make that candidate a runtime implementation.
 
+The contract is the minimum an implementation meets. An implementation
+declares every contract parameter, in order, and may declare more after
+them, with or without defaults. A call through the operator may pass those
+extra arguments, by name or by position after the contract's parameters:
+
+```hgl
+operator pick<T>(value: T) -> T
+
+impl fn pick(value: f64) -> f64 => value
+impl fn pick(value: i64, const scale: i64) -> i64 => value * scale
+
+fn tripled(value: i64) -> i64 => pick(value, scale: 3)
+```
+
+An implementation without a parameter for an extra argument does not match
+the call. Nor does one whose extra parameter has no default and is not
+supplied. `pick(value)` with an `i64` therefore reaches no implementation.
+An extra argument that none of a module's own implementations accepts is
+reported as an error naming the operator and the argument.
+
 ### Explicit implementation materialization
 
 A generic `impl fn` is a source template, not an open-ended candidate placed in

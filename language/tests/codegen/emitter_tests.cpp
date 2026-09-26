@@ -317,11 +317,16 @@ struct imported_operators_ { value: i64 }
                   catalog};
         CHECK(unit.has(Category::Type, "implementation signature does not conform"));
     }
-    SECTION("wrong arity") {
+    SECTION("an extra parameter extends the contract (runtime spec WIR-22)") {
         Unit unit{
             "module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64, extra: i64) -> i64 => value",
             catalog};
-        CHECK(unit.has(Category::Type, "implementation parameter count does not match"));
+        CHECK_FALSE(unit.has(Category::Type, "does not conform"));
+        CHECK_FALSE(unit.has(Category::Type, "declares every parameter"));
+    }
+    SECTION("a missing declared parameter does not") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust() -> i64 => 1", catalog};
+        CHECK(unit.has(Category::Type, "an implementation declares every parameter of its operator contract"));
     }
     SECTION("test-only references do not publish imported aliases") {
         Unit unit{
@@ -350,6 +355,23 @@ struct imported_operators_ { value: i64 }
         CHECK(unit.has(Category::Type, "operator argument does not match its contract"));
         CHECK_FALSE(unit.emit());
     }
+}
+
+TEST_CASE("emit-cpp passes an operator call's extra arguments to the runtime (runtime spec WIR-22, WV-7)",
+          "[codegen][operators][contract]") {
+    Unit       unit{R"(
+module checks.extra_arguments
+
+operator pick<T>(value: T) -> T
+impl fn pick(value: f64, const scale: f64) -> f64 => value * scale
+
+export fn by_keyword(value: f64) -> f64 => pick(value, scale: 5.0)
+export fn by_position(value: f64) -> f64 => pick(value, 5.0)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value, hgraph::arg<\"scale\">(hgraph::Float{5.0}))"));
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value, hgraph::Float{5.0})"));
 }
 
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
@@ -2908,6 +2930,21 @@ export fn forward(value: ref<f64>) -> ref<f64> {
     CHECK(contains(emitted->header, "hgraph::In<\"value\", hgraph::REF<hgraph::TS<hgraph::Float>>"));
     CHECK(contains(emitted->header, "hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>>"));
     CHECK(contains(emitted->header, "hgl_output.set(value.value());"));
+}
+
+TEST_CASE("emit-cpp maps a map of references to a TSD of references", "[codegen][ref]") {
+    // map<K, ref<V>> is a map containing reference values, TSD[K, REF[V]],
+    // with no reference around the map (owner ruling 2026-09-26).
+    Unit unit{R"(
+module t
+
+export fn forward(values: map<str, ref<f64>>) -> map<str, ref<f64>> => values
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "hgraph::TSD<hgraph::Str, hgraph::REF<hgraph::TS<hgraph::Float>>>"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::REF<hgraph::TSD<"));
 }
 
 TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
