@@ -1681,11 +1681,15 @@ def test_service_adaptor_from_python():
         values: TS[int]
         timestamp: TS[datetime.datetime]
 
-    class ImplementationStreamLikeResult(hg.TimeSeriesSchema):
-        values: TS[int]
-        status: TS[int]
-        status_msg: TS[str]
-        timestamp: TS[datetime.datetime]
+    # The implementation declares the same fields in another order. It is
+    # unnamed: two named bundles with different names never bind (runtime spec
+    # WIR-15, which pairs fields by name in any order).
+    ImplementationStreamLikeResult = hg.ts_schema(
+        values=TS[int],
+        status=TS[int],
+        status_msg=TS[str],
+        timestamp=TS[datetime.datetime],
+    )
 
     @hg.service_adaptor
     def ref_leaf_result(request: TS[int]) -> TSB[StreamLikeResult]: ...

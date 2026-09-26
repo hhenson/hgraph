@@ -1,5 +1,9 @@
 #include <hgraph/types/time_series/endpoint_schema.h>
 
+#include <ankerl/unordered_dense.h>
+#include <optional>
+#include <string_view>
+
 #include <hgraph/types/metadata/type_registry.h>
 
 #include <stdexcept>
@@ -112,6 +116,61 @@ namespace hgraph
     {
         auto &registry = TypeRegistry::instance();
         return time_series_schema_equivalent(registry.dereference(lhs), registry.dereference(rhs));
+    }
+
+    bool time_series_bundle_names_conflict(const TSValueTypeMetaData *lhs, const TSValueTypeMetaData *rhs)
+    {
+        const auto strip = [](const TSValueTypeMetaData *schema) {
+            return TypeRegistry::instance().dereference(schema);
+        };
+        lhs = strip(lhs);
+        rhs = strip(rhs);
+        if (lhs == nullptr || rhs == nullptr || lhs == rhs || lhs->kind != rhs->kind) { return false; }
+        switch (lhs->kind)
+        {
+            case TSTypeKind::TSB:
+            {
+                if (lhs->is_named_tsb() && rhs->is_named_tsb())
+                {
+                    const std::string_view lname = lhs->bundle_name() != nullptr ? lhs->bundle_name() : "";
+                    const std::string_view rname = rhs->bundle_name() != nullptr ? rhs->bundle_name() : "";
+                    if (lname != rname) { return true; }
+                }
+                // Fields pair by name: at the same index when the order agrees,
+                // else through a name index built once (never a scan per field).
+                const auto field_name = [](const TSFieldMetaData &field) {
+                    return std::string_view{field.name != nullptr ? field.name : ""};
+                };
+                std::optional<ankerl::unordered_dense::map<std::string_view, std::size_t>> by_name;
+                for (std::size_t i = 0; i < lhs->field_count(); ++i)
+                {
+                    const TSFieldMetaData &field = lhs->fields()[i];
+                    const TSFieldMetaData *other = nullptr;
+                    if (i < rhs->field_count() && field_name(rhs->fields()[i]) == field_name(field))
+                    {
+                        other = &rhs->fields()[i];
+                    }
+                    else
+                    {
+                        if (!by_name)
+                        {
+                            by_name.emplace();
+                            for (std::size_t j = 0; j < rhs->field_count(); ++j) { by_name->emplace(field_name(rhs->fields()[j]), j); }
+                        }
+                        if (const auto found = by_name->find(field_name(field)); found != by_name->end())
+                        {
+                            other = &rhs->fields()[found->second];
+                        }
+                    }
+                    if (other != nullptr && time_series_bundle_names_conflict(field.type, other->type)) { return true; }
+                }
+                return false;
+            }
+            case TSTypeKind::TSL:
+            case TSTypeKind::TSD:
+                return time_series_bundle_names_conflict(lhs->element_ts(), rhs->element_ts());
+            default: return false;
+        }
     }
 
     bool time_series_schema_equivalent(const TSValueTypeMetaData *lhs,

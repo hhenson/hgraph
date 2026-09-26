@@ -508,6 +508,70 @@ TEST_CASE("wiring contract: WIRE-BUNDLE-IDENTITY counts names only when both bun
     CHECK_OUTPUT(eval_node<ConstrainedGraph>(values<Int>(1)), values<Bool>(true));
 }
 
+namespace
+{
+    // WIRE-BUNDLE-IDENTITY, field order: fields pair by name (WIR-15).
+    using Pair      = TSB<"WiringContractPair", Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
+    using Riap      = TSB<"WiringContractRiap", Field<"b", TS<Int>>, Field<"a", TS<Int>>>;
+    using UnnamedBA = UnNamedTSB<Field<"b", TS<Int>>, Field<"a", TS<Int>>>;
+
+    template <typename Bundle>
+    struct MakeAB
+    {
+        static constexpr auto name = "wiring_contract_make_ab";
+
+        static void eval(In<"v", TS<Int>> v, Out<Bundle> out)
+        {
+            out.template field<"a">().set(v.value());
+            out.template field<"b">().set(v.value() + 1);
+        }
+    };
+
+    template <typename Bundle>
+    struct TakesAB
+    {
+        static constexpr auto name = "wiring_contract_takes_ab";
+
+        static void eval(In<"p", Bundle> p, Out<TS<Int>> out)
+        {
+            out.set(p.template field<"a">().value() * 10 + p.template field<"b">().value());
+        }
+    };
+
+    template <typename Declared, typename Supplied>
+    struct TakesABGraph
+    {
+        static constexpr auto name = "wiring_contract_takes_ab_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> v)
+        {
+            const Port<void> supplied{w, wire<MakeAB<Supplied>>(w, v).erased()};
+            return wire<TakesAB<Declared>>(w, supplied);
+        }
+    };
+}  // namespace
+
+TEST_CASE("wiring contract: bundles pair fields by name; different names never bind (WIR-15)")
+{
+    stdlib::register_standard_operators();
+    const auto *pair       = schema_descriptor<Pair>::ts_meta();
+    const auto *riap       = schema_descriptor<Riap>::ts_meta();
+    const auto *unnamed_ba = schema_descriptor<UnnamedBA>::ts_meta();
+    // Names conflict only when both bundles are named, at any depth.
+    CHECK(time_series_bundle_names_conflict(pair, riap));
+    CHECK_FALSE(time_series_bundle_names_conflict(pair, unnamed_ba));
+    CHECK_FALSE(time_series_bundle_names_conflict(pair, pair));
+    CHECK(time_series_bundle_names_conflict(schema_descriptor<TSL<Pair, 2>>::ts_meta(),
+                                            schema_descriptor<TSL<Riap, 2>>::ts_meta()));
+    CHECK(time_series_bundle_names_conflict(schema_descriptor<REF<Pair>>::ts_meta(), riap));
+    // Wiring refuses them whatever alternative could carry the value.
+    CHECK_FALSE(graph_wiring_detail::input_accepts_output_schema(pair, riap));
+    CHECK_THROWS((eval_node<TakesABGraph<Pair, Riap>>(values<Int>(1))));
+    // A reordered unnamed bundle pairs by name: a * 10 + b is 12.
+    CHECK_OUTPUT((eval_node<TakesABGraph<Pair, UnnamedBA>>(values<Int>(1))), values<Int>(12));
+    CHECK_OUTPUT((eval_node<TakesABGraph<UnnamedBA, Pair>>(values<Int>(1))), values<Int>(12));
+}
+
 TEST_CASE("wiring contract: WIRE-SPECIFICITY selects the most specific candidate (WIR-16, WIR-18)")
 {
     stdlib::register_standard_operators();

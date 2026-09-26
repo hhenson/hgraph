@@ -123,6 +123,15 @@ namespace hgraph
                                                                   const TSValueTypeMetaData *rhs);
 
     /**
+     * Whether two schemas name different bundles at the same place: both
+     * bundles named, with different names (runtime spec WIR-15), at any depth,
+     * through references, pairing a bundle's fields by name. Such schemas never
+     * bind, whatever alternative representation could otherwise carry one.
+     */
+    [[nodiscard]] HGRAPH_EXPORT bool time_series_bundle_names_conflict(const TSValueTypeMetaData *lhs,
+                                                                       const TSValueTypeMetaData *rhs);
+
+    /**
      * A value schema with its STORAGE CATEGORY removed, for type comparison.
      *
      * ``Owned<>`` and ``Shared<>`` are hints to the layout factory and to

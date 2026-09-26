@@ -137,10 +137,23 @@ removes its cause, the generated name.)
   first binding stays.
 - The Python bridge registers `ts_schema(...)` as an unnamed native bundle
   (`un_named_tsb`) instead of under a generated name (WV-3).
+- Wiring's compatibility check (`input_accepts_output_schema`) refuses two
+  schemas that name different bundles at the same place, at any depth and
+  through references (`time_series_bundle_names_conflict`), before it tries
+  an alternative representation. #1651's by-name alternative binding had let
+  a differently named bundle through (WV-4 in `_same(Foo, Bar)` and
+  `_takes_pair(Riap)`); fields still pair by name, in any order.
+
+#1651's two service regressions bound a differently named, reordered bundle
+at a service boundary (`test_service_adaptor_from_python`, and
+`test_service_runtime.cpp`'s reordered reference leaves). Per the owner's
+ruling their reordered bundle is now unnamed, so they still test reordering.
 
 Regression coverage: `tests/cpp/test_wiring_contract.cpp`
-("WIRE-BUNDLE-IDENTITY") and `python/tests/test_wiring_contract.py`, which
-now holds all six observations. Three reference-alternative tests in
+("WIRE-BUNDLE-IDENTITY", and field order through native wiring: a reordered
+unnamed bundle gives `a * 10 + b = 12`) and
+`python/tests/test_wiring_contract.py`, which now holds every bundle_identity
+and bundle_field_order observation. Three reference-alternative tests in
 `tests/cpp/test_time_series_reference.cpp` bound two differently named
 bundles with the same fields; they now request an unnamed bundle, which
 WIR-15 lets match the named source. The archived observations are kept.
