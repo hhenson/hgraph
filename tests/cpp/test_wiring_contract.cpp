@@ -492,3 +492,59 @@ TEST_CASE("wiring contract: a callable's child graph names itself when unobserve
                       Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_only_int") &&
                           Catch::Matchers::ContainsSubstring("wiring path: wiring_contract_maps_only_int"));
 }
+
+namespace
+{
+    void defer_wiring_failure(Wiring &w)
+    {
+        w.register_pre_rank_finalizer([](Wiring &target) {
+            auto text = wire<stdlib::const_>(target, Str{"wrong type"});
+            static_cast<void>(wire<only_int_>(target, text));
+        });
+    }
+
+    struct DeferredOutputGraph
+    {
+        static constexpr auto name = "deferred_output_graph";
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            defer_wiring_failure(w);
+            return wire<stdlib::const_>(w, Int{1}).as<TS<Int>>();
+        }
+    };
+    struct DeferredSinkGraph
+    {
+        static constexpr auto name = "deferred_sink_graph";
+        static void compose(Wiring &w) { defer_wiring_failure(w); }
+    };
+}
+
+TEST_CASE("wiring contract: compiled children retain their path through finalization")
+{
+    stdlib::register_standard_operators();
+    register_case_operators();
+    CHECK_THROWS_WITH(compile_subgraph<DeferredOutputGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: deferred_output_graph"));
+    CHECK_THROWS_WITH(compile_subgraph<DeferredSinkGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: deferred_sink_graph"));
+    CHECK_THROWS_WITH(eval_node<DeferredOutputGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: deferred_output_graph"));
+    CHECK_THROWS_WITH(build_graph<DeferredSinkGraph>(),
+                      Catch::Matchers::ContainsSubstring("wiring path: deferred_sink_graph"));
+}
+
+TEST_CASE("wiring contract: finishing a labelled root restores its closed composition path")
+{
+    stdlib::register_standard_operators();
+    register_case_operators();
+    for (bool snapshot : {false, true})
+    {
+        // Front ends close composition before finishing the labelled wiring.
+        Wiring w;
+        w.label("deferred_root");
+        defer_wiring_failure(w);
+        CHECK_THROWS_WITH(snapshot ? w.snapshot() : std::move(w).finish(),
+                          Catch::Matchers::ContainsSubstring("wiring path: deferred_root"));
+        CHECK(w.current_wiring_path().empty());
+    }
+}

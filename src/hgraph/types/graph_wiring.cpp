@@ -3125,6 +3125,12 @@ void Wiring::finalize_extensions() {
 }
 
 GraphBuilder Wiring::finish_top_level(bool consume_state) {
+  // A front end may have closed its composition scope before finish/snapshot.
+  // Deferred service and extension wiring still belongs to the labelled root.
+  std::optional<WiringPathScope> root_path;
+  if (impl_->wiring_path.empty() && !label().empty()) {
+    root_path.emplace(*this, std::string{label()});
+  }
   if (!impl_->implementation_scopes.empty()) {
     throw std::logic_error("Wiring::finish encountered an unterminated "
                            "service/adaptor implementation scope");
