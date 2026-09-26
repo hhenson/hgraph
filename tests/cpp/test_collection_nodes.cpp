@@ -10,6 +10,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
+#include <iostream>
+#include <map>
+
 #include <cmath>
 #include <cstdint>
 
@@ -743,6 +747,128 @@ TEST_CASE("collections: unpartition flattens nested TSD inner deltas")
                                dict_delta<Int, TS<Int>>({}, {1}),
                                dict_delta<Int, TS<Int>>({}, {2}),
                                dict_delta<Int, TS<Int>>({{3, 6}})));
+}
+
+namespace
+{
+    // unpartition over integer partitions (runtime spec OP-12).
+    using PartitionedByIntDict = TSD<Int, TSD<Int, TS<Int>>>;
+
+    struct UnpartitionByInt
+    {
+        static constexpr auto name = "unpartition_by_int";
+
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<PartitionedByIntDict> ts)
+        {
+            return wire<stdlib::unpartition>(w, ts).as<TSD<Int, TS<Int>>>();
+        }
+    };
+
+    // ``partitions`` partitions, partition p holding keys p*width .. p*width+width-1,
+    // each key's value equal to the key.
+    hgraph::Value partitions_added(std::size_t partitions, std::size_t width)
+    {
+        using namespace hgraph;
+        std::map<Int, Value> modified;
+        for (std::size_t partition = 0; partition < partitions; ++partition)
+        {
+            std::map<Int, Int> inner;
+            for (std::size_t offset = 0; offset < width; ++offset)
+            {
+                const auto key = static_cast<Int>(partition * width + offset);
+                inner.emplace(key, key);
+            }
+            modified.emplace(static_cast<Int>(partition),
+                             static_node_detail::build_dict_delta<Int, TS<Int>>(inner, {}));
+        }
+        return static_node_detail::build_dict_delta<Int, TSD<Int, TS<Int>>>(modified, {});
+    }
+
+    hgraph::Value partitions_removed(const std::vector<hgraph::Int> &partitions)
+    {
+        using namespace hgraph;
+        return static_node_detail::build_dict_delta<Int, TSD<Int, TS<Int>>>({}, partitions);
+    }
+}  // namespace
+
+TEST_CASE("collections: unpartition removes every key a removed partition owns, many at once (OP-12)")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    constexpr std::size_t partitions = 100;
+    constexpr std::size_t width      = 3;
+    std::vector<Int>      even;
+    std::vector<Int>      even_keys;
+    std::map<Int, Int>    all_keys;
+    for (std::size_t partition = 0; partition < partitions; ++partition)
+    {
+        for (std::size_t offset = 0; offset < width; ++offset)
+        {
+            const auto key = static_cast<Int>(partition * width + offset);
+            all_keys.emplace(key, key);
+            if (partition % 2 == 0) { even_keys.push_back(key); }
+        }
+        if (partition % 2 == 0) { even.push_back(static_cast<Int>(partition)); }
+    }
+    // Removing half the partitions in one tick removes exactly their keys; the
+    // odd partitions' keys stay, and removing one of them later removes its own.
+    CHECK_OUTPUT((eval_node<UnpartitionByInt>(values<Value>(partitions_added(partitions, width),
+                                                            partitions_removed(even),
+                                                            partitions_removed({1})))),
+                 values<Value>(static_node_detail::build_dict_delta<Int, TS<Int>>(all_keys, {}),
+                               static_node_detail::build_dict_delta<Int, TS<Int>>({}, even_keys),
+                               static_node_detail::build_dict_delta<Int, TS<Int>>({}, {3, 4, 5})));
+}
+
+TEST_CASE("collections: unpartition keeps a key another partition republishes as its partition leaves (OP-12)")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    // y leaves while x takes over b in the same tick: b stays, now x's, and
+    // leaves with x. y's ownership is not revived by the move.
+    CHECK_OUTPUT((eval_node<UnpartitionIntLeaves>(
+                     values<Value>(
+                         dict_delta<Str, TSD<Int, TS<Int>>>({{"x"s, dict_delta<Int, TS<Int>>({{1, 1}})},
+                                                            {"y"s, dict_delta<Int, TS<Int>>({{2, 2}})}}),
+                         dict_delta<Str, TSD<Int, TS<Int>>>({{"x"s, dict_delta<Int, TS<Int>>({{2, 5}})}}, {"y"s}),
+                         dict_delta<Str, TSD<Int, TS<Int>>>({{"y"s, dict_delta<Int, TS<Int>>({{3, 3}})}}),
+                         dict_delta<Str, TSD<Int, TS<Int>>>({}, {"x"s})))),
+                 values<Value>(dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}}),
+                               dict_delta<Int, TS<Int>>({{2, 5}}),
+                               dict_delta<Int, TS<Int>>({{3, 3}}),
+                               dict_delta<Int, TS<Int>>({}, {1, 2})));
+}
+
+// Explicitly selected; normal correctness gates do not run timing work.
+//   hgraph_unit_tests '[unpartition-scaling]'
+// n partitions of two keys arrive in one tick and all leave in the next. The
+// per-key figure must stay flat as n doubles; a rising one is a quadratic
+// (guardrail iv): removing a partition must cost its own keys.
+TEST_CASE("collections: removing partitions from unpartition scales linearly", "[.][unpartition-scaling]")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    constexpr std::size_t width = 2;
+    for (const std::size_t partitions : {2000, 4000, 8000, 16000})
+    {
+        std::vector<Int> all(partitions);
+        for (std::size_t partition = 0; partition < partitions; ++partition) { all[partition] = static_cast<Int>(partition); }
+        const auto added   = partitions_added(partitions, width);
+        const auto removed = partitions_removed(all);
+        const auto start   = std::chrono::steady_clock::now();
+        const auto result  = eval_node<UnpartitionByInt>(values<Value>(added, removed));
+        const auto elapsed_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        REQUIRE(result.size() == 2);
+        std::cout << "unpartition_partition_removal partitions=" << partitions << " keys=" << partitions * width
+                  << " run_ms=" << elapsed_ms
+                  << " us_per_key=" << elapsed_ms * 1000.0 / static_cast<double>(partitions * width) << '\n';
+    }
 }
 
 TEST_CASE("collections: unpartition preserves structured leaves by reference")
