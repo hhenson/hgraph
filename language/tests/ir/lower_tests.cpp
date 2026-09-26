@@ -1606,6 +1606,28 @@ fn use_pick(value: f64) -> f64 => pick(value)
     CHECK(saw_call);
 }
 
+TEST_CASE("typed HIR requirements admit an implementation that extends its contract (runtime spec WIR-22)",
+          "[ir][typed][constraints][operators][contract]") {
+    // A requirement supplies the contract's arguments; an implementation whose
+    // extra parameter has a default satisfies it.
+    Lowered lowered{R"(
+module checks.requirement_superset
+
+operator pick<T>(value: T) -> T
+impl fn pick(value: f64, const scale: f64 = 2.0) -> f64 => value * scale
+
+fn scaled<T>(value: T) -> T
+requires pick(T) -> T
+=> pick(value)
+
+fn apply(value: f64) -> f64 => scaled(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
     Lowered lowered{R"(
 module checks.constraints

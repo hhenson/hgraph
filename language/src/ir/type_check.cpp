@@ -1,4 +1,5 @@
 #include "ir/type_check.h"
+#include "ir/operator_shape.h"
 #include <hgl/constant_arithmetic.h>
 
 #include "ir/canonical_types.h"
@@ -355,26 +356,9 @@ namespace hgl::ir
                 return result;
             }
 
-            /// An implementation may declare more parameters than its operator
-            /// contract (a superset, runtime spec WIR-22): the contract's come
-            /// first, and the extra ones follow, with or without defaults.
-            [[nodiscard]] static bool extends_contract(const FunctionDecl &implementation, std::size_t declared) {
-                return implementation.signature.parameters.size() >= declared;
-            }
-
-            /// Whether a call that supplies only the contract's parameters can
-            /// reach the implementation: every extra parameter has a default.
-            /// One that requires an argument the call does not supply does not
-            /// match (WIR-22); that is not an error.
-            [[nodiscard]] static bool extras_defaulted(const FunctionDecl &implementation, std::size_t declared) {
-                const auto &parameters = implementation.signature.parameters;
-                return std::all_of(parameters.begin() + static_cast<std::ptrdiff_t>(std::min(declared, parameters.size())),
-                                   parameters.end(), [](const Parameter &extra) { return extra.default_value.valid(); });
-            }
-
             void check_implementation_conformance(const Declaration &declaration, const FunctionDecl &implementation,
                                                   const OperatorDecl &contract, detail::GenericSubstitution &substitution) {
-                if (!extends_contract(implementation, contract.signature.parameters.size())) {
+                if (!detail::extends_contract(implementation, contract.signature.parameters.size())) {
                     type_error(declaration.range, "an implementation declares every parameter of its operator contract");
                     return;
                 }
@@ -430,7 +414,7 @@ namespace hgl::ir
                                                                 detail::GenericSubstitution &implementation_bindings,
                                                                 syntax::SourceRange          range) {
                 detail::GenericSubstitution contract_bindings{module_, canonical_types_};
-                if (!extends_contract(implementation, contract.signature.parameters.size())) { return false; }
+                if (!detail::extends_contract(implementation, contract.signature.parameters.size())) { return false; }
                 for (std::size_t index = 0; index < contract.signature.parameters.size(); ++index) {
                     if (!contract_bindings.unify(contract.signature.parameters[index].type,
                                                  implementation_bindings.apply(implementation.signature.parameters[index].type))) {
@@ -2236,8 +2220,8 @@ namespace hgl::ir
                 // A candidate may extend the contract (WIR-22): its extra
                 // parameters take their defaults, and one without a default
                 // does not match a call that does not supply it.
-                if (!extends_contract(candidate, arguments.parameters.size()) ||
-                    !extras_defaulted(candidate, arguments.parameters.size())) {
+                if (!detail::extends_contract(candidate, arguments.parameters.size()) ||
+                    !detail::extras_defaulted(candidate, arguments.parameters.size())) {
                     return false;
                 }
                 detail::GenericSubstitution bindings{module_, canonical_types_};

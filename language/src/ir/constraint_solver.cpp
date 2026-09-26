@@ -1,4 +1,5 @@
 #include "ir/constraint_solver.h"
+#include "ir/operator_shape.h"
 
 #include <algorithm>
 #include <ranges>
@@ -785,9 +786,11 @@ namespace hgl::ir::detail
         std::size_t admitted = 0;
         for (const Declaration &declaration : module_.declarations) {
             const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
+            // A candidate may extend the contract (runtime spec WIR-22): a
+            // requirement supplies the contract's arguments only, so every
+            // extra parameter needs a default for the candidate to match.
             if (!candidate || candidate->visibility != Visibility::Implementation ||
-                candidate->operator_contract != requirement.op ||
-                candidate->signature.parameters.size() != query.arguments.size()) {
+                candidate->operator_contract != requirement.op || !reachable_with(*candidate, query.arguments.size())) {
                 continue;
             }
             GenericSubstitution candidate_substitution{module_, types_};
