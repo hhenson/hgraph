@@ -75,6 +75,7 @@ namespace hgraph
         std::vector<DimensionPattern> dimensions{}; ///< ``Array`` dimensions, outermost first.
         bool                       schema_var{false}; ///< ``Bundle``: true when ``name`` is a schema variable.
         std::string                bundle_origin{}; ///< ``Bundle``: qualified generic origin, when constrained.
+        bool                       optional_metadata{false}; ///< ``Frame``: the metadata (``children[1]``) may be absent.
 
         [[nodiscard]] static ScalarPattern var(std::string name,
                                                std::vector<const ValueTypeMetaData *> constraints = {},
@@ -380,6 +381,21 @@ namespace hgraph
                                                              ResolutionMap &map);
 
     /** Scalar-layer counterpart of ``ts_pattern_match``. */
+    /**
+     * Whether ``general`` accepts every scalar type ``specific`` accepts: a
+     * candidate's scalar parameter may refine its operator's, never widen it
+     * (runtime spec WIR-23).
+     */
+    [[nodiscard]] HGRAPH_EXPORT bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific);
+
+    /**
+     * Whether ``general`` accepts every time-series type ``specific`` accepts:
+     * a candidate's parameter or output may refine its operator's, never widen
+     * it (runtime spec WIR-23). A reference is transparent (WIR-6), and bundle
+     * names count only when both bundles are named (WIR-15).
+     */
+    [[nodiscard]] HGRAPH_EXPORT bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific);
+
     [[nodiscard]] HGRAPH_EXPORT bool scalar_pattern_match(const ScalarPattern &pattern,
                                                           const ValueTypeMetaData *concrete, ResolutionMap &map);
 
@@ -794,6 +810,14 @@ namespace hgraph
             if constexpr (std::is_void_v<TMetadata>)
             {
                 return ScalarPattern::frame(to_scalar_pattern<TSchema>());
+            }
+            else if constexpr (requires { typename TMetadata::metadata_type; })
+            {
+                // OptionalFrameMetadata<M>: a frame with metadata M, or without.
+                ScalarPattern pattern = ScalarPattern::frame(
+                    to_scalar_pattern<TSchema>(), to_scalar_pattern<typename TMetadata::metadata_type>());
+                pattern.optional_metadata = true;
+                return pattern;
             }
             else
             {

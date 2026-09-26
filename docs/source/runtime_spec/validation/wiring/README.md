@@ -123,6 +123,28 @@ varies" to "both", the other the other way. The correction for WV-4
 (#1655) makes the bundle comparison count names when both bundles are
 named, which covers both observations.
 
+## C++ correction for WV-6
+
+C++ operators now check every candidate against the operator's declared
+shape when it is registered (WIR-24), and reject one that lacks a required
+declared parameter or widens a declared type. A survey of every registration
+in the native suite first found 142 departures, all in the declarations
+rather than the candidates, and the declarations were corrected: optional
+parameters where candidates are unary (`min_`, `max_`, `reduce`,
+`combine_json`, `const`; owner ruling), constrained variables where
+candidates take several types (the date and time parts, `lag`, `take`,
+`drop`, `window`, `to_window`, `json_decode`; owner ruling), an
+optional-metadata frame for the five frame operators, and typed outputs for
+three graph candidates (`join_multi`, `until_true_fn`, `valid`).
+Regression coverage: `tests/cpp/test_wiring_contract.cpp` (registration
+rejects a wider candidate and one lacking a required parameter, accepts one
+omitting an optional parameter; pattern coverage).
+
+Python-defined operators are not checked (owner decision, 2026-09-26: Python
+is not changed). WIRE-OPERATOR-CONTRACT observes a Python-defined operator,
+so WV-6 remains on the Python surface and `test_wiring_contract.py` keeps it
+pinned.
+
 ## The C++ correction behind WIR-7
 
 Before `main` @ `dea948136` (PR #1650, issue #847) the C++ matcher removed

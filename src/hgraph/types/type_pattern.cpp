@@ -136,10 +136,9 @@ namespace hgraph
                 {
                     return false;
                 }
-                return pattern.children.size() == 1
-                           ? concrete->key_type == nullptr
-                           : concrete->key_type != nullptr &&
-                                 scalar_pattern_match(pattern.children[1], concrete->key_type, map);
+                if (pattern.children.size() == 1) { return concrete->key_type == nullptr; }
+                if (concrete->key_type == nullptr) { return pattern.optional_metadata; }
+                return scalar_pattern_match(pattern.children[1], concrete->key_type, map);
             }
             if (pattern.kind == ScalarPattern::Kind::Concrete)
             {
@@ -284,10 +283,9 @@ namespace hgraph
                 {
                     return false;
                 }
-                return pattern.children.size() == 1
-                           ? concrete->key_type == nullptr
-                           : concrete->key_type != nullptr &&
-                                 scalar_pattern_match(pattern.children[1], concrete->key_type, map);
+                if (pattern.children.size() == 1) { return concrete->key_type == nullptr; }
+                if (concrete->key_type == nullptr) { return pattern.optional_metadata; }
+                return scalar_pattern_match(pattern.children[1], concrete->key_type, map);
             case ScalarPattern::Kind::Array:
             {
                 if (!TypeRegistry::is_array(concrete) || pattern.children.empty()) { return false; }
@@ -358,6 +356,108 @@ namespace hgraph
         if (!size_allowed_by_constraints(pattern, concrete_size)) { return false; }
         map.bind_size(pattern.size_name, concrete_size);
         return true;
+    }
+
+    bool scalar_pattern_covers(const ScalarPattern &general, const ScalarPattern &specific)
+    {
+        // A concrete candidate type is covered exactly when the operator's
+        // pattern matches it.
+        if (specific.kind == ScalarPattern::Kind::Concrete)
+        {
+            ResolutionMap scratch;
+            return specific.meta != nullptr && scalar_pattern_match(general, specific.meta, scratch);
+        }
+        if (general.kind == ScalarPattern::Kind::Var)
+        {
+            if (general.constraints.empty() && general.bound == nullptr) { return true; }
+            // A constrained or bounded variable covers a variable whose every
+            // accepted type it accepts.
+            if (specific.kind != ScalarPattern::Kind::Var || specific.constraints.empty()) { return false; }
+            return std::ranges::all_of(specific.constraints, [&](const ValueTypeMetaData *constraint) {
+                ResolutionMap scratch;
+                return scalar_pattern_match(general, constraint, scratch);
+            });
+        }
+        if (specific.kind == ScalarPattern::Kind::Var) { return false; }  // wider than a structure
+        if (general.kind == ScalarPattern::Kind::Frame && specific.kind == ScalarPattern::Kind::Frame &&
+            general.optional_metadata && !specific.optional_metadata && general.children.size() == 2 &&
+            specific.children.size() == 1)
+        {
+            // A frame whose metadata may be absent covers a frame without it.
+            return scalar_pattern_covers(general.children[0], specific.children[0]);
+        }
+        if (specific.optional_metadata && !general.optional_metadata) { return false; }
+        if (general.kind != specific.kind || general.children.size() != specific.children.size()) { return false; }
+        for (std::size_t index = 0; index < general.children.size(); ++index)
+        {
+            if (!scalar_pattern_covers(general.children[index], specific.children[index])) { return false; }
+        }
+        return true;
+    }
+
+    bool ts_pattern_covers(const TypePattern &general, const TypePattern &specific)
+    {
+        if (specific.kind == TypePattern::Kind::Concrete)
+        {
+            ResolutionMap scratch;
+            return specific.meta != nullptr && input_ts_pattern_match(general, specific.meta, scratch);
+        }
+        // References are transparent for coverage (WIR-6).
+        if (general.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general.children[0], specific); }
+        if (specific.kind == TypePattern::Kind::REF) { return ts_pattern_covers(general, specific.children[0]); }
+        if (general.kind == TypePattern::Kind::Signal) { return true; }  // an input observing any series
+        if (general.kind == TypePattern::Kind::Var)
+        {
+            if (general.constraints.empty()) { return true; }
+            if (specific.kind != TypePattern::Kind::Var || specific.constraints.empty()) { return false; }
+            return std::ranges::all_of(specific.constraints, [&](const TSValueTypeMetaData *constraint) {
+                return ts_allowed_by_constraints(general, constraint);
+            });
+        }
+        if (specific.kind == TypePattern::Kind::Var || specific.kind == TypePattern::Kind::Signal) { return false; }
+        if (general.kind != specific.kind) { return false; }
+        switch (general.kind)
+        {
+            case TypePattern::Kind::TS:
+            case TypePattern::Kind::TSS: return scalar_pattern_covers(general.scalar, specific.scalar);
+            case TypePattern::Kind::TSL:
+            {
+                const bool any_size = general.size_var ? general.size_constraints.empty()
+                                                       : general.fixed_size == unbounded_tsl_size;
+                const bool size_ok  = any_size ||
+                                     (!specific.size_var && general.size_var &&
+                                      std::ranges::find(general.size_constraints, specific.fixed_size) !=
+                                          general.size_constraints.end()) ||
+                                     (!general.size_var && !specific.size_var && general.fixed_size == specific.fixed_size);
+                return size_ok && ts_pattern_covers(general.children[0], specific.children[0]);
+            }
+            case TypePattern::Kind::TSD:
+                return scalar_pattern_covers(general.scalar, specific.scalar) &&
+                       ts_pattern_covers(general.children[0], specific.children[0]);
+            case TypePattern::Kind::TSW:
+                return scalar_pattern_covers(general.scalar, specific.scalar) &&
+                       (general.any_window ||
+                        (general.duration_window == specific.duration_window && general.fixed_size == specific.fixed_size &&
+                         general.min_size == specific.min_size && general.duration_micros == specific.duration_micros &&
+                         general.min_duration_micros == specific.min_duration_micros));
+            case TypePattern::Kind::TSB:
+            {
+                if (general.schema_var) { return true; }
+                if (specific.schema_var) { return false; }
+                // A bundle's name counts only when both are named (WIR-15).
+                if (general.named_bundle && specific.named_bundle && general.bundle_name != specific.bundle_name)
+                {
+                    return false;
+                }
+                if (general.field_names != specific.field_names) { return false; }
+                for (std::size_t index = 0; index < general.children.size(); ++index)
+                {
+                    if (!ts_pattern_covers(general.children[index], specific.children[index])) { return false; }
+                }
+                return true;
+            }
+            default: return false;
+        }
     }
 
     bool output_ts_pattern_match(const TypePattern &pattern,
@@ -652,7 +752,7 @@ namespace hgraph
                 const ValueTypeMetaData *metadata = pattern.children.size() == 2
                                                         ? scalar_pattern_resolve(pattern.children[1], map)
                                                         : nullptr;
-                return schema != nullptr && (pattern.children.size() == 1 || metadata != nullptr)
+                return schema != nullptr && (pattern.children.size() == 1 || metadata != nullptr || pattern.optional_metadata)
                            ? TypeRegistry::instance().frame(schema, metadata)
                            : nullptr;
             }
@@ -871,8 +971,8 @@ namespace hgraph
                 {
                     return fmt::format("Frame[{}]", scalar_pattern_to_string(pattern.children[0]));
                 }
-                return fmt::format("Frame[{}, {}]", scalar_pattern_to_string(pattern.children[0]),
-                                   scalar_pattern_to_string(pattern.children[1]));
+                return fmt::format("Frame[{}, {}{}]", scalar_pattern_to_string(pattern.children[0]),
+                                   scalar_pattern_to_string(pattern.children[1]), pattern.optional_metadata ? "?" : "");
             case ScalarPattern::Kind::Array:
             {
                 std::vector<std::string> dimensions;

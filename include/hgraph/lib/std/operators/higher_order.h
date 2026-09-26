@@ -83,6 +83,8 @@ namespace hgraph::stdlib
                               Scalar<"is_associative", Bool>,
                               Out<TsVar<"V">>>
     {
+        /** ``zero`` and ``is_associative`` are optional (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"zero">(Value{}), arg<"is_associative">(Bool{true})}; }
     };
 
     /**

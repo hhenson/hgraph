@@ -47,9 +47,13 @@ namespace hgraph
      */
 
     /**
-     * Operator marker: a name plus a general (documentary) signature. ``Params`` are
-     * the abstract ``In`` / ``Out`` / ``Scalar`` selectors; the marker is **not**
-     * executable (it has no ``eval``). ``wire<add_>(w, …)`` routes to the registry.
+     * Operator marker: a name plus the minimum shape of its candidates (runtime
+     * spec WIR-21 to WIR-24). ``Params`` are the abstract ``In`` / ``Out`` /
+     * ``Scalar`` selectors; an optional ``defaults()`` names the declared
+     * parameters a candidate may omit. ``register_overload`` rejects a
+     * candidate that lacks a required declared parameter or widens a declared
+     * type. The marker is **not** executable (it has no ``eval``);
+     * ``wire<add_>(w, …)`` routes to the registry.
      */
     template <fixed_string Name, typename... Params>
     struct Operator : operator_tag
@@ -2428,6 +2432,117 @@ namespace hgraph
         return impl;
     }
 
+    namespace operator_dispatch_detail
+    {
+        /**
+         * How a candidate departs from its operator's shape (runtime spec
+         * WIR-22, WIR-23): a declared parameter it lacks, or a declared
+         * parameter or output it widens. Empty when it has the shape.
+         */
+        template <typename Op>
+        [[nodiscard]] std::vector<std::string> candidate_shape_violations(const OperatorImpl &impl)
+        {
+            std::vector<std::string> out;
+            using declared = typename Op::param_types;
+            // A declared parameter is found in the candidate by name, else at
+            // the same position (a call binds positionally), else not at all.
+            std::size_t position = 0;
+            const auto find = [&](std::string_view name, ParamPattern::Kind kind) {
+                auto found = std::ranges::find_if(impl.params, [&](const ParamPattern &p) { return p.name == name; });
+                if (found == impl.params.end() && position < impl.params.size() &&
+                    impl.params[position].kind == kind && !(impl.variadic && position + 1 == impl.params.size()))
+                {
+                    found = impl.params.begin() + static_cast<std::ptrdiff_t>(position);
+                }
+                return found;
+            };
+            // A parameter the operator declares optional (a default in the
+            // marker's defaults()) may be absent from a candidate (WIR-22).
+            std::vector<std::string> optional;
+            if constexpr (requires { Op::defaults(); })
+            {
+                std::apply([&](const auto &...defaults) { (optional.emplace_back(defaults.name), ...); }, Op::defaults());
+            }
+            const auto is_optional = [&](const std::string &name) {
+                return std::ranges::find(optional, name) != optional.end();
+            };
+            [&]<std::size_t... I>(std::index_sequence<I...>) {
+                (
+                    [&] {
+                        using P = std::tuple_element_t<I, declared>;
+                        if constexpr (static_node_detail::is_input_selector<P>::value)
+                        {
+                            const std::string name{P::field_name.sv()};
+                            const auto        found = find(name, ParamPattern::Kind::Input);
+                            ++position;
+                            const TypePattern pattern = to_pattern<typename graph_wiring_detail::in_param_schema<P>::type>();
+                            if (found == impl.params.end())
+                            {
+                                // A candidate's *args accepts a declared input it
+                                // does not name, when its element type covers it.
+                                const bool packed = impl.variadic && !impl.params.empty() &&
+                                                    impl.params.back().kind == ParamPattern::Kind::Input &&
+                                                    ts_pattern_covers(pattern, impl.params.back().ts);
+                                if (!packed && !is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
+                                return;
+                            }
+                            if (found->kind == ParamPattern::Kind::Input && !ts_pattern_covers(pattern, found->ts))
+                            {
+                                out.push_back("widens '" + name + "': declared " + ts_pattern_to_string(pattern) +
+                                              ", candidate " + ts_pattern_to_string(found->ts));
+                            }
+                        }
+                        else if constexpr (static_node_detail::is_scalar_selector<P>::value)
+                        {
+                            const std::string name{P::field_name.sv()};
+                            const auto        found = find(name, ParamPattern::Kind::Scalar);
+                            ++position;
+                            if (found == impl.params.end())
+                            {
+                                if (!is_optional(name)) { out.push_back("lacks the declared parameter '" + name + "'"); }
+                                return;
+                            }
+                            const ScalarPattern pattern =
+                                to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
+                            if (found->kind == ParamPattern::Kind::Scalar && !scalar_pattern_covers(pattern, found->scalar))
+                            {
+                                out.push_back("widens '" + name + "': declared " + scalar_pattern_to_string(pattern) +
+                                              ", candidate " + scalar_pattern_to_string(found->scalar));
+                            }
+                        }
+                    }(),
+                    ...);
+            }(std::make_index_sequence<std::tuple_size_v<declared>>{});
+            if constexpr (Op::has_output && !std::is_void_v<typename Op::output_schema_type>)
+            {
+                const TypePattern pattern = to_pattern<typename Op::output_schema_type>();
+                if (impl.has_output && !ts_pattern_covers(pattern, impl.output))
+                {
+                    out.push_back("widens the output: declared " + ts_pattern_to_string(pattern) + ", candidate " +
+                                  ts_pattern_to_string(impl.output));
+                }
+            }
+            return out;
+        }
+
+        /**
+         * Reject a candidate that does not have its operator's shape when it
+         * is registered (runtime spec WIR-24): it lacks a required declared
+         * parameter, or widens a declared parameter or output (WIR-22, WIR-23).
+         */
+        template <typename Op>
+        void require_candidate_shape(const OperatorImpl &impl)
+        {
+            const std::vector<std::string> violations = candidate_shape_violations<Op>(impl);
+            if (violations.empty()) { return; }
+            std::string message = "operator '" + std::string{Op::name} + "': candidate " +
+                                  (impl.label.empty() ? impl.name : impl.label) +
+                                  " does not have the operator's shape:";
+            for (const std::string &violation : violations) { message += "\n  - " + violation; }
+            throw std::invalid_argument(message);
+        }
+    }  // namespace operator_dispatch_detail
+
     /** Register the C++ implementation ``Impl`` as an overload of operator ``Op``. */
     template <typename Op, typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
     void register_overload() {
@@ -2441,7 +2556,9 @@ namespace hgraph
         }
         else
         {
-            OperatorRegistry::instance().register_overload(make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name}));
+            OperatorImpl impl = make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name});
+            operator_dispatch_detail::require_candidate_shape<Op>(impl);
+            OperatorRegistry::instance().register_overload(std::move(impl));
         }
     }
 
@@ -2449,8 +2566,9 @@ namespace hgraph
     template <typename Op, typename Impl, OperatorPackCardinality PositionalCardinality = {},
               OperatorPackCardinality KeywordCardinality = {}>
     void register_graph_overload() {
-        OperatorRegistry::instance().register_overload(
-            make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name}));
+        OperatorImpl impl = make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name});
+        operator_dispatch_detail::require_candidate_shape<Op>(impl);
+        OperatorRegistry::instance().register_overload(std::move(impl));
     }
 
     /**

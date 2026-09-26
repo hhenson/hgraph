@@ -308,7 +308,7 @@
           "marker": "json_array_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 69
+          "line": 72
         }
       ],
       "registration_sites": [
@@ -371,7 +371,7 @@
           "marker": "json_object_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 64
+          "line": 67
         }
       ],
       "registration_sites": [
@@ -4690,7 +4690,7 @@
           "marker": "cast_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 121
+          "line": 123
         }
       ],
       "registration_sites": [],
@@ -5187,7 +5187,7 @@
           "marker": "collect",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 98
+          "line": 100
         }
       ],
       "registration_sites": [
@@ -5654,7 +5654,7 @@
           "marker": "combine",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 75
+          "line": 77
         }
       ],
       "registration_sites": [
@@ -6699,7 +6699,7 @@
           "marker": "combine_tss_from_tsl_marker",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 80
+          "line": 82
         }
       ],
       "registration_sites": [
@@ -7716,7 +7716,7 @@
           "marker": "convert",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 57
+          "line": 59
         }
       ],
       "registration_sites": [
@@ -10647,7 +10647,7 @@
           "marker": "default_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 216
+          "line": 218
         }
       ],
       "registration_sites": [
@@ -10909,7 +10909,7 @@
           "marker": "dispatch_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 285
+          "line": 287
         }
       ],
       "registration_sites": [
@@ -11892,7 +11892,7 @@
           "marker": "downcast_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 138
+          "line": 140
         }
       ],
       "registration_sites": [
@@ -12013,7 +12013,7 @@
           "marker": "downcast_ref",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 151
+          "line": 153
         }
       ],
       "registration_sites": [
@@ -12249,7 +12249,7 @@
           "marker": "emit",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 110
+          "line": 112
         }
       ],
       "registration_sites": [
@@ -15064,7 +15064,7 @@
           "marker": "from_json",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 161
+          "line": 164
         }
       ],
       "registration_sites": [
@@ -19183,8 +19183,8 @@
             null
           ],
           "kwargs_type": null,
-          "output": "~__out__",
-          "id": "join:1669982c810c"
+          "output": "TS[str]",
+          "id": "join:6a6b9dad6042"
         },
         {
           "parameters": [
@@ -19341,7 +19341,7 @@
           "marker": "json_as_bool",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 139
+          "line": 142
         }
       ],
       "registration_sites": [
@@ -19404,7 +19404,7 @@
           "marker": "json_as_float",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 117
+          "line": 120
         }
       ],
       "registration_sites": [
@@ -19467,7 +19467,7 @@
           "marker": "json_as_int",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 106
+          "line": 109
         }
       ],
       "registration_sites": [
@@ -19530,7 +19530,7 @@
           "marker": "json_as_str",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 128
+          "line": 131
         }
       ],
       "registration_sites": [
@@ -19593,7 +19593,7 @@
           "marker": "json_decode",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 95
+          "line": 98
         }
       ],
       "registration_sites": [
@@ -19689,7 +19689,7 @@
           "marker": "json_encode",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/json.h",
-          "line": 83
+          "line": 86
         }
       ],
       "registration_sites": [
@@ -22263,14 +22263,14 @@
           "marker": "map_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 432
+          "line": 434
         },
         {
           "name": "map_",
           "marker": "map_sink_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 441
+          "line": 443
         }
       ],
       "registration_sites": [
@@ -22610,7 +22610,7 @@
           "marker": "max_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/comparison.h",
-          "line": 163
+          "line": 166
         }
       ],
       "registration_sites": [
@@ -25412,7 +25412,7 @@
           "marker": "mesh_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 469
+          "line": 471
         }
       ],
       "registration_sites": [
@@ -29858,7 +29858,7 @@
           "marker": "nothing",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 202
+          "line": 204
         }
       ],
       "registration_sites": [
@@ -36393,7 +36393,7 @@
           "marker": "str_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 163
+          "line": 165
         }
       ],
       "registration_sites": [
@@ -39083,14 +39083,14 @@
           "marker": "switch_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 165
+          "line": 167
         },
         {
           "name": "switch_",
           "marker": "switch_sink_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 179
+          "line": 181
         }
       ],
       "registration_sites": [
@@ -40987,7 +40987,7 @@
           "marker": "try_except",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/higher_order.h",
-          "line": 321
+          "line": 323
         }
       ],
       "registration_sites": [
@@ -41071,7 +41071,7 @@
           "marker": "type_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 174
+          "line": 176
         }
       ],
       "registration_sites": [],
@@ -41592,8 +41592,8 @@
             null
           ],
           "kwargs_type": null,
-          "output": "~__out__",
-          "id": "until_true:53b3e9bccc28"
+          "output": "TS[bool]",
+          "id": "until_true:ba5d13ef68ac"
         },
         {
           "parameters": [
@@ -41722,31 +41722,6 @@
             {
               "name": "ts",
               "kind": "temporal",
-              "type": "REF[~S]",
-              "default": false,
-              "carrier": null
-            }
-          ],
-          "variadic": false,
-          "positional_count": 1,
-          "positional_cardinality": [
-            0,
-            null
-          ],
-          "kwargs": false,
-          "keyword_cardinality": [
-            0,
-            null
-          ],
-          "kwargs_type": null,
-          "output": "~__out__",
-          "id": "valid:10cafb0b7e0e"
-        },
-        {
-          "parameters": [
-            {
-              "name": "ts",
-              "kind": "temporal",
               "type": "~S",
               "default": false,
               "carrier": null
@@ -41766,6 +41741,31 @@
           "kwargs_type": null,
           "output": "TS[bool]",
           "id": "valid:d4254555ef55"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "REF[~S]",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 1,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[bool]",
+          "id": "valid:f351124117c5"
         }
       ],
       "hgl": [],
@@ -42371,7 +42371,7 @@
           "marker": "zero_",
           "scope": "core",
           "source": "include/hgraph/lib/std/operators/conversion.h",
-          "line": 189
+          "line": 191
         }
       ],
       "registration_sites": [

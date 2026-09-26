@@ -121,8 +121,8 @@ namespace hgraph::stdlib
         @endcode
         @note Cost: a full sort per tick. */
     struct sorted_
-        : Operator<"sorted_", In<"ts", TS<FrameOf<ScalarVar<"R">>>>, Scalar<"by", Str>,
-                   Scalar<"descending", Bool>, Out<TS<FrameOf<ScalarVar<"R">>>>>
+        : Operator<"sorted_", In<"ts", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>, Scalar<"by", Str>,
+                   Scalar<"descending", Bool>, Out<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>>
     {
     };
 
@@ -135,8 +135,8 @@ namespace hgraph::stdlib
         all_rows = hg.concat(primary_rows, secondary_rows)
         @endcode */
     struct concat
-        : Operator<"concat", In<"ts1", TS<FrameOf<ScalarVar<"R">>>>,
-                   In<"ts2", TS<FrameOf<ScalarVar<"R">>>>, Out<TS<FrameOf<ScalarVar<"R">>>>>
+        : Operator<"concat", In<"ts1", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>,
+                   In<"ts2", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>, Out<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>>
     {
     };
 
@@ -173,9 +173,9 @@ namespace hgraph::stdlib
             matching = hg.filter_frame(rows, filters)
             @endcode */
         struct filter_frame
-            : Operator<"filter_frame", In<"ts", TS<FrameOf<ScalarVar<"R">>>>,
+            : Operator<"filter_frame", In<"ts", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>,
                        In<"predicate", TsVar<"P">>,
-                       Out<TS<FrameOf<ScalarVar<"R">>>>>
+                       Out<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>>
         {
         };
 
@@ -188,9 +188,9 @@ namespace hgraph::stdlib
             matching = hg.filter_cs(rows, filter_value)
             @endcode */
         struct filter_cs
-            : Operator<"filter_cs", In<"ts", TS<FrameOf<ScalarVar<"R">>>>,
+            : Operator<"filter_cs", In<"ts", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>,
                        In<"predicate", TS<ScalarVar<"P">>>,
-                       Out<TS<FrameOf<ScalarVar<"R">>>>>
+                       Out<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>>
         {
         };
 
@@ -224,9 +224,9 @@ namespace hgraph::stdlib
             enriched = hg.with_columns[TS[Frame[EnrichedRow]]](rows, columns)
             @endcode */
         struct with_columns
-            : Operator<"with_columns", In<"ts", TS<FrameOf<ScalarVar<"R">>>>,
+            : Operator<"with_columns", In<"ts", TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>,
                        In<"columns", TsVar<"C">>,
-                       Out<TS<FrameOf<ScalarVar<"O">>>>>
+                       Out<TS<FrameOf<ScalarVar<"O">, OptionalFrameMetadata<ScalarVar<"M">>>>>>
         {
         };
     }  // namespace data_frame

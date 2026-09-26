@@ -142,6 +142,9 @@ namespace hgraph::stdlib
         @endcode */
     struct min_ : Operator<"min_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
+        /** ``rhs`` is optional: a unary call reduces or runs over one input
+            (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"rhs">(Value{})}; }
     };
 
     /** Select maxima according to input shape and arity.
@@ -162,6 +165,9 @@ namespace hgraph::stdlib
         @endcode */
     struct max_ : Operator<"max_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
+        /** ``rhs`` is optional: a unary call reduces or runs over one input
+            (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"rhs">(Value{})}; }
     };
 }  // namespace hgraph::stdlib
 

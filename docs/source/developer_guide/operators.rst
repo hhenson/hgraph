@@ -478,12 +478,41 @@ operands, because a repeated variable is a real alignment constraint rather than
 two independent generic choices.
 
 
+An operator's declaration is its candidates' minimum shape
+------------------------------------------------------------
+
+The runtime specification's Wiring chapter (WIR-21 to WIR-24) governs how an
+operator marker relates to its candidates. The marker states the minimum
+shape; a call is matched against each candidate's own signature. Every
+operator behaves as if its signature ended with ``*args, **kwargs``:
+
+* a candidate has every parameter the marker declares -- found by name,
+  else at the same position, else in its own ``VarIn`` pack -- and may
+  declare more, with or without defaults;
+* a parameter named in the marker's ``defaults()`` is optional and may be
+  absent from a candidate (``min_`` declares ``rhs`` optional so its unary
+  candidates are candidates of the operator);
+* a candidate may refine a declared type but never widen it. Where the
+  candidates genuinely take several types, the marker says so with a
+  constrained variable: ``In<"ts", TS<ScalarVar<"D", Date, DateTime>>>``,
+  ``Scalar<"period", ScalarVar<"P", Int, TimeDelta>>``. A frame operator
+  whose candidates take frames with and without metadata declares
+  ``TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>``;
+* a graph candidate whose output is always one type returns that typed
+  ``Port`` rather than an erased one, so its output is checkable.
+
+``register_overload`` / ``register_graph_overload`` check each candidate
+against the marker (``operator_dispatch_detail::candidate_shape_violations``,
+built on ``ts_pattern_covers`` / ``scalar_pattern_covers``) and throw
+``std::invalid_argument`` naming every violation. Python-defined operators
+are not checked (owner decision, 2026-09-26).
+
 Defining and registering an operator
 -------------------------------------
 
-An operator is a marker struct carrying a name and an abstract (documentary)
-signature; implementations are ordinary stateless node structs registered under
-that operator:
+An operator is a marker struct carrying a name and the minimum shape of its
+candidates (previous section); implementations are ordinary stateless node
+structs registered under that operator:
 
 .. code-block:: cpp
 

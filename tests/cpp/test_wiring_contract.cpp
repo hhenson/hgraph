@@ -11,9 +11,11 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/type_pattern.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
 
@@ -301,6 +303,28 @@ namespace
         static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> v) { return wire<refinable_>(w, v).as<TS<Str>>(); }
     };
 
+    // WIR-24: registration rejects a candidate without the operator's shape.
+    struct declares_int_ : Operator<"wiring_contract_declares_int", In<"ts", TS<Int>>, Out<TS<Str>>>
+    {
+    };
+    struct Wider
+    {
+        static void eval(In<"ts", TsVar<"S">>, Out<TS<Str>> out) { out.set(Str{"wider"}); }
+    };
+    struct declares_pair_ : Operator<"wiring_contract_declares_pair", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>,
+                                     Out<TS<Str>>>
+    {
+    };
+    struct declares_optional_rhs_ : Operator<"wiring_contract_declares_optional_rhs", In<"lhs", TsVar<"L">>,
+                                             In<"rhs", TsVar<"R">>, Out<TS<Str>>>
+    {
+        static auto defaults() { return std::tuple{arg<"rhs">(Value{})}; }
+    };
+    struct UnaryOnly
+    {
+        static void eval(In<"lhs", TS<Int>>, Out<TS<Str>> out) { out.set(Str{"unary"}); }
+    };
+
     void register_case_operators()
     {
         register_overload<pick_, PickInt>();
@@ -428,6 +452,47 @@ TEST_CASE("wiring contract: WIRE-OPERATOR-CONTRACT allows a superset and a refin
     // An extra parameter without a default: no match without it, a match with it.
     CHECK_OUTPUT(eval_node<ExtraMissingGraph>(values<Int>(1)), values<Str>("fallback"s));
     CHECK_OUTPUT(eval_node<ExtraSuppliedGraph>(values<Int>(1)), values<Str>("scaled 3"s));
+}
+
+TEST_CASE("wiring contract: registration rejects a candidate without its operator's shape (WIR-22 to WIR-24)")
+{
+    stdlib::register_standard_operators();
+    // Wider than the declared TS[int].
+    CHECK_THROWS_WITH((register_overload<declares_int_, Wider>()),
+                      Catch::Matchers::ContainsSubstring("widens 'ts'"));
+    // Lacks the required declared 'rhs'.
+    CHECK_THROWS_WITH((register_overload<declares_pair_, UnaryOnly>()),
+                      Catch::Matchers::ContainsSubstring("lacks the declared parameter 'rhs'"));
+    // May omit a declared optional parameter.
+    CHECK_NOTHROW((register_overload<declares_optional_rhs_, UnaryOnly>()));
+}
+
+TEST_CASE("wiring contract: a pattern covers what it accepts, never more (WIR-23)")
+{
+    stdlib::register_standard_operators();
+    // A constrained variable covers its members and nothing else.
+    const TypePattern date_or_datetime = to_pattern<TS<ScalarVar<"D", Date, DateTime>>>();
+    CHECK(ts_pattern_covers(date_or_datetime, to_pattern<TS<Date>>()));
+    CHECK(ts_pattern_covers(date_or_datetime, to_pattern<TS<DateTime>>()));
+    CHECK_FALSE(ts_pattern_covers(date_or_datetime, to_pattern<TS<Time>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TS<Date>>(), to_pattern<TS<ScalarVar<"T">>>()));
+    // A bare variable covers anything; a structure never covers a bare variable.
+    CHECK(ts_pattern_covers(to_pattern<TsVar<"S">>(), to_pattern<TSL<TS<Int>, 2>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TSL<TsVar<"E">, SIZE<"N">>>(), to_pattern<TsVar<"S">>()));
+    // References are transparent (WIR-6).
+    CHECK(ts_pattern_covers(to_pattern<TS<Int>>(), to_pattern<REF<TS<Int>>>()));
+    // A frame whose metadata may be absent covers both frame forms.
+    const TypePattern any_frame = to_pattern<TS<FrameOf<ScalarVar<"R">, OptionalFrameMetadata<ScalarVar<"M">>>>>();
+    CHECK(ts_pattern_covers(any_frame, to_pattern<TS<FrameOf<ScalarVar<"R">>>>()));
+    CHECK(ts_pattern_covers(any_frame, to_pattern<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<TS<FrameOf<ScalarVar<"R">>>>(),
+                                  to_pattern<TS<FrameOf<ScalarVar<"R">, ScalarVar<"M">>>>()));
+    // Bundle names count only when both are named (WIR-15).
+    using CoverFoo     = TSB<"WiringContractCoverFoo", Field<"a", TS<Int>>>;
+    using CoverBar     = TSB<"WiringContractCoverBar", Field<"a", TS<Int>>>;
+    using CoverUnnamed = UnNamedTSB<Field<"a", TS<Int>>>;
+    CHECK(ts_pattern_covers(to_pattern<CoverUnnamed>(), to_pattern<CoverFoo>()));
+    CHECK_FALSE(ts_pattern_covers(to_pattern<CoverFoo>(), to_pattern<CoverBar>()));
 }
 
 TEST_CASE("wiring contract: WIRE-FAILURES fails a tie and a call with no candidate (WIR-4, WIR-16)")

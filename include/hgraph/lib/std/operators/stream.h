@@ -44,7 +44,7 @@ namespace hgraph::stdlib
         delayed = hg.lag(price, timedelta(seconds=5))
         @endcode
         @note Cost: O(delta) per tick; retains up to ``period`` pending deltas. */
-    struct lag : Operator<"lag", In<"ts", TsVar<"S">>, Scalar<"period", Int>, Out<TsVar<"S">>>
+    struct lag : Operator<"lag", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>, Out<TsVar<"S">>>
     {
     };
 
@@ -176,7 +176,7 @@ namespace hgraph::stdlib
         @code{.py}
         first_ten = hg.take(updates, 10)
         @endcode */
-    struct take : Operator<"take", In<"ts", TsVar<"S">>, Scalar<"count", Int>, Out<TsVar<"S">>>
+    struct take : Operator<"take", In<"ts", TsVar<"S">>, Scalar<"count", ScalarVar<"C", Int, TimeDelta>>, Out<TsVar<"S">>>
     {
     };
 
@@ -188,7 +188,7 @@ namespace hgraph::stdlib
         @code{.py}
         after_warmup = hg.drop(updates, 10)
         @endcode */
-    struct drop : Operator<"drop", In<"ts", TsVar<"S">>, Scalar<"count", Int>, Out<TsVar<"S">>>
+    struct drop : Operator<"drop", In<"ts", TsVar<"S">>, Scalar<"count", ScalarVar<"C", Int, TimeDelta>>, Out<TsVar<"S">>>
     {
     };
 
@@ -204,7 +204,7 @@ namespace hgraph::stdlib
         recent = hg.window(price, 20)
         @endcode
         @note Cost: O(W) per tick (the value/time bundle is rebuilt) and O(W) retained in private state. Deprecated-parity shape — prefer ``to_window``, whose TSW substrate appends/evicts in O(1). */
-    struct window : Operator<"window", In<"ts", TsVar<"S">>, Scalar<"period", Int>, Out<TsVar<"O">>>
+    struct window : Operator<"window", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>, Out<TsVar<"O">>>
     {
     };
 
@@ -223,8 +223,8 @@ namespace hgraph::stdlib
         recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
         @endcode
         @note Cost: O(1) append/evict per tick; O(W) retained by the TSW itself. Aggregates over the window (``min_`` / ``max_`` / ``sum_`` / ``mean`` / ``std``) recompute in O(W) per window tick — recorded beside their kernels. */
-    struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", Int>,
-                                Scalar<"min_window_period", Int>, Out<TsVar<"O">>>
+    struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>,
+                                Scalar<"min_window_period", ScalarVar<"M", Int, TimeDelta>>, Out<TsVar<"O">>>
     {
     };
 

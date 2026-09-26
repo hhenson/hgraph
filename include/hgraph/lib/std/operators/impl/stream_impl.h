@@ -1239,18 +1239,12 @@ namespace hgraph::stdlib
                    context.args[1].kind == WiringArg::Kind::TimeSeries;
         }
 
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
-        {
-            static_cast<void>(context);
-            if (output_bound(resolution)) { return; }
-            bind_output(resolution, TypeRegistry::instance().ts(scalar_descriptor<Bool>::value_meta()));
-        }
-
-        static auto compose(Wiring &w, Scalar<"predicate", WiredFn> predicate, NamedPort<"ts", TsVar<"S">> ts)
+        // The output is always TS[bool], as until_true declares (runtime spec WIR-23).
+        static Port<TS<Bool>> compose(Wiring &w, Scalar<"predicate", WiredFn> predicate, NamedPort<"ts", TsVar<"S">> ts)
         {
             const WiringPortRef args[]{ts.erased()};
             WiringPortRef       flag = predicate.value().wire(w, {args, 1});
-            return wire<until_true>(w, Port<void>{w, std::move(flag)});
+            return Port<void>{w, wire<until_true>(w, Port<void>{w, std::move(flag)}).erased()}.as<TS<Bool>>();
         }
     };
 

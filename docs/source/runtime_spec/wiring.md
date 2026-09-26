@@ -409,7 +409,7 @@ and C++ observations.
 | WIR-5, WIR-6 to WIR-13 | Wiring cases, run on both runtimes and held by `python/tests/test_wiring_contract.py`; the same cases through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`. The C++ matcher and its static unifier are checked row by row in `tests/cpp/test_operators.cpp` ("resolving a generic dereferences everything at every depth (#847)") |
 | WIR-14 | The HGL front end is observed in the validation, where it currently varies |
 | WIR-15 | The bundle-identity case, run on both runtimes |
-| WIR-21 to WIR-24 | The operator-contract case, run on both runtimes and the HGL front end, and through native C++ wiring in `tests/cpp/test_wiring_contract.cpp` |
+| WIR-21 to WIR-24 | The operator-contract case, run on both runtimes and the HGL front end, and through native C++ wiring in `tests/cpp/test_wiring_contract.cpp`, which also checks the C++ registration check (WIR-24) and pattern coverage |
 | WIR-4, WIR-16 to WIR-18 | Wiring cases for selection, ambiguity, no candidate and repeated variables, in both test files above. Ranking in detail: `operators.rst` ("Ranking") and the dispatch tests in `tests/cpp/test_operators.cpp` |
 | WIR-1 to WIR-3, WIR-19, WIR-20 | Source evidence only: `graph_wiring.rst` ("Graphs flatten", "Identity at wiring time"), `operators.rst` ("OperatorRegistry and resolution") |
 

@@ -3272,7 +3272,7 @@ class _join_Operator(_Protocol):
 
     - ``join(lhs: TS[Frame[SCALAR]], rhs: TS[Frame[SCALAR_1]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[OUT]]``
     - ``join(strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = ...) -> TS[str]``
-    - ``join(*ts: TS[str], separator: str, __strict__: bool = ...) -> OUT``
+    - ``join(*ts: TS[str], separator: str, __strict__: bool = ...) -> TS[str]``
     - ``join(ts: TS[SCALAR], separator: str, __strict__: bool = ...) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -8194,7 +8194,7 @@ class _until_true_Operator(_Protocol):
 
     - ``until_true(ts: TS[bool]) -> TS[bool]``
     - ``until_true(predicate: callable, ts: TIME_SERIES_TYPE) -> TS[bool]``
-    - ``until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT``
+    - ``until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -8236,7 +8236,7 @@ class _valid_Operator(_Protocol):
     Accepted native overloads:
 
     - ``valid(ts: TIME_SERIES_TYPE) -> TS[bool]``
-    - ``valid(ts: REF[TIME_SERIES_TYPE]) -> OUT``
+    - ``valid(ts: REF[TIME_SERIES_TYPE]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

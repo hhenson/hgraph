@@ -19,38 +19,38 @@ namespace hgraph::stdlib
     // ---- Date component extraction ----
 
     /** ``day_of_month`` — the day-of-month of a ``TS<Date>``. */
-    struct day_of_month : Operator<"day_of_month", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct day_of_month : Operator<"day_of_month", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``month_of_year`` — the month-of-year of a ``TS<Date>``. */
-    struct month_of_year : Operator<"month_of_year", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct month_of_year : Operator<"month_of_year", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``year`` — the year of a ``TS<Date>``. */
-    struct year : Operator<"year", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct year : Operator<"year", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``explode`` — the (year, month, day) of a ``TS<Date>`` as a 3-element list. */
     /** hgraph's date ATTRIBUTES (port.month / .day / .weekday / .isoweekday). */
-    struct month : Operator<"month", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct month : Operator<"month", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``day`` — the day-of-month attribute of a date or datetime. */
-    struct day : Operator<"day", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct day : Operator<"day", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``weekday`` — the day of the week using Monday as zero. */
-    struct weekday : Operator<"weekday", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct weekday : Operator<"weekday", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
     /** ``isoweekday`` — the ISO day of the week using Monday as one. */
-    struct isoweekday : Operator<"isoweekday", In<"ts", TS<Date>>, Out<TS<Int>>>
+    struct isoweekday : Operator<"isoweekday", In<"ts", TS<ScalarVar<"D", Date, DateTime>>>, Out<TS<Int>>>
     {
     };
 
@@ -82,22 +82,22 @@ namespace hgraph::stdlib
         ``isoweekday()`` / ``timestamp()``) — issue #82. The datetime
         overloads register under the existing ``year`` / ``month`` / ``day``
         / ``weekday`` / ``isoweekday`` markers. */
-    struct hour : Operator<"hour", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    struct hour : Operator<"hour", In<"ts", TS<ScalarVar<"D", DateTime, Time>>>, Out<TS<Int>>>
     {
     };
 
     /** ``minute`` — the minute component of a datetime or time. */
-    struct minute : Operator<"minute", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    struct minute : Operator<"minute", In<"ts", TS<ScalarVar<"D", DateTime, Time>>>, Out<TS<Int>>>
     {
     };
 
     /** ``second`` — the second component of a datetime or time. */
-    struct second : Operator<"second", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    struct second : Operator<"second", In<"ts", TS<ScalarVar<"D", DateTime, Time>>>, Out<TS<Int>>>
     {
     };
 
     /** ``microsecond`` — the microsecond component of a datetime or time. */
-    struct microsecond : Operator<"microsecond", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    struct microsecond : Operator<"microsecond", In<"ts", TS<ScalarVar<"D", DateTime, Time>>>, Out<TS<Int>>>
     {
     };
 
