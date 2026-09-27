@@ -2137,7 +2137,7 @@ class _freeze_Operator(_Protocol):
     are fixed when the graph is built.
 
     ``predicate`` : time-series, scalar; ``TS[bool]``, ``callable``, ``fn``
-       Boolean stream that freezes the output when true.
+       Boolean stream that freezes the output when true, or a function of ``ts`` returning that stream.
 
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
        Stream to forward until frozen.
@@ -3272,7 +3272,7 @@ class _join_Operator(_Protocol):
 
     - ``join(lhs: TS[Frame[SCALAR]], rhs: TS[Frame[SCALAR_1]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[OUT]]``
     - ``join(strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = ...) -> TS[str]``
-    - ``join(*ts: TS[str], separator: str, __strict__: bool = ...) -> OUT``
+    - ``join(*ts: TS[str], separator: str, __strict__: bool = ...) -> TS[str]``
     - ``join(ts: TS[SCALAR], separator: str, __strict__: bool = ...) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -3581,7 +3581,7 @@ class _lag_Operator(_Protocol):
        Stream to delay.
 
     ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
-       Positive tick count or duration selected at wiring time.
+       Positive tick count or duration fixed at wiring time, or a ``TS[timedelta]`` duration that may change.
 
     ``on_wall_clock`` : scalar; ``bool``
        For duration lag, use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
@@ -8194,7 +8194,7 @@ class _until_true_Operator(_Protocol):
 
     - ``until_true(ts: TS[bool]) -> TS[bool]``
     - ``until_true(predicate: callable, ts: TIME_SERIES_TYPE) -> TS[bool]``
-    - ``until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT``
+    - ``until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -8236,7 +8236,7 @@ class _valid_Operator(_Protocol):
     Accepted native overloads:
 
     - ``valid(ts: TIME_SERIES_TYPE) -> TS[bool]``
-    - ``valid(ts: REF[TIME_SERIES_TYPE]) -> OUT``
+    - ``valid(ts: REF[TIME_SERIES_TYPE]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

@@ -892,19 +892,15 @@ namespace hgraph::stdlib
                    context.args[0].port.schema->kind == TSTypeKind::REF;
         }
 
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
-        {
-            if (resolution.find_ts("__out__") != nullptr) { return; }
-            resolution.bind_ts("__out__", TypeRegistry::instance().ts(scalar_descriptor<Bool>::value_meta()));
-        }
-
-        static WiringPortRef compose(Wiring &w, NamedPort<"ts", REF<TsVar<"S">>> ts)
+        // The output is always TS[bool], as valid declares (runtime spec WIR-23).
+        static Port<TS<Bool>> compose(Wiring &w, NamedPort<"ts", REF<TsVar<"S">>> ts)
         {
             WiringPortRef ref_port = ts.erased();
             WiringPortRef deref    = ref_port;
             deref.schema           = ref_port.schema->referenced_ts();   // the descriptive-schema patch
-            return wire<valid_ref_impl>(w, Port<void>{w, std::move(ref_port)}, Port<void>{w, std::move(deref)})
-                .erased();
+            return Port<void>{w, wire<valid_ref_impl>(w, Port<void>{w, std::move(ref_port)}, Port<void>{w, std::move(deref)})
+                                     .erased()}
+                .as<TS<Bool>>();
         }
     };
 

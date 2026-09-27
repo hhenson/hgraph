@@ -766,13 +766,8 @@ namespace hgraph::stdlib
             return std::tuple{arg<"__strict__">(Bool{false})};
         }
 
-        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
-        {
-            higher_order_impl_detail::bind_graph_output(
-                resolution, TypeRegistry::instance().ts(scalar_descriptor<Str>::value_meta()), "O");
-        }
-
-        static WiringPortRef compose(Wiring &w, VarIn<"ts", TS<Str>> ts, Scalar<"separator", Str> separator,
+        // The output is always TS[str], as join declares (runtime spec WIR-23).
+        static Port<TS<Str>> compose(Wiring &w, VarIn<"ts", TS<Str>> ts, Scalar<"separator", Str> separator,
                                      Scalar<"__strict__", Bool> strict)
         {
             if (ts.empty()) { throw std::invalid_argument("join requires at least one input"); }
@@ -798,7 +793,7 @@ namespace hgraph::stdlib
             strict_arg.scalar_meta  = strict_arg.scalar_value.schema();
             strict_arg.name         = "__strict__";
             std::array<WiringArg, 3> args{ts_arg, sep_arg, strict_arg};
-            return wire_operator(w, "join", args).output.erased();
+            return Port<void>{w, wire_operator(w, "join", args).output.erased()}.as<TS<Str>>();
         }
     };
 
