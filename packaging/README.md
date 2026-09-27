@@ -68,7 +68,7 @@ directory, the root or language `CMakeLists.txt`, or `conanfile.py`, and on
   `brew linkage --test`, the smoke and a second `smoke/consumer` build from
   the checkout against `$(brew --prefix)`.
 - **Linux**: `conan export .`, `docker build` of the image, then
-  `hgl --version`, the smoke, `language/examples/midpoint.hgl` and a
+  `hgl --version`, the smoke, `external/hgraph_spec/language/examples/midpoint.hgl` and a
   `smoke/consumer` build, all inside the container as the `hgl` user.
 
 The formula in the repository points at a tag that does not exist yet with an

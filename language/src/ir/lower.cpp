@@ -818,6 +818,31 @@ namespace hgl::ir
                     case K::Each:
                         target.node = hir::ConstraintEach{symbol(source.identity), child(source.source), child(source.body)};
                         break;
+                    case K::NativeScalar:
+                        {
+                            hir::SymbolId native{};
+                            for (std::size_t index = 0; index < resolved_.imported_functions.size(); ++index) {
+                                const auto &function = resolved_.imported_functions[index];
+                                if (function.identity != source.identity) { continue; }
+                                semantics::Binding binding;
+                                binding.kind  = semantics::BindingKind::ImportedFunction;
+                                binding.index = static_cast<std::uint32_t>(index);
+                                while (index + binding.count < resolved_.imported_functions.size() &&
+                                       resolved_.imported_functions[index + binding.count].identity == source.identity) {
+                                    ++binding.count;
+                                }
+                                native = imported_function(binding, range, function.name);
+                                break;
+                            }
+                            if (!native.valid()) {
+                                diagnostics_.report(syntax::Category::Module, range, "missing native scalar requirement interface");
+                            }
+                            hir::OperatorRequirement requirement{native, {}, hir::no_type};
+                            for (auto argument : source.arguments) { requirement.arguments.push_back(child(argument)); }
+                            if (source.type) { requirement.result = imported_type(*source.type, generics, range); }
+                            target.node = std::move(requirement);
+                            break;
+                        }
                     case K::Operator:
                         {
                             // An operator requirement names an OPERATOR, not one of

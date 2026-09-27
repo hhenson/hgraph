@@ -1,38 +1,33 @@
 # Shared sources
 
-Language/runtime rules, HGL examples and expected traces belong to
-[hgraph_spec](https://github.com/hhenson/hgraph_spec). Python/C++ experiments
-and recorded observations belong to
-[hgraph_spec_audit](https://github.com/hhenson/hgraph_spec_audit). Portable
-standard-library HGL belongs to [hgraph_std](https://github.com/hhenson/hgraph_std).
-Compiler/runtime internals and target implementations stay here.
+[Specification and examples](https://github.com/hhenson/hgraph_spec),
+[validation code and results](https://github.com/hhenson/hgraph_spec_audit), and
+[portable HGL standard library](https://github.com/hhenson/hgraph_std) have
+separate owners. Compiler/runtime internals and target providers stay here.
 
-After cloning or changing dependency pins, run:
+Initialize the pinned packages after cloning or changing dependency pins:
 
 ```sh
 python3 tools/shared_artifacts.py
 python3 tools/shared_artifacts.py --check
 ```
 
-Git submodules in `external/` pin the source versions. `shared-artifacts.json`
-maps them to existing compiler, test and documentation paths. Those copies
-are ignored build inputs. The tool refuses to overwrite edited copies; move
-such edits into the owning submodule and submit them there first. Commit
-updated submodule pins with the corresponding implementation change. Use
-`--offline` after a recursive clone or when dependencies are already present.
+Builds and tests read the submodules in `external/` directly. No compatibility
+copies are created. Setup removes unchanged copies left by earlier versions;
+it refuses to remove edited copies. Move those edits into their owning package
+before retrying. Use `--offline` when dependencies are already initialized.
+Commit updated submodule pins with the corresponding implementation change.
 
-Release source archives must contain initialized dependencies and materialized
-inputs when building the language tools or documentation. Core runtime builds
-without the language component do not need this setup. Compiler-specific
-fixtures and generated implementation code remain local.
+The standard library separates operator declarations and properties from
+`impl/` bodies and `tests/` parts. Production builds assemble declarations with
+implementations; validation additionally supplies the test parts.
 
-For a complete release source bundle, use:
+From a clean commit, export the checkout and its pinned dependencies:
 
 ```sh
-python3 tools/source_archive.py --prefix hgraph-source --output dist/hgraph-source.tar.gz
+python3 tools/source_archive.py
 ```
 
-Run this from a clean commit after setup. The bundle includes the pinned shared
-inputs and builds without Git/submodule initialization. A GitHub-generated tag
-archive alone omits those inputs. Homebrew uses the complete bundle; Conan and
-Docker consume an already prepared checkout.
+The fixed output `dist/hgraph-source.tar.gz` builds without Git or submodule
+initialization. GitHub-generated tag archives omit dependencies. Core runtime
+builds without language tools or conformance tests do not need shared sources.

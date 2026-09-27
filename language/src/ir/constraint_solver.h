@@ -125,6 +125,8 @@ namespace hgl::ir::detail
         [[nodiscard]] Truth   evaluate_relation(const hir::ConstraintRelation &relation, GenericSubstitution &substitution);
         [[nodiscard]] Truth   evaluate_operator(const hir::OperatorRequirement &requirement, GenericSubstitution &substitution,
                                                 syntax::SourceRange range, std::span<const ConstraintPremise> premises);
+        [[nodiscard]] Truth   evaluate_native(const hir::OperatorRequirement &requirement, GenericSubstitution &substitution,
+                                              bool infer_result = false, bool *changed = nullptr);
         [[nodiscard]] Truth   evaluate_each(const hir::ConstraintEach &each, GenericSubstitution &substitution,
                                             std::span<const ConstraintPremise> premises);
         [[nodiscard]] bool    infer_equalities(hir::ConstraintId id, GenericSubstitution &substitution, bool &changed);

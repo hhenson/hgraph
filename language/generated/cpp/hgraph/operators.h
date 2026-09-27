@@ -27,107 +27,107 @@ namespace hgraph_::operators_
     /// Operator contracts for the module's public callables.
     namespace operators
     {
-        // operators.hgl:9
+        // operators.hgl:4
         using add_ = hgraph::Operator<"hgraph.operators.add_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:13
+        // operators.hgl:7
         using sub_ = hgraph::Operator<"hgraph.operators.sub_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:15
+        // operators.hgl:8
         using mul_ = hgraph::Operator<"hgraph.operators.mul_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:18
+        // operators.hgl:10
         using div_ = hgraph::Operator<"hgraph.operators.div_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:20
+        // operators.hgl:11
         using floordiv_ = hgraph::Operator<"hgraph.operators.floordiv_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                            hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:22
+        // operators.hgl:12
         using mod_ = hgraph::Operator<"hgraph.operators.mod_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:24
+        // operators.hgl:13
         using eq_ = hgraph::Operator<"hgraph.operators.eq_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:26
+        // operators.hgl:14
         using ne_ = hgraph::Operator<"hgraph.operators.ne_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:28
+        // operators.hgl:15
         using lt_ = hgraph::Operator<"hgraph.operators.lt_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:30
+        // operators.hgl:16
         using le_ = hgraph::Operator<"hgraph.operators.le_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:32
+        // operators.hgl:17
         using gt_ = hgraph::Operator<"hgraph.operators.gt_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:34
+        // operators.hgl:18
         using ge_ = hgraph::Operator<"hgraph.operators.ge_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:36
+        // operators.hgl:19
         using and_ = hgraph::Operator<"hgraph.operators.and_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:39
+        // operators.hgl:21
         using or_ = hgraph::Operator<"hgraph.operators.or_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                      hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:42
+        // operators.hgl:23
         using neg_ =
             hgraph::Operator<"hgraph.operators.neg_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:44
+        // operators.hgl:24
         using not_ =
             hgraph::Operator<"hgraph.operators.not_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:311
+        // operators.hgl:25
         using abs_ =
             hgraph::Operator<"hgraph.operators.abs_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:312
+        // operators.hgl:26
         using pos_ =
             hgraph::Operator<"hgraph.operators.pos_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:313
+        // operators.hgl:27
         using sign =
             hgraph::Operator<"hgraph.operators.sign", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:314
+        // operators.hgl:28
         using ln = hgraph::Operator<"hgraph.operators.ln", hgraph::In<"ts", hgraph::TS<hgraph::Float>>,
                                     hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // operators.hgl:315
+        // operators.hgl:29
         using round_ = hgraph::Operator<"hgraph.operators.round_", hgraph::In<"ts", hgraph::TS<hgraph::Float>>,
                                         hgraph::In<"n_digits", hgraph::TS<hgraph::Int>>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // operators.hgl:316
+        // operators.hgl:30
         using invert_ = hgraph::Operator<"hgraph.operators.invert_", hgraph::In<"ts", hgraph::TsVar<"T">>,
                                          hgraph::Out<hgraph::TS<hgraph::Int>>>;
-        // operators.hgl:317
+        // operators.hgl:31
         using bit_and = hgraph::Operator<"hgraph.operators.bit_and", hgraph::In<"lhs", hgraph::TsVar<"T">>,
                                          hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:318
+        // operators.hgl:32
         using bit_or = hgraph::Operator<"hgraph.operators.bit_or", hgraph::In<"lhs", hgraph::TsVar<"T">>,
                                         hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:319
+        // operators.hgl:33
         using bit_xor = hgraph::Operator<"hgraph.operators.bit_xor", hgraph::In<"lhs", hgraph::TsVar<"T">>,
                                          hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:423
+        // operators.hgl:34
         using min_ = hgraph::Operator<"hgraph.operators.min_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:424
+        // operators.hgl:35
         using max_ = hgraph::Operator<"hgraph.operators.max_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:570
+        // operators.hgl:36
         using contains_ = hgraph::Operator<"hgraph.operators.contains_", hgraph::In<"ts", hgraph::TS<hgraph::Str>>,
                                            hgraph::In<"item", hgraph::TS<hgraph::Str>>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // operators.hgl:579
+        // operators.hgl:37
         using substr = hgraph::Operator<"hgraph.operators.substr", hgraph::In<"s", hgraph::TS<hgraph::Str>>,
                                         hgraph::In<"begin", hgraph::TS<hgraph::Int>>, hgraph::In<"end", hgraph::TS<hgraph::Int>>,
                                         hgraph::Out<hgraph::TS<hgraph::Str>>>;
-        // operators.hgl:589
+        // operators.hgl:38
         using pow_ = hgraph::Operator<"hgraph.operators.pow_", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TsVar<"O">>>;
-        // operators.hgl:603
+        // operators.hgl:39
         using lshift_ = hgraph::Operator<"hgraph.operators.lshift_", hgraph::In<"lhs", hgraph::TsVar<"T">>,
                                          hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:604
+        // operators.hgl:40
         using rshift_ = hgraph::Operator<"hgraph.operators.rshift_", hgraph::In<"lhs", hgraph::TsVar<"T">>,
                                          hgraph::In<"rhs", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // operators.hgl:611
+        // operators.hgl:41
         using mean = hgraph::Operator<"hgraph.operators.mean", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                       hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // operators.hgl:658
+        // operators.hgl:42
         using eq_epsilon = hgraph::Operator<"hgraph.operators.eq_epsilon", hgraph::In<"lhs", hgraph::TsVar<"L">>,
                                             hgraph::In<"rhs", hgraph::TsVar<"R">>, hgraph::Scalar<"epsilon", hgraph::Float>,
                                             hgraph::Out<hgraph::TS<hgraph::Bool>>>;

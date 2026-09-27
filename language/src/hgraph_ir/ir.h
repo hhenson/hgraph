@@ -184,6 +184,7 @@ namespace hgl::hgraph_ir
         std::string               operator_registry_name{};
         std::vector<ConstraintId> arguments{};
         TypeId                    result{};
+        bool                      native_scalar{false};
     };
     struct ConstraintRelation
     {
@@ -405,6 +406,7 @@ namespace hgl::hgraph_ir
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
         std::vector<bool>         lift_inputs{};
+        std::vector<NativeFunctionId> native_candidates{};
     };
 
     struct Literal

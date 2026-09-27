@@ -12,24 +12,24 @@ namespace hgraph_::operators_
     namespace hgl_detail
     {
         void register_operators(std::integral_constant<std::size_t, 2>) {
-            hgraph::register_overload<operators::min_, min__impl_79>();
-            hgraph::register_overload<operators::min_, min__impl_80>();
-            hgraph::register_overload<operators::min_, min__impl_81>();
-            hgraph::register_overload<operators::min_, min__impl_82>();
-            hgraph::register_overload<operators::min_, min__impl_83>();
-            hgraph::register_overload<operators::min_, min__impl_84>();
             hgraph::register_overload<operators::min_, min__impl_85>();
             hgraph::register_overload<operators::min_, min__impl_86>();
-            hgraph::register_overload<operators::max_, max__impl_87>();
-            hgraph::register_overload<operators::max_, max__impl_88>();
-            hgraph::register_overload<operators::max_, max__impl_89>();
-            hgraph::register_overload<operators::max_, max__impl_90>();
-            hgraph::register_overload<operators::max_, max__impl_91>();
-            hgraph::register_overload<operators::max_, max__impl_92>();
+            hgraph::register_overload<operators::min_, min__impl_87>();
+            hgraph::register_overload<operators::min_, min__impl_88>();
+            hgraph::register_overload<operators::min_, min__impl_89>();
+            hgraph::register_overload<operators::min_, min__impl_90>();
+            hgraph::register_overload<operators::min_, min__impl_91>();
+            hgraph::register_overload<operators::min_, min__impl_92>();
             hgraph::register_overload<operators::max_, max__impl_93>();
             hgraph::register_overload<operators::max_, max__impl_94>();
-            hgraph::register_overload<operators::contains_, contains__impl_96>();
-            hgraph::register_overload<operators::substr, substr_impl_98>();
+            hgraph::register_overload<operators::max_, max__impl_95>();
+            hgraph::register_overload<operators::max_, max__impl_96>();
+            hgraph::register_overload<operators::max_, max__impl_97>();
+            hgraph::register_overload<operators::max_, max__impl_98>();
+            hgraph::register_overload<operators::max_, max__impl_99>();
+            hgraph::register_overload<operators::max_, max__impl_100>();
+            hgraph::register_overload<operators::contains_, contains__impl_101>();
+            hgraph::register_overload<operators::substr, substr_impl_102>();
         }
     }  // namespace hgl_detail
 }  // namespace hgraph_::operators_

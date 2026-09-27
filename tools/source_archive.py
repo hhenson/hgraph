@@ -1,7 +1,7 @@
 """Export HEAD and pinned shared inputs to dist/hgraph-source.tar.gz."""
 import argparse
+from contextlib import ExitStack
 import io
-import json
 import os
 from pathlib import Path, PurePosixPath
 import posixpath
@@ -49,36 +49,26 @@ def safe_member(member: tarfile.TarInfo) -> tarfile.TarInfo:
     return safe
 
 
-def write_archive(root: Path, archive: bytes, manifest: dict) -> Path:
+def write_archive(root: Path, archives: list[bytes]) -> Path:
     root = root.resolve()
     directory = root / 'dist'
     if directory.is_symlink() or directory.resolve() != directory:
         raise ValueError('dist must be a directory inside the checkout')
     output = directory / 'hgraph-source.tar.gz'
-    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
-        entries, names, leaves = [], set(), set()
-        for member in source:
-            safe = safe_member(member)
-            if safe.name in names:
-                raise ValueError(f'duplicate archive entry: {safe.name}')
-            names.add(safe.name)
-            if not safe.isdir():
-                leaves.add(safe.name)
-            entries.append((member, safe))
-        shared = []
-        for name in sorted(manifest['files']):
-            relative = relative_name(name)
-            origin = (root / relative).resolve(strict=True)
-            if not origin.is_relative_to(root) or not origin.is_file():
-                raise ValueError(f'shared file escapes the checkout: {name!r}')
-            safe = tarfile.TarInfo(archive_name('hgraph/' + relative.as_posix()).as_posix())
-            if safe.name in names:
-                raise ValueError(f'duplicate archive entry: {safe.name}')
-            names.add(safe.name)
-            leaves.add(safe.name)
-            data = origin.read_bytes()
-            safe.mode, safe.size = 0o644, len(data)
-            shared.append((safe, data))
+    with ExitStack() as stack:
+        entries, names, leaves = [], {}, set()
+        for archive in archives:
+            source = stack.enter_context(tarfile.open(fileobj=io.BytesIO(archive)))
+            for member in source:
+                safe = safe_member(member)
+                if safe.name in names:
+                    if safe.isdir() and names[safe.name]:
+                        continue  # Gitlinks and their package archives share directory headers.
+                    raise ValueError(f'duplicate archive entry: {safe.name}')
+                names[safe.name] = safe.isdir()
+                if not safe.isdir():
+                    leaves.add(safe.name)
+                entries.append((source, member, safe))
         for name in names:
             if any(str(parent) in leaves for parent in PurePosixPath(name).parents):
                 raise ValueError(f'archive entry has a file or link parent: {name!r}')
@@ -88,10 +78,8 @@ def write_archive(root: Path, archive: bytes, manifest: dict) -> Path:
             with tempfile.NamedTemporaryFile(dir=directory, prefix='.hgraph-source-', delete=False) as stream:
                 temporary = Path(stream.name)
                 with tarfile.open(fileobj=stream, mode='w:gz') as target:
-                    for original, safe in entries:
+                    for source, original, safe in entries:
                         target.addfile(safe, source.extractfile(original) if original.isfile() else None)
-                    for safe, data in shared:
-                        target.addfile(safe, io.BytesIO(data))
             os.replace(temporary, output)
         finally:
             if temporary is not None:
@@ -102,11 +90,18 @@ def write_archive(root: Path, archive: bytes, manifest: dict) -> Path:
 def main() -> None:
     argparse.ArgumentParser(description=__doc__).parse_args()
     subprocess.run([sys.executable, str(ROOT / 'tools/shared_artifacts.py'), '--check'], check=True)
-    subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], cwd=ROOT, check=True)
-    archive = subprocess.check_output(
-        ['git', 'archive', '--format=tar', '--prefix=hgraph/', 'HEAD'], cwd=ROOT)
-    manifest = json.loads((ROOT / 'shared-artifacts.json').read_text())
-    print(write_archive(ROOT, archive, manifest))
+    # Fixed package paths and prefixes are not CLI or manifest inputs.
+    packages = ('', 'external/hgraph_spec', 'external/hgraph_std',
+                'external/hgraph_spec_audit', 'external/hgraph_spec_audit/spec',
+                'external/hgraph_spec_audit/stdlib')
+    archives = []
+    for package in packages:
+        checkout = ROOT / package
+        subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], cwd=checkout, check=True)
+        prefix = 'hgraph/' + (package + '/' if package else '')
+        archives.append(subprocess.check_output(
+            ['git', 'archive', '--format=tar', '--prefix=' + prefix, 'HEAD'], cwd=checkout))
+    print(write_archive(ROOT, archives))
 
 
 if __name__ == '__main__':

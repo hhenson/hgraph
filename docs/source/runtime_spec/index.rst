@@ -1,42 +1,13 @@
 Runtime behaviour specification
 ===============================
 
-The concept-first runtime model describes intended behaviour, independent of
-storage and implementation language. Its chapters, conformance cases and
-source evidence distinguish established behaviour, proposals and open work.
-It is incomplete and does not certify an implementation.
+The shared `runtime specification <https://github.com/hhenson/hgraph_spec/tree/main/runtime>`_
+owns the rules, scenarios and expected traces. The
+`language specification <https://github.com/hhenson/hgraph_spec/tree/main/language>`_
+owns HGL syntax and examples.
 
-.. toctree::
-   :maxdepth: 1
-
-   overview
-   execution_engine
-   graph
-   node
-   time_series
-   scalar_types
-   injectables
-   wiring
-   operators
-   conformance
-   cases_atomic
-   cases_collections
-   cases_lifecycle
-   cases_references
-   cases_nested
-   cases_fixed
-   cases_wiring
-   validation
-   validation/README
-   validation/fixed/README
-   validation/parity/README
-   validation/wiring/README
-   representations
-   layout_example
-   boundaries
-   evidence
-   extraction
-
-The :doc:`../specification/index` retains the earlier Python-era documents for
-historical context and domains outside these runtime chapters. HGL source
-syntax remains in the repository's ``language/docs/`` documentation.
+`Validation code and results <https://github.com/hhenson/hgraph_spec_audit>`_
+record implementation comparisons. The
+`historical Python specification <https://github.com/hhenson/hgraph_spec_audit/tree/main/historical/python>`_
+provides earlier context. These sources are maintained in their owning packages;
+this repository contains implementation documentation only.

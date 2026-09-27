@@ -1,6 +1,6 @@
 """The runtime specification's wiring cases hold for this runtime.
 
-Each case in ``docs/source/runtime_spec/validation/wiring/cases.py`` runs in
+Each case in ``external/hgraph_spec_audit/runtime/validation/wiring/cases.py`` runs in
 a fresh interpreter (its operators must not leak into this session) and every
 reasoned expectation in ``reasoned.json`` is asserted, naming the rules it
 comes from (``runtime_spec/wiring.md``). The HGL front end's cases are the
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-VALIDATION = Path(__file__).resolve().parents[2] / "docs" / "source" / "runtime_spec" / "validation" / "wiring"
+VALIDATION = Path(__file__).resolve().parents[2] / "external/hgraph_spec_audit/runtime/validation/wiring"
 REASONED = json.loads((VALIDATION / "reasoned.json").read_text())
 RUNTIME_CASES = sorted(case for case in REASONED if not case.startswith("_") and case != "hgl_front_end")
 

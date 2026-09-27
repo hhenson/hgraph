@@ -179,6 +179,7 @@ namespace hgl::descriptor
                 case ConstraintCategory::Call: node.kind = semantics::ImportedConstraintKind::Call; break;
                 case ConstraintCategory::Each: node.kind = semantics::ImportedConstraintKind::Each; break;
                 case ConstraintCategory::Operator: node.kind = semantics::ImportedConstraintKind::Operator; break;
+                case ConstraintCategory::NativeScalar: node.kind = semantics::ImportedConstraintKind::NativeScalar; break;
                 case ConstraintCategory::Relation: node.kind = semantics::ImportedConstraintKind::Relation; break;
                 case ConstraintCategory::Not: node.kind = semantics::ImportedConstraintKind::Not; break;
                 case ConstraintCategory::Logic: node.kind = semantics::ImportedConstraintKind::Logic; break;
@@ -190,7 +191,10 @@ namespace hgl::descriptor
             // An Operator requirement stores the return type it demands in
             // `result`, not `type`; reading only `type` would drop it and leave
             // a requirement weaker than the exporting module declared.
-            const SchemaId type_ref = source.category == ConstraintCategory::Operator ? source.result : source.type;
+            const SchemaId type_ref =
+                (source.category == ConstraintCategory::Operator || source.category == ConstraintCategory::NativeScalar)
+                    ? source.result
+                    : source.type;
             if (type_ref != no_schema_id) {
                 node.type = imported_type(descriptor, type_ref, {}, /*allow_layout=*/true);
                 if (!node.type) { return false; }

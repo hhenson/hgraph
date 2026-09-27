@@ -200,6 +200,11 @@ namespace hgl::ir
                                 }
                             }
                         }
+                        for (SymbolId candidate : expression.operation.native_candidates) {
+                            if (const auto *native = native_function(candidate)) {
+                                required.insert(required.end(), native->capabilities.begin(), native->capabilities.end());
+                            }
+                        }
                         for (const std::string &name : required) {
                             if (std::ranges::any_of(owner->capabilities,
                                                     [&](SymbolId id) { return module_.symbol(id).name == name; })) {
@@ -252,6 +257,13 @@ namespace hgl::ir
                             if (native.symbol != target) { continue; }
                             allowed = 0U;
                             for (NativePhase phase : native.phases) { allowed |= 1U << static_cast<unsigned>(phase); }
+                        }
+                        for (auto candidate : expression.operation.native_candidates) {
+                            if (const auto *native = native_function(candidate)) {
+                                unsigned candidate_phases = 0U;
+                                for (auto phase : native->phases) { candidate_phases |= 1U << static_cast<unsigned>(phase); }
+                                allowed &= candidate_phases;
+                            }
                         }
                         if (target.valid()) {
                             const DeclarationId called = module_.symbol(target).owner;
@@ -2150,6 +2162,61 @@ namespace hgl::ir
                 return true;
             }
 
+            bool check_required_native_call(Expr &expression, const Call &call, SymbolId family, TypeId expected) {
+                std::vector<TypeId> argument_types;
+                for (const Argument &argument : call.arguments) {
+                    if (!argument.name.empty()) { return false; }
+                    argument_types.push_back(module_.expr(argument.value).type);
+                }
+                const auto required = active_required_operation(operator_identity(family), argument_types);
+                if (!required || module_.symbol(required->op).kind != SymbolKind::ImportedFunction || !required->result.valid()) {
+                    return false;
+                }
+                // Named arguments and live views require a concrete signature. The
+                // scalar requirement has positional value types only.
+                std::vector<SymbolId> candidates;
+                for (const NativeFunction *candidate : native_candidates(family)) {
+                    if (candidate->execution_role != NativeExecutionRole::Value || !candidate->generics.empty() ||
+                        candidate->parameters.size() != call.arguments.size() ||
+                        module_.type(canonical(candidate->result)).kind != TypeKind::Scalar) {
+                        continue;
+                    }
+                    bool eligible = true;
+                    for (std::size_t index = 0; index < candidate->parameters.size(); ++index) {
+                        const auto &parameter = candidate->parameters[index];
+                        const auto  argument  = canonical(argument_types[index]);
+                        eligible = eligible && !parameter.is_const && parameter.access == NativeParameterAccess::Value &&
+                                   module_.type(canonical(parameter.type)).kind == TypeKind::Scalar &&
+                                   (module_.type(argument).kind == TypeKind::Symbol || same(parameter.type, argument));
+                    }
+                    const auto result = canonical(required->result);
+                    eligible = eligible && (module_.type(result).kind == TypeKind::Symbol || same(candidate->result, result));
+                    if (!eligible) { continue; }
+                    if (!active_value_function_ &&
+                        std::ranges::find(candidate->phases, active_native_phase_) == candidate->phases.end()) {
+                        type_error(expression.range, "required native scalar family is unavailable in this phase");
+                        return true;
+                    }
+                    candidates.push_back(candidate->symbol);
+                }
+                if (candidates.empty()) {
+                    type_error(expression.range, "native scalar requirement has no value candidates");
+                    return true;
+                }
+                auto &reference  = std::get<SymbolRef>(module_.exprs[call.callee.value].node);
+                reference.symbol = candidates.front();
+                for (const auto &argument : call.arguments) { expression.effects |= module_.expr(argument.value).effects; }
+                expression.type       = required->result;
+                expression.phase      = active_native_phase_ == NativePhase::Wiring ? Phase::Constant : Phase::Runtime;
+                expression.value_kind = value_kind_for_phase(expression.phase);
+                expression.operation  = Operation{.kind              = OperationKind::ExactFunction,
+                                                  .target            = candidates.front(),
+                                                  .identity          = operator_identity(family),
+                                                  .native_candidates = std::move(candidates)};
+                contextualize(expression, expected);
+                return true;
+            }
+
             void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
                                    TypeId expected) {
                 const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
@@ -2670,6 +2737,9 @@ namespace hgl::ir
                         std::vector<const NativeFunction *>       matches;
                         for (const NativeFunction *candidate : candidates) {
                             if (native_candidate_matches(*candidate, call.arguments, expected)) { matches.push_back(candidate); }
+                        }
+                        if (matches.empty() && check_required_native_call(expression, call, reference->symbol, expected)) {
+                            return;
                         }
                         if (matches.empty()) {
                             std::string arguments;

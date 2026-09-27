@@ -156,6 +156,7 @@ namespace hgl::descriptor
                 case ConstraintCategory::Call: return "call";
                 case ConstraintCategory::Each: return "each";
                 case ConstraintCategory::Operator: return "operator";
+                case ConstraintCategory::NativeScalar: return "native-scalar";
                 case ConstraintCategory::Relation: return "relation";
                 case ConstraintCategory::Not: return "not";
                 case ConstraintCategory::Logic: return "logic";

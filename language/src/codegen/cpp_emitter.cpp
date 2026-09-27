@@ -3688,6 +3688,29 @@ namespace hgl::codegen
                     if (callee.native_function != expression.operation.native_function) {
                         backend(expression.range, "hgraph IR exact native call disagrees with its callee reference");
                     }
+                    if (!expression.operation.native_candidates.empty()) {
+                        gir::NativeFunctionId selected{};
+                        for (auto id : expression.operation.native_candidates) {
+                            const auto &candidate = native_function(id, expression.range);
+                            bool        matches   = candidate.parameters.size() == call.arguments.size() &&
+                                                    same_type(planned_type(candidate.result, expression.range),
+                                                              planned_type(expression.type, expression.range));
+                            for (std::size_t index = 0; matches && index < call.arguments.size(); ++index) {
+                                matches = same_type(planned_type(candidate.parameters[index].type, expression.range),
+                                                    planned_type(planned_value(call.arguments[index].value, expression.range).type,
+                                                                 expression.range));
+                            }
+                            if (!matches) { continue; }
+                            if (selected.valid()) {
+                                fail(Category::Type, expression.range, "native scalar specialization is ambiguous");
+                            }
+                            selected = id;
+                        }
+                        if (!selected.valid()) {
+                            fail(Category::Type, expression.range, "native scalar specialization has no exact overload");
+                        }
+                        return call_planned_native(selected, call.arguments, expression.range, frame);
+                    }
                     return call_planned_native(expression.operation.native_function, call.arguments, expression.range, frame);
                 case Value::Kind::Intrinsic: return eval_planned_intrinsic(callee, call, expression.range, frame);
                 case Value::Kind::Const:

@@ -12,24 +12,24 @@ namespace hgraph_::operators_
     namespace hgl_detail
     {
         void register_operators(std::integral_constant<std::size_t, 3>) {
-            hgraph::register_overload<operators::pow_, pow__impl_100>();
-            hgraph::register_overload<operators::pow_, pow__impl_101>();
-            hgraph::register_overload<operators::pow_, pow__impl_102>();
             hgraph::register_overload<operators::pow_, pow__impl_103>();
-            hgraph::register_overload<operators::lshift_, lshift__impl_106>();
-            hgraph::register_overload<operators::rshift_, rshift__impl_107>();
+            hgraph::register_overload<operators::pow_, pow__impl_104>();
+            hgraph::register_overload<operators::pow_, pow__impl_105>();
+            hgraph::register_overload<operators::pow_, pow__impl_106>();
+            hgraph::register_overload<operators::lshift_, lshift__impl_107>();
+            hgraph::register_overload<operators::rshift_, rshift__impl_108>();
             hgraph::register_overload<operators::mean, mean_impl_109>();
             hgraph::register_overload<operators::mean, mean_impl_110>();
             hgraph::register_overload<operators::mean, mean_impl_111>();
             hgraph::register_overload<operators::mean, mean_impl_112>();
             hgraph::register_overload<operators::pos_, pos__impl_113>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_128>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_129>();
-            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_130>();
-            hgraph::register_overload<operators::add_, add__impl_19__i64__i64__i64__m0>();
-            hgraph::register_overload<operators::add_, add__impl_19__i64__f64__f64__m1>();
-            hgraph::register_overload<operators::add_, add__impl_19__f64__i64__f64__m2>();
-            hgraph::register_overload<operators::add_, add__impl_19__f64__f64__f64__m3>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_115>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_116>();
+            hgraph::register_overload<operators::eq_epsilon, eq_epsilon_impl_117>();
+            hgraph::register_overload<operators::add_, add__impl_36__i64__i64__i64__m0>();
+            hgraph::register_overload<operators::add_, add__impl_36__i64__f64__f64__m1>();
+            hgraph::register_overload<operators::add_, add__impl_36__f64__i64__f64__m2>();
+            hgraph::register_overload<operators::add_, add__impl_36__f64__f64__f64__m3>();
         }
     }  // namespace hgl_detail
 }  // namespace hgraph_::operators_

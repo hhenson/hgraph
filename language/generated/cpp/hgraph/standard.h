@@ -28,108 +28,108 @@ namespace hgraph_::std_
     /// Operator contracts for the module's public callables.
     namespace operators
     {
-        // control.hgl:7
+        // control.hgl:4
         using merge =
             hgraph::Operator<"hgraph.std.merge", hgraph::VarIn<"values", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TsVar<"S">>>;
-        // control.hgl:8
+        // control.hgl:5
         using race =
             hgraph::Operator<"hgraph.std.race", hgraph::VarIn<"values", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TsVar<"S">>>;
-        // control.hgl:9
+        // control.hgl:6
         using all_ = hgraph::Operator<"hgraph.std.all_", hgraph::VarIn<"values", hgraph::TS<hgraph::Bool>>,
                                       hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // control.hgl:10
+        // control.hgl:7
         using any_ = hgraph::Operator<"hgraph.std.any_", hgraph::VarIn<"values", hgraph::TS<hgraph::Bool>>,
                                       hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // control.hgl:12
+        // control.hgl:8
         using if_true = hgraph::Operator<"hgraph.std.if_true", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
                                          hgraph::Scalar<"tick_once_only", hgraph::Bool>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // control.hgl:31
+        // control.hgl:9
         using null_sink = hgraph::Operator<"hgraph.std.null_sink", hgraph::In<"ts", hgraph::SIGNAL>>;
-        // control.hgl:34
+        // control.hgl:10
         using pass_through =
             hgraph::Operator<"hgraph.std.pass_through", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // standard.hgl:20
+        // standard.hgl:4
         using len_ =
             hgraph::Operator<"hgraph.std.len_", hgraph::In<"value", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
-        // standard.hgl:21
+        // standard.hgl:5
         using is_empty =
             hgraph::Operator<"hgraph.std.is_empty", hgraph::In<"value", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // standard.hgl:105
+        // standard.hgl:6
         using contains_ = hgraph::Operator<"hgraph.std.contains_", hgraph::In<"ts", hgraph::TsVar<"S">>,
                                            hgraph::In<"item", hgraph::TsVar<"I">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // standard.hgl:106
+        // standard.hgl:7
         using index_of =
             hgraph::Operator<"hgraph.std.index_of", hgraph::In<"ts", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>>,
                              hgraph::In<"item", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
-        // standard.hgl:228
+        // standard.hgl:8
         using to_int =
             hgraph::Operator<"hgraph.std.to_int", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
-        // standard.hgl:229
+        // standard.hgl:9
         using to_float =
             hgraph::Operator<"hgraph.std.to_float", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // standard.hgl:230
+        // standard.hgl:10
         using to_bool =
             hgraph::Operator<"hgraph.std.to_bool", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // standard.hgl:231
+        // standard.hgl:11
         using to_date = hgraph::Operator<"hgraph.std.to_date", hgraph::In<"ts", hgraph::TS<hgraph::DateTime>>,
                                          hgraph::Out<hgraph::TS<hgraph::Date>>>;
-        // standard.hgl:232
+        // standard.hgl:12
         using to_datetime = hgraph::Operator<"hgraph.std.to_datetime", hgraph::In<"ts", hgraph::TS<hgraph::Date>>,
                                              hgraph::Out<hgraph::TS<hgraph::DateTime>>>;
-        // standard.hgl:486
+        // standard.hgl:13
         using collect_map =
             hgraph::Operator<"hgraph.std.collect_map", hgraph::In<"key", hgraph::TsVar<"K">>, hgraph::In<"ts", hgraph::TsVar<"V">>,
                              hgraph::Out<hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>>>;
-        // standard.hgl:519
+        // standard.hgl:14
         using make_tsd =
             hgraph::Operator<"hgraph.std.make_tsd", hgraph::In<"key", hgraph::TsVar<"K">>, hgraph::In<"value", hgraph::TsVar<"V">>,
                              hgraph::Out<hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>>>;
-        // standard.hgl:552
+        // standard.hgl:15
         using make_tsd_remove =
             hgraph::Operator<"hgraph.std.make_tsd_remove", hgraph::In<"key", hgraph::TsVar<"K">>,
                              hgraph::In<"value", hgraph::TsVar<"V">>, hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>>,
                              hgraph::Out<hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>>>;
-        // stream.hgl:5
+        // stream.hgl:4
         using sample = hgraph::Operator<"hgraph.std.sample", hgraph::In<"signal", hgraph::SIGNAL>,
                                         hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:6
+        // stream.hgl:5
         using drop = hgraph::Operator<"hgraph.std.drop", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Scalar<"count", hgraph::Int>,
                                       hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:7
+        // stream.hgl:6
         using dedup = hgraph::Operator<"hgraph.std.dedup", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:8
+        // stream.hgl:7
         using filter_ = hgraph::Operator<"hgraph.std.filter_", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
                                          hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:9
+        // stream.hgl:8
         using take = hgraph::Operator<"hgraph.std.take", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Scalar<"count", hgraph::Int>,
                                       hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:10
+        // stream.hgl:9
         using freeze = hgraph::Operator<"hgraph.std.freeze", hgraph::In<"predicate", hgraph::TS<hgraph::Bool>>,
                                         hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:11
+        // stream.hgl:10
         using until_true = hgraph::Operator<"hgraph.std.until_true", hgraph::In<"ts", hgraph::TS<hgraph::Bool>>,
                                             hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // stream.hgl:58
+        // stream.hgl:11
         using schedule = hgraph::Operator<"hgraph.std.schedule", hgraph::Scalar<"delay", hgraph::TimeDelta>,
                                           hgraph::Scalar<"initial_delay", hgraph::Bool>, hgraph::Scalar<"max_ticks", hgraph::Int>,
                                           hgraph::Scalar<"use_wall_clock", hgraph::Bool>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
-        // stream.hgl:261
+        // stream.hgl:13
         using dedup_float =
             hgraph::Operator<"hgraph.std.dedup_float", hgraph::In<"ts", hgraph::TS<hgraph::Float>>,
                              hgraph::In<"abs_tol", hgraph::TS<hgraph::Float>>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:274
+        // stream.hgl:14
         using sum = hgraph::Operator<"hgraph.std.sum", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:275
+        // stream.hgl:15
         using sum_reset = hgraph::Operator<"hgraph.std.sum_reset", hgraph::In<"ts", hgraph::TsVar<"T">>,
                                            hgraph::In<"reset", hgraph::TS<hgraph::Bool>>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:276
+        // stream.hgl:16
         using mean =
             hgraph::Operator<"hgraph.std.mean", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Float>>>;
-        // stream.hgl:277
+        // stream.hgl:17
         using min_ = hgraph::Operator<"hgraph.std.min_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:278
+        // stream.hgl:18
         using max_ = hgraph::Operator<"hgraph.std.max_", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
-        // stream.hgl:461
+        // stream.hgl:19
         using tick_count =
             hgraph::Operator<"hgraph.std.tick_count", hgraph::In<"ts", hgraph::SIGNAL>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
         // temporal.hgl:4
@@ -182,10 +182,10 @@ namespace hgraph_::std_
         // temporal.hgl:20
         using year =
             hgraph::Operator<"hgraph.std.year", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;
-        // temporal.hgl:210
+        // temporal.hgl:21
         using last_modified_time = hgraph::Operator<"hgraph.std.last_modified_time", hgraph::In<"ts", hgraph::SIGNAL>,
                                                     hgraph::Out<hgraph::TS<hgraph::DateTime>>>;
-        // temporal.hgl:211
+        // temporal.hgl:22
         using last_modified_date = hgraph::Operator<"hgraph.std.last_modified_date", hgraph::In<"ts", hgraph::SIGNAL>,
                                                     hgraph::Out<hgraph::TS<hgraph::Date>>>;
     }  // namespace operators

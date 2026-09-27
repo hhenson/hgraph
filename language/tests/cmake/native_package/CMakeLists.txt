@@ -85,6 +85,8 @@ hgl_add_module(rebuilt_standard STATIC
     SOURCE_PARTS 8
     HGL ${HGL_STDLIB_SOURCE}/standard.hgl
     PARTS ${HGL_STDLIB_SOURCE}/control.hgl ${HGL_STDLIB_SOURCE}/stream.hgl ${HGL_STDLIB_SOURCE}/temporal.hgl
+        ${HGL_STDLIB_SOURCE}/impl/standard.hgl ${HGL_STDLIB_SOURCE}/impl/control.hgl
+        ${HGL_STDLIB_SOURCE}/impl/stream.hgl ${HGL_STDLIB_SOURCE}/impl/temporal.hgl
     LINK_LIBRARIES rebuilt_native)
 add_executable(hgl_native_parts_consumer parts.cpp)
 target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_standard)

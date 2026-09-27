@@ -145,6 +145,22 @@ namespace hgl::semantics
                 }
                 validate_structs();
                 validate_constructors();
+                for (const auto &structure : result_.imported_structs) {
+                    for (const auto &constraint : structure.constraints) {
+                        if (constraint.kind != ImportedConstraintKind::NativeScalar) { continue; }
+                        const auto separator = constraint.identity.rfind("::");
+                        const auto functions = separator == std::string::npos
+                                                   ? std::span<const ImportedFunction>{}
+                                                   : catalog_.find_functions(constraint.identity.substr(0, separator),
+                                                                             constraint.identity.substr(separator + 2));
+                        if (functions.empty()) {
+                            report(Category::Module, {},
+                                   "missing native scalar requirement interface '" + constraint.identity + "'");
+                        } else {
+                            (void)imported_function(functions, {});
+                        }
+                    }
+                }
                 return std::move(result_);
             }
 
@@ -1616,7 +1632,9 @@ namespace hgl::semantics
                             Binding binding;
                             if (node.qualifier.empty()) {
                                 const std::optional<Binding> found = lookup(node.name.text);
-                                if (found && (found->kind == BindingKind::Operator || found->kind == BindingKind::LocalOperator)) {
+                                if (found &&
+                                    (found->kind == BindingKind::Operator || found->kind == BindingKind::LocalOperator ||
+                                     found->kind == BindingKind::NativeFunction || found->kind == BindingKind::ImportedFunction)) {
                                     binding = *found;
                                 } else {
                                     report(Category::Name, node.name.range,
@@ -1629,6 +1647,13 @@ namespace hgl::semantics
                                     found_alias = true;
                                     if (const auto *contract = catalog_.find_operator(alias.module, node.name.text)) {
                                         if (const auto imported = imported_operator(*contract, node.name.range)) {
+                                            binding = *imported;
+                                        }
+                                        break;
+                                    }
+                                    const auto functions = catalog_.find_functions(alias.module, node.name.text);
+                                    if (!functions.empty()) {
+                                        if (const auto imported = imported_function(functions, node.name.range)) {
                                             binding = *imported;
                                         }
                                         break;
