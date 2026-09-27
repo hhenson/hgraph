@@ -1,8 +1,8 @@
 # Enum switch source and C++ mappings
 
-Status: worked examples of the agreed [switch checks](../design/switch.md#duplicate-cases-and-enum-coverage),
+Status: worked examples of the agreed [switch checks](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/switch.md#duplicate-cases-and-enum-coverage),
 not output from an implemented compiler. The HGL source is collected in
-[enum-switch.hgl](../../stdlib/examples/enum-switch.hgl). These are design
+[enum-switch.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-switch.hgl). These are design
 fixtures, not executable compiler examples. Native enum carrier, registration,
 and import-boundary integration remain separate work.
 
@@ -274,10 +274,10 @@ fixtures. No C++ dispatch should be emitted for them.
 
 | Fixture | Required source diagnostic |
 | --- | --- |
-| [Duplicate cases](../../stdlib/examples/invalid/enum-switch-duplicate-case.hgl) | `Mode::first` duplicates `Mode(10)`, or a named constant holding that member, after constant resolution. Reject both forms before backend emission. |
-| [Integer label](../../stdlib/examples/invalid/enum-switch-integer-case.hgl) | `case 10:` is not a `Mode` member; reject the type mismatch before coverage analysis. |
-| [Other enum label](../../stdlib/examples/invalid/enum-switch-other-enum-case.hgl) | `OtherMode::first` is not a `Mode` member, despite the same assigned number. |
-| [Unassigned result](../../stdlib/examples/invalid/enum-switch-unassigned-result.hgl) | All members are covered, but the third branch reaches `return r * 2` without assigning `r`. |
+| [Duplicate cases](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-duplicate-case.hgl) | `Mode::first` duplicates `Mode(10)`, or a named constant holding that member, after constant resolution. Reject both forms before backend emission. |
+| [Integer label](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-integer-case.hgl) | `case 10:` is not a `Mode` member; reject the type mismatch before coverage analysis. |
+| [Other enum label](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-other-enum-case.hgl) | `OtherMode::first` is not a `Mode` member, despite the same assigned number. |
+| [Unassigned result](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-unassigned-result.hgl) | All members are covered, but the third branch reaches `return r * 2` without assigning `r`. |
 
 Duplicate detection compares resolved typed constants, not spelling or ordinal
 position. C++ switch diagnostics alone cannot implement these checks for all

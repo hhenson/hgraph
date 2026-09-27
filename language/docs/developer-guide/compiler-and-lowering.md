@@ -93,7 +93,7 @@ source retention after a fatal error. `parser` orchestrates lexing, source
 parsing, diagnostic translation, and AST projection. `ast_printer` dumps the semantic arena one node per line for
 `hgl check --dump-ast` and the tests.
 
-The driver implements [ADR 0006](../design/decisions/0006-multi-file-module-parts.md)
+The driver implements [ADR 0006](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0006-multi-file-module-parts.md)
 outside the parser and semantic passes. It first parses every listed part as an
 ordinary source file, which enforces the module header and file-local import
 ordering. It then validates and lexically orders the part identities, blanks
@@ -441,7 +441,7 @@ Temporal classification rules:
   the body produces `RuntimeFn` for the complete body;
 - `for`, `keys`, `values`, `elements`, and `items` are phase-neutral: they follow the
   containing function's phase and never select it
-  ([Iteration](../design/iteration.md));
+  ([Iteration](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md));
 - a function that mixes phases is rejected. Invalid declaration order,
   duplicate lifecycle blocks, and unsupported capabilities are today rejected
   by the C++ emitter rather than by the checker (#767 item 2).
@@ -747,7 +747,7 @@ list-size position lowers to the existing size variable.
 
 ### Recursive struct edges
 
-[ADR 0012](../design/decisions/0012-recursive-struct-fields.md) admits a
+[ADR 0012](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0012-recursive-struct-fields.md) admits a
 field through which a value of a struct can hold another value of the same
 struct, as an optional `atomic<T>`. The resolver finds these edges and applies
 the rules (syntax guide, "Compilation-unit grammar"); every later pass sees an
@@ -1213,7 +1213,7 @@ Runtime `contains`, strict `at`, `front`/`back`, and window `time_at`/
 `removed_value` lower directly to the typed public input APIs. Child value reads
 check validity before accessing retained storage. These are compiler intrinsics,
 not source-native functions: lookup errors propagate through node evaluation,
-the same path a `throws` native takes (ADR 0009). See the [surface completion record](../design/native-surface-proposal.md)
+the same path a `throws` native takes (ADR 0009). See the [surface completion record](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-surface-proposal.md)
 for current shape coverage and the outstanding nullable `get` lowering.
 
 For runtime collection-value operands, the typed HIR represents `keys`,
@@ -1233,7 +1233,7 @@ List and set traversal uses `elements`, while `values` is reserved for the
 value projection of keyed or named structures. They are not aliases. Native
 method names need not match HGL spelling: `elements(tsl)` lowers to
 `tsl.values()` and `elements(tss, added)` to the typed TSS input's `added()`
-range. See the [paired HGL/C++ examples](../design/iteration.md). Map/bundle
+range. See the [paired HGL/C++ examples](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md). Map/bundle
 traversal is unchanged, and graph-phase set traversal remains unsupported.
 
 Recognized metadata predicates select the matching public native range
@@ -1564,7 +1564,7 @@ generated helper nodes.
 ### Wiring execution
 
 Status: executable hgraph-IR prototype (2026-09-05) with the test harness and run model in
-[Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
+[Syntax and semantics](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/developer-guide/syntax-and-semantics.md#tests-and-the-evaluation-harness).
 
 The direct-wiring backend executes a composition-only program without
 generating C++. It is not an interpreter of hgraph behaviour: it walks the

@@ -1,3 +1,8 @@
+# Shared HGL sources are pinned separately from the C++ implementation.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/standard.hgl")
+    message(FATAL_ERROR "Shared HGL sources are missing. Run python3 tools/shared_artifacts.py from the repository root before configuring HGRAPH_BUILD_LANGUAGE.")
+endif()
+
 cmake_minimum_required(VERSION 3.25)
 
 # hgl rides the hgraph release train: it reports hgraph::release_version_string

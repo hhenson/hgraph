@@ -1,6 +1,6 @@
 # Enum source and C++ mappings
 
-Status: worked examples of the agreed [enum value rules](../design/type-extensions.md#enum-types),
+Status: worked examples of the agreed [enum value rules](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/type-extensions.md#enum-types),
 not output from an implemented HGL enum compiler. Source appears before its
 corresponding C++ representation. String conversion uses `str(value)` and
 checked construction uses the enum type name, as in `Mode(value)`. Assigned
@@ -10,7 +10,7 @@ complete native type/ABI mapping remains open.
 
 ## Numbered declarations
 
-The source is also in [enum-values.hgl](../../stdlib/examples/enum-values.hgl):
+The source is also in [enum-values.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-values.hgl):
 
 ```hgl
 enum Mode {
@@ -144,10 +144,10 @@ would be `9223372036854775808`. All three are compile-time errors; never wrap,
 clamp, or manufacture another member. No C++ representation is emitted for
 these invalid declarations.
 
-The positive source is [enum-number-range.hgl](../../stdlib/examples/enum-number-range.hgl).
-The invalid fixtures are [enum-number-above-range.hgl](../../stdlib/examples/invalid/enum-number-above-range.hgl),
-[enum-number-below-range.hgl](../../stdlib/examples/invalid/enum-number-below-range.hgl),
-and [enum-number-overflow.hgl](../../stdlib/examples/invalid/enum-number-overflow.hgl).
+The positive source is [enum-number-range.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-number-range.hgl).
+The invalid fixtures are [enum-number-above-range.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-above-range.hgl),
+[enum-number-below-range.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-below-range.hgl),
+and [enum-number-overflow.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-overflow.hgl).
 They record agreed source checks, not implemented compiler tests.
 
 ## Member-name stringification
@@ -260,9 +260,9 @@ const missing_mode: Mode = Mode("First")
 The first has no member with number `12`; the second does not exactly match
 `"first"`. Checking must reject either source rather than emit a runtime cast
 or manufacture an unnamed member. Complete source fixtures are
-[enum-conversion-unknown-number.hgl](../../stdlib/examples/invalid/enum-conversion-unknown-number.hgl)
-and [enum-conversion-unknown-name.hgl](../../stdlib/examples/invalid/enum-conversion-unknown-name.hgl).
-Successful constants are mirrored in [enum-values.hgl](../../stdlib/examples/enum-values.hgl).
+[enum-conversion-unknown-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-conversion-unknown-number.hgl)
+and [enum-conversion-unknown-name.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-conversion-unknown-name.hgl).
+Successful constants are mirrored in [enum-values.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-values.hgl).
 
 Failure timing depends on when the operand is available. A constant is checked
 before runtime; a wiring-time configuration value is checked while wiring.
@@ -370,8 +370,8 @@ time-series inputs or evaluation-local borrowed iterators, and using them in
 a node does not make the lists temporal. This does not change traversal rules
 for collection-value operands or introduce dynamic graph-loop lowering.
 
-The source is mirrored in [enum-values.hgl](../../stdlib/examples/enum-values.hgl)
-and [enum-enumeration-order.hgl](../../stdlib/examples/enum-enumeration-order.hgl).
+The source is mirrored in [enum-values.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-values.hgl)
+and [enum-enumeration-order.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-enumeration-order.hgl).
 
 ## Conversion in nodes and graphs
 
@@ -456,7 +456,7 @@ Python-style `convert`-to-string overload. These integer and enum examples
 do not settle formatting for every other type or add Python execution to HGL.
 
 The source functions are mirrored in
-[string-conversion.hgl](../../stdlib/examples/string-conversion.hgl).
+[string-conversion.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/string-conversion.hgl).
 
 ## Duplicate numbers are a source error
 
@@ -485,8 +485,8 @@ reject the declaration before native registration or C++ emission. C++ itself
 permits numeric aliases; emitting valid C++ therefore cannot prove this HGL
 rule was checked. No C++ representation is emitted for either invalid source.
 
-The fixtures are [enum-duplicate-number.hgl](../../stdlib/examples/invalid/enum-duplicate-number.hgl)
-and [enum-implicit-duplicate-number.hgl](../../stdlib/examples/invalid/enum-implicit-duplicate-number.hgl).
+The fixtures are [enum-duplicate-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-duplicate-number.hgl)
+and [enum-implicit-duplicate-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-implicit-duplicate-number.hgl).
 They record intended source errors, not currently passing compiler diagnostics.
 
 ## Validation boundary

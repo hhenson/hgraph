@@ -3,7 +3,7 @@
 These paired examples describe the public mapping. Emitted code adds registration,
 source locations, and wiring type checks. The executable fixtures are
 [system-operators.hgl](../../tests/codegen/system-operators.hgl),
-[operator-properties.hgl](../../examples/operator-properties.hgl), and their
+[operator-properties.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/operator-properties.hgl), and their
 [compiled tests](../../tests/codegen/generated_operator_tests.cpp).
 
 ## Graph true division

@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Validate package metadata
         run: |
           python -m pip install --upgrade --only-binary=:all: \
@@ -168,6 +170,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 tools/shared_artifacts.py
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
@@ -528,6 +534,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Build source distribution
         run: |
           python -m pip install --upgrade --only-binary=:all: \
@@ -777,6 +785,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Install parity controller
         run: >-
           python -m pip install --upgrade --only-binary=:all:
@@ -850,6 +860,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: distribution-*
@@ -901,6 +913,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: kafka-distribution-*
@@ -952,6 +966,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: analytics-distribution-*
@@ -1003,6 +1019,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: web-distribution-*
@@ -1054,6 +1072,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: persistence-distribution-*
@@ -1105,6 +1125,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: fabric-distribution-*

@@ -9,7 +9,7 @@ notes, and the deployment shapes, and defers to the RFC where they differ.
 This record covers how the toolchain reaches users, how its versions are
 named, and what a host needs to run an HGL program. It does not cover module
 descriptors or HGL package dependencies ([Modules and native
-extensions](modules.md)), nor the Python wheel pipeline itself
+extensions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/modules.md)), nor the Python wheel pipeline itself
 (`docs/source/developer_guide/release_readiness.rst` in the hgraph tree).
 
 ## What exists today

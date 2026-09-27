@@ -16,7 +16,7 @@ de facto intermediate representation.
 
 ## Agreed extension: semantic contracts and target mappings
 
-[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) records the
+[ADR 0008](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md) records the
 next architectural direction, not a new implemented pass pipeline. Typed
 semantics must retain execution role, type identity, capabilities, and
 ownership/effects independently of a provider's emitted type or symbol.

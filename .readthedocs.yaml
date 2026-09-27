@@ -14,6 +14,7 @@ build:
     # wheels-only install needing no compiler. Diagrams are mermaid (rendered
     # client-side), so there is no JRE or graphviz apt dependency either.
     post_create_environment:
+      - python tools/shared_artifacts.py
       - pip install uv
       - >-
         VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH

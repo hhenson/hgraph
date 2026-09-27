@@ -1,7 +1,7 @@
 # Native modules and packages
 
 This guide is for extension and build-tool authors. HGL imports, calls, and
-command-line usage are described in [Modules and tools](../user-guide/modules-and-tools.md).
+command-line usage are described in [Modules and tools](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/modules-and-tools.md).
 Generated names, native storage, descriptor records, registration, and loader
 behavior belong here rather than in the language-facing guide.
 
@@ -85,8 +85,8 @@ parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
 validates that the generated descriptor fits the version-one native ABI.
 Native compilation validates the C++ declarations and body.
 
-The complete, compiled example is
-[`native-functions.hgl`](../../examples/native-functions.hgl).
+Legacy inline syntax is covered by the compiled regression fixture
+[`native-functions.hgl`](https://github.com/hhenson/hgraph/blob/main/language/tests/codegen/native-functions.hgl).
 
 ## Compiled module lifecycle
 
@@ -209,7 +209,7 @@ same file's `schema` object. They have no identity outside that one descriptor.
 In descriptor format v6, a parameter's `"kind"` is `"const"` for fixed
 configuration, `"signal"` for a temporal parameter (`window` above is a
 `rolling<T, ...>`), and `"runtime"` for an evaluation-local native schema handle. That `signal` is a parameter-role label and is unrelated
-to the `signal` type of [Types and expressions](../user-guide/types-and-expressions.md).
+to the `signal` type of [Types and expressions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/types-and-expressions.md).
 The current reader accepts format v6 only; historical format changes are
 recorded in [ADR 0004](../design/decisions/0004-json-module-descriptors.md).
 
@@ -233,7 +233,7 @@ in ABI version 1, and borrowed results without a declared input lifetime. It
 also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
 metadata without loading native code. A `translated` exception policy is
 allowed during evaluation; a source `throws` declaration selects that policy
-([ADR 0009](../design/decisions/0009-native-errors-and-the-node-error-model.md)).
+([ADR 0009](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0009-native-errors-and-the-node-error-model.md)).
 
 Descriptor validation does not yet locate or lock transitive provider
 requirements. For source compilation, each repeatable `--module-descriptor`
@@ -257,7 +257,7 @@ The package names either an exact public C++ function family or its own reviewed
 normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an
 HGL identity form an overload family and must have distinguishable exact type
 patterns. The authoring API does not parse C++ headers and does not make
-arbitrary templates part of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
+arbitrary templates part of HGL. See [Native interface](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md#producing-descriptors)
 for the complete example and current wrapper boundary.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in

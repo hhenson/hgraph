@@ -1,6 +1,6 @@
 # hgraph language documentation
 
-The shared [runtime behaviour specification](../../docs/source/runtime_spec/overview.md) records concepts,
+The shared [runtime behaviour specification](https://github.com/hhenson/hgraph_spec/blob/main/runtime/overview.md) records concepts,
 numbered rules, conformance cases and implementation evidence. HGL source
 syntax remains specified in this language documentation.
 
@@ -9,7 +9,7 @@ history are part of its programming model, alongside ordinary value-level work.
 
 The documentation is split by audience:
 
-- The [User Guide](user-guide/README.md) shows how language functions and
+- The [User Guide](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/README.md) shows how language functions and
   canonical temporal types look.
 - The [Developer Guide](developer-guide/README.md) explains how the compiler
   parses, checks, lowers, builds, and tests those programs.
@@ -31,7 +31,7 @@ imply an implemented compatibility promise.
 
 1. [Architecture](design/architecture.md) — ownership, compiler pipeline,
    the two backends, and execution modes.
-2. [Language model](design/language-model.md) — functions, nominal operators,
+2. [Language model](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/language-model.md) — functions, nominal operators,
    generics, generic constraints and substitution, exports, canonical and
    rolling temporal types, nominal and generic structs, abstract data families,
    generic construction, inherited defaults, optional fields, sparse deltas,
@@ -40,39 +40,39 @@ imply an implemented compatibility promise.
 3. [Compiler architecture](design/compiler-architecture.md) — source fidelity,
    pass contracts, typed HIR, hgraph IR, backend boundaries, and the parser
    migration.
-4. [Modules and native extensions](design/modules.md) — how C++ packages become
+4. [Modules and native extensions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/modules.md) — how C++ packages become
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.
-5. [Native interface](design/native-interface.md) — top-level C++ value/view
+5. [Native interface](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md) — top-level C++ value/view
    helpers, descriptor-backed external kernels, opaque state, and
    phase/effect/ownership metadata.
 6. [Documentation architecture](design/documentation.md) — audience boundaries,
    feature status, executable examples, and code documentation.
-7. [Architecture decisions](design/decisions/README.md) — numbered decisions
+7. [Architecture decisions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/README.md) — numbered decisions
    that constrain several compiler passes or artifacts.
 8. [Roadmap](design/roadmap.md) — vertical slices, the compiler architecture
    stack, core-library migration, and acceptance gates.
 9. [Distribution and deployment](design/distribution.md) — release train,
    package channels (Homebrew first), the relocatable native context, and
    what a host needs to run an HGL program.
-10. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
+10. [Type extensions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/type-extensions.md) — agreed atomic treatment of
    imported types, `ref<T>`, reference-transparent type compatibility, opaque
    node access, wiring-time dereferencing, input-only `signal` observation,
    enum declaration/member syntax, explicit and automatic numbering,
    member-name stringification through `str(value)`, checked construction
    through `Mode(...)`, and duplicate-number rejection.
-11. [Conditional control flow](design/control-flow.md) — wiring-time selection,
+11. [Conditional control flow](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/control-flow.md) — wiring-time selection,
    switch-style temporal conditions in graph functions, and node conditionals.
-12. [Explicit switch dispatch](design/switch.md) — node-style C++ dispatch,
+12. [Explicit switch dispatch](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/switch.md) — node-style C++ dispatch,
    graph selector checks and branch signatures, default handling, and no-match
    failure, with agreed source syntax and constant case values.
-13. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
+13. [Iteration](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
-14. [Operators](design/operators.md) — fixed symbol-to-name mappings, precise
+14. [Operators](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/operators.md) — fixed symbol-to-name mappings, precise
     signatures and lifting, domain-bound properties, numerical exceptions,
     and the boundary between declarations and verified reduction laws.
-15. [Temporal contracts and target mappings](design/decisions/0008-temporal-contracts-and-target-mappings.md)
+15. [Temporal contracts and target mappings](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md)
     — temporal-language framing, value-level `const fn`, cache versus
     recordable state, native type lifecycles, and the separation of semantic
     contracts from target realizations; agreed direction with open syntax and
@@ -80,7 +80,7 @@ imply an implemented compatibility promise.
 16. [Migration catalogue](design/migration-catalogue.md) — the checked
     inventory workflow: what counts as authored, how blockers are named, and
     why parallel identities do not replace core registrations.
-17. [Migration requirements](design/migration-requirements.md) — the
+17. [Migration requirements](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/migration-requirements.md) — the
     `HGL-MIG-*` / `HGL-LIB-*` ledger: which contract each catalogue blocker
     waits on, what is accepted, and the decision still open.
 
@@ -94,7 +94,7 @@ constraints.
 The [standard-library folder](../stdlib/README.md) contains the compiled
 parallel HGL implementations (scalar arithmetic and comparisons, stream state,
 collection queries, conversions and calendar projections) and the checked
-[migration catalogue](../stdlib/catalogue/README.md) that records what is
+[migration catalogue](https://github.com/hhenson/hgraph_spec_audit/blob/main/catalogue/README.md) that records what is
 authored and what each remaining operator waits on. Those operators are
 parallel identities with production cutover deferred. The design corpus starts
 with conditional-result examples; the fixed-list and independent dynamic

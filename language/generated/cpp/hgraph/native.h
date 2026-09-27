@@ -36,6 +36,7 @@ namespace hgraph_::native
         hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept;
         hgraph::Bool     bound(const hgraph::TSInputView &value) noexcept;
         hgraph::Bool     active(const hgraph::TSInputView &value) noexcept;
+        hgraph::DateTime midnight(const hgraph::Date &value) noexcept;
         hgraph::Int      len(const hgraph::Str &value) noexcept;
         hgraph::Bool     is_empty(const hgraph::Str &value) noexcept;
         hgraph::Bool     contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept;
@@ -100,7 +101,6 @@ namespace hgraph_::native
         hgraph::Float    timestamp(const hgraph::DateTime &value) noexcept;
         hgraph::DateTime datepart(const hgraph::DateTime &value) noexcept;
         hgraph::Date     calendar_date(const hgraph::DateTime &value) noexcept;
-        hgraph::DateTime midnight(const hgraph::Date &value) noexcept;
         hgraph::Int      len__candidate_6(const hgraph::TSWInputView &value) noexcept;
         hgraph::Bool     is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept;
         hgraph::Int      capacity(const hgraph::TSWInputView &value) noexcept;

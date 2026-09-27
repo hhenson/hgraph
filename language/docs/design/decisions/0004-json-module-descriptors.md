@@ -50,7 +50,7 @@ and cannot be a result. Readers reject version-four descriptors rather than
 mistake this metadata handle for a temporal signal input.
 
 Version 6 adds a required `recursive` Boolean to every struct field. It marks
-a recursive edge ([ADR 0012](0012-recursive-struct-fields.md)): an optional
+a recursive edge ([ADR 0012](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0012-recursive-struct-fields.md)): an optional
 `atomic<T>` field whose `T` is a struct of the same module that reaches the
 field's struct again, which a backend realizes as an owner of `T` rather than
 by expanding `T`. The reader checks that a marked field is optional and that

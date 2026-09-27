@@ -1,7 +1,7 @@
 # ADR 0003: External native code is exposed by descriptors
 
 Status: accepted for external packages; superseded by
-[ADR 0005](0005-inline-cpp-native-functions.md) for module-local exact C++
+[ADR 0005](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0005-inline-cpp-native-functions.md) for module-local exact C++
 value/view functions
 
 ## Context
@@ -29,7 +29,7 @@ Expose separately built native declarations through versioned module
 descriptors and package-provided wrappers. Ordinary graph and node bodies
 contain no inline C++, preprocessor, raw pointer, or header-import escape. The
 first external-package slice supports canonical scalar evaluation functions
-under the restrictions in [Native interface](../native-interface.md).
+under the restrictions in [Native interface](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md).
 
 ## Consequences
 

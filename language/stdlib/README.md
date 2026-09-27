@@ -1,7 +1,7 @@
 # HGL standard library and design corpus
 
 This folder develops the core hgraph node and graph library in HGL alongside
-its existing native implementations. The [migration catalogue](catalogue/README.md)
+its existing native implementations. The [migration catalogue](https://github.com/hhenson/hgraph_spec_audit/blob/main/catalogue/README.md)
 records the source inventory, completed domains, implementation evidence and
 priority order for remaining capabilities. Production cutover is deferred.
 
@@ -12,7 +12,7 @@ comparisons, stream state, membership, conversion and temporal projections.
 The catalogue records the limits of each domain; a migrated slice does not
 claim every overload of its native family.
 
-The [operator design](../docs/design/operators.md) records the symbol mappings,
+The [operator design](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/operators.md) records the symbol mappings,
 domain-bound algebraic properties, lifting/result signatures, numerical
 exceptions, `//` floor division, and the `#` / `/* ... */` comment syntax. The
 [paired HGL/C++ scenarios](../docs/developer-guide/operator-cpp-mappings.md)
@@ -27,43 +27,43 @@ unnamed `test { ... }` contexts. Helpers are shared across the module's parts
 but are absent from production C++ and cannot be imported by consumers.
 `hgraph_language_test_core_native_parts` runs every native-part case through `hgl test`. Imported standard/operator
 tests use a separate test host linked to the native value provider.
-See [Test-only helpers](../docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+See [Test-only helpers](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
 
 ## Conditional results
 
-[conditional-result.hgl](../examples/conditional-result.hgl) is the executable
+[conditional-result.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-result.hgl) is the executable
 single-result case: one predeclared variable is assigned in both explicit
 temporal branches, remapped from the native switch output, and used by later
-composition. [conditional-results.hgl](../examples/conditional-results.hgl) is
+composition. [conditional-results.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-results.hgl) is
 the executable multiple-result case: the branch callables return one
 compiler-generated structural TSB and later composition consumes its remapped
 fields. The executable
-[conditional-forwarding.hgl](../examples/conditional-forwarding.hgl) covers an
+[conditional-forwarding.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-forwarding.hgl) covers an
 implicit false branch and per-field forwarding within a structural result. The
-[conditional control-flow design](../docs/design/control-flow.md) explains
+[conditional control-flow design](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/control-flow.md) explains
 branch captures, output signatures, bundle remapping, and remaining decisions.
 
 The executable
-[conditional-mixed-results.hgl](../examples/conditional-mixed-results.hgl)
+[conditional-mixed-results.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-mixed-results.hgl)
 combines an `if` expression result with an escaping assignment. They share one
 generated bundle output, then remap to the expression's receiving binding and
 the predeclared variable.
 
 The executable
-[conditional-early-return.hgl](../examples/conditional-early-return.hgl)
+[conditional-early-return.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-early-return.hgl)
 covers an early return from one top-level temporal branch. The remaining
 function body becomes the other branch's continuation, including its input
 captures and child-graph lifetime. Nested temporal continuations remain in the
 design corpus.
 
 Outputless temporal conditionals have graduated into the executable
-[conditional-sinks.hgl](../examples/conditional-sinks.hgl) compiler example.
+[conditional-sinks.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/conditional-sinks.hgl) compiler example.
 `debug_print("enabled", value)` is wired through the native sink switch, while
 `debug_print("always", value)` is always wired outside it. The example also
 covers a discarded sink conditional inside a value-producing graph. The label
 precedes the time-series argument.
 
-[conditional-unassigned-result.hgl](examples/invalid/conditional-unassigned-result.hgl)
+[conditional-unassigned-result.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/conditional-unassigned-result.hgl)
 is intentionally invalid: the escaping variable has no incoming binding and
 is assigned only on the true path before it is used. It records the agreed
 compile-time definite-assignment error. The compiler implements this
@@ -75,36 +75,36 @@ lowering; the invalid example continues to guard the broader rule.
 
 ## Explicit switch
 
-[Explicit switch dispatch](../docs/design/switch.md) records the agreed
+[Explicit switch dispatch](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/switch.md) records the agreed
 node-style native C++ path and graph-style selector validation, captures,
 results, and `default: ...` fallback. Unmatched values without a default must
 fail. The agreed form is `switch selector { case value: ... default: ... }`;
 case values must be expressible as source constants.
 
-[switch-scenarios.hgl](examples/switch-scenarios.hgl) contains the node, graph,
+[switch-scenarios.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/switch-scenarios.hgl) contains the node, graph,
 result, early-return, sink, and state-lifetime examples. The
 [paired HGL/C++ mappings](../docs/developer-guide/control-flow-cpp-mappings.md)
 put the same source before its native mapping and expected behaviour.
-[switch-temporal-case.hgl](examples/invalid/switch-temporal-case.hgl) records an
+[switch-temporal-case.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/switch-temporal-case.hgl) records an
 intentional error: a temporal parameter cannot be used as a case constant.
 These fixtures await switch parser, checking, and lowering support; they are
 not executable acceptance tests.
 
-[enum-switch.hgl](examples/enum-switch.hgl) covers exhaustive enum dispatch
+[enum-switch.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-switch.hgl) covers exhaustive enum dispatch
 in node and graph forms, partial coverage with no default, and a supplied
 default. [Enum-switch HGL/C++ mappings](../docs/developer-guide/enum-switch-cpp-mappings.md)
 show the local payload dispatch and graph branch structure. Invalid fixtures
-cover [duplicate resolved cases](examples/invalid/enum-switch-duplicate-case.hgl),
-an [integer label](examples/invalid/enum-switch-integer-case.hgl), a
-[different enum's label](examples/invalid/enum-switch-other-enum-case.hgl), and
-[an unassigned result despite full coverage](examples/invalid/enum-switch-unassigned-result.hgl).
+cover [duplicate resolved cases](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-duplicate-case.hgl),
+an [integer label](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-integer-case.hgl), a
+[different enum's label](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-other-enum-case.hgl), and
+[an unassigned result despite full coverage](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-switch-unassigned-result.hgl).
 Full coverage needs no default, but generated dispatch retains no-match
 failure. Partial coverage is permitted; its unmatched path fails unless a
 default handles it. These are design fixtures, not compiler tests.
 
 ## Enum values
 
-[enum-values.hgl](examples/enum-values.hgl) covers the agreed declaration and
+[enum-values.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-values.hgl) covers the agreed declaration and
 `Mode::first` member-reference forms, explicit numbering with `= constant`,
 automatic numbering from zero, and continuation after an explicit number.
 `str(Mode::first)` returns the member name without a type prefix or number.
@@ -115,31 +115,31 @@ The same fixture uses `Mode(10)` and `Mode("first")` to produce `Mode::first`.
 Construction checks assigned numbers or exact member names and rejects unknown
 values. The [conversion mappings](../docs/developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum)
 show checked C++ lookups and the checking/wiring/evaluation failure boundary.
-[enum-conversion-unknown-number.hgl](examples/invalid/enum-conversion-unknown-number.hgl)
-and [enum-conversion-unknown-name.hgl](examples/invalid/enum-conversion-unknown-name.hgl)
+[enum-conversion-unknown-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-conversion-unknown-number.hgl)
+and [enum-conversion-unknown-name.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-conversion-unknown-name.hgl)
 are intentional constant-conversion errors, not implemented compiler tests.
 
-[enum-duplicate-number.hgl](examples/invalid/enum-duplicate-number.hgl) and
-[enum-implicit-duplicate-number.hgl](examples/invalid/enum-implicit-duplicate-number.hgl)
+[enum-duplicate-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-duplicate-number.hgl) and
+[enum-implicit-duplicate-number.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-implicit-duplicate-number.hgl)
 record the initial rejection of duplicate numbers, including an automatic
 number that collides with an earlier explicit member.
 
-[enum-number-range.hgl](examples/enum-number-range.hgl) covers negative
+[enum-number-range.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-number-range.hgl) covers negative
 numbering, both signed `i64` endpoints, and an explicit reset after the
 maximum. The [paired HGL/C++ range examples](../docs/developer-guide/enum-cpp-mappings.md#signed-range-and-overflow)
 explain the compile-time, no-wrap rule. Intentional errors cover an explicit
-number [above the maximum](examples/invalid/enum-number-above-range.hgl),
-[below the minimum](examples/invalid/enum-number-below-range.hgl), and
-[automatic successor overflow](examples/invalid/enum-number-overflow.hgl).
+number [above the maximum](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-above-range.hgl),
+[below the minimum](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-below-range.hgl), and
+[automatic successor overflow](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/invalid/enum-number-overflow.hgl).
 
 These are design fixtures awaiting compiler support. The
-[remaining enum decisions](../docs/design/type-extensions.md#enum-types)
+[remaining enum decisions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/type-extensions.md#enum-types)
 include unknown imported values and native mapping.
 Enum identity and explicit integer conversion are agreed. Calls on the type
 use `keys(Mode)` (member-name strings), `values(Mode)` (assigned integers), and
 `elements(Mode)` (enum instances). They return immutable fixed-size scalar
 lists, sized by the member count. All three iterate in declaration order, regardless
-of explicit numbers. [enum-enumeration-order.hgl](examples/enum-enumeration-order.hgl)
+of explicit numbers. [enum-enumeration-order.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/enum-enumeration-order.hgl)
 uses non-monotonic numbering, type-operand calls, indexing, and reuse, with
 [paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
 The results are constant data rather than time series or borrowed iterators.
@@ -147,7 +147,7 @@ These remain design fixtures awaiting compiler support.
 
 ## String conversion
 
-[string-conversion.hgl](examples/string-conversion.hgl) uses the agreed
+[string-conversion.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/string-conversion.hgl) uses the agreed
 Python-style `str(value)` spelling in a node handler and in temporal graph
 composition. The constant enum conversion is in `enum-values.hgl` above.
 The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md#conversion-in-nodes-and-graphs)
@@ -157,9 +157,9 @@ fixtures, not passing compiler examples or a blanket Python formatting promise.
 
 ## Iteration
 
-[elements-iteration.hgl](examples/elements-iteration.hgl) records the agreed
+[elements-iteration.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/elements-iteration.hgl) records the agreed
 `elements` spelling for list and set traversal, with paired HGL/C++ examples
-in the [iteration design](../docs/design/iteration.md). It covers fixed-list
+in the [iteration design](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md). It covers fixed-list
 graph wiring and a node counting added set members. This supersedes the
 earlier no-`elements` rule. The compiler now keeps `values` for keyed/named
 value projections and uses `elements` for list/set membership traversal; the
@@ -168,30 +168,30 @@ are unchanged.
 
 Fixed temporal-list traversal has graduated from this design-only corpus into
 the executable compiler example
-[fixed-list-iteration.hgl](../examples/fixed-list-iteration.hgl). Both compiler
+[fixed-list-iteration.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/fixed-list-iteration.hgl). Both compiler
 backends wire one body per child connection under the agreed
-[phase-dependent iteration model](../docs/design/iteration.md).
+[phase-dependent iteration model](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md).
 
 Independent dynamic map and unbounded-list traversal has also graduated into
 the executable
-[dynamic-collection-iteration.hgl](../examples/dynamic-collection-iteration.hgl)
+[dynamic-collection-iteration.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/dynamic-collection-iteration.hgl)
 example. Both backends lower one sink child graph per key or index and pass
 shared temporal captures explicitly. Assignments to enclosing variables and
 loop-carried reductions remain excluded.
 
-The [deferred map/reduce option](../docs/design/iteration.md#deferred-option-map-plus-reduce)
+The [deferred map/reduce option](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md#deferred-option-map-plus-reduce)
 records future unordered map reductions and the linear reduction option for
 lists when index order matters. Neither reduction lowering is initially
 supported by graph `for`; the example in that section is deliberately marked
 unsupported, not added here as a supported loop contract.
 
-[Graph-phase iterator predicates](../docs/design/iteration.md#deferred-graph-phase-predicates)
+[Graph-phase iterator predicates](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md#deferred-graph-phase-predicates)
 are also deferred. The proposed predicate-to-switch conversion is not an
 agreed contract and has no corpus example; further loop design is paused.
 
 ## Runtime handler defaults
 
-[when-defaults.hgl](../examples/when-defaults.hgl) exercises the implemented
+[when-defaults.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/examples/when-defaults.hgl) exercises the implemented
 relationship between explicit, empty, and omitted handler selectors.
 `modified()` means any temporal parameter was modified and `valid()` means
 every temporal parameter is top-level valid. Omitting either selector supplies

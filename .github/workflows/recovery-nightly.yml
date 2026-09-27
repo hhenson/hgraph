@@ -66,6 +66,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Install build tools
         run: >-
           python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
@@ -151,6 +153,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: recovery-candidate-wheel
@@ -218,6 +222,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: recovery-report-*
@@ -261,6 +267,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Install native build dependencies
         run: >-
           python -m pip install --upgrade --only-binary=:all:
