@@ -5,12 +5,12 @@ namespace hgraph_::std_
 {
     namespace hgl_detail
     {
-        // control.hgl:13
-        struct if_true_impl_6
+        // control.hgl:7
+        struct if_true_impl_8
         {
-            static constexpr auto name = "hgraph.std.if_true#6";
+            static constexpr auto name = "hgraph.std.if_true#8";
             static auto           defaults() { return std::tuple{hgraph::arg<"tick_once_only">(false)}; }
-            using recordable_state = hgraph::TSB<"hgraph.std.if_true#6.state", hgraph::Field<"ticked", hgraph::TS<hgraph::Bool>>>;
+            using recordable_state = hgraph::TSB<"hgraph.std.if_true#8.state", hgraph::Field<"ticked", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::Scalar<"tick_once_only", hgraph::Bool>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto ticked = hgl_state.field<"ticked">();
                 if (!ticked.valid()) { ticked.set(false); }
@@ -30,19 +30,19 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:32
-        struct null_sink_impl_10
+        // control.hgl:17
+        struct null_sink_impl_9
         {
-            static constexpr auto name = "hgraph.std.null_sink#10";
+            static constexpr auto name = "hgraph.std.null_sink#9";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts) {
                 if ((ts.modified()) && (ts.valid())) {}
             }
         };
 
-        // standard.hgl:23
-        struct len__impl_17
+        // standard.hgl:20
+        struct len__impl_25
         {
-            static constexpr auto name = "hgraph.std.len_#17";
+            static constexpr auto name = "hgraph.std.len_#25";
             static void           eval(hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                           hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -52,10 +52,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:64
-        struct is_empty_impl_22
+        // standard.hgl:61
+        struct is_empty_impl_30
         {
-            static constexpr auto name = "hgraph.std.is_empty#22";
+            static constexpr auto name = "hgraph.std.is_empty#30";
             static void           eval(hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -65,10 +65,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:185
-        struct contains__impl_36
+        // standard.hgl:179
+        struct contains__impl_42
         {
-            static constexpr auto name = "hgraph.std.contains_#36";
+            static constexpr auto name = "hgraph.std.contains_#42";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -85,10 +85,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:205
-        struct contains__impl_38
+        // standard.hgl:199
+        struct contains__impl_44
         {
-            static constexpr auto name = "hgraph.std.contains_#38";
+            static constexpr auto name = "hgraph.std.contains_#44";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -105,10 +105,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:233
-        struct to_int_impl_45
+        // standard.hgl:220
+        struct to_int_impl_46
         {
-            static constexpr auto name = "hgraph.std.to_int#45";
+            static constexpr auto name = "hgraph.std.to_int#46";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -118,10 +118,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:234
-        struct to_int_impl_46
+        // standard.hgl:221
+        struct to_int_impl_47
         {
-            static constexpr auto name = "hgraph.std.to_int#46";
+            static constexpr auto name = "hgraph.std.to_int#47";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                          hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -131,10 +131,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:235
-        struct to_float_impl_47
+        // standard.hgl:222
+        struct to_float_impl_48
         {
-            static constexpr auto name = "hgraph.std.to_float#47";
+            static constexpr auto name = "hgraph.std.to_float#48";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                       hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -144,10 +144,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:236
-        struct to_float_impl_48
+        // standard.hgl:223
+        struct to_float_impl_49
         {
-            static constexpr auto name = "hgraph.std.to_float#48";
+            static constexpr auto name = "hgraph.std.to_float#49";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                      hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -157,10 +157,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:237
-        struct to_bool_impl_49
+        // standard.hgl:224
+        struct to_bool_impl_50
         {
-            static constexpr auto name = "hgraph.std.to_bool#49";
+            static constexpr auto name = "hgraph.std.to_bool#50";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                       hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -170,10 +170,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:238
-        struct to_bool_impl_50
+        // standard.hgl:225
+        struct to_bool_impl_51
         {
-            static constexpr auto name = "hgraph.std.to_bool#50";
+            static constexpr auto name = "hgraph.std.to_bool#51";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -183,10 +183,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:239
-        struct to_date_impl_51
+        // standard.hgl:226
+        struct to_date_impl_52
         {
-            static constexpr auto name = "hgraph.std.to_date#51";
+            static constexpr auto name = "hgraph.std.to_date#52";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                            hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -196,10 +196,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:240
-        struct to_datetime_impl_52
+        // standard.hgl:227
+        struct to_datetime_impl_53
         {
-            static constexpr auto name = "hgraph.std.to_datetime#52";
+            static constexpr auto name = "hgraph.std.to_datetime#53";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                    hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -209,10 +209,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:259
-        struct contains__impl_59
+        // standard.hgl:229
+        struct contains__impl_54
         {
-            static constexpr auto name = "hgraph.std.contains_#59";
+            static constexpr auto name = "hgraph.std.contains_#54";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -229,10 +229,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:279
-        struct contains__impl_61
+        // standard.hgl:249
+        struct contains__impl_56
         {
-            static constexpr auto name = "hgraph.std.contains_#61";
+            static constexpr auto name = "hgraph.std.contains_#56";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
@@ -249,10 +249,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:299
-        struct contains__impl_63
+        // standard.hgl:269
+        struct contains__impl_58
         {
-            static constexpr auto name = "hgraph.std.contains_#63";
+            static constexpr auto name = "hgraph.std.contains_#58";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -269,10 +269,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:319
-        struct contains__impl_65
+        // standard.hgl:289
+        struct contains__impl_60
         {
-            static constexpr auto name = "hgraph.std.contains_#65";
+            static constexpr auto name = "hgraph.std.contains_#60";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
@@ -289,10 +289,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:339
-        struct contains__impl_67
+        // standard.hgl:309
+        struct contains__impl_62
         {
-            static constexpr auto name = "hgraph.std.contains_#67";
+            static constexpr auto name = "hgraph.std.contains_#62";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                               hgl_output) {
@@ -309,10 +309,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:359
-        struct contains__impl_69
+        // standard.hgl:329
+        struct contains__impl_64
         {
-            static constexpr auto name = "hgraph.std.contains_#69";
+            static constexpr auto name = "hgraph.std.contains_#64";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -329,10 +329,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:395
-        struct contains__impl_74
+        // standard.hgl:364
+        struct contains__impl_69
         {
-            static constexpr auto name = "hgraph.std.contains_#74";
+            static constexpr auto name = "hgraph.std.contains_#69";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -349,10 +349,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:406
-        struct contains__impl_75
+        // standard.hgl:375
+        struct contains__impl_70
         {
-            static constexpr auto name = "hgraph.std.contains_#75";
+            static constexpr auto name = "hgraph.std.contains_#70";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                            hgl_output) {
@@ -369,10 +369,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:417
-        struct contains__impl_76
+        // standard.hgl:386
+        struct contains__impl_71
         {
-            static constexpr auto name = "hgraph.std.contains_#76";
+            static constexpr auto name = "hgraph.std.contains_#71";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -389,10 +389,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:428
-        struct contains__impl_77
+        // standard.hgl:397
+        struct contains__impl_72
         {
-            static constexpr auto name = "hgraph.std.contains_#77";
+            static constexpr auto name = "hgraph.std.contains_#72";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
@@ -409,10 +409,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:439
-        struct contains__impl_78
+        // standard.hgl:408
+        struct contains__impl_73
         {
-            static constexpr auto name = "hgraph.std.contains_#78";
+            static constexpr auto name = "hgraph.std.contains_#73";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
@@ -429,10 +429,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:450
-        struct contains__impl_79
+        // standard.hgl:419
+        struct contains__impl_74
         {
-            static constexpr auto name = "hgraph.std.contains_#79";
+            static constexpr auto name = "hgraph.std.contains_#74";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
@@ -449,10 +449,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:461
-        struct contains__impl_80
+        // standard.hgl:430
+        struct contains__impl_75
         {
-            static constexpr auto name = "hgraph.std.contains_#80";
+            static constexpr auto name = "hgraph.std.contains_#75";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                               hgl_output) {
@@ -469,10 +469,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:472
-        struct contains__impl_81
+        // standard.hgl:441
+        struct contains__impl_76
         {
-            static constexpr auto name = "hgraph.std.contains_#81";
+            static constexpr auto name = "hgraph.std.contains_#76";
             static void           eval(hgraph::In<"ts", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TSS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                                hgl_output) {
@@ -489,10 +489,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:47
-        struct until_true_impl_123
+        // stream.hgl:40
+        struct until_true_impl_119
         {
-            static constexpr auto name = "hgraph.std.until_true#123";
+            static constexpr auto name = "hgraph.std.until_true#119";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -503,10 +503,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:60
-        struct schedule_impl_125
+        // stream.hgl:51
+        struct schedule_impl_120
         {
-            static constexpr auto name = "hgraph.std.schedule#125";
+            static constexpr auto name = "hgraph.std.schedule#120";
             static auto           defaults() {
                 return std::tuple{hgraph::arg<"initial_delay">(true), hgraph::arg<"max_ticks">(hgraph::Int{9223372036854775807}),
                                   hgraph::arg<"use_wall_clock">(false)};
@@ -527,7 +527,7 @@ namespace hgraph_::std_
                 };
                 return ops;
             }
-            using recordable_state = hgraph::TSB<"hgraph.std.schedule#125.state", hgraph::Field<"ticks", hgraph::TS<hgraph::Int>>>;
+            using recordable_state = hgraph::TSB<"hgraph.std.schedule#120.state", hgraph::Field<"ticks", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"delay", hgraph::TimeDelta>     delay,
                               hgraph::Scalar<"initial_delay", hgraph::Bool>  initial_delay,
                               hgraph::Scalar<"max_ticks", hgraph::Int>       max_ticks,
@@ -563,11 +563,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:131
-        struct dedup_impl_130
+        // stream.hgl:122
+        struct dedup_impl_125
         {
-            static constexpr auto name = "hgraph.std.dedup#130";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#130.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#125";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#125.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -593,11 +593,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:144
-        struct dedup_impl_131
+        // stream.hgl:135
+        struct dedup_impl_126
         {
-            static constexpr auto name = "hgraph.std.dedup#131";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#131.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#126";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#126.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -622,11 +622,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:157
-        struct dedup_impl_132
+        // stream.hgl:148
+        struct dedup_impl_127
         {
-            static constexpr auto name = "hgraph.std.dedup#132";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#132.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#127";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#127.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Str>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -651,11 +651,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:170
-        struct dedup_impl_133
+        // stream.hgl:161
+        struct dedup_impl_128
         {
-            static constexpr auto name = "hgraph.std.dedup#133";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#133.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#128";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#128.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Date>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -681,11 +681,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:183
-        struct dedup_impl_134
+        // stream.hgl:174
+        struct dedup_impl_129
         {
-            static constexpr auto name = "hgraph.std.dedup#134";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#134.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#129";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#129.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Time>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -711,11 +711,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:196
-        struct dedup_impl_135
+        // stream.hgl:187
+        struct dedup_impl_130
         {
-            static constexpr auto name = "hgraph.std.dedup#135";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#135.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#130";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#130.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::DateTime>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -741,11 +741,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:209
-        struct dedup_impl_136
+        // stream.hgl:200
+        struct dedup_impl_131
         {
-            static constexpr auto name = "hgraph.std.dedup#136";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#136.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#131";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#131.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::TimeDelta>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -771,12 +771,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:262
-        struct dedup_float_impl_152
+        // stream.hgl:215
+        struct dedup_float_impl_132
         {
-            static constexpr auto name = "hgraph.std.dedup_float#152";
+            static constexpr auto name = "hgraph.std.dedup_float#132";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.dedup_float#152.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+                hgraph::TSB<"hgraph.std.dedup_float#132.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                             hgraph::Field<"last", hgraph::TS<hgraph::Float>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -803,10 +803,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:280
-        struct sum_impl_158
+        // stream.hgl:228
+        struct sum_impl_133
         {
-            static constexpr auto name = "hgraph.std.sum#158";
+            static constexpr auto name = "hgraph.std.sum#133";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -820,10 +820,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:287
-        struct sum_reset_impl_159
+        // stream.hgl:235
+        struct sum_reset_impl_134
         {
-            static constexpr auto name = "hgraph.std.sum_reset#159";
+            static constexpr auto name = "hgraph.std.sum_reset#134";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     ts,
                                        hgraph::In<"reset", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> reset,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                            hgl_output) {
@@ -846,11 +846,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:299
-        struct mean_impl_160
+        // stream.hgl:247
+        struct mean_impl_135
         {
-            static constexpr auto name = "hgraph.std.mean#160";
-            using recordable_state     = hgraph::TSB<"hgraph.std.mean#160.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+            static constexpr auto name = "hgraph.std.mean#135";
+            using recordable_state     = hgraph::TSB<"hgraph.std.mean#135.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto count = hgl_state.field<"count">();
                 if (!count.valid()) { count.set(hgraph::Int{0}); }
@@ -875,10 +875,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:309
-        struct sum_impl_161
+        // stream.hgl:257
+        struct sum_impl_136
         {
-            static constexpr auto name = "hgraph.std.sum#161";
+            static constexpr auto name = "hgraph.std.sum#136";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -892,10 +892,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:316
-        struct sum_reset_impl_162
+        // stream.hgl:264
+        struct sum_reset_impl_137
         {
-            static constexpr auto name = "hgraph.std.sum_reset#162";
+            static constexpr auto name = "hgraph.std.sum_reset#137";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"reset", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> reset,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                          hgl_output) {
@@ -918,11 +918,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:328
-        struct mean_impl_163
+        // stream.hgl:276
+        struct mean_impl_138
         {
-            static constexpr auto name = "hgraph.std.mean#163";
-            using recordable_state     = hgraph::TSB<"hgraph.std.mean#163.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
+            static constexpr auto name = "hgraph.std.mean#138";
+            using recordable_state     = hgraph::TSB<"hgraph.std.mean#138.state", hgraph::Field<"count", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto count = hgl_state.field<"count">();
                 if (!count.valid()) { count.set(hgraph::Int{0}); }
@@ -947,10 +947,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:338
-        struct min__impl_164
+        // stream.hgl:286
+        struct min__impl_139
         {
-            static constexpr auto name = "hgraph.std.min_#164";
+            static constexpr auto name = "hgraph.std.min_#139";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -962,10 +962,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:345
-        struct max__impl_165
+        // stream.hgl:293
+        struct max__impl_140
         {
-            static constexpr auto name = "hgraph.std.max_#165";
+            static constexpr auto name = "hgraph.std.max_#140";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -977,10 +977,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:352
-        struct min__impl_166
+        // stream.hgl:300
+        struct min__impl_141
         {
-            static constexpr auto name = "hgraph.std.min_#166";
+            static constexpr auto name = "hgraph.std.min_#141";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -992,10 +992,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:359
-        struct max__impl_167
+        // stream.hgl:307
+        struct max__impl_142
         {
-            static constexpr auto name = "hgraph.std.max_#167";
+            static constexpr auto name = "hgraph.std.max_#142";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1007,10 +1007,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:366
-        struct min__impl_168
+        // stream.hgl:314
+        struct min__impl_143
         {
-            static constexpr auto name = "hgraph.std.min_#168";
+            static constexpr auto name = "hgraph.std.min_#143";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1022,10 +1022,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:373
-        struct max__impl_169
+        // stream.hgl:321
+        struct max__impl_144
         {
-            static constexpr auto name = "hgraph.std.max_#169";
+            static constexpr auto name = "hgraph.std.max_#144";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1037,10 +1037,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:380
-        struct min__impl_170
+        // stream.hgl:328
+        struct min__impl_145
         {
-            static constexpr auto name = "hgraph.std.min_#170";
+            static constexpr auto name = "hgraph.std.min_#145";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1052,10 +1052,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:387
-        struct max__impl_171
+        // stream.hgl:335
+        struct max__impl_146
         {
-            static constexpr auto name = "hgraph.std.max_#171";
+            static constexpr auto name = "hgraph.std.max_#146";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1067,10 +1067,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:394
-        struct min__impl_172
+        // stream.hgl:342
+        struct min__impl_147
         {
-            static constexpr auto name = "hgraph.std.min_#172";
+            static constexpr auto name = "hgraph.std.min_#147";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1082,10 +1082,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:401
-        struct max__impl_173
+        // stream.hgl:349
+        struct max__impl_148
         {
-            static constexpr auto name = "hgraph.std.max_#173";
+            static constexpr auto name = "hgraph.std.max_#148";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1097,10 +1097,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:408
-        struct min__impl_174
+        // stream.hgl:356
+        struct min__impl_149
         {
-            static constexpr auto name = "hgraph.std.min_#174";
+            static constexpr auto name = "hgraph.std.min_#149";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1112,10 +1112,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:415
-        struct max__impl_175
+        // stream.hgl:363
+        struct max__impl_150
         {
-            static constexpr auto name = "hgraph.std.max_#175";
+            static constexpr auto name = "hgraph.std.max_#150";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1127,11 +1127,11 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:422
-        struct dedup_impl_176
+        // stream.hgl:370
+        struct dedup_impl_151
         {
-            static constexpr auto name = "hgraph.std.dedup#176";
-            using recordable_state = hgraph::TSB<"hgraph.std.dedup#176.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
+            static constexpr auto name = "hgraph.std.dedup#151";
+            using recordable_state = hgraph::TSB<"hgraph.std.dedup#151.state", hgraph::Field<"have_last", hgraph::TS<hgraph::Bool>>,
                                                  hgraph::Field<"last", hgraph::TS<hgraph::Float>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto have_last = hgl_state.field<"have_last">();
@@ -1158,10 +1158,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:451
-        struct min__impl_183
+        // stream.hgl:383
+        struct min__impl_152
         {
-            static constexpr auto name = "hgraph.std.min_#183";
+            static constexpr auto name = "hgraph.std.min_#152";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1173,10 +1173,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:455
-        struct max__impl_184
+        // stream.hgl:387
+        struct max__impl_153
         {
-            static constexpr auto name = "hgraph.std.max_#184";
+            static constexpr auto name = "hgraph.std.max_#153";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1188,10 +1188,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:462
-        struct tick_count_impl_186
+        // stream.hgl:393
+        struct tick_count_impl_154
         {
-            static constexpr auto name = "hgraph.std.tick_count#186";
+            static constexpr auto name = "hgraph.std.tick_count#154";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                               hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1205,10 +1205,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:22
-        struct year_impl_204
+        // temporal.hgl:5
+        struct year_impl_174
         {
-            static constexpr auto name = "hgraph.std.year#204";
+            static constexpr auto name = "hgraph.std.year#174";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1220,10 +1220,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:32
-        struct month_impl_205
+        // temporal.hgl:15
+        struct month_impl_175
         {
-            static constexpr auto name = "hgraph.std.month#205";
+            static constexpr auto name = "hgraph.std.month#175";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1235,10 +1235,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:42
-        struct day_impl_206
+        // temporal.hgl:25
+        struct day_impl_176
         {
-            static constexpr auto name = "hgraph.std.day#206";
+            static constexpr auto name = "hgraph.std.day#176";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1250,10 +1250,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:52
-        struct weekday_impl_207
+        // temporal.hgl:35
+        struct weekday_impl_177
         {
-            static constexpr auto name = "hgraph.std.weekday#207";
+            static constexpr auto name = "hgraph.std.weekday#177";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1263,10 +1263,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:58
-        struct isoweekday_impl_208
+        // temporal.hgl:41
+        struct isoweekday_impl_178
         {
-            static constexpr auto name = "hgraph.std.isoweekday#208";
+            static constexpr auto name = "hgraph.std.isoweekday#178";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1276,10 +1276,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:64
-        struct year_impl_209
+        // temporal.hgl:47
+        struct year_impl_179
         {
-            static constexpr auto name = "hgraph.std.year#209";
+            static constexpr auto name = "hgraph.std.year#179";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1289,10 +1289,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:70
-        struct month_impl_210
+        // temporal.hgl:53
+        struct month_impl_180
         {
-            static constexpr auto name = "hgraph.std.month#210";
+            static constexpr auto name = "hgraph.std.month#180";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1302,10 +1302,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:76
-        struct day_impl_211
+        // temporal.hgl:59
+        struct day_impl_181
         {
-            static constexpr auto name = "hgraph.std.day#211";
+            static constexpr auto name = "hgraph.std.day#181";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1315,10 +1315,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:82
-        struct weekday_impl_212
+        // temporal.hgl:65
+        struct weekday_impl_182
         {
-            static constexpr auto name = "hgraph.std.weekday#212";
+            static constexpr auto name = "hgraph.std.weekday#182";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1328,10 +1328,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:88
-        struct isoweekday_impl_213
+        // temporal.hgl:71
+        struct isoweekday_impl_183
         {
-            static constexpr auto name = "hgraph.std.isoweekday#213";
+            static constexpr auto name = "hgraph.std.isoweekday#183";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1341,10 +1341,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:94
-        struct hour_impl_214
+        // temporal.hgl:77
+        struct hour_impl_184
         {
-            static constexpr auto name = "hgraph.std.hour#214";
+            static constexpr auto name = "hgraph.std.hour#184";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1354,10 +1354,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:100
-        struct minute_impl_215
+        // temporal.hgl:83
+        struct minute_impl_185
         {
-            static constexpr auto name = "hgraph.std.minute#215";
+            static constexpr auto name = "hgraph.std.minute#185";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1367,10 +1367,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:106
-        struct second_impl_216
+        // temporal.hgl:89
+        struct second_impl_186
         {
-            static constexpr auto name = "hgraph.std.second#216";
+            static constexpr auto name = "hgraph.std.second#186";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1380,10 +1380,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:112
-        struct microsecond_impl_217
+        // temporal.hgl:95
+        struct microsecond_impl_187
         {
-            static constexpr auto name = "hgraph.std.microsecond#217";
+            static constexpr auto name = "hgraph.std.microsecond#187";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1393,10 +1393,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:118
-        struct hour_impl_218
+        // temporal.hgl:101
+        struct hour_impl_188
         {
-            static constexpr auto name = "hgraph.std.hour#218";
+            static constexpr auto name = "hgraph.std.hour#188";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1406,10 +1406,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:124
-        struct minute_impl_219
+        // temporal.hgl:107
+        struct minute_impl_189
         {
-            static constexpr auto name = "hgraph.std.minute#219";
+            static constexpr auto name = "hgraph.std.minute#189";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1419,10 +1419,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:130
-        struct second_impl_220
+        // temporal.hgl:113
+        struct second_impl_190
         {
-            static constexpr auto name = "hgraph.std.second#220";
+            static constexpr auto name = "hgraph.std.second#190";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1432,10 +1432,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:136
-        struct microsecond_impl_221
+        // temporal.hgl:119
+        struct microsecond_impl_191
         {
-            static constexpr auto name = "hgraph.std.microsecond#221";
+            static constexpr auto name = "hgraph.std.microsecond#191";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1445,10 +1445,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:142
-        struct days_impl_222
+        // temporal.hgl:125
+        struct days_impl_192
         {
-            static constexpr auto name = "hgraph.std.days#222";
+            static constexpr auto name = "hgraph.std.days#192";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1458,10 +1458,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:148
-        struct seconds_impl_223
+        // temporal.hgl:131
+        struct seconds_impl_193
         {
-            static constexpr auto name = "hgraph.std.seconds#223";
+            static constexpr auto name = "hgraph.std.seconds#193";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1471,10 +1471,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:154
-        struct microseconds_impl_224
+        // temporal.hgl:137
+        struct microseconds_impl_194
         {
-            static constexpr auto name = "hgraph.std.microseconds#224";
+            static constexpr auto name = "hgraph.std.microseconds#194";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                              hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1484,10 +1484,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:160
-        struct total_seconds_impl_225
+        // temporal.hgl:143
+        struct total_seconds_impl_195
         {
-            static constexpr auto name = "hgraph.std.total_seconds#225";
+            static constexpr auto name = "hgraph.std.total_seconds#195";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                            hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1497,10 +1497,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:166
-        struct timestamp_impl_226
+        // temporal.hgl:149
+        struct timestamp_impl_196
         {
-            static constexpr auto name = "hgraph.std.timestamp#226";
+            static constexpr auto name = "hgraph.std.timestamp#196";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                           hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1510,10 +1510,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:172
-        struct datepart_impl_227
+        // temporal.hgl:155
+        struct datepart_impl_197
         {
-            static constexpr auto name = "hgraph.std.datepart#227";
+            static constexpr auto name = "hgraph.std.datepart#197";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1523,10 +1523,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:178
-        struct month_of_year_impl_228
+        // temporal.hgl:161
+        struct month_of_year_impl_198
         {
-            static constexpr auto name = "hgraph.std.month_of_year#228";
+            static constexpr auto name = "hgraph.std.month_of_year#198";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1538,10 +1538,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:188
-        struct month_of_year_impl_229
+        // temporal.hgl:171
+        struct month_of_year_impl_199
         {
-            static constexpr auto name = "hgraph.std.month_of_year#229";
+            static constexpr auto name = "hgraph.std.month_of_year#199";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1551,10 +1551,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:194
-        struct day_of_month_impl_230
+        // temporal.hgl:177
+        struct day_of_month_impl_200
         {
-            static constexpr auto name = "hgraph.std.day_of_month#230";
+            static constexpr auto name = "hgraph.std.day_of_month#200";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1566,10 +1566,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:204
-        struct day_of_month_impl_231
+        // temporal.hgl:187
+        struct day_of_month_impl_201
         {
-            static constexpr auto name = "hgraph.std.day_of_month#231";
+            static constexpr auto name = "hgraph.std.day_of_month#201";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                             hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1579,10 +1579,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:213
-        struct last_modified_time_impl_234
+        // temporal.hgl:193
+        struct last_modified_time_impl_202
         {
-            static constexpr auto name = "hgraph.std.last_modified_time#234";
+            static constexpr auto name = "hgraph.std.last_modified_time#202";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                          hgl_output) {
                 if ((ts.valid()) && (ts.modified())) {
@@ -1592,10 +1592,10 @@ namespace hgraph_::std_
             }
         };
 
-        // temporal.hgl:219
-        struct last_modified_date_impl_235
+        // temporal.hgl:199
+        struct last_modified_date_impl_203
         {
-            static constexpr auto name = "hgraph.std.last_modified_date#235";
+            static constexpr auto name = "hgraph.std.last_modified_date#203";
             static void           eval(hgraph::In<"ts", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                              hgl_output) {
                 if ((ts.valid()) && (ts.modified())) {
@@ -1605,10 +1605,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__bool__m0
+        // control.hgl:19
+        struct pass_through_impl_10__bool__m0
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:0";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:0";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1618,10 +1618,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__i64__m1
+        // control.hgl:19
+        struct pass_through_impl_10__i64__m1
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:1";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:1";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1631,10 +1631,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__f64__m2
+        // control.hgl:19
+        struct pass_through_impl_10__f64__m2
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:2";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:2";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1644,10 +1644,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__str__m3
+        // control.hgl:19
+        struct pass_through_impl_10__str__m3
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:3";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:3";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1657,10 +1657,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__date__m4
+        // control.hgl:19
+        struct pass_through_impl_10__date__m4
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:4";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:4";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1670,10 +1670,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__time__m5
+        // control.hgl:19
+        struct pass_through_impl_10__time__m5
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:5";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:5";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Time>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1683,10 +1683,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__datetime__m6
+        // control.hgl:19
+        struct pass_through_impl_10__datetime__m6
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:6";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:6";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1696,10 +1696,10 @@ namespace hgraph_::std_
             }
         };
 
-        // control.hgl:35
-        struct pass_through_impl_12__duration__m7
+        // control.hgl:19
+        struct pass_through_impl_10__duration__m7
         {
-            static constexpr auto name = "hgraph.std.pass_through#12@instantiate:7";
+            static constexpr auto name = "hgraph.std.pass_through#10@instantiate:7";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -1709,10 +1709,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:29
-        struct len__impl_18__any_T__any_size__m8
+        // standard.hgl:26
+        struct len__impl_26__any_T__any_size__m8
         {
-            static constexpr auto name = "hgraph.std.len_#18@instantiate:8";
+            static constexpr auto name = "hgraph.std.len_#26@instantiate:8";
             static void
             eval(hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> value,
                  hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
@@ -1725,10 +1725,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:51
-        struct len__impl_20__any_K__any_V__m9
+        // standard.hgl:48
+        struct len__impl_28__any_K__any_V__m9
         {
-            static constexpr auto name = "hgraph.std.len_#20@instantiate:9";
+            static constexpr auto name = "hgraph.std.len_#28@instantiate:9";
             static void
             eval(hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked>
                                                       value,
@@ -1742,10 +1742,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:40
-        struct len__impl_19__any_T__m10
+        // standard.hgl:37
+        struct len__impl_27__any_T__m10
         {
-            static constexpr auto name = "hgraph.std.len_#19@instantiate:10";
+            static constexpr auto name = "hgraph.std.len_#27@instantiate:10";
             static void eval(hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
                              hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -1757,10 +1757,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:70
-        struct is_empty_impl_23__any_T__any_size__m11
+        // standard.hgl:67
+        struct is_empty_impl_31__any_T__any_size__m11
         {
-            static constexpr auto name = "hgraph.std.is_empty#23@instantiate:11";
+            static constexpr auto name = "hgraph.std.is_empty#31@instantiate:11";
             static void
             eval(hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> value,
                  hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1773,10 +1773,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:92
-        struct is_empty_impl_25__any_K__any_V__m12
+        // standard.hgl:89
+        struct is_empty_impl_33__any_K__any_V__m12
         {
-            static constexpr auto name = "hgraph.std.is_empty#25@instantiate:12";
+            static constexpr auto name = "hgraph.std.is_empty#33@instantiate:12";
             static void
             eval(hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked>
                                                        value,
@@ -1790,10 +1790,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:81
-        struct is_empty_impl_24__any_T__m13
+        // standard.hgl:78
+        struct is_empty_impl_32__any_T__m13
         {
-            static constexpr auto name = "hgraph.std.is_empty#24@instantiate:13";
+            static constexpr auto name = "hgraph.std.is_empty#32@instantiate:13";
             static void eval(hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -1805,10 +1805,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:195
-        struct contains__impl_37__any_V__m14
+        // standard.hgl:189
+        struct contains__impl_43__any_V__m14
         {
-            static constexpr auto name = "hgraph.std.contains_#37@instantiate:14";
+            static constexpr auto name = "hgraph.std.contains_#43@instantiate:14";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Int, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>                    item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1828,10 +1828,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:215
-        struct contains__impl_39__any_V__m15
+        // standard.hgl:209
+        struct contains__impl_45__any_V__m15
         {
-            static constexpr auto name = "hgraph.std.contains_#39@instantiate:15";
+            static constexpr auto name = "hgraph.std.contains_#45@instantiate:15";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Str, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>                    item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1851,10 +1851,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:269
-        struct contains__impl_60__any_V__m16
+        // standard.hgl:239
+        struct contains__impl_55__any_V__m16
         {
-            static constexpr auto name = "hgraph.std.contains_#60@instantiate:16";
+            static constexpr auto name = "hgraph.std.contains_#55@instantiate:16";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Bool, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>                    item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1874,10 +1874,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:289
-        struct contains__impl_62__any_V__m17
+        // standard.hgl:259
+        struct contains__impl_57__any_V__m17
         {
-            static constexpr auto name = "hgraph.std.contains_#62@instantiate:17";
+            static constexpr auto name = "hgraph.std.contains_#57@instantiate:17";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Float, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
@@ -1897,10 +1897,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:309
-        struct contains__impl_64__any_V__m18
+        // standard.hgl:279
+        struct contains__impl_59__any_V__m18
         {
-            static constexpr auto name = "hgraph.std.contains_#64@instantiate:18";
+            static constexpr auto name = "hgraph.std.contains_#59@instantiate:18";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Date, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>                    item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1920,10 +1920,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:329
-        struct contains__impl_66__any_V__m19
+        // standard.hgl:299
+        struct contains__impl_61__any_V__m19
         {
-            static constexpr auto name = "hgraph.std.contains_#66@instantiate:19";
+            static constexpr auto name = "hgraph.std.contains_#61@instantiate:19";
             static void
             eval(hgraph::In<"ts", hgraph::TSD<hgraph::DateTime, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>                    item,
@@ -1944,10 +1944,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:349
-        struct contains__impl_68__any_V__m20
+        // standard.hgl:319
+        struct contains__impl_63__any_V__m20
         {
-            static constexpr auto name = "hgraph.std.contains_#68@instantiate:20";
+            static constexpr auto name = "hgraph.std.contains_#63@instantiate:20";
             static void
             eval(hgraph::In<"ts", hgraph::TSD<hgraph::TimeDelta, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>                    item,
@@ -1968,10 +1968,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:369
-        struct contains__impl_70__any_V__m21
+        // standard.hgl:339
+        struct contains__impl_65__any_V__m21
         {
-            static constexpr auto name = "hgraph.std.contains_#70@instantiate:21";
+            static constexpr auto name = "hgraph.std.contains_#65@instantiate:21";
             static void eval(hgraph::In<"ts", hgraph::TSD<hgraph::Time, hgraph::TsVar<"V">>, hgraph::InputValidity::Unchecked> ts,
                              hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>                    item,
                              hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -1991,10 +1991,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:108
-        struct index_of_impl_29__any_size__m22
+        // standard.hgl:102
+        struct index_of_impl_35__any_size__m22
         {
-            static constexpr auto name = "hgraph.std.index_of#29@instantiate:22";
+            static constexpr auto name = "hgraph.std.index_of#35@instantiate:22";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Int>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> item,
@@ -2015,10 +2015,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:119
-        struct index_of_impl_30__any_size__m23
+        // standard.hgl:113
+        struct index_of_impl_36__any_size__m23
         {
-            static constexpr auto name = "hgraph.std.index_of#30@instantiate:23";
+            static constexpr auto name = "hgraph.std.index_of#36@instantiate:23";
             static void           eval(
                 hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Float>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                 hgraph::In<"item", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> item,
@@ -2039,10 +2039,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:130
-        struct index_of_impl_31__any_size__m24
+        // standard.hgl:124
+        struct index_of_impl_37__any_size__m24
         {
-            static constexpr auto name = "hgraph.std.index_of#31@instantiate:24";
+            static constexpr auto name = "hgraph.std.index_of#37@instantiate:24";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Str>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
@@ -2063,10 +2063,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:141
-        struct index_of_impl_32__any_size__m25
+        // standard.hgl:135
+        struct index_of_impl_38__any_size__m25
         {
-            static constexpr auto name = "hgraph.std.index_of#32@instantiate:25";
+            static constexpr auto name = "hgraph.std.index_of#38@instantiate:25";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Bool>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> item,
@@ -2087,10 +2087,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:152
-        struct index_of_impl_33__any_size__m26
+        // standard.hgl:146
+        struct index_of_impl_39__any_size__m26
         {
-            static constexpr auto name = "hgraph.std.index_of#33@instantiate:26";
+            static constexpr auto name = "hgraph.std.index_of#39@instantiate:26";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Date>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> item,
@@ -2111,10 +2111,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:163
-        struct index_of_impl_34__any_size__m27
+        // standard.hgl:157
+        struct index_of_impl_40__any_size__m27
         {
-            static constexpr auto name = "hgraph.std.index_of#34@instantiate:27";
+            static constexpr auto name = "hgraph.std.index_of#40@instantiate:27";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::DateTime>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked>
                                                                                                     ts,
@@ -2136,10 +2136,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:174
-        struct index_of_impl_35__any_size__m28
+        // standard.hgl:168
+        struct index_of_impl_41__any_size__m28
         {
-            static constexpr auto name = "hgraph.std.index_of#35@instantiate:28";
+            static constexpr auto name = "hgraph.std.index_of#41@instantiate:28";
             static void           eval(
                 hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::TimeDelta>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked>
                                                                                                     ts,
@@ -2161,10 +2161,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:381
-        struct index_of_impl_72__any_size__m29
+        // standard.hgl:351
+        struct index_of_impl_67__any_size__m29
         {
-            static constexpr auto name = "hgraph.std.index_of#72@instantiate:29";
+            static constexpr auto name = "hgraph.std.index_of#67@instantiate:29";
             static void
             eval(hgraph::In<"ts", hgraph::TSL<hgraph::TS<hgraph::Time>, hgraph::SIZE<"size">>, hgraph::InputValidity::Unchecked> ts,
                  hgraph::In<"item", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> item,
@@ -2185,10 +2185,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__bool__m30
+        // standard.hgl:455
+        struct collect_map_impl_77__bool__m30
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:30";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:30";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2198,10 +2198,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__bool__m31
+        // standard.hgl:459
+        struct collect_map_impl_78__bool__m31
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:31";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:31";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2211,10 +2211,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__bool__m32
+        // standard.hgl:463
+        struct collect_map_impl_79__bool__m32
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:32";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:32";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2224,10 +2224,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__bool__m33
+        // standard.hgl:467
+        struct collect_map_impl_80__bool__m33
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:33";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:33";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2237,10 +2237,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__bool__m34
+        // standard.hgl:471
+        struct collect_map_impl_81__bool__m34
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:34";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:34";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2250,10 +2250,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__bool__m35
+        // standard.hgl:475
+        struct collect_map_impl_82__bool__m35
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:35";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:35";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2263,10 +2263,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__bool__m36
+        // standard.hgl:479
+        struct collect_map_impl_83__bool__m36
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:36";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:36";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
@@ -2276,10 +2276,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__bool__m37
+        // standard.hgl:483
+        struct collect_map_impl_84__bool__m37
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:37";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:37";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
@@ -2289,10 +2289,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__i64__m38
+        // standard.hgl:455
+        struct collect_map_impl_77__i64__m38
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:38";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:38";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2302,10 +2302,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__i64__m39
+        // standard.hgl:459
+        struct collect_map_impl_78__i64__m39
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:39";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:39";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2315,10 +2315,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__i64__m40
+        // standard.hgl:463
+        struct collect_map_impl_79__i64__m40
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:40";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:40";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>              hgl_output) {
@@ -2328,10 +2328,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__i64__m41
+        // standard.hgl:467
+        struct collect_map_impl_80__i64__m41
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:41";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:41";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2341,10 +2341,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__i64__m42
+        // standard.hgl:471
+        struct collect_map_impl_81__i64__m42
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:42";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:42";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2354,10 +2354,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__i64__m43
+        // standard.hgl:475
+        struct collect_map_impl_82__i64__m43
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:43";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:43";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2367,10 +2367,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__i64__m44
+        // standard.hgl:479
+        struct collect_map_impl_83__i64__m44
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:44";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:44";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>              hgl_output) {
@@ -2380,10 +2380,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__i64__m45
+        // standard.hgl:483
+        struct collect_map_impl_84__i64__m45
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:45";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:45";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>              hgl_output) {
@@ -2393,10 +2393,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__f64__m46
+        // standard.hgl:455
+        struct collect_map_impl_77__f64__m46
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:46";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:46";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2406,10 +2406,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__f64__m47
+        // standard.hgl:459
+        struct collect_map_impl_78__f64__m47
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:47";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:47";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2419,10 +2419,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__f64__m48
+        // standard.hgl:463
+        struct collect_map_impl_79__f64__m48
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:48";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:48";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2432,10 +2432,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__f64__m49
+        // standard.hgl:467
+        struct collect_map_impl_80__f64__m49
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:49";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:49";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2445,10 +2445,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__f64__m50
+        // standard.hgl:471
+        struct collect_map_impl_81__f64__m50
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:50";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:50";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2458,10 +2458,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__f64__m51
+        // standard.hgl:475
+        struct collect_map_impl_82__f64__m51
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:51";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:51";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2471,10 +2471,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__f64__m52
+        // standard.hgl:479
+        struct collect_map_impl_83__f64__m52
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:52";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:52";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
@@ -2484,10 +2484,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__f64__m53
+        // standard.hgl:483
+        struct collect_map_impl_84__f64__m53
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:53";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:53";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
@@ -2497,10 +2497,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__str__m54
+        // standard.hgl:455
+        struct collect_map_impl_77__str__m54
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:54";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:54";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2510,10 +2510,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__str__m55
+        // standard.hgl:459
+        struct collect_map_impl_78__str__m55
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:55";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:55";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2523,10 +2523,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__str__m56
+        // standard.hgl:463
+        struct collect_map_impl_79__str__m56
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:56";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:56";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>              hgl_output) {
@@ -2536,10 +2536,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__str__m57
+        // standard.hgl:467
+        struct collect_map_impl_80__str__m57
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:57";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:57";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2549,10 +2549,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__str__m58
+        // standard.hgl:471
+        struct collect_map_impl_81__str__m58
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:58";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:58";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2562,10 +2562,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__str__m59
+        // standard.hgl:475
+        struct collect_map_impl_82__str__m59
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:59";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:59";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2575,10 +2575,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__str__m60
+        // standard.hgl:479
+        struct collect_map_impl_83__str__m60
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:60";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:60";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>              hgl_output) {
@@ -2588,10 +2588,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__str__m61
+        // standard.hgl:483
+        struct collect_map_impl_84__str__m61
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:61";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:61";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>              hgl_output) {
@@ -2601,10 +2601,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__date__m62
+        // standard.hgl:455
+        struct collect_map_impl_77__date__m62
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:62";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:62";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2614,10 +2614,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__date__m63
+        // standard.hgl:459
+        struct collect_map_impl_78__date__m63
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:63";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:63";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2627,10 +2627,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__date__m64
+        // standard.hgl:463
+        struct collect_map_impl_79__date__m64
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:64";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:64";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2640,10 +2640,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__date__m65
+        // standard.hgl:467
+        struct collect_map_impl_80__date__m65
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:65";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:65";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2653,10 +2653,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__date__m66
+        // standard.hgl:471
+        struct collect_map_impl_81__date__m66
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:66";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:66";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2666,10 +2666,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__date__m67
+        // standard.hgl:475
+        struct collect_map_impl_82__date__m67
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:67";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:67";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2679,10 +2679,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__date__m68
+        // standard.hgl:479
+        struct collect_map_impl_83__date__m68
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:68";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:68";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
@@ -2692,10 +2692,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__date__m69
+        // standard.hgl:483
+        struct collect_map_impl_84__date__m69
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:69";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:69";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
@@ -2705,10 +2705,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__time__m70
+        // standard.hgl:455
+        struct collect_map_impl_77__time__m70
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:70";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:70";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2718,10 +2718,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__time__m71
+        // standard.hgl:459
+        struct collect_map_impl_78__time__m71
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:71";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:71";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2731,10 +2731,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__time__m72
+        // standard.hgl:463
+        struct collect_map_impl_79__time__m72
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:72";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:72";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2744,10 +2744,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__time__m73
+        // standard.hgl:467
+        struct collect_map_impl_80__time__m73
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:73";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:73";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2757,10 +2757,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__time__m74
+        // standard.hgl:471
+        struct collect_map_impl_81__time__m74
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:74";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:74";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2770,10 +2770,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__time__m75
+        // standard.hgl:475
+        struct collect_map_impl_82__time__m75
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:75";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:75";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2783,10 +2783,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__time__m76
+        // standard.hgl:479
+        struct collect_map_impl_83__time__m76
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:76";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:76";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>             hgl_output) {
@@ -2796,10 +2796,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__time__m77
+        // standard.hgl:483
+        struct collect_map_impl_84__time__m77
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:77";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:77";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>             hgl_output) {
@@ -2809,10 +2809,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__datetime__m78
+        // standard.hgl:455
+        struct collect_map_impl_77__datetime__m78
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:78";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:78";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2822,10 +2822,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__datetime__m79
+        // standard.hgl:459
+        struct collect_map_impl_78__datetime__m79
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:79";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:79";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2835,10 +2835,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__datetime__m80
+        // standard.hgl:463
+        struct collect_map_impl_79__datetime__m80
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:80";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:80";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2848,10 +2848,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__datetime__m81
+        // standard.hgl:467
+        struct collect_map_impl_80__datetime__m81
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:81";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:81";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2861,10 +2861,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__datetime__m82
+        // standard.hgl:471
+        struct collect_map_impl_81__datetime__m82
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:82";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:82";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2874,10 +2874,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__datetime__m83
+        // standard.hgl:475
+        struct collect_map_impl_82__datetime__m83
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:83";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:83";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2887,10 +2887,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__datetime__m84
+        // standard.hgl:479
+        struct collect_map_impl_83__datetime__m84
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:84";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:84";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>          hgl_output) {
@@ -2900,10 +2900,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__datetime__m85
+        // standard.hgl:483
+        struct collect_map_impl_84__datetime__m85
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:85";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:85";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>         hgl_output) {
@@ -2913,10 +2913,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:487
-        struct collect_map_impl_83__duration__m86
+        // standard.hgl:455
+        struct collect_map_impl_77__duration__m86
         {
-            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:86";
+            static constexpr auto name = "hgraph.std.collect_map#77@instantiate:86";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>       ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -2926,10 +2926,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:491
-        struct collect_map_impl_84__duration__m87
+        // standard.hgl:459
+        struct collect_map_impl_78__duration__m87
         {
-            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:87";
+            static constexpr auto name = "hgraph.std.collect_map#78@instantiate:87";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>        ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -2939,10 +2939,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:495
-        struct collect_map_impl_85__duration__m88
+        // standard.hgl:463
+        struct collect_map_impl_79__duration__m88
         {
-            static constexpr auto name = "hgraph.std.collect_map#85@instantiate:88";
+            static constexpr auto name = "hgraph.std.collect_map#79@instantiate:88";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>      ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -2952,10 +2952,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:499
-        struct collect_map_impl_86__duration__m89
+        // standard.hgl:467
+        struct collect_map_impl_80__duration__m89
         {
-            static constexpr auto name = "hgraph.std.collect_map#86@instantiate:89";
+            static constexpr auto name = "hgraph.std.collect_map#80@instantiate:89";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>        ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -2965,10 +2965,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:503
-        struct collect_map_impl_87__duration__m90
+        // standard.hgl:471
+        struct collect_map_impl_81__duration__m90
         {
-            static constexpr auto name = "hgraph.std.collect_map#87@instantiate:90";
+            static constexpr auto name = "hgraph.std.collect_map#81@instantiate:90";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>       ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -2978,10 +2978,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:507
-        struct collect_map_impl_88__duration__m91
+        // standard.hgl:475
+        struct collect_map_impl_82__duration__m91
         {
-            static constexpr auto name = "hgraph.std.collect_map#88@instantiate:91";
+            static constexpr auto name = "hgraph.std.collect_map#82@instantiate:91";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>       ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -2991,10 +2991,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:511
-        struct collect_map_impl_89__duration__m92
+        // standard.hgl:479
+        struct collect_map_impl_83__duration__m92
         {
-            static constexpr auto name = "hgraph.std.collect_map#89@instantiate:92";
+            static constexpr auto name = "hgraph.std.collect_map#83@instantiate:92";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>          hgl_output) {
@@ -3004,10 +3004,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:515
-        struct collect_map_impl_90__duration__m93
+        // standard.hgl:483
+        struct collect_map_impl_84__duration__m93
         {
-            static constexpr auto name = "hgraph.std.collect_map#90@instantiate:93";
+            static constexpr auto name = "hgraph.std.collect_map#84@instantiate:93";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  ts,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>         hgl_output) {
@@ -3017,10 +3017,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__bool__m94
+        // standard.hgl:487
+        struct make_tsd_impl_85__bool__m94
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:94";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:94";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Bool>>>                hgl_output) {
@@ -3030,10 +3030,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__bool__m95
+        // standard.hgl:491
+        struct make_tsd_impl_86__bool__m95
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:95";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:95";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Int>>>                hgl_output) {
@@ -3043,10 +3043,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__bool__m96
+        // standard.hgl:495
+        struct make_tsd_impl_87__bool__m96
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:96";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:96";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Float>>>                hgl_output) {
@@ -3056,10 +3056,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__bool__m97
+        // standard.hgl:499
+        struct make_tsd_impl_88__bool__m97
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:97";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:97";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Str>>>                hgl_output) {
@@ -3069,10 +3069,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__bool__m98
+        // standard.hgl:503
+        struct make_tsd_impl_89__bool__m98
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:98";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:98";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Date>>>                hgl_output) {
@@ -3082,10 +3082,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__bool__m99
+        // standard.hgl:507
+        struct make_tsd_impl_90__bool__m99
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:99";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:99";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::Time>>>                hgl_output) {
@@ -3095,10 +3095,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__bool__m100
+        // standard.hgl:511
+        struct make_tsd_impl_91__bool__m100
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:100";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:100";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
@@ -3108,10 +3108,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__bool__m101
+        // standard.hgl:515
+        struct make_tsd_impl_92__bool__m101
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:101";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:101";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Bool, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
@@ -3121,10 +3121,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__i64__m102
+        // standard.hgl:487
+        struct make_tsd_impl_85__i64__m102
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:102";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:102";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
@@ -3134,10 +3134,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__i64__m103
+        // standard.hgl:491
+        struct make_tsd_impl_86__i64__m103
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:103";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:103";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>                 hgl_output) {
@@ -3147,10 +3147,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__i64__m104
+        // standard.hgl:495
+        struct make_tsd_impl_87__i64__m104
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:104";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:104";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Float>>>                 hgl_output) {
@@ -3160,10 +3160,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__i64__m105
+        // standard.hgl:499
+        struct make_tsd_impl_88__i64__m105
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:105";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:105";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Str>>>                 hgl_output) {
@@ -3173,10 +3173,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__i64__m106
+        // standard.hgl:503
+        struct make_tsd_impl_89__i64__m106
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:106";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:106";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Date>>>                 hgl_output) {
@@ -3186,10 +3186,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__i64__m107
+        // standard.hgl:507
+        struct make_tsd_impl_90__i64__m107
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:107";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:107";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Time>>>                 hgl_output) {
@@ -3199,10 +3199,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__i64__m108
+        // standard.hgl:511
+        struct make_tsd_impl_91__i64__m108
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:108";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:108";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
@@ -3212,10 +3212,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__i64__m109
+        // standard.hgl:515
+        struct make_tsd_impl_92__i64__m109
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:109";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:109";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
@@ -3225,10 +3225,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__f64__m110
+        // standard.hgl:487
+        struct make_tsd_impl_85__f64__m110
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:110";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:110";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Bool>>>               hgl_output) {
@@ -3238,10 +3238,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__f64__m111
+        // standard.hgl:491
+        struct make_tsd_impl_86__f64__m111
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:111";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:111";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -3251,10 +3251,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__f64__m112
+        // standard.hgl:495
+        struct make_tsd_impl_87__f64__m112
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:112";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:112";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Float>>>               hgl_output) {
@@ -3264,10 +3264,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__f64__m113
+        // standard.hgl:499
+        struct make_tsd_impl_88__f64__m113
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:113";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:113";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -3277,10 +3277,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__f64__m114
+        // standard.hgl:503
+        struct make_tsd_impl_89__f64__m114
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:114";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:114";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Date>>>               hgl_output) {
@@ -3290,10 +3290,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__f64__m115
+        // standard.hgl:507
+        struct make_tsd_impl_90__f64__m115
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:115";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:115";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::Time>>>               hgl_output) {
@@ -3303,10 +3303,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__f64__m116
+        // standard.hgl:511
+        struct make_tsd_impl_91__f64__m116
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:116";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:116";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>      key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::DateTime>>>               hgl_output) {
@@ -3316,10 +3316,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__f64__m117
+        // standard.hgl:515
+        struct make_tsd_impl_92__f64__m117
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:117";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:117";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Float, hgraph::TS<hgraph::TimeDelta>>>               hgl_output) {
@@ -3329,10 +3329,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__str__m118
+        // standard.hgl:487
+        struct make_tsd_impl_85__str__m118
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:118";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:118";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Bool>>>                 hgl_output) {
@@ -3342,10 +3342,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__str__m119
+        // standard.hgl:491
+        struct make_tsd_impl_86__str__m119
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:119";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:119";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>>                 hgl_output) {
@@ -3355,10 +3355,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__str__m120
+        // standard.hgl:495
+        struct make_tsd_impl_87__str__m120
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:120";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:120";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>                 hgl_output) {
@@ -3368,10 +3368,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__str__m121
+        // standard.hgl:499
+        struct make_tsd_impl_88__str__m121
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:121";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:121";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Str>>>                 hgl_output) {
@@ -3381,10 +3381,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__str__m122
+        // standard.hgl:503
+        struct make_tsd_impl_89__str__m122
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:122";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:122";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Date>>>                 hgl_output) {
@@ -3394,10 +3394,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__str__m123
+        // standard.hgl:507
+        struct make_tsd_impl_90__str__m123
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:123";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:123";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Time>>>                 hgl_output) {
@@ -3407,10 +3407,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__str__m124
+        // standard.hgl:511
+        struct make_tsd_impl_91__str__m124
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:124";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:124";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::DateTime>>>                 hgl_output) {
@@ -3420,10 +3420,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__str__m125
+        // standard.hgl:515
+        struct make_tsd_impl_92__str__m125
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:125";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:125";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::TimeDelta>>>                 hgl_output) {
@@ -3433,10 +3433,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__date__m126
+        // standard.hgl:487
+        struct make_tsd_impl_85__date__m126
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:126";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:126";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Bool>>>                hgl_output) {
@@ -3446,10 +3446,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__date__m127
+        // standard.hgl:491
+        struct make_tsd_impl_86__date__m127
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:127";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:127";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Int>>>                hgl_output) {
@@ -3459,10 +3459,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__date__m128
+        // standard.hgl:495
+        struct make_tsd_impl_87__date__m128
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:128";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:128";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Float>>>                hgl_output) {
@@ -3472,10 +3472,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__date__m129
+        // standard.hgl:499
+        struct make_tsd_impl_88__date__m129
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:129";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:129";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Str>>>                hgl_output) {
@@ -3485,10 +3485,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__date__m130
+        // standard.hgl:503
+        struct make_tsd_impl_89__date__m130
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:130";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:130";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Date>>>                hgl_output) {
@@ -3498,10 +3498,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__date__m131
+        // standard.hgl:507
+        struct make_tsd_impl_90__date__m131
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:131";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:131";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::Time>>>                hgl_output) {
@@ -3511,10 +3511,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__date__m132
+        // standard.hgl:511
+        struct make_tsd_impl_91__date__m132
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:132";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:132";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
@@ -3524,10 +3524,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__date__m133
+        // standard.hgl:515
+        struct make_tsd_impl_92__date__m133
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:133";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:133";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Date, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
@@ -3537,10 +3537,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__time__m134
+        // standard.hgl:487
+        struct make_tsd_impl_85__time__m134
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:134";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:134";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Bool>>>                hgl_output) {
@@ -3550,10 +3550,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__time__m135
+        // standard.hgl:491
+        struct make_tsd_impl_86__time__m135
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:135";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:135";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Int>>>                hgl_output) {
@@ -3563,10 +3563,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__time__m136
+        // standard.hgl:495
+        struct make_tsd_impl_87__time__m136
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:136";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:136";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Float>>>                hgl_output) {
@@ -3576,10 +3576,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__time__m137
+        // standard.hgl:499
+        struct make_tsd_impl_88__time__m137
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:137";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:137";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Str>>>                hgl_output) {
@@ -3589,10 +3589,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__time__m138
+        // standard.hgl:503
+        struct make_tsd_impl_89__time__m138
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:138";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:138";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Date>>>                hgl_output) {
@@ -3602,10 +3602,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__time__m139
+        // standard.hgl:507
+        struct make_tsd_impl_90__time__m139
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:139";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:139";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::Time>>>                hgl_output) {
@@ -3615,10 +3615,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__time__m140
+        // standard.hgl:511
+        struct make_tsd_impl_91__time__m140
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:140";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:140";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>       key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::DateTime>>>                hgl_output) {
@@ -3628,10 +3628,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__time__m141
+        // standard.hgl:515
+        struct make_tsd_impl_92__time__m141
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:141";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:141";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::Time, hgraph::TS<hgraph::TimeDelta>>>                hgl_output) {
@@ -3641,10 +3641,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__datetime__m142
+        // standard.hgl:487
+        struct make_tsd_impl_85__datetime__m142
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:142";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:142";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>   value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -3654,10 +3654,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__datetime__m143
+        // standard.hgl:491
+        struct make_tsd_impl_86__datetime__m143
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:143";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:143";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>    value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -3667,10 +3667,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__datetime__m144
+        // standard.hgl:495
+        struct make_tsd_impl_87__datetime__m144
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:144";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:144";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>  value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -3680,10 +3680,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__datetime__m145
+        // standard.hgl:499
+        struct make_tsd_impl_88__datetime__m145
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:145";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:145";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>    value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -3693,10 +3693,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__datetime__m146
+        // standard.hgl:503
+        struct make_tsd_impl_89__datetime__m146
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:146";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:146";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>   value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -3706,10 +3706,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__datetime__m147
+        // standard.hgl:507
+        struct make_tsd_impl_90__datetime__m147
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:147";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:147";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>   value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -3719,10 +3719,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__datetime__m148
+        // standard.hgl:511
+        struct make_tsd_impl_91__datetime__m148
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:148";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:148";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::DateTime>>>            hgl_output) {
@@ -3732,10 +3732,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__datetime__m149
+        // standard.hgl:515
+        struct make_tsd_impl_92__datetime__m149
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:149";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:149";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::DateTime, hgraph::TS<hgraph::TimeDelta>>>            hgl_output) {
@@ -3745,10 +3745,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:520
-        struct make_tsd_impl_92__duration__m150
+        // standard.hgl:487
+        struct make_tsd_impl_85__duration__m150
         {
-            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:150";
+            static constexpr auto name = "hgraph.std.make_tsd#85@instantiate:150";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>    value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Bool>>>              hgl_output) {
@@ -3758,10 +3758,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:524
-        struct make_tsd_impl_93__duration__m151
+        // standard.hgl:491
+        struct make_tsd_impl_86__duration__m151
         {
-            static constexpr auto name = "hgraph.std.make_tsd#93@instantiate:151";
+            static constexpr auto name = "hgraph.std.make_tsd#86@instantiate:151";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>     value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Int>>>               hgl_output) {
@@ -3771,10 +3771,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:528
-        struct make_tsd_impl_94__duration__m152
+        // standard.hgl:495
+        struct make_tsd_impl_87__duration__m152
         {
-            static constexpr auto name = "hgraph.std.make_tsd#94@instantiate:152";
+            static constexpr auto name = "hgraph.std.make_tsd#87@instantiate:152";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>   value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Float>>>             hgl_output) {
@@ -3784,10 +3784,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:532
-        struct make_tsd_impl_95__duration__m153
+        // standard.hgl:499
+        struct make_tsd_impl_88__duration__m153
         {
-            static constexpr auto name = "hgraph.std.make_tsd#95@instantiate:153";
+            static constexpr auto name = "hgraph.std.make_tsd#88@instantiate:153";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Str>>>               hgl_output) {
@@ -3797,10 +3797,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:536
-        struct make_tsd_impl_96__duration__m154
+        // standard.hgl:503
+        struct make_tsd_impl_89__duration__m154
         {
-            static constexpr auto name = "hgraph.std.make_tsd#96@instantiate:154";
+            static constexpr auto name = "hgraph.std.make_tsd#89@instantiate:154";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>    value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Date>>>              hgl_output) {
@@ -3810,10 +3810,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:540
-        struct make_tsd_impl_97__duration__m155
+        // standard.hgl:507
+        struct make_tsd_impl_90__duration__m155
         {
-            static constexpr auto name = "hgraph.std.make_tsd#97@instantiate:155";
+            static constexpr auto name = "hgraph.std.make_tsd#90@instantiate:155";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> key,
                                        hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>    value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::Time>>>              hgl_output) {
@@ -3823,10 +3823,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:544
-        struct make_tsd_impl_98__duration__m156
+        // standard.hgl:511
+        struct make_tsd_impl_91__duration__m156
         {
-            static constexpr auto name = "hgraph.std.make_tsd#98@instantiate:156";
+            static constexpr auto name = "hgraph.std.make_tsd#91@instantiate:156";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>  key,
                                        hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::DateTime>>>           hgl_output) {
@@ -3836,10 +3836,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:548
-        struct make_tsd_impl_99__duration__m157
+        // standard.hgl:515
+        struct make_tsd_impl_92__duration__m157
         {
-            static constexpr auto name = "hgraph.std.make_tsd#99@instantiate:157";
+            static constexpr auto name = "hgraph.std.make_tsd#92@instantiate:157";
             static void           eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                                        hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                                        hgraph::Out<hgraph::TSD<hgraph::TimeDelta, hgraph::TS<hgraph::TimeDelta>>>           hgl_output) {
@@ -3849,10 +3849,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__bool__m158
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__bool__m158
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:158";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:158";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3871,10 +3871,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__bool__m159
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__bool__m159
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:159";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:159";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3893,10 +3893,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__bool__m160
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__bool__m160
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:160";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:160";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3915,10 +3915,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__bool__m161
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__bool__m161
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:161";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:161";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3937,10 +3937,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__bool__m162
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__bool__m162
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:162";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:162";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3959,10 +3959,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__bool__m163
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__bool__m163
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:163";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:163";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -3981,10 +3981,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__bool__m164
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__bool__m164
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:164";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:164";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4003,10 +4003,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__bool__m165
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__bool__m165
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:165";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:165";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4025,10 +4025,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__i64__m166
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__i64__m166
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:166";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:166";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4047,10 +4047,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__i64__m167
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__i64__m167
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:167";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:167";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4069,10 +4069,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__i64__m168
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__i64__m168
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:168";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:168";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4091,10 +4091,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__i64__m169
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__i64__m169
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:169";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:169";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4113,10 +4113,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__i64__m170
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__i64__m170
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:170";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:170";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4135,10 +4135,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__i64__m171
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__i64__m171
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:171";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:171";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4157,10 +4157,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__i64__m172
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__i64__m172
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:172";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:172";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4179,10 +4179,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__i64__m173
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__i64__m173
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:173";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:173";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4201,10 +4201,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__f64__m174
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__f64__m174
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:174";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:174";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4223,10 +4223,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__f64__m175
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__f64__m175
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:175";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:175";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4245,10 +4245,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__f64__m176
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__f64__m176
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:176";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:176";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4267,10 +4267,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__f64__m177
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__f64__m177
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:177";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:177";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4289,10 +4289,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__f64__m178
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__f64__m178
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:178";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:178";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4311,10 +4311,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__f64__m179
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__f64__m179
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:179";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:179";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4333,10 +4333,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__f64__m180
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__f64__m180
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:180";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:180";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4355,10 +4355,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__f64__m181
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__f64__m181
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:181";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:181";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4377,10 +4377,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__str__m182
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__str__m182
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:182";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:182";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4399,10 +4399,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__str__m183
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__str__m183
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:183";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:183";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4421,10 +4421,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__str__m184
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__str__m184
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:184";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:184";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4443,10 +4443,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__str__m185
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__str__m185
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:185";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:185";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4465,10 +4465,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__str__m186
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__str__m186
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:186";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:186";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4487,10 +4487,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__str__m187
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__str__m187
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:187";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:187";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4509,10 +4509,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__str__m188
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__str__m188
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:188";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:188";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4531,10 +4531,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__str__m189
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__str__m189
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:189";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:189";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4553,10 +4553,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__date__m190
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__date__m190
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:190";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:190";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4575,10 +4575,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__date__m191
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__date__m191
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:191";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:191";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4597,10 +4597,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__date__m192
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__date__m192
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:192";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:192";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4619,10 +4619,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__date__m193
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__date__m193
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:193";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:193";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4641,10 +4641,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__date__m194
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__date__m194
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:194";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:194";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4663,10 +4663,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__date__m195
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__date__m195
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:195";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:195";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4685,10 +4685,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__date__m196
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__date__m196
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:196";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:196";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4707,10 +4707,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__date__m197
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__date__m197
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:197";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:197";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4729,10 +4729,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__time__m198
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__time__m198
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:198";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:198";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4751,10 +4751,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__time__m199
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__time__m199
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:199";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:199";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4773,10 +4773,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__time__m200
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__time__m200
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:200";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:200";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4795,10 +4795,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__time__m201
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__time__m201
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:201";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:201";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4817,10 +4817,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__time__m202
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__time__m202
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:202";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:202";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4839,10 +4839,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__time__m203
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__time__m203
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:203";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:203";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4861,10 +4861,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__time__m204
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__time__m204
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:204";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:204";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4883,10 +4883,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__time__m205
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__time__m205
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:205";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:205";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4905,10 +4905,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__datetime__m206
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__datetime__m206
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:206";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:206";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4927,10 +4927,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__datetime__m207
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__datetime__m207
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:207";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:207";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4949,10 +4949,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__datetime__m208
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__datetime__m208
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:208";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:208";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4971,10 +4971,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__datetime__m209
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__datetime__m209
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:209";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:209";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -4993,10 +4993,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__datetime__m210
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__datetime__m210
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:210";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:210";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5015,10 +5015,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__datetime__m211
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__datetime__m211
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:211";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:211";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5037,10 +5037,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__datetime__m212
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__datetime__m212
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:212";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:212";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5059,10 +5059,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__datetime__m213
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__datetime__m213
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:213";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:213";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5081,10 +5081,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:553
-        struct make_tsd_remove_impl_101__duration__m214
+        // standard.hgl:519
+        struct make_tsd_remove_impl_93__duration__m214
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#101@instantiate:214";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#93@instantiate:214";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5103,10 +5103,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:564
-        struct make_tsd_remove_impl_102__duration__m215
+        // standard.hgl:530
+        struct make_tsd_remove_impl_94__duration__m215
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#102@instantiate:215";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#94@instantiate:215";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5125,10 +5125,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:575
-        struct make_tsd_remove_impl_103__duration__m216
+        // standard.hgl:541
+        struct make_tsd_remove_impl_95__duration__m216
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#103@instantiate:216";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#95@instantiate:216";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5147,10 +5147,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:586
-        struct make_tsd_remove_impl_104__duration__m217
+        // standard.hgl:552
+        struct make_tsd_remove_impl_96__duration__m217
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#104@instantiate:217";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#96@instantiate:217";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>       value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5169,10 +5169,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:597
-        struct make_tsd_remove_impl_105__duration__m218
+        // standard.hgl:563
+        struct make_tsd_remove_impl_97__duration__m218
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#105@instantiate:218";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#97@instantiate:218";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5191,10 +5191,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:608
-        struct make_tsd_remove_impl_106__duration__m219
+        // standard.hgl:574
+        struct make_tsd_remove_impl_98__duration__m219
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#106@instantiate:219";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#98@instantiate:219";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>      value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5213,10 +5213,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:619
-        struct make_tsd_remove_impl_107__duration__m220
+        // standard.hgl:585
+        struct make_tsd_remove_impl_99__duration__m220
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#107@instantiate:220";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#99@instantiate:220";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>  value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5235,10 +5235,10 @@ namespace hgraph_::std_
             }
         };
 
-        // standard.hgl:630
-        struct make_tsd_remove_impl_108__duration__m221
+        // standard.hgl:596
+        struct make_tsd_remove_impl_100__duration__m221
         {
-            static constexpr auto name = "hgraph.std.make_tsd_remove#108@instantiate:221";
+            static constexpr auto name = "hgraph.std.make_tsd_remove#100@instantiate:221";
             static void eval(hgraph::In<"key", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   key,
                              hgraph::In<"value", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> value,
                              hgraph::In<"remove_key", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> remove_key,
@@ -5257,10 +5257,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__bool__m222
+        // stream.hgl:76
+        struct sample_impl_121__bool__m222
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:222";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:222";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5272,10 +5272,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__i64__m223
+        // stream.hgl:76
+        struct sample_impl_121__i64__m223
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:223";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:223";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5287,10 +5287,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__f64__m224
+        // stream.hgl:76
+        struct sample_impl_121__f64__m224
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:224";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:224";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5302,10 +5302,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__str__m225
+        // stream.hgl:76
+        struct sample_impl_121__str__m225
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:225";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:225";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked>                                      signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5317,10 +5317,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__date__m226
+        // stream.hgl:76
+        struct sample_impl_121__date__m226
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:226";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:226";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5332,10 +5332,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__time__m227
+        // stream.hgl:76
+        struct sample_impl_121__time__m227
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:227";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:227";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5347,10 +5347,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__datetime__m228
+        // stream.hgl:76
+        struct sample_impl_121__datetime__m228
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:228";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:228";
             static void           eval(
                 hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                 hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked> ts,
@@ -5362,10 +5362,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:85
-        struct sample_impl_126__duration__m229
+        // stream.hgl:76
+        struct sample_impl_121__duration__m229
         {
-            static constexpr auto name = "hgraph.std.sample#126@instantiate:229";
+            static constexpr auto name = "hgraph.std.sample#121@instantiate:229";
             static void
             eval(hgraph::In<"signal", hgraph::SIGNAL, hgraph::InputValidity::Unchecked> signal,
                  hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputActivity::Passive, hgraph::InputValidity::Unchecked>
@@ -5378,13 +5378,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__bool__m230
+        // stream.hgl:82
+        struct drop_impl_122__bool__m230
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:230";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:230";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:230.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:230.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5404,13 +5404,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__i64__m231
+        // stream.hgl:82
+        struct drop_impl_122__i64__m231
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:231";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:231";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:231.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:231.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5430,13 +5430,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__f64__m232
+        // stream.hgl:82
+        struct drop_impl_122__f64__m232
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:232";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:232";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:232.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:232.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5456,13 +5456,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__str__m233
+        // stream.hgl:82
+        struct drop_impl_122__str__m233
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:233";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:233";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:233.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:233.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5482,13 +5482,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__date__m234
+        // stream.hgl:82
+        struct drop_impl_122__date__m234
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:234";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:234";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:234.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:234.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5508,13 +5508,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__time__m235
+        // stream.hgl:82
+        struct drop_impl_122__time__m235
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:235";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:235";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:235.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:235.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5534,13 +5534,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__datetime__m236
+        // stream.hgl:82
+        struct drop_impl_122__datetime__m236
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:236";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:236";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:236.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:236.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5560,13 +5560,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:91
-        struct drop_impl_127__duration__m237
+        // stream.hgl:82
+        struct drop_impl_122__duration__m237
         {
-            static constexpr auto name = "hgraph.std.drop#127@instantiate:237";
+            static constexpr auto name = "hgraph.std.drop#122@instantiate:237";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.drop#127@instantiate:237.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.drop#122@instantiate:237.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5586,12 +5586,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__bool__m238
+        // stream.hgl:93
+        struct filter__impl_123__bool__m238
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:238";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:238";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:238.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:238.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5617,12 +5617,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__i64__m239
+        // stream.hgl:93
+        struct filter__impl_123__i64__m239
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:239";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:239";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:239.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:239.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5647,12 +5647,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__f64__m240
+        // stream.hgl:93
+        struct filter__impl_123__f64__m240
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:240";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:240";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:240.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:240.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5678,12 +5678,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__str__m241
+        // stream.hgl:93
+        struct filter__impl_123__str__m241
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:241";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:241";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:241.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:241.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5708,12 +5708,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__date__m242
+        // stream.hgl:93
+        struct filter__impl_123__date__m242
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:242";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:242";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:242.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:242.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5739,12 +5739,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__time__m243
+        // stream.hgl:93
+        struct filter__impl_123__time__m243
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:243";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:243";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:243.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:243.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5770,12 +5770,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__datetime__m244
+        // stream.hgl:93
+        struct filter__impl_123__datetime__m244
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:244";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:244";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:244.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:244.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5801,12 +5801,12 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:102
-        struct filter__impl_128__duration__m245
+        // stream.hgl:93
+        struct filter__impl_123__duration__m245
         {
-            static constexpr auto name = "hgraph.std.filter_#128@instantiate:245";
+            static constexpr auto name = "hgraph.std.filter_#123@instantiate:245";
             using recordable_state =
-                hgraph::TSB<"hgraph.std.filter_#128@instantiate:245.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
+                hgraph::TSB<"hgraph.std.filter_#123@instantiate:245.state", hgraph::Field<"was_open", hgraph::TS<hgraph::Bool>>>;
             static void start(hgraph::RecordableState<recordable_state> hgl_state) {
                 auto was_open = hgl_state.field<"was_open">();
                 if (!was_open.valid()) { was_open.set(false); }
@@ -5832,13 +5832,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__bool__m246
+        // stream.hgl:10
+        struct take_impl_117__bool__m246
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:246";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:246";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:246.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:246.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5861,13 +5861,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__i64__m247
+        // stream.hgl:10
+        struct take_impl_117__i64__m247
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:247";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:247";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:247.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:247.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5890,13 +5890,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__f64__m248
+        // stream.hgl:10
+        struct take_impl_117__f64__m248
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:248";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:248";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:248.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:248.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5919,13 +5919,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__str__m249
+        // stream.hgl:10
+        struct take_impl_117__str__m249
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:249";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:249";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:249.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:249.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5948,13 +5948,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__date__m250
+        // stream.hgl:10
+        struct take_impl_117__date__m250
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:250";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:250";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:250.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:250.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -5977,13 +5977,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__time__m251
+        // stream.hgl:10
+        struct take_impl_117__time__m251
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:251";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:251";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:251.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:251.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -6006,13 +6006,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__datetime__m252
+        // stream.hgl:10
+        struct take_impl_117__datetime__m252
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:252";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:252";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:252.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:252.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -6035,13 +6035,13 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:17
-        struct take_impl_121__duration__m253
+        // stream.hgl:10
+        struct take_impl_117__duration__m253
         {
-            static constexpr auto name = "hgraph.std.take#121@instantiate:253";
+            static constexpr auto name = "hgraph.std.take#117@instantiate:253";
             static auto           defaults() { return std::tuple{hgraph::arg<"count">(hgraph::Int{1})}; }
             using recordable_state =
-                hgraph::TSB<"hgraph.std.take#121@instantiate:253.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
+                hgraph::TSB<"hgraph.std.take#117@instantiate:253.state", hgraph::Field<"seen", hgraph::TS<hgraph::Int>>>;
             static void start(hgraph::Scalar<"count", hgraph::Int>, hgraph::RecordableState<recordable_state> hgl_state) {
                 auto seen = hgl_state.field<"seen">();
                 if (!seen.valid()) { seen.set(hgraph::Int{0}); }
@@ -6064,10 +6064,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__bool__m254
+        // stream.hgl:26
+        struct freeze_impl_118__bool__m254
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:254";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:254";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked>        ts,
                              hgraph::Out<hgraph::TS<hgraph::Bool>>                                               hgl_output) {
@@ -6089,10 +6089,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__i64__m255
+        // stream.hgl:26
+        struct freeze_impl_118__i64__m255
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:255";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:255";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>         ts,
                              hgraph::Out<hgraph::TS<hgraph::Int>>                                                hgl_output) {
@@ -6114,10 +6114,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__f64__m256
+        // stream.hgl:26
+        struct freeze_impl_118__f64__m256
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:256";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:256";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>       ts,
                              hgraph::Out<hgraph::TS<hgraph::Float>>                                              hgl_output) {
@@ -6139,10 +6139,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__str__m257
+        // stream.hgl:26
+        struct freeze_impl_118__str__m257
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:257";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:257";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>         ts,
                              hgraph::Out<hgraph::TS<hgraph::Str>>                                                hgl_output) {
@@ -6164,10 +6164,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__date__m258
+        // stream.hgl:26
+        struct freeze_impl_118__date__m258
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:258";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:258";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked>        ts,
                              hgraph::Out<hgraph::TS<hgraph::Date>>                                               hgl_output) {
@@ -6189,10 +6189,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__time__m259
+        // stream.hgl:26
+        struct freeze_impl_118__time__m259
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:259";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:259";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked>        ts,
                              hgraph::Out<hgraph::TS<hgraph::Time>>                                               hgl_output) {
@@ -6214,10 +6214,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__datetime__m260
+        // stream.hgl:26
+        struct freeze_impl_118__datetime__m260
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:260";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:260";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked>    ts,
                              hgraph::Out<hgraph::TS<hgraph::DateTime>>                                           hgl_output) {
@@ -6239,10 +6239,10 @@ namespace hgraph_::std_
             }
         };
 
-        // stream.hgl:33
-        struct freeze_impl_122__duration__m261
+        // stream.hgl:26
+        struct freeze_impl_118__duration__m261
         {
-            static constexpr auto name = "hgraph.std.freeze#122@instantiate:261";
+            static constexpr auto name = "hgraph.std.freeze#118@instantiate:261";
             static void eval(hgraph::In<"predicate", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> predicate,
                              hgraph::In<"ts", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked>   ts,
                              hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                          hgl_output) {

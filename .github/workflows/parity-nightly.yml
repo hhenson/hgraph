@@ -45,7 +45,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - name: Materialize pinned shared sources
+      - name: Initialize pinned shared sources
         run: python tools/shared_artifacts.py
       - name: Install build tools
         run: >-
@@ -138,7 +138,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - name: Materialize pinned shared sources
+      - name: Initialize pinned shared sources
         run: python tools/shared_artifacts.py
       - name: Install parity controller
         run: >-
@@ -194,7 +194,7 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
-      - name: Materialize pinned shared sources
+      - name: Initialize pinned shared sources
         run: python tools/shared_artifacts.py
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:

@@ -92,7 +92,7 @@ if(_duplicate_decl_result EQUAL 0 OR
 endif()
 
 # Native requirements complete a shared declaration, never another overload.
-set(_native_api "${SOURCE}/codegen/native-provider.hgl")
+set(_native_api "${SHARED_EXAMPLES}/native-provider.hgl")
 set(_native_impl "${SOURCE}/codegen/native-provider-impl.hgl")
 run_hgl(_native_result _native_output check "${_native_api}" --part "${_native_impl}" --dump-hir)
 if(NOT _native_result EQUAL 0 OR NOT _native_output MATCHES "implementation=value inject=logger")

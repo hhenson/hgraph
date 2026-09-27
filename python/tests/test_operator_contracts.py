@@ -1,5 +1,5 @@
 """Public Python wiring regressions for the runtime specification's operator
-contracts (docs/source/runtime_spec/operators.md, OP-1 to OP-11).
+contracts (external/hgraph_spec/runtime/operators.md, OP-1 to OP-11).
 
 Each test is the minimized recipe of a parity issue whose reasoned expectation
 matched released hgraph 0.5.41 (runtime_spec/validation/parity), so it pins

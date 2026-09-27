@@ -654,7 +654,12 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                             OperatorRequirement lowered;
                             lowered.operator_identity = symbol_identity(node.op);
-                            if (node.op.valid()) { lowered.operator_registry_name = source_.symbol(node.op).external_name; }
+                            if (node.op.valid()) {
+                                lowered.native_scalar = source_.symbol(node.op).kind == hir::SymbolKind::ImportedFunction;
+                                if (!lowered.native_scalar) {
+                                    lowered.operator_registry_name = source_.symbol(node.op).external_name;
+                                }
+                            }
                             for (hir::ConstraintId argument : node.arguments) {
                                 lowered.arguments.push_back(lower_constraint(argument));
                             }
@@ -927,6 +932,7 @@ namespace hgl::hgraph_ir
                 for (const Value &value : result_.values) {
                     if (value.test_only) { continue; }
                     production_use(value.operation.native_function);
+                    for (auto candidate : value.operation.native_candidates) { production_use(candidate); }
                     if (const auto *reference = std::get_if<Reference>(&value.node)) { production_use(reference->native_function); }
                 }
             }
@@ -998,6 +1004,7 @@ namespace hgl::hgraph_ir
                 target.provider_key    = source.provider_key;
                 target.deferred        = source.deferred;
                 target.lift_inputs     = source.lift_inputs;
+                for (auto candidate : source.native_candidates) { target.native_candidates.push_back(native_function(candidate)); }
                 if (source.target.valid()) {
                     const hir::Symbol &symbol = source_.symbol(source.target);
                     if (target.identity.empty()) { target.identity = symbol_identity(source.target); }

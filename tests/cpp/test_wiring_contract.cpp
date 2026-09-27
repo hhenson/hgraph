@@ -1,5 +1,5 @@
 // The runtime specification's wiring cases through native C++ wiring
-// (docs/source/runtime_spec/cases_wiring.md; rules in wiring.md). Each case
+// (external/hgraph_spec/runtime/cases_wiring.md; rules in wiring.md). Each case
 // mirrors one in validation/wiring/cases.py, which checks the same
 // expectations through the Python surface: a graph records the types wiring
 // decided, and eval_node observes what its nodes see.

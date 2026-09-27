@@ -37,6 +37,82 @@ namespace hgraph_::native
         hgraph::Bool     bound(const hgraph::TSInputView &value) noexcept;
         hgraph::Bool     active(const hgraph::TSInputView &value) noexcept;
         hgraph::DateTime midnight(const hgraph::Date &value) noexcept;
+        hgraph::Int      add(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    add__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Float    add__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    add__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Int      sub(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    sub__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Float    sub__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    sub__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Int      mul(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    mul__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Float    mul__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Float    mul__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Float    div(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Float    div__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs);
+        hgraph::Float    div__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs);
+        hgraph::Float    div__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs);
+        hgraph::Int      floordiv(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Float    floordiv__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs);
+        hgraph::Float    floordiv__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs);
+        hgraph::Float    floordiv__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs);
+        hgraph::Int      mod(const hgraph::Int &lhs, const hgraph::Int &rhs);
+        hgraph::Float    mod__candidate_2(const hgraph::Int &lhs, const hgraph::Float &rhs);
+        hgraph::Float    mod__candidate_3(const hgraph::Float &lhs, const hgraph::Int &rhs);
+        hgraph::Float    mod__candidate_4(const hgraph::Float &lhs, const hgraph::Float &rhs);
+        hgraph::Bool     eq(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     eq__candidate_2(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Bool     eq__candidate_3(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept;
+        hgraph::Bool     ne(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     ne__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     ne__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     ne__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     ne__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Bool     ne__candidate_6(const hgraph::Bool &lhs, const hgraph::Bool &rhs) noexcept;
+        hgraph::Bool     lt(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     lt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     lt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     lt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     lt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Bool     le(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     le__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     le__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     le__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     le__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Bool     gt(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     gt__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     gt__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     gt__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     gt__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Bool     ge(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     ge__candidate_2(const hgraph::Float &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     ge__candidate_3(const hgraph::Int &lhs, const hgraph::Float &rhs) noexcept;
+        hgraph::Bool     ge__candidate_4(const hgraph::Float &lhs, const hgraph::Int &rhs) noexcept;
+        hgraph::Bool     ge__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept;
+        hgraph::Int      neg(const hgraph::Int &ts) noexcept;
+        hgraph::Float    neg__candidate_2(const hgraph::Float &ts) noexcept;
+        hgraph::Str      add__candidate_5(const hgraph::Str &lhs, const hgraph::Str &rhs);
+        hgraph::Bool     eq__candidate_4(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     eq__candidate_5(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     eq__candidate_6(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     ne__candidate_7(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     ne__candidate_8(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     ne__candidate_9(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     lt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     lt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     lt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     le__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     le__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     le__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     gt__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     gt__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     gt__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     ge__candidate_6(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept;
+        hgraph::Bool     ge__candidate_7(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept;
+        hgraph::Bool     ge__candidate_8(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept;
+        hgraph::Bool     eq__candidate_7(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept;
+        hgraph::Bool     ne__candidate_10(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept;
         hgraph::Int      len(const hgraph::Str &value) noexcept;
         hgraph::Bool     is_empty(const hgraph::Str &value) noexcept;
         hgraph::Bool     contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept;
@@ -115,6 +191,82 @@ namespace hgraph_::native
     {
         template <class T>
         concept Implementation = requires {
+            static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::add);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::add);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::add);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::add);
+            static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::sub);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::sub);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::sub);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::sub);
+            static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::mul);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::mul);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::mul);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::mul);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Int)>(&T::div);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::div);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::div);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::div);
+            static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int)>(&T::floordiv);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::floordiv);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::floordiv);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::floordiv);
+            static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int)>(&T::mod);
+            static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::mod);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::mod);
+            static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::mod);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::ge);
+            static_cast<hgraph::Int (*)(hgraph::Int) noexcept>(&T::neg);
+            static_cast<hgraph::Float (*)(hgraph::Float) noexcept>(&T::neg);
+            static_cast<hgraph::Str (*)(const hgraph::Str &, const hgraph::Str &)>(&T::add);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::ne);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::lt);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::le);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::gt);
+            static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::ge);
+            static_cast<hgraph::Bool (*)(const hgraph::Time &, const hgraph::Time &) noexcept>(&T::eq);
+            static_cast<hgraph::Bool (*)(const hgraph::Time &, const hgraph::Time &) noexcept>(&T::ne);
             static_cast<hgraph::Int (*)(const hgraph::Str &) noexcept>(&T::len);
             static_cast<hgraph::Bool (*)(const hgraph::Str &) noexcept>(&T::is_empty);
             static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::contains);
@@ -174,6 +326,240 @@ namespace hgraph_::native
         };
         template <Implementation T> struct BoundNative
         {
+            static hgraph::Int add(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::add)(lhs, rhs);
+            }
+            static hgraph::Float add(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::add)(lhs, rhs);
+            }
+            static hgraph::Float add(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::add)(lhs, rhs);
+            }
+            static hgraph::Float add(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::add)(lhs, rhs);
+            }
+            static hgraph::Int sub(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::sub)(lhs, rhs);
+            }
+            static hgraph::Float sub(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::sub)(lhs, rhs);
+            }
+            static hgraph::Float sub(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::sub)(lhs, rhs);
+            }
+            static hgraph::Float sub(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::sub)(lhs, rhs);
+            }
+            static hgraph::Int mul(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int) noexcept>(&T::mul)(lhs, rhs);
+            }
+            static hgraph::Float mul(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float) noexcept>(&T::mul)(lhs, rhs);
+            }
+            static hgraph::Float mul(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int) noexcept>(&T::mul)(lhs, rhs);
+            }
+            static hgraph::Float mul(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float) noexcept>(&T::mul)(lhs, rhs);
+            }
+            static hgraph::Float div(hgraph::Int lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Int)>(&T::div)(lhs, rhs);
+            }
+            static hgraph::Float div(hgraph::Int lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::div)(lhs, rhs);
+            }
+            static hgraph::Float div(hgraph::Float lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::div)(lhs, rhs);
+            }
+            static hgraph::Float div(hgraph::Float lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::div)(lhs, rhs);
+            }
+            static hgraph::Int floordiv(hgraph::Int lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int)>(&T::floordiv)(lhs, rhs);
+            }
+            static hgraph::Float floordiv(hgraph::Int lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::floordiv)(lhs, rhs);
+            }
+            static hgraph::Float floordiv(hgraph::Float lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::floordiv)(lhs, rhs);
+            }
+            static hgraph::Float floordiv(hgraph::Float lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::floordiv)(lhs, rhs);
+            }
+            static hgraph::Int mod(hgraph::Int lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Int (*)(hgraph::Int, hgraph::Int)>(&T::mod)(lhs, rhs);
+            }
+            static hgraph::Float mod(hgraph::Int lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Int, hgraph::Float)>(&T::mod)(lhs, rhs);
+            }
+            static hgraph::Float mod(hgraph::Float lhs, hgraph::Int rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Int)>(&T::mod)(lhs, rhs);
+            }
+            static hgraph::Float mod(hgraph::Float lhs, hgraph::Float rhs) {
+                return static_cast<hgraph::Float (*)(hgraph::Float, hgraph::Float)>(&T::mod)(lhs, rhs);
+            }
+            static hgraph::Bool eq(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool eq(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool eq(hgraph::Bool lhs, hgraph::Bool rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool ne(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(hgraph::Bool lhs, hgraph::Bool rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Bool, hgraph::Bool) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool lt(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool le(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool gt(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool ge(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Int) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Float) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Int, hgraph::Float) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(hgraph::Float, hgraph::Int) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Str &, const hgraph::Str &) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Int neg(hgraph::Int ts) noexcept {
+                return static_cast<hgraph::Int (*)(hgraph::Int) noexcept>(&T::neg)(ts);
+            }
+            static hgraph::Float neg(hgraph::Float ts) noexcept {
+                return static_cast<hgraph::Float (*)(hgraph::Float) noexcept>(&T::neg)(ts);
+            }
+            static hgraph::Str add(const hgraph::Str &lhs, const hgraph::Str &rhs) {
+                return static_cast<hgraph::Str (*)(const hgraph::Str &, const hgraph::Str &)>(&T::add)(lhs, rhs);
+            }
+            static hgraph::Bool eq(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool eq(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool eq(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::eq)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool ne(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::ne)(lhs, rhs);
+            }
+            static hgraph::Bool ne(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::ne)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool lt(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::lt)(lhs, rhs);
+            }
+            static hgraph::Bool lt(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::lt)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool le(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::le)(lhs, rhs);
+            }
+            static hgraph::Bool le(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::le)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool gt(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::gt)(lhs, rhs);
+            }
+            static hgraph::Bool gt(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::gt)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool ge(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Date &, const hgraph::Date &) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::DateTime &, const hgraph::DateTime &) noexcept>(&T::ge)(lhs, rhs);
+            }
+            static hgraph::Bool ge(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::TimeDelta &, const hgraph::TimeDelta &) noexcept>(&T::ge)(lhs,
+                                                                                                                            rhs);
+            }
+            static hgraph::Bool eq(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Time &, const hgraph::Time &) noexcept>(&T::eq)(lhs, rhs);
+            }
+            static hgraph::Bool ne(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+                return static_cast<hgraph::Bool (*)(const hgraph::Time &, const hgraph::Time &) noexcept>(&T::ne)(lhs, rhs);
+            }
             static hgraph::Int len(const hgraph::Str &value) noexcept {
                 return static_cast<hgraph::Int (*)(const hgraph::Str &) noexcept>(&T::len)(value);
             }

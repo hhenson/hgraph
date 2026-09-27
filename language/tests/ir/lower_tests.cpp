@@ -1428,7 +1428,7 @@ namespace
 
 TEST_CASE("typed HIR binds a generic with every reference removed (runtime spec WIR-7, WIR-14)",
           "[ir][typed][generics][ref]") {
-    // docs/source/runtime_spec/validation/wiring/front_end.hgl: the runtime
+    // external/hgraph_spec/runtime/validation/wiring/front_end.hgl: the runtime
     // binds T to the argument's type without its references, and so must HGL.
     Lowered lowered{R"(
 module checks.wiring_front_end
@@ -3207,4 +3207,98 @@ native fn identity<U, const M: i64>(value: list<U, M>) -> list<U, M> { when; }
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(completed);
     CHECK(unit.hir.native_functions.size() == 1);
+}
+
+TEST_CASE("native scalar requirements admit exact value signatures and infer results", "[ir][native][constraints]") {
+    Lowered lowered{R"(
+module checks.native_requirements
+native const fn sum(lhs: i64, rhs: i64) -> i64
+native const fn sum(lhs: i64, rhs: f64) -> f64
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+requires sum(L, R) -> O {
+    when { return sum(lhs, rhs) }
+}
+instantiate add_<i64, i64, i64>, add_<i64, f64, f64>
+const fn integer_sum(lhs: i64, rhs: i64) -> i64
+requires sum(i64, i64) -> i64 => sum(lhs, rhs)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(std::ranges::any_of(lowered.hir.exprs,
+                              [](const auto &expression) { return expression.operation.native_candidates.size() == 2; }));
+}
+
+TEST_CASE("native scalar requirements reject absent wrong-result and temporal candidates", "[ir][native][constraints]") {
+    for (const auto &signature : {"native const fn sum(lhs: f64, rhs: f64) -> f64",
+                                  "native const fn sum(lhs: i64, rhs: i64) -> f64", "native fn sum(lhs: i64, rhs: i64) -> i64"}) {
+        Lowered lowered{std::string{"module checks.bad_native_requirement\n"} + signature + R"(
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+requires sum(L, R) -> O { when { return sum(lhs, rhs) } }
+instantiate add_<i64, i64, i64>
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("instantiate matches no") != std::string::npos);
+    }
+}
+
+TEST_CASE("imported native scalar requirements use nominal identity and propagate capabilities", "[ir][native][constraints]") {
+    using namespace hgl::semantics;
+    ImportableModule provider;
+    provider.identity = "checks.values";
+    for (auto type : {ImportedScalarType::I64, ImportedScalarType::F64}) {
+        provider.functions.push_back(ImportedFunction{
+            .module_identity    = provider.identity,
+            .name               = "combine",
+            .identity           = "checks.values::combine",
+            .candidate_identity = type == ImportedScalarType::I64 ? "integer" : "float",
+            .cpp_symbol         = type == ImportedScalarType::I64 ? "values::integer" : "values::floating",
+            .parameters         = {{"lhs", type, false}, {"rhs", type, false}},
+            .result             = type,
+            .phases             = {NativeCallPhase::Evaluation},
+            .capabilities       = type == ImportedScalarType::I64 ? std::vector<std::string>{} : std::vector<std::string>{"logger"},
+            .execution_role     = hgl::NativeExecutionRole::Value,
+        });
+    }
+    ModuleCatalog catalog;
+    REQUIRE_FALSE(catalog.add(std::move(provider)));
+    Lowered lowered{R"(
+module checks.native_import
+use checks.values as values
+operator pair<T>(lhs: T, rhs: T) -> T
+impl fn pair<T>(lhs: T, rhs: T) -> T
+requires values::combine(T, T) -> T {
+    when { return values::combine(lhs, rhs) }
+}
+instantiate pair<i64>, pair<f64>
+)",
+                    catalog};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    const auto implementation = std::ranges::find_if(lowered.hir.declarations, [](const auto &declaration) {
+        const auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node);
+        return fn && fn->visibility == hir::Visibility::Implementation;
+    });
+    REQUIRE(implementation != lowered.hir.declarations.end());
+    CHECK(std::get<hir::FunctionDecl>(implementation->node).capabilities.size() == 1);
+}
+
+TEST_CASE("native scalar requirements reject ambiguous exact signatures", "[ir][native][constraints]") {
+    Lowered lowered{R"(
+module checks.native_ambiguity
+native const fn combine(lhs: i64, rhs: i64) -> i64
+native const fn combine(left: i64, right: i64) -> i64
+fn apply(lhs: i64, rhs: i64) -> i64
+requires combine(i64, i64) -> i64 { when { return lhs + rhs } }
+fn use_it(lhs: i64, rhs: i64) -> i64 => apply(lhs, rhs)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("native scalar requirement is ambiguous") != std::string::npos);
 }

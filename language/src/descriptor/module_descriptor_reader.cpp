@@ -839,6 +839,7 @@ namespace hgl::descriptor
                                      {"call", ConstraintCategory::Call},
                                      {"each", ConstraintCategory::Each},
                                      {"operator", ConstraintCategory::Operator},
+                                     {"native-scalar", ConstraintCategory::NativeScalar},
                                      {"relation", ConstraintCategory::Relation},
                                      {"not", ConstraintCategory::Not},
                                      {"logic", ConstraintCategory::Logic}},
@@ -1967,6 +1968,7 @@ namespace hgl::descriptor
                                 fail(member_path(path, "identity"), "each constraint is missing its binding identity")) &&
                                constraint_ref(record.source, member_path(path, "source")) &&
                                constraint_ref(record.body, member_path(path, "body"));
+                    case ConstraintCategory::NativeScalar:
                     case ConstraintCategory::Operator:
                         return (!record.identity.empty() ||
                                 fail(member_path(path, "identity"), "operator requirement is missing its identity")) &&

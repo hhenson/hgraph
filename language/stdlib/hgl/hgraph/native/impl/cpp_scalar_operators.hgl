@@ -1,0 +1,78 @@
+module hgraph.native part cpp_scalar_operators
+
+native const fn add(lhs: i64, rhs: i64) -> i64 {}
+native const fn add(lhs: i64, rhs: f64) -> f64 {}
+native const fn add(lhs: f64, rhs: i64) -> f64 {}
+native const fn add(lhs: f64, rhs: f64) -> f64 {}
+native const fn sub(lhs: i64, rhs: i64) -> i64 {}
+native const fn sub(lhs: i64, rhs: f64) -> f64 {}
+native const fn sub(lhs: f64, rhs: i64) -> f64 {}
+native const fn sub(lhs: f64, rhs: f64) -> f64 {}
+native const fn mul(lhs: i64, rhs: i64) -> i64 {}
+native const fn mul(lhs: i64, rhs: f64) -> f64 {}
+native const fn mul(lhs: f64, rhs: i64) -> f64 {}
+native const fn mul(lhs: f64, rhs: f64) -> f64 {}
+native const fn div(lhs: i64, rhs: i64) -> f64 throws {}
+native const fn div(lhs: i64, rhs: f64) -> f64 throws {}
+native const fn div(lhs: f64, rhs: i64) -> f64 throws {}
+native const fn div(lhs: f64, rhs: f64) -> f64 throws {}
+native const fn floordiv(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn floordiv(lhs: i64, rhs: f64) -> f64 throws {}
+native const fn floordiv(lhs: f64, rhs: i64) -> f64 throws {}
+native const fn floordiv(lhs: f64, rhs: f64) -> f64 throws {}
+native const fn mod(lhs: i64, rhs: i64) -> i64 throws {}
+native const fn mod(lhs: i64, rhs: f64) -> f64 throws {}
+native const fn mod(lhs: f64, rhs: i64) -> f64 throws {}
+native const fn mod(lhs: f64, rhs: f64) -> f64 throws {}
+native const fn eq(lhs: i64, rhs: i64) -> bool {}
+native const fn eq(lhs: str, rhs: str) -> bool {}
+native const fn eq(lhs: bool, rhs: bool) -> bool {}
+native const fn ne(lhs: i64, rhs: i64) -> bool {}
+native const fn ne(lhs: f64, rhs: f64) -> bool {}
+native const fn ne(lhs: i64, rhs: f64) -> bool {}
+native const fn ne(lhs: f64, rhs: i64) -> bool {}
+native const fn ne(lhs: str, rhs: str) -> bool {}
+native const fn ne(lhs: bool, rhs: bool) -> bool {}
+native const fn lt(lhs: i64, rhs: i64) -> bool {}
+native const fn lt(lhs: f64, rhs: f64) -> bool {}
+native const fn lt(lhs: i64, rhs: f64) -> bool {}
+native const fn lt(lhs: f64, rhs: i64) -> bool {}
+native const fn lt(lhs: str, rhs: str) -> bool {}
+native const fn le(lhs: i64, rhs: i64) -> bool {}
+native const fn le(lhs: f64, rhs: f64) -> bool {}
+native const fn le(lhs: i64, rhs: f64) -> bool {}
+native const fn le(lhs: f64, rhs: i64) -> bool {}
+native const fn le(lhs: str, rhs: str) -> bool {}
+native const fn gt(lhs: i64, rhs: i64) -> bool {}
+native const fn gt(lhs: f64, rhs: f64) -> bool {}
+native const fn gt(lhs: i64, rhs: f64) -> bool {}
+native const fn gt(lhs: f64, rhs: i64) -> bool {}
+native const fn gt(lhs: str, rhs: str) -> bool {}
+native const fn ge(lhs: i64, rhs: i64) -> bool {}
+native const fn ge(lhs: f64, rhs: f64) -> bool {}
+native const fn ge(lhs: i64, rhs: f64) -> bool {}
+native const fn ge(lhs: f64, rhs: i64) -> bool {}
+native const fn ge(lhs: str, rhs: str) -> bool {}
+native const fn neg(ts: i64) -> i64 {}
+native const fn neg(ts: f64) -> f64 {}
+native const fn add(lhs: str, rhs: str) -> str throws {}
+native const fn eq(lhs: date, rhs: date) -> bool {}
+native const fn eq(lhs: datetime, rhs: datetime) -> bool {}
+native const fn eq(lhs: duration, rhs: duration) -> bool {}
+native const fn ne(lhs: date, rhs: date) -> bool {}
+native const fn ne(lhs: datetime, rhs: datetime) -> bool {}
+native const fn ne(lhs: duration, rhs: duration) -> bool {}
+native const fn lt(lhs: date, rhs: date) -> bool {}
+native const fn lt(lhs: datetime, rhs: datetime) -> bool {}
+native const fn lt(lhs: duration, rhs: duration) -> bool {}
+native const fn le(lhs: date, rhs: date) -> bool {}
+native const fn le(lhs: datetime, rhs: datetime) -> bool {}
+native const fn le(lhs: duration, rhs: duration) -> bool {}
+native const fn gt(lhs: date, rhs: date) -> bool {}
+native const fn gt(lhs: datetime, rhs: datetime) -> bool {}
+native const fn gt(lhs: duration, rhs: duration) -> bool {}
+native const fn ge(lhs: date, rhs: date) -> bool {}
+native const fn ge(lhs: datetime, rhs: datetime) -> bool {}
+native const fn ge(lhs: duration, rhs: duration) -> bool {}
+native const fn eq(lhs: time, rhs: time) -> bool {}
+native const fn ne(lhs: time, rhs: time) -> bool {}

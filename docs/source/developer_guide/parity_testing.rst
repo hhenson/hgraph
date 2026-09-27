@@ -565,7 +565,7 @@ way:
 
 The last five came from the parity triage of 2026-09-24, which derived the
 runtime specification's operator contracts
-(``docs/source/runtime_spec/operators.md``, evidence in
+(``external/hgraph_spec/runtime/operators.md``, evidence in
 ``runtime_spec/validation/parity``).
 
 An unknown relation, payload corruption, unrelated missing field, candidate

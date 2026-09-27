@@ -356,9 +356,11 @@ namespace hgl::descriptor
                             record.source   = constraint(node.source);
                             record.body     = constraint(node.body);
                         } else if constexpr (std::is_same_v<T, hgraph_ir::OperatorRequirement>) {
-                            record.category      = ConstraintCategory::Operator;
+                            record.category = node.native_scalar ? ConstraintCategory::NativeScalar : ConstraintCategory::Operator;
                             record.identity      = node.operator_identity;
-                            record.registry_name = registry_name(node.operator_registry_name, node.operator_identity);
+                            record.registry_name = node.native_scalar
+                                                       ? std::string{}
+                                                       : registry_name(node.operator_registry_name, node.operator_identity);
                             for (hgraph_ir::ConstraintId argument : node.arguments) {
                                 record.arguments.push_back(constraint(argument));
                             }

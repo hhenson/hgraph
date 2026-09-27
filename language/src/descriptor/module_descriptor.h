@@ -137,6 +137,7 @@ namespace hgl::descriptor
         Call,
         Each,
         Operator,
+        NativeScalar,
         Relation,
         Not,
         Logic,

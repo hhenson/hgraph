@@ -204,7 +204,7 @@ references deliberately: they build their schemas from the ports as supplied
 and do not resolve a generic over them.
 
 **The matcher and unifier contract.** The rules are the runtime
-specification's :doc:`../runtime_spec/wiring` chapter (WIR-6 to WIR-14);
+specification's `shared wiring rules <https://github.com/hhenson/hgraph_spec/blob/main/runtime/wiring.md>`_ chapter (WIR-6 to WIR-14);
 this table is how hgraph implements them. A generic is resolved in two
 places that must agree: the runtime matcher (``type_pattern.cpp``: operator
 dispatch, type arguments, Python wiring) and the static unifier

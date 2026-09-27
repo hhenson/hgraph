@@ -1,5 +1,5 @@
 // Native regressions for the runtime specification's operator contracts
-// (docs/source/runtime_spec/operators.md, OP-1 to OP-11). Each case is the
+// (external/hgraph_spec/runtime/operators.md, OP-1 to OP-11). Each case is the
 // minimized recipe of a parity issue whose reasoned expectation matched
 // released hgraph (runtime_spec/validation/parity); the Python-authored twin
 // of each case is python/tests/test_operator_contracts.py.

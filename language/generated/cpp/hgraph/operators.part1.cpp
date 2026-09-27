@@ -12,24 +12,24 @@ namespace hgraph_::operators_
     namespace hgl_detail
     {
         void register_operators(std::integral_constant<std::size_t, 1>) {
-            hgraph::register_overload<operators::eq_, eq__impl_50>();
-            hgraph::register_overload<operators::eq_, eq__impl_51>();
-            hgraph::register_overload<operators::abs_, abs__impl_61>();
-            hgraph::register_overload<operators::pos_, pos__impl_62>();
-            hgraph::register_overload<operators::sign, sign_impl_63>();
-            hgraph::register_overload<operators::abs_, abs__impl_64>();
-            hgraph::register_overload<operators::pos_, pos__impl_65>();
-            hgraph::register_overload<operators::sign, sign_impl_66>();
-            hgraph::register_overload<operators::ln, ln_impl_67>();
-            hgraph::register_overload<operators::round_, round__impl_68>();
-            hgraph::register_overload<operators::invert_, invert__impl_69>();
-            hgraph::register_overload<operators::bit_and, bit_and_impl_70>();
-            hgraph::register_overload<operators::bit_or, bit_or_impl_71>();
-            hgraph::register_overload<operators::bit_xor, bit_xor_impl_72>();
-            hgraph::register_overload<operators::invert_, invert__impl_73>();
-            hgraph::register_overload<operators::bit_and, bit_and_impl_74>();
-            hgraph::register_overload<operators::bit_or, bit_or_impl_75>();
-            hgraph::register_overload<operators::bit_xor, bit_xor_impl_76>();
+            hgraph::register_overload<operators::eq_, eq__impl_67>();
+            hgraph::register_overload<operators::eq_, eq__impl_68>();
+            hgraph::register_overload<operators::abs_, abs__impl_69>();
+            hgraph::register_overload<operators::pos_, pos__impl_70>();
+            hgraph::register_overload<operators::sign, sign_impl_71>();
+            hgraph::register_overload<operators::abs_, abs__impl_72>();
+            hgraph::register_overload<operators::pos_, pos__impl_73>();
+            hgraph::register_overload<operators::sign, sign_impl_74>();
+            hgraph::register_overload<operators::ln, ln_impl_75>();
+            hgraph::register_overload<operators::round_, round__impl_76>();
+            hgraph::register_overload<operators::invert_, invert__impl_77>();
+            hgraph::register_overload<operators::bit_and, bit_and_impl_78>();
+            hgraph::register_overload<operators::bit_or, bit_or_impl_79>();
+            hgraph::register_overload<operators::bit_xor, bit_xor_impl_80>();
+            hgraph::register_overload<operators::invert_, invert__impl_81>();
+            hgraph::register_overload<operators::bit_and, bit_and_impl_82>();
+            hgraph::register_overload<operators::bit_or, bit_or_impl_83>();
+            hgraph::register_overload<operators::bit_xor, bit_xor_impl_84>();
         }
     }  // namespace hgl_detail
 }  // namespace hgraph_::operators_

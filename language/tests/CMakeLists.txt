@@ -55,7 +55,7 @@ add_test(
 )
 
 # Every guide example parses (developer guide, "Documentation examples").
-file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
+file(GLOB _hgl_examples CONFIGURE_DEPENDS ${HGRAPH_SPEC}/language/examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)
     get_filename_component(_name ${_example} NAME_WE)
     add_test(
@@ -67,7 +67,7 @@ unset(_hgl_examples)
 
 add_test(
     NAME hgraph_language_dump_hir
-    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hir
+    COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl --dump-hir
 )
 set_tests_properties(hgraph_language_dump_hir PROPERTIES
     PASS_REGULAR_EXPRESSION "HIR typed module examples.stateful_node"
@@ -75,7 +75,7 @@ set_tests_properties(hgraph_language_dump_hir PROPERTIES
 
 add_test(
     NAME hgraph_language_dump_hgraph_ir
-    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hgraph-ir
+    COMMAND $<TARGET_FILE:hgl> check ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl --dump-hgraph-ir
 )
 set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
@@ -102,7 +102,7 @@ add_test(
     NAME hgraph_language_check_descriptor
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>
-        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+        -DSOURCE=${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/midpoint.hgl
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
 )
@@ -121,6 +121,7 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}
+        -DSHARED_EXAMPLES=${HGRAPH_SPEC}/language/examples
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/module-parts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/module_parts.cmake
 )
@@ -147,10 +148,11 @@ add_executable(hgl_syntax_tests
     syntax/lexer_tests.cpp
     syntax/token_grammar_tests.cpp
     syntax/parser_tests.cpp
+    syntax/formatter_tests.cpp
 )
 target_compile_features(hgl_syntax_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_syntax_tests PRIVATE hgl::syntax Catch2::Catch2WithMain)
-target_compile_definitions(hgl_syntax_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+target_compile_definitions(hgl_syntax_tests PRIVATE HGL_EXAMPLES_DIR="${HGRAPH_SPEC}/language/examples")
 hgl_apply_warnings(hgl_syntax_tests)
 
 add_test(NAME hgraph_language_syntax COMMAND hgl_syntax_tests)
@@ -160,7 +162,7 @@ add_test(NAME hgraph_language_syntax COMMAND hgl_syntax_tests)
 add_executable(hgl_semantics_tests semantics/resolve_tests.cpp)
 target_compile_features(hgl_semantics_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_semantics_tests PRIVATE hgl::semantics Catch2::Catch2WithMain)
-target_compile_definitions(hgl_semantics_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+target_compile_definitions(hgl_semantics_tests PRIVATE HGL_EXAMPLES_DIR="${HGRAPH_SPEC}/language/examples")
 hgl_apply_warnings(hgl_semantics_tests)
 
 add_test(NAME hgraph_language_semantics COMMAND hgl_semantics_tests)
@@ -170,7 +172,7 @@ add_test(NAME hgraph_language_semantics COMMAND hgl_semantics_tests)
 add_executable(hgl_ir_tests ir/lower_tests.cpp)
 target_compile_features(hgl_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_ir_tests PRIVATE hgl::ir Catch2::Catch2WithMain)
-target_compile_definitions(hgl_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+target_compile_definitions(hgl_ir_tests PRIVATE HGL_EXAMPLES_DIR="${HGRAPH_SPEC}/language/examples")
 hgl_apply_warnings(hgl_ir_tests)
 
 add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
@@ -184,7 +186,7 @@ add_executable(hgl_graph_ir_tests
 )
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
-target_compile_definitions(hgl_graph_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+target_compile_definitions(hgl_graph_ir_tests PRIVATE HGL_EXAMPLES_DIR="${HGRAPH_SPEC}/language/examples")
 hgl_apply_warnings(hgl_graph_ir_tests)
 
 add_test(NAME hgraph_language_hgraph_ir COMMAND hgl_graph_ir_tests)
@@ -371,31 +373,31 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/runtime.hgl
     codegen/value-functions.hgl
     codegen/system-operators.hgl
-    ../examples/test-contexts.hgl
-    ../examples/operator-properties.hgl
-    ../examples/conditional-early-return.hgl
-    ../examples/conditional-forwarding.hgl
-    ../examples/conditional-mixed-results.hgl
-    ../examples/conditional-omitted-else.hgl
-    ../examples/conditional-result.hgl
-    ../examples/conditional-results.hgl
-    ../examples/conditional-sinks.hgl
-    ../examples/dynamic-collection-iteration.hgl
-    ../examples/fixed-list-iteration.hgl)
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operator-properties.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-forwarding.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-mixed-results.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-omitted-else.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-result.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-results.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-sinks.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/dynamic-collection-iteration.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/fixed-list-iteration.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
-hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
+hgl_add_module(hgl_structural_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
-hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ../examples/recursive-fields.hgl)
+hgl_add_module(hgl_recursive_fixture STATIC HGL wiring/recursive-structs.hgl ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/recursive-fields.hgl)
 hgl_apply_warnings(hgl_recursive_fixture)
-hgl_add_module(hgl_generic_fixture STATIC HGL ../examples/operators-and-generics.hgl)
+hgl_add_module(hgl_generic_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/operators-and-generics.hgl)
 hgl_apply_warnings(hgl_generic_fixture)
-hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hgl)
+hgl_add_module(hgl_collection_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/collection-views.hgl)
 hgl_apply_warnings(hgl_collection_fixture)
-hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
+hgl_add_module(hgl_stateful_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
-hgl_add_module(hgl_lifecycle_fixture STATIC HGL ../examples/lifecycle-capabilities.hgl)
+hgl_add_module(hgl_lifecycle_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/lifecycle-capabilities.hgl)
 hgl_apply_warnings(hgl_lifecycle_fixture)
-hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
+hgl_add_module(hgl_reference_fixture STATIC HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
 add_library(hgl_native_scalar_dependency INTERFACE)
 add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
@@ -410,9 +412,9 @@ hgl_add_module(hgl_inline_native_fixture STATIC HGL codegen/native-functions.hgl
 hgl_apply_warnings(hgl_inline_native_fixture)
 
 # Conformance inputs are owned by the shared specification; the audit owns the
-# C++ harness. Materialized paths also support source archives without Git.
-set(_spec_stdlib "${CMAKE_CURRENT_SOURCE_DIR}/conformance/stdlib")
-set(_spec_cases "${CMAKE_CURRENT_SOURCE_DIR}/conformance/stdlib_cases.py")
+# C++ harness. Both are read directly from their owning packages.
+set(_spec_stdlib "${HGRAPH_SPEC}/compiler/stdlib")
+set(_spec_cases "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/tools/stdlib_cases.py")
 hgl_add_module(hgl_spec_stdlib_fixture STATIC HGL "${_spec_stdlib}/nodes.hgl" PARTS "${_spec_stdlib}/cases.hgl"
     LINK_LIBRARIES hgl::standard_library)
 hgl_apply_warnings(hgl_spec_stdlib_fixture)
@@ -423,7 +425,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
         --output "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
     DEPENDS "${_spec_stdlib}/cases.json" "${_spec_cases}"
     VERBATIM)
-add_executable(hgl_spec_stdlib_conformance "${_spec_stdlib}/main.cpp"
+add_executable(hgl_spec_stdlib_conformance "${HGRAPH_SHARED_ROOT}/hgraph_spec_audit/compiler/stdlib/native/main.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc")
 target_include_directories(hgl_spec_stdlib_conformance PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib")
 target_link_libraries(hgl_spec_stdlib_conformance PRIVATE hgl_spec_stdlib_fixture)
@@ -438,7 +440,7 @@ hgl_add_module(hgl_inline_native_consumer_fixture STATIC
 )
 hgl_apply_warnings(hgl_inline_native_consumer_fixture)
 hgl_add_module(hgl_core_native_consumer_fixture STATIC
-    HGL ../stdlib/hgl/examples/core-native-library.hgl
+    HGL ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/examples/core-native-library.hgl
     LINK_LIBRARIES hgl::core_native
 )
 hgl_apply_warnings(hgl_core_native_consumer_fixture)
@@ -459,7 +461,7 @@ hgl_apply_warnings(hgl_parameter_pack_fixture)
 # target nothing links -- which CI's explicit target list would not build.
 # The generated backend for this shape is compiled and run by the fixture pair
 # in codegen/imported-structs; the example is here to read, and to be correct.
-set(_hgl_struct_import_examples "${CMAKE_CURRENT_SOURCE_DIR}/../examples/struct-imports")
+set(_hgl_struct_import_examples "${HGRAPH_SPEC}/language/examples/struct-imports")
 set(_hgl_struct_import_out "${CMAKE_CURRENT_BINARY_DIR}/examples/struct-imports")
 add_test(NAME hgraph_language_example_market_data
     COMMAND hgl test "${_hgl_struct_import_examples}/market-data.hgl")
@@ -509,7 +511,7 @@ if(UNIX)
 endif()
 
 hgl_add_module(hgl_const_debug_fixture STATIC
-    HGL ../examples/const-debug.hgl
+    HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/const-debug.hgl
     PARTS ../examples/impl/const-debug-cpp.hgl
     NATIVE_PROVIDER_HEADER provider.h
     NATIVE_PROVIDER bootstrap::native)
@@ -517,7 +519,7 @@ target_include_directories(hgl_const_debug_fixture PRIVATE ${CMAKE_CURRENT_SOURC
 hgl_apply_warnings(hgl_const_debug_fixture)
 
 hgl_add_module(hgl_native_provider_fixture STATIC
-    HGL codegen/native-provider.hgl
+    HGL ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/native-provider.hgl
     PARTS codegen/native-provider-impl.hgl
     NATIVE_PROVIDER_HEADER provider.h
     NATIVE_PROVIDER checks::scalar_provider::native)
@@ -578,8 +580,8 @@ if(TARGET hgraph::analytics)
     # the core language build usable when that independent extension is off.
     hgl_add_module(hgl_basic_examples_fixture STATIC
         HGL
-            ../examples/midpoint.hgl
-            ../examples/runtime-choice.hgl
+            ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/midpoint.hgl
+            ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/runtime-choice.hgl
         LINK_LIBRARIES
             hgraph::analytics
     )
@@ -658,7 +660,7 @@ set_tests_properties(hgraph_language_test_recursive_structs PROPERTIES
 # inside the `if(UNIX)` block below; composition-only examples run on every
 # platform. An example importing `hgraph.analytics` keeps the
 # `TARGET hgraph::analytics` gate `hgraph_language_test_midpoint` always had.
-file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
+file(GLOB _hgl_examples CONFIGURE_DEPENDS ${HGRAPH_SPEC}/language/examples/*.hgl)
 set(_hgl_runtime_example_tests)
 foreach(_example IN LISTS _hgl_examples)
     file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
@@ -697,7 +699,7 @@ if(UNIX)
     set(_native_test_sources ${_native_test_anchor})
     set(_native_test_args)
     foreach(_part IN LISTS _hgl_core_native_parts)
-        set(_source ${CMAKE_CURRENT_SOURCE_DIR}/../${_part})
+        set(_source ${_part})
         list(APPEND _native_test_sources ${_source})
         list(APPEND _native_test_args --part ${_source})
     endforeach()
@@ -707,7 +709,15 @@ if(UNIX)
         file(STRINGS ${_source} _native_test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _native_test_lines _part_test_count)
         if(_part_test_count EQUAL 0 AND NOT _source MATCHES "/native/impl/")
-            message(FATAL_ERROR "Native HGL source part must carry its own tests: ${_source}")
+            get_filename_component(_native_part_name "${_source}" NAME_WE)
+            set(_native_tests "${HGRAPH_STD}/tests/native_${_native_part_name}.hgl")
+            if(NOT EXISTS "${_native_tests}")
+                message(FATAL_ERROR "Native HGL source part needs tests: ${_source}")
+            endif()
+            list(APPEND _native_test_args --part "${_native_tests}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_native_tests}")
+            file(STRINGS "${_native_tests}" _native_test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
+            list(LENGTH _native_test_lines _part_test_count)
         endif()
         math(EXPR _native_test_count "${_native_test_count} + ${_part_test_count}")
     endforeach()
@@ -727,13 +737,23 @@ if(UNIX)
     hgl_link_runtime_executable(hgl_stdlib_test_driver)
     hgl_apply_warnings(hgl_stdlib_test_driver)
     add_test(NAME hgraph_language_test_standard_parts
-        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/standard.hgl
-            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/control.hgl
-            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/stream.hgl
-            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/temporal.hgl
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/standard.hgl
+            --part ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/control.hgl
+            --part ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/stream.hgl
+            --part ${HGRAPH_STD}/temporal.hgl
+            --part ${HGRAPH_STD}/impl/standard.hgl
+            --part ${HGRAPH_STD}/impl/control.hgl
+            --part ${HGRAPH_STD}/impl/stream.hgl
+            --part ${HGRAPH_STD}/impl/temporal.hgl
+            --part ${HGRAPH_STD}/tests/standard.hgl
+            --part ${HGRAPH_STD}/tests/control.hgl
+            --part ${HGRAPH_STD}/tests/stream.hgl
+            --part ${HGRAPH_STD}/tests/temporal.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     add_test(NAME hgraph_language_test_operator_bodies
-        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/operators.hgl
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/operators.hgl
+            --part ${HGRAPH_STD}/impl/operators.hgl
+            --part ${HGRAPH_STD}/tests/operators.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     set_tests_properties(hgraph_language_test_standard_parts hgraph_language_test_operator_bodies PROPERTIES
         ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
@@ -832,7 +852,7 @@ add_test(NAME hgraph_language_emit_split_cleanup
 # The command itself: representative composition and runtime modules emit.
 add_test(
     NAME hgraph_language_emit_midpoint
-    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl --print
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/midpoint.hgl --print
 )
 set_tests_properties(hgraph_language_emit_midpoint PROPERTIES
     PASS_REGULAR_EXPRESSION "namespace examples::prices"
@@ -886,7 +906,7 @@ foreach(_fixture IN LISTS _hgl_stdlib_invalid_fixtures)
         NAME hgraph_language_stdlib_invalid_${_fixture}
         COMMAND ${CMAKE_COMMAND}
             -DHGL=$<TARGET_FILE:hgl>
-            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/examples/invalid/${_fixture}.hgl
+            -DSOURCE=${HGRAPH_SPEC}/language/stdlib/examples/invalid/${_fixture}.hgl
             -P ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/check_invalid_fixture.cmake
     )
 endforeach()
@@ -908,3 +928,9 @@ add_test(NAME hgraph_language_shared_admission
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/admission
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/admission_test.cmake)
 set_tests_properties(hgraph_language_shared_admission PROPERTIES TIMEOUT 180)
+
+add_test(NAME hgraph_language_format
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/format-cli
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/format.cmake)

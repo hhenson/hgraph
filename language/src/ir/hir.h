@@ -257,6 +257,7 @@ namespace hgl::ir::hir
         bool                      deferred{false};
         /// Nonempty only when a value call needs a temporal adapter; declaration order.
         std::vector<bool> lift_inputs{};
+        std::vector<SymbolId> native_candidates{};
     };
 
     enum class UnaryOp : std::uint8_t {

@@ -1300,7 +1300,7 @@ Parallel HGL authoring
 ----------------------
 
 The HGL authoring milestone keeps existing C++ registrations in place.
-``language/stdlib/catalogue/README.md`` is the maintained migration inventory;
+``external/hgraph_spec_audit/catalogue/README.md`` is the maintained migration inventory;
 ``tools/hgl_catalogue.py --check`` detects source or review drift. Declarations,
 registration templates and expanded registry signatures are separate evidence.
 A completed domain has a compiled HGL body or a binding to an HGL-exposed

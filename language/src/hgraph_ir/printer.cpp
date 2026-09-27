@@ -257,6 +257,10 @@ namespace hgl::hgraph_ir
                 out << " native=";
                 print_native_function_id(out, operation.native_function);
             }
+            if (!operation.native_candidates.empty()) {
+                out << " native-candidates=";
+                print_ids(out, 'n', operation.native_candidates);
+            }
             if (operation.candidate.valid()) {
                 out << " candidate=";
                 print_callable_id(out, operation.candidate);
@@ -560,7 +564,7 @@ namespace hgl::hgraph_ir
                         out << " body=";
                         print_constraint_id(out, node.body);
                     } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
-                        out << "operator " << node.operator_identity;
+                        out << (node.native_scalar ? "native-scalar " : "operator ") << node.operator_identity;
                         if (!node.operator_registry_name.empty()) { out << " registry=" << node.operator_registry_name; }
                         out << " arguments=";
                         print_ids(out, 'r', node.arguments);

@@ -38,7 +38,7 @@ def test_hgl_catalogue_is_current_and_every_identity_has_a_disposition():
 def test_check_ignores_a_moved_declaration_but_not_a_changed_inventory():
     # A base-branch edit that shifts a recorded declaration must not fail the
     # ratchet, because a pull request is checked on its merge commit.
-    text = (ROOT / 'language/stdlib/catalogue/catalogue.json').read_text()
+    text = (ROOT / 'external/hgraph_spec_audit/catalogue/catalogue.json').read_text()
     moved = json.loads(text)
     next(o for o in moved['operators'] if o['declarations'])['declarations'][0]['line'] += 10
     assert catalogue.comparable(json.dumps(moved)) == catalogue.comparable(text)
@@ -75,3 +75,14 @@ def test_native_inventory_distinguishes_signatures_from_implementation_parts(tmp
     assert len(declarations) == 2
     assert [(entry["name"], entry["form"]) for entry in implementations] == [
         ("value", "value"), ("temporal", "node"), ("graph", "graph")]
+
+
+def test_inventory_reads_shared_contracts_and_implementations_once(tmp_path):
+    folder = tmp_path / "external/hgraph_std/hgl/hgraph"
+    (folder / "impl").mkdir(parents=True)
+    (folder / "standard.hgl").write_text("module hgraph.std\noperator identity(value: i64) -> i64\n")
+    (folder / "impl/standard.hgl").write_text(
+        "module hgraph.std part standard_impl\nimpl fn identity(value: i64) -> i64 => value\n")
+    entries = catalogue.hgl_inventory(tmp_path)
+    assert sorted(entry["kind"] for entry in entries) == ["contract", "implementation"]
+    assert all(entry["source"].startswith("external/hgraph_std/") for entry in entries)

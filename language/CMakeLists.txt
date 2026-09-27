@@ -1,5 +1,8 @@
+get_filename_component(HGRAPH_SHARED_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../external" ABSOLUTE)
+set(HGRAPH_SPEC "${HGRAPH_SHARED_ROOT}/hgraph_spec")
+set(HGRAPH_STD "${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph")
 # Shared HGL sources are pinned separately from the C++ implementation.
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/standard.hgl")
+if(NOT EXISTS "${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/standard.hgl")
     message(FATAL_ERROR "Shared HGL sources are missing. Run python3 tools/shared_artifacts.py from the repository root before configuring HGRAPH_BUILD_LANGUAGE.")
 endif()
 
@@ -115,6 +118,7 @@ add_library(hgl_syntax STATIC
     src/syntax/syntax_diagnostics.cpp
     src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
+    src/syntax/formatter.cpp
     src/syntax/ast_printer.cpp
 )
 # GCC diagnoses the overloaded lexy DSL operators as though they were built-in
@@ -418,15 +422,17 @@ set(_hgl_core_native_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_core_nati
 # One explicit source inventory drives both compilation and SDK installation.
 # Parts share the hgraph.native identity; no submodule import routes are added.
 set(_hgl_core_native_parts
-    stdlib/hgl/hgraph/native/sequences.hgl
-    stdlib/hgl/hgraph/native/sets_maps.hgl
-    stdlib/hgl/hgraph/native/windows.hgl
-    stdlib/hgl/hgraph/native/scalar_values.hgl
-    stdlib/hgl/hgraph/native/scalar_values_i64.hgl
-    stdlib/hgl/hgraph/native/temporal_values.hgl
-    stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl
-    stdlib/hgl/hgraph/native/impl/cpp_scalar_values_i64.hgl
-    stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/sequences.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/sets_maps.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/windows.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/native/scalar_operators.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/native/scalar_values.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/native/scalar_values_i64.hgl
+    ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/native/temporal_values.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/impl/cpp_scalar_operators.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/impl/cpp_scalar_values.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/impl/cpp_scalar_values_i64.hgl
+    ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/native/impl/cpp_temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
     NATIVE_PROVIDER_HEADER native_scalar.h
@@ -456,9 +462,10 @@ set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_stan
 set(_hgl_stdlib_source_parts 8)
 hgl_add_module(hgl_standard_library STATIC
     SOURCE_PARTS ${_hgl_stdlib_source_parts}
-    HGL stdlib/hgl/hgraph/standard.hgl
-    PARTS stdlib/hgl/hgraph/control.hgl stdlib/hgl/hgraph/stream.hgl
-          stdlib/hgl/hgraph/temporal.hgl
+    HGL ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/standard.hgl
+    PARTS ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl
+          ${HGRAPH_STD}/impl/standard.hgl ${HGRAPH_STD}/impl/control.hgl
+          ${HGRAPH_STD}/impl/stream.hgl ${HGRAPH_STD}/impl/temporal.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
@@ -477,12 +484,13 @@ add_custom_command(
         ${_hgl_standard_library_include_dir}/operators.h
         ${_hgl_standard_library_src_dir}/operators.cpp
         ${_hgl_standard_library_src_dir}/operators.hgl-module.json
-    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/operators.hgl
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${HGRAPH_STD}/operators.hgl
+        --part ${HGRAPH_STD}/impl/operators.hgl
         --source-parts ${_hgl_stdlib_source_parts}
         --include-dir ${_hgl_standard_library_include_dir}
         --src-dir ${_hgl_standard_library_src_dir}
         --module-descriptor ${_hgl_core_native_src_dir}/native.hgl-module.json
-    DEPENDS hgl stdlib/hgl/hgraph/operators.hgl ${_hgl_core_native_src_dir}/native.hgl-module.json
+    DEPENDS hgl ${HGRAPH_STD}/operators.hgl ${HGRAPH_STD}/impl/operators.hgl ${_hgl_core_native_src_dir}/native.hgl-module.json
     COMMENT "hgl emit-cpp operators.hgl"
     VERBATIM
 )
@@ -596,22 +604,17 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl/modules
     COMPONENT Development
 )
-install(FILES
-    stdlib/hgl/hgraph/native.hgl
-    stdlib/hgl/hgraph/standard.hgl
-    stdlib/hgl/hgraph/control.hgl
-    stdlib/hgl/hgraph/operators.hgl
-    stdlib/hgl/hgraph/stream.hgl
-    stdlib/hgl/hgraph/temporal.hgl
+install(FILES stdlib/hgl/hgraph/native.hgl
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph COMPONENT Development)
+install(DIRECTORY ${HGRAPH_STD}/
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
-    COMPONENT Development
-)
+    COMPONENT Development FILES_MATCHING PATTERN "*.hgl")
 install(FILES stdlib/cpp/native_scalar.h
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/cpp
     COMPONENT Development)
 foreach(_part IN LISTS _hgl_core_native_parts)
     get_filename_component(_part_directory "${_part}" DIRECTORY)
-    string(REPLACE "stdlib/hgl/hgraph/native" "" _relative_directory "${_part_directory}")
+    string(REGEX REPLACE "^.*/hgraph/native" "" _relative_directory "${_part_directory}")
     install(FILES ${_part}
         DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native${_relative_directory}
         COMPONENT Development)
