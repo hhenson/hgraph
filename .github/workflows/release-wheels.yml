@@ -171,7 +171,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Materialize pinned shared sources
-        run: python3 tools/shared_artifacts.py
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 tools/shared_artifacts.py
       - name: Enable shared compiler cache
         uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
