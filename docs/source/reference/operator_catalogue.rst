@@ -2384,7 +2384,7 @@ Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
 ``predicate`` : time-series, scalar; ``TS[bool]``, ``callable``, ``fn``
-   Boolean stream that freezes the output when true.
+   Boolean stream that freezes the output when true, or a function of ``ts`` returning that stream.
 
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Stream to forward until frozen.
@@ -3404,7 +3404,7 @@ Accepted native overloads
 
    join(lhs: TS[Frame[SCALAR]], rhs: TS[Frame[SCALAR_1]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[OUT]]
    join(strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = ...) -> TS[str]
-   join(*ts: TS[str], separator: str, __strict__: bool = ...) -> OUT
+   join(*ts: TS[str], separator: str, __strict__: bool = ...) -> TS[str]
    join(ts: TS[SCALAR], separator: str, __strict__: bool = ...) -> TS[str]
 
 .. _python-operator-json_as_bool:
@@ -3685,7 +3685,7 @@ are fixed when the graph is built.
    Stream to delay.
 
 ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
-   Positive tick count or duration selected at wiring time.
+   Positive tick count or duration fixed at wiring time, or a ``TS[timedelta]`` duration that may change.
 
 ``on_wall_clock`` : scalar; ``bool``
    For duration lag, use host time in a real-time graph; simulation uses graph time. Optional in overloads that show ``= ...``.
@@ -8071,7 +8071,7 @@ Accepted native overloads
 
    until_true(ts: TS[bool]) -> TS[bool]
    until_true(predicate: callable, ts: TIME_SERIES_TYPE) -> TS[bool]
-   until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT
+   until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> TS[bool]
 
 .. _python-operator-valid:
 
@@ -8108,7 +8108,7 @@ Accepted native overloads
 .. code-block:: text
 
    valid(ts: TIME_SERIES_TYPE) -> TS[bool]
-   valid(ts: REF[TIME_SERIES_TYPE]) -> OUT
+   valid(ts: REF[TIME_SERIES_TYPE]) -> TS[bool]
 
 .. _python-operator-values_:
 

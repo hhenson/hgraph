@@ -415,6 +415,17 @@ namespace hgraph
         using metadata_type = TMetadata;
     };
 
+    /**
+     * Frame metadata that may be absent, for an operator declaration only:
+     * ``FrameOf<R, OptionalFrameMetadata<M>>`` matches a frame of ``R`` with
+     * metadata ``M`` or without metadata (runtime spec WIR-23).
+     */
+    template <typename TMetadata>
+    struct OptionalFrameMetadata
+    {
+        using metadata_type = TMetadata;
+    };
+
     // -----------------------------------------------------------------
     // Descriptor traits: bridge to the runtime registry
     // -----------------------------------------------------------------

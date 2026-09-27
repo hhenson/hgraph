@@ -24,7 +24,7 @@ namespace hgraph::stdlib
         @code{.py}
         ready = hg.and_(has_data, market_open)
         @endcode */
-    struct and_ : Operator<"and_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct and_ : Operator<"and_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
@@ -37,7 +37,7 @@ namespace hgraph::stdlib
         @code{.py}
         alert = hg.or_(price_alert, risk_alert)
         @endcode */
-    struct or_ : Operator<"or_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
+    struct or_ : Operator<"or_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 

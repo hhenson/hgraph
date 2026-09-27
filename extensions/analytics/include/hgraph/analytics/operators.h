@@ -49,8 +49,8 @@ namespace hgraph::analytics
         node has no warm-up state. Live bounds recompute the result when either
         bound changes.
         @param ts Numeric input stream.
-        @param min Lower inclusive bound.
-        @param max Upper inclusive bound.
+        @param min Lower inclusive bound, fixed while wiring or a live stream.
+        @param max Upper inclusive bound, fixed while wiring or a live stream.
         @return ``min`` below the range, ``max`` above it, otherwise ``ts``.
         @throws std::invalid_argument during node start for fixed bounds, or
                                      during evaluation for live bounds, when
@@ -62,7 +62,7 @@ namespace hgraph::analytics
         @endcode */
     struct clip
         : Operator<"hgraph.analytics.clip", In<"ts", TS<ScalarVar<"T">>>,
-                   Scalar<"min", ScalarVar<"T">>, Scalar<"max", ScalarVar<"T">>,
+                   In<"min", TS<ScalarVar<"T">>>, In<"max", TS<ScalarVar<"T">>>,
                    Out<TS<ScalarVar<"T">>>>
     {
     };
@@ -206,6 +206,8 @@ namespace hgraph::analytics
                    In<"x", TsVar<"X">>, Scalar<"rowvar", Bool>,
                    Out<TsVar<"__out__">>>
     {
+        /** ``rowvar`` is optional (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"rowvar">(Bool{true})}; }
     };
 
     /** Select a scalar quantile from a numeric shaped array or tick window.
@@ -300,6 +302,8 @@ namespace hgraph::analytics
         : Operator<"hgraph.analytics.std", In<"ts", TsVar<"S">>,
                    Scalar<"ddof", Int>, Out<TsVar<"O">>>
     {
+        /** ``ddof`` is optional (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"ddof">(Int{0})}; }
     };
 
     /** Calculate variance according to input shape and arity.
@@ -344,7 +348,7 @@ namespace hgraph::analytics
         @endcode */
     struct rolling_mean
         : Operator<"hgraph.analytics.rolling_mean",
-                   In<"ts", TS<ScalarVar<"T">>>, Scalar<"period", Int>,
+                   In<"ts", TS<ScalarVar<"T">>>, Scalar<"period", ScalarVar<"P", Int, TimeDelta>>,
                    Out<TS<Float>>>
     {
     };

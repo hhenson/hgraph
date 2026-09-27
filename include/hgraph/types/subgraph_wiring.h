@@ -237,22 +237,17 @@ namespace hgraph
             };
 
             // The child graph holds its label on the wiring path while it
-            // composes, so a failure inside it names it (runtime spec WIR-4).
+            // composes and finalizes, including deferred wiring (WIR-4).
             CompiledSubGraph compiled = [&]<std::size_t... I>(std::index_sequence<I...>) {
+                const WiringPathScope path{w, static_node_detail::diagnostic_name<G>()};
                 if constexpr (std::is_void_v<typename sig::output_type>)
                 {
-                    {
-                        const WiringPathScope path{w, static_node_detail::diagnostic_name<G>()};
-                        G::compose(w, make_param.template operator()<I>()...);
-                    }
+                    G::compose(w, make_param.template operator()<I>()...);
                     return std::move(w).finish_subgraph(std::nullopt, std::move(input_schemas));
                 }
                 else
                 {
-                    auto out = [&] {
-                        const WiringPathScope path{w, static_node_detail::diagnostic_name<G>()};
-                        return G::compose(w, make_param.template operator()<I>()...);
-                    }();
+                    auto out = G::compose(w, make_param.template operator()<I>()...);
                     return std::move(w).finish_subgraph(out.erased(), std::move(input_schemas));
                 }
             }(std::make_index_sequence<sig::param_count()>{});

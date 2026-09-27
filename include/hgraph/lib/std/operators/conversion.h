@@ -43,6 +43,8 @@ namespace hgraph::stdlib
         : Operator<"const", Scalar<"value", ScalarVar<"T">>, TypeArg<"tp", TsVar<"S">, AutoResolve>,
                    Scalar<"delay", TimeDelta>, Out<TsVar<"S">>>
     {
+        /** ``delay`` is optional (runtime spec WIR-22). */
+        static auto defaults() { return std::tuple{arg<"delay">(TimeDelta{0})}; }
     };
 
     /** Convert a time series to an explicitly selected output shape.
