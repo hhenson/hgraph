@@ -183,7 +183,9 @@ jobs:
             | grep -F "hgl ${HGRAPH_RELEASE_VERSION} (hgraph api "
           docker run --rm -v "$PWD/packaging/smoke:/work" hgl:dry-run \
             hgl test smoke.hgl
-          docker run --rm -v "$PWD/language/examples:/work" hgl:dry-run \
+          docker run --rm \
+            --mount "type=bind,source=$PWD/external/hgraph_spec/language/examples,target=/work,readonly" \
+            hgl:dry-run \
             hgl test midpoint.hgl
       - name: Build an HGL package against the SDK inside the image
         shell: bash
