@@ -31,3 +31,17 @@ python3 tools/source_archive.py
 The fixed output `dist/hgraph-source.tar.gz` builds without Git or submodule
 initialization. GitHub-generated tag archives omit dependencies. Core runtime
 builds without language tools or conformance tests do not need shared sources.
+
+## Declaration formatter
+
+`hgl fmt file.hgl` previews declaration layout on stdout. `--write` replaces
+that file; `--check` writes nothing and returns 1 when formatting is needed.
+The modes are exclusive. Syntax errors return 1 without rewriting; usage or
+file errors return 2. Formatting needs no import resolution or native provider.
+
+The source-range formatter preserves comments, literals and body formatting.
+It separates definitions and indents attached `requires`/`properties` clauses.
+The rules belong to [the shared specification](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/formatting.md).
+Expression spacing and line wrapping are outside this first slice. File writes
+replace a completed sibling temporary file and preserve permission bits;
+symbolic-link writes are rejected.

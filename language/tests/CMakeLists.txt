@@ -148,6 +148,7 @@ add_executable(hgl_syntax_tests
     syntax/lexer_tests.cpp
     syntax/token_grammar_tests.cpp
     syntax/parser_tests.cpp
+    syntax/formatter_tests.cpp
 )
 target_compile_features(hgl_syntax_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_syntax_tests PRIVATE hgl::syntax Catch2::Catch2WithMain)
@@ -927,3 +928,9 @@ add_test(NAME hgraph_language_shared_admission
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/admission
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/admission_test.cmake)
 set_tests_properties(hgraph_language_shared_admission PROPERTIES TIMEOUT 180)
+
+add_test(NAME hgraph_language_format
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/format-cli
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/format.cmake)

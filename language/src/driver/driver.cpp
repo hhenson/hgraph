@@ -15,6 +15,7 @@
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
+#include "syntax/formatter.h"
 #include "syntax/lexer.h"
 #include "syntax/parser.h"
 #include "syntax/source.h"
@@ -50,6 +51,7 @@ namespace hgl::driver
         void print_help() {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
+                         "  hgl fmt <file> [--check | --write]\n"
                          "  hgl check <file> [--part <file>]... [--module-descriptor <file>]...\n"
                          "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
                          "  hgl test <file> [test-name]... [--part <file>]... [--module-descriptor <file>]...\n"
@@ -66,6 +68,7 @@ namespace hgl::driver
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
+                         "  fmt       format declaration layout; preview by default\n"
                          "  check     validate an HGL source module or .hgl-module.json descriptor\n"
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
@@ -98,6 +101,82 @@ namespace hgl::driver
             std::ifstream in{path, std::ios::binary};
             if (!in) { return std::nullopt; }
             return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+        }
+
+        int format_command(std::span<const std::string_view> arguments) {
+            std::string path;
+            bool        check_only = false, write = false;
+            for (auto argument : arguments) {
+                if (argument == "--check") {
+                    check_only = true;
+                } else if (argument == "--write") {
+                    write = true;
+                } else if (argument.starts_with("-") || !path.empty()) {
+                    return usage_error("fmt expects one file and --check or --write");
+                } else {
+                    path = argument;
+                }
+            }
+            if (path.empty() || (check_only && write)) { return usage_error("fmt expects one file and --check or --write"); }
+            const auto original = read_file(path);
+            if (!original) { return usage_error("cannot read '" + path + "'"); }
+            const syntax::SourceFile file{path, *original};
+            syntax::DiagnosticSink   diagnostics;
+            const auto               formatted = syntax::format_declarations(file, diagnostics);
+            if (!formatted) {
+                std::cerr << diagnostics.render(file);
+                return exit_diagnostics;
+            }
+            if (check_only) {
+                if (*formatted == *original) { return exit_ok; }
+                std::cerr << path << ": declaration layout needs formatting\n";
+                return exit_diagnostics;
+            }
+            if (!write) {
+                std::cout << *formatted;
+                return exit_ok;
+            }
+            if (*formatted == *original) { return exit_ok; }
+            std::error_code             error;
+            const std::filesystem::path destination{path};
+            const auto                  status = std::filesystem::symlink_status(destination, error);
+            if (error || !std::filesystem::is_regular_file(status)) {
+                return usage_error("fmt --write requires a regular file, not a symbolic link");
+            }
+            // Reserve a sibling directory so replacement stays on the same
+            // filesystem and an interrupted write cannot truncate the source.
+            std::filesystem::path temporary;
+            for (int attempt = 0; attempt < 16; ++attempt) {
+                const auto candidate = destination.string() + ".fmt-" +
+                                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+                                       std::to_string(attempt);
+                if (std::filesystem::create_directory(candidate, error)) {
+                    temporary = candidate;
+                    break;
+                }
+                if (error) { return usage_error("cannot create formatter temporary directory: " + error.message()); }
+            }
+            if (temporary.empty()) { return usage_error("cannot reserve formatter temporary directory"); }
+            struct Cleanup
+            {
+                std::filesystem::path path;
+                ~Cleanup() {
+                    std::error_code ignored;
+                    std::filesystem::remove_all(path, ignored);
+                }
+            } cleanup{temporary};
+            const auto replacement = temporary / "formatted.hgl";
+            {
+                std::ofstream stream{replacement, std::ios::binary};
+                stream << *formatted;
+                stream.close();
+                if (!stream) { return usage_error("cannot write formatted source"); }
+            }
+            std::filesystem::permissions(replacement, status.permissions(), error);
+            if (error) { return usage_error("cannot preserve source permissions: " + error.message()); }
+            std::filesystem::rename(replacement, destination, error);
+            if (error) { return usage_error("cannot replace formatted source: " + error.message()); }
+            return exit_ok;
         }
 
         std::optional<int> collect_module_descriptors(std::span<const std::string_view> arguments,
@@ -1101,6 +1180,7 @@ namespace hgl::driver
             print_version(tool_version);
             return exit_ok;
         }
+        if (command == "fmt") { return format_command(rest); }
         semantics::ModuleCatalog      catalog;
         std::vector<std::string_view> command_arguments;
         if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }

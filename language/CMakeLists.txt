@@ -118,6 +118,7 @@ add_library(hgl_syntax STATIC
     src/syntax/syntax_diagnostics.cpp
     src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
+    src/syntax/formatter.cpp
     src/syntax/ast_printer.cpp
 )
 # GCC diagnoses the overloaded lexy DSL operators as though they were built-in
