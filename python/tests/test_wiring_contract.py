@@ -10,14 +10,17 @@ compiler's to hold (WIR-14); they are not run here.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-VALIDATION = Path(__file__).resolve().parents[2] / "external/hgraph_spec_audit/runtime/validation/wiring"
-REASONED = json.loads((VALIDATION / "reasoned.json").read_text())
+SHARED = Path(__file__).resolve().parents[2] / "external"
+VALIDATION = SHARED / "hgraph_spec_audit/runtime/validation/wiring"
+SPEC = SHARED / "hgraph_spec/runtime"
+REASONED = json.loads((SPEC / "validation/wiring/reasoned.json").read_text())
 RUNTIME_CASES = sorted(case for case in REASONED if not case.startswith("_") and case != "hgl_front_end")
 
 # Accepted expectations this runtime does not meet yet, by variation ID
@@ -58,12 +61,11 @@ def test_the_wiring_case_holds(case):
 
 
 def test_every_cited_rule_is_defined():
-    sys.path.insert(0, str(VALIDATION))
-    try:
-        import check
-    finally:
-        sys.path.remove(str(VALIDATION))
-    defined = check._defined_rules()
+    defined = {
+        rule
+        for chapter in ("wiring.md", "time_series.md")
+        for rule in re.findall(r"\*\*([A-Z]{2,4}-\d+)\*\*", (SPEC / chapter).read_text())
+    }
     cited = {
         rule
         for case, fields in REASONED.items()
