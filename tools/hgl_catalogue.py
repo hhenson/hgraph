@@ -16,7 +16,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOGUE = ROOT / "language/stdlib/catalogue"
+CATALOGUE = ROOT / "external/hgraph_spec_audit/catalogue"
 
 
 def without_comments(text: str) -> str:
@@ -238,15 +238,15 @@ def render(data: dict) -> str:
     lines += ["", "## Blocker definitions", ""]
     for key, item in data["blockers"].items():
         lines += [f"### {key}", "", f"Priority {item['priority']}. " + item["summary"], "",
-                  "Evidence: " + ", ".join(f"[{Path(p).name}](../../../{p})" for p in item["evidence"]), ""]
+                  "Evidence: " + ", ".join(f"[{Path(p).name}](https://github.com/hhenson/hgraph/blob/main/{p})" for p in item["evidence"]), ""]
     lines += ["## Other library surfaces", "", "| Surface | Disposition | Reason |", "| --- | --- | --- |"]
     for item in data["other_surfaces"]:
         lines.append(f"| `{item['name']}` | {item['status']} | {item['reason']} |")
     lines += ["", "## Maintenance", "", "```sh", "python tools/hgl_catalogue.py --check",
               "# After changing native library registrations, use a freshly built wheel:",
               "python tools/hgl_catalogue.py --refresh-registry", "```", "",
-              "See [the design record](../../docs/design/migration-catalogue.md) and the",
-              "[requirements ledger](../../docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.", ""]
+              "See [the design record](https://github.com/hhenson/hgraph/blob/main/language/docs/design/migration-catalogue.md) and the",
+              "[requirements ledger](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.", ""]
     return "\n".join(lines)
 
 

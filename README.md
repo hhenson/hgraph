@@ -85,3 +85,8 @@ against a real runtime by `sphinx-build -b doctest`, which needs an importable
   architecture map, and current state.
 - [`plugins/hgraph-development/`](plugins/hgraph-development/) — installable
   hgraph development skills for downstream Codex and Claude projects.
+
+## Shared language sources
+
+Run `python3 tools/shared_artifacts.py` before compiler, documentation or
+contract-test work. See [shared source setup](language/docs/developer-guide/shared-sources.md).

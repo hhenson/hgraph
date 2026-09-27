@@ -1,0 +1,9 @@
+[submodule "external/hgraph_spec"]
+	path = external/hgraph_spec
+	url = https://github.com/hhenson/hgraph_spec.git
+[submodule "external/hgraph_std"]
+	path = external/hgraph_std
+	url = https://github.com/hhenson/hgraph_std.git
+[submodule "external/hgraph_spec_audit"]
+	path = external/hgraph_spec_audit
+	url = https://github.com/hhenson/hgraph_spec_audit.git

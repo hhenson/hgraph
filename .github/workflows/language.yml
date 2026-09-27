@@ -97,6 +97,8 @@ jobs:
       # consumer the same real package environment on both platforms rather
       # than letting a developer machine's package-manager state hide a missing
       # dependency prefix.
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
           # A persistent runner must not reuse a previous job's installer paths.
@@ -212,6 +214,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Materialize pinned shared sources
+        run: python tools/shared_artifacts.py
       - name: Configure GCC 14
         shell: bash
         run: |

@@ -38,7 +38,7 @@ and readable generated C++; exercise it through public native wiring and
 scripted HGL tests where the test harness supports the input shape. Existing
 core implementations remain in place during this authoring milestone.
 
-The [migration requirements ledger](migration-requirements.md) defines the
+The [migration requirements ledger](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/migration-requirements.md) defines the
 `HGL-MIG-001`–`015` and `HGL-LIB-001`–`004` identifiers that reviews cite and
 records each open decision. It was extracted from PR #801, which is closed.
 Missing language semantics remain separate design work; the catalogue does

@@ -5,8 +5,8 @@ the compiled standard-library modules. It is an acceptance fixture, not a
 second implementation: the authoritative sources remain
 [`stdlib/hgl/hgraph/native.hgl`](../stdlib/hgl/hgraph/native.hgl) and its
 explicit [`native/` parts](../stdlib/hgl/hgraph/native),
-[`stdlib/hgl/hgraph/standard.hgl`](../stdlib/hgl/hgraph/standard.hgl), and
-[`stdlib/hgl/hgraph/operators.hgl`](../stdlib/hgl/hgraph/operators.hgl).
+[`stdlib/hgl/hgraph/standard.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/standard.hgl), and
+[`stdlib/hgl/hgraph/operators.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/operators.hgl).
 Only accepted `.hgl` source is represented here. Review-only
 `.hgl.proposed` designs are not compiler inputs and must not produce snapshots.
 

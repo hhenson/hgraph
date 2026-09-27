@@ -3,7 +3,7 @@
 Status: compiled native substrate and parallel HGL implementations
 
 This folder contains two different layers. [`native.hgl`](native.hgl) anchors a thin
-C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
+C++ value/view substrate. [`standard.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/standard.hgl) is ordinary HGL that
 defines, materializes, and registers the first higher-level operator families.
 
 Repository acceptance is visible in the filename. A standard-library design
@@ -28,8 +28,8 @@ The parts are one module, not independently importable submodules:
 | [`native/sequences.hgl`](native/sequences.hgl) | `sequences` | Fixed and unbounded TSL |
 | [`native/sets_maps.hgl`](native/sets_maps.hgl) | `sets_maps` | TSS and TSD |
 | [`native/windows.hgl`](native/windows.hgl) | `windows` | Tick-window queries |
-| [`native/scalar_values.hgl`](native/scalar_values.hgl) | `scalar_values` | String queries, numeric/Boolean projections and conversions |
-| [`native/temporal_values.hgl`](native/temporal_values.hgl) | `temporal_values` | Calendar, clock, duration and epoch value projections |
+| [`native/scalar_values.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/native/scalar_values.hgl) | `scalar_values` | String queries, numeric/Boolean projections and conversions |
+| [`native/temporal_values.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/native/temporal_values.hgl) | `temporal_values` | Calendar, clock, duration and epoch value projections |
 
 CMake explicitly passes the complete list through `PARTS`; compiling just the
 anchor does not discover its siblings. All declarations remain accessible via
@@ -99,7 +99,7 @@ String searches may scan the input but neither allocate nor retain arguments.
 For tick windows the current C++ `valid` becomes true on the first sample;
 `all_valid` becomes true at `min_period`. These bindings preserve that distinction.
 
-The compiled [consumer examples](../examples/core-native-library.hgl) include
+The compiled [consumer examples](https://github.com/hhenson/hgraph_std/blob/main/hgl/examples/core-native-library.hgl) include
 clock-driven sampling before validity, passive input inspection, window
 growth/eviction, and string queries. No Python runtime wrapper
 or duplicate system node is introduced by this module.
@@ -110,7 +110,7 @@ maps/lists/tick windows, `front`/`back` for lists/tick windows, and window
 `time_at`/`removed_value`. These are bare HGL intrinsics, not extra native-module
 declarations. Their generated consumers and runtime tests cover key additions,
 child-only updates, removals, strict bounds and window wraparound. See the
-[accepted surface and remaining work](../../../docs/design/native-surface-proposal.md),
+[accepted surface and remaining work](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-surface-proposal.md),
 including the accepted but still unimplemented nullable `get` contract.
 
 ## Tests beside each native part
@@ -145,13 +145,13 @@ Production compilation excludes test assertions, context helpers, helper
 registrations, and native dependencies used only by those helpers. A native
 dependency shared with production remains present. `hgl test` includes the
 test context; its helpers are still absent from the public HGL descriptor.
-See [test contexts](../../../docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+See [test contexts](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
 
 Local scalar `const fn` helpers can be tested using automatic lifting;
 `eval(const(helper), ...)` explicitly selects the value version when a temporal
 function has the same name. Existing `native fn` bindings are unchanged and
 are not automatically migrated to value functions. See
-[value functions and lifting](../../../docs/user-guide/value-functions.md).
+[value functions and lifting](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/value-functions.md).
 
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:
@@ -173,18 +173,18 @@ fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
 ```
 
 See the compiled consumer
-[`core-native-library.hgl`](../examples/core-native-library.hgl).
+[`core-native-library.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/examples/core-native-library.hgl).
 
 ## Accepted HGL operator surface
 
-[`standard.hgl`](standard.hgl) defines `hgraph.std.len_` and
+[`standard.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/standard.hgl) defines `hgraph.std.len_` and
 `hgraph.std.is_empty`. It is compiled with `hgl_add_module()` as
 `hgl::standard_library`, installed with its generated header and descriptor,
 and runtime-tested through the public operator registry. The implementation is
 HGL; its only native calls are the current-value/live-view projections from
 `hgraph.native`.
 
-[`control.hgl`](control.hgl) adds the accepted homogeneous variadic contracts
+[`control.hgl`](https://github.com/hhenson/hgraph_std/blob/main/hgl/hgraph/control.hgl) adds the accepted homogeneous variadic contracts
 for `merge`, `race`, `all_`, and `any_`. These declarations now compile to real
 `VarIn` operator contracts and descriptors. Their bodies remain pending because startup results and complete reference/
 reselection semantics are still missing.
@@ -246,15 +246,15 @@ operations neither expose nor specialize on the payload schema.
 
 The complete gap table for current/delta values, references, hashing,
 ordering, formatting, metadata, output mutation, and iterators is maintained in
-the [native-interface design](../../../docs/design/native-interface.md#exact-native-value-and-view-functions).
+the [native-interface design](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md#exact-native-value-and-view-functions).
 
-The [native surface completion record](../../../docs/design/native-surface-proposal.md)
+The [native surface completion record](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-surface-proposal.md)
 separates implemented operations, accepted compiler/ABI work, and behavior
 that still needs agreement.
 
 ## Migration catalogue and implementation parts
 
-The [catalogue](../../catalogue/README.md) records completed domains, native
+The [catalogue](https://github.com/hhenson/hgraph_spec_audit/blob/main/catalogue/README.md) records completed domains, native
 source signatures, test evidence and outstanding capabilities. Native value
 bindings count; delegation to an existing temporal operator stays pending.
 

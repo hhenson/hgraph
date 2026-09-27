@@ -93,6 +93,8 @@ RUN apt-get update \
 COPY --from=deps /opt/deps/ /usr/local/
 RUN ldconfig
 WORKDIR /src
+# Run python3 tools/shared_artifacts.py before creating this build context.
+# The language build consumes the pinned, materialized HGL inputs.
 COPY . .
 RUN cmake -S . -B build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \

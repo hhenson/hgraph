@@ -14,7 +14,7 @@ independent consumer of the public hgraph SDK. It must remain possible to move
 the directory into a separate repository without changing hgraph core.
 
 The agreed direction in
-[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) separates
+[ADR 0008](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md) separates
 temporal and value-level functions, recordable state and reconstructible
 caches, and semantic contracts and target mappings. Alternative engine or
 language mappings are future work, not current backend support or a second
@@ -132,7 +132,7 @@ not part of the desired semantics.
 
 The detailed pass contracts and dependency rules are defined in
 [Compiler architecture](compiler-architecture.md). The parser and IR decisions
-are recorded under [Architecture decision records](decisions/README.md).
+are recorded under [Architecture decision records](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/README.md).
 
 All execution modes share one pipeline:
 
@@ -232,7 +232,7 @@ a compiler failure, so generated code remains deterministic and suitable for
 human inspection.
 
 Exact calls into a native value library use the constrained contract in
-[Native interface](native-interface.md). Generated code may make a direct C++
+[Native interface](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md). Generated code may make a direct C++
 call through a package's public header or wrapper. A top-level source
 `native fn` may instead supply one exact local C++ value/view body; arbitrary
 C++ remains unavailable inside graph and node bodies.

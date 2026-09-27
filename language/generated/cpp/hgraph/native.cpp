@@ -29,6 +29,9 @@ namespace hgraph_::native
         // native.hgl:45
         hgraph::Bool active(const hgraph::TSInputView &value) noexcept { return value.active(); }
 
+        // native.hgl:73
+        hgraph::DateTime midnight(const hgraph::Date &value) noexcept { return hgraph::DateTime{std::chrono::sys_days{value}}; }
+
         hgraph::Int  len(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.len(value); }
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.is_empty(value); }
         hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept {
@@ -153,9 +156,6 @@ namespace hgraph_::native
         hgraph::Date     calendar_date(const hgraph::DateTime &value) noexcept {
             return hgl::stdlib::scalar_native.calendar_date(value);
         }
-        // temporal_values.hgl:82
-        hgraph::DateTime midnight(const hgraph::Date &value) noexcept { return hgraph::DateTime{std::chrono::sys_days{value}}; }
-
         // windows.hgl:10
         hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 

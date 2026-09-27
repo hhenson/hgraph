@@ -1,7 +1,7 @@
 # Developer Guide
 
 This guide explains how to implement the source contract in the
-[User Guide](../user-guide/README.md). The compiler is an authoring frontend
+[User Guide](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/README.md). The compiler is an authoring frontend
 for hgraph, not a second runtime.
 
 > **Implementation status (audited against main, 2026-09-19):** the frontend
@@ -21,7 +21,7 @@ for hgraph, not a second runtime.
 
 ## Guide map
 
-1. [Syntax and semantics](syntax-and-semantics.md) defines `fn` syntax,
+1. [Syntax and semantics](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/developer-guide/syntax-and-semantics.md) defines `fn` syntax,
    `export fn`, bodyless nominal `operator` contracts, generics, module aliases,
    `requires` constraints and type substitution, `const` parameters, lexical
    bindings, canonical and rolling types, nominal and generic structs,
@@ -60,11 +60,11 @@ The design records provide project boundaries and rationale:
 
 - [Architecture](../design/architecture.md)
 - [Compiler architecture](../design/compiler-architecture.md)
-- [Language model](../design/language-model.md)
-- [Modules and native extensions](../design/modules.md)
-- [Native interface](../design/native-interface.md)
+- [Language model](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/language-model.md)
+- [Modules and native extensions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/modules.md)
+- [Native interface](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/native-interface.md)
 - [Documentation architecture](../design/documentation.md)
-- [Architecture decisions](../design/decisions/README.md)
+- [Architecture decisions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/README.md)
 - [Roadmap](../design/roadmap.md)
 
 ## Sources of truth
@@ -84,8 +84,8 @@ surface.
 
 - The implemented temporal model uses `fn`; `operator` declares a bodyless
   nominal callable contract, implemented by `impl fn`. Local fixed-arity
-  `const fn` and [default lifting](../user-guide/value-functions.md) are implemented; see
-  [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md)
+  `const fn` and [default lifting](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/value-functions.md) are implemented; see
+  [ADR 0008](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md)
   for phase eligibility, cache/state, and target-mapping follow-up work.
 - Every `operator` and non-generic `impl fn` candidate is public by definition;
   generic implementations contribute only their explicit `instantiate`

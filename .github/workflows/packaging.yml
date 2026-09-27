@@ -57,6 +57,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - name: Create a throwaway tap holding the in-repo formula
         shell: bash
         run: |
@@ -75,7 +77,7 @@ jobs:
         run: |
           version="$(git describe --tags --match '[0-9]*')"
           tarball="$RUNNER_TEMP/hgraph-${version}.tar.gz"
-          git archive --format=tar.gz --prefix="hgraph-${version}/" -o "$tarball" HEAD
+          python3 tools/source_archive.py --prefix "hgraph-${version}" --output "$tarball"
           digest="$(shasum -a 256 "$tarball" | cut -d' ' -f1)"
           formula="$(brew --repository local/hgraph)/Formula/hgraph.rb"
           python3 - "$formula" "$tarball" "$digest" "$version" <<'PY'
@@ -135,6 +137,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Materialize pinned shared sources
+        run: python3 tools/shared_artifacts.py
       - name: Check the Conan recipe exports
         shell: bash
         run: pipx run --spec conan conan export .

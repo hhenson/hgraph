@@ -1,12 +1,12 @@
 # Control-flow scenarios and C++ mappings
 
-Status: worked mappings of the agreed [switch contract](../design/switch.md)
-and [conditional result rules](../design/control-flow.md), not output from an
+Status: worked mappings of the agreed [switch contract](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/switch.md)
+and [conditional result rules](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/control-flow.md), not output from an
 implemented HGL switch compiler. Each scenario starts with HGL source using
 the agreed `switch selector { case value: ... default: ... }` form, followed
 by its C++ mapping and behaviour. Case labels are source-expressible constants.
 The same HGL functions are collected in
-[switch-scenarios.hgl](../../stdlib/examples/switch-scenarios.hgl); they are
+[switch-scenarios.hgl](https://github.com/hhenson/hgraph_spec/blob/main/language/stdlib/examples/switch-scenarios.hgl); they are
 design fixtures, not passing compiler tests. These examples use `i64` selectors
 and integer constants; the agreed enum value rules have their own
 [HGL source and C++ mappings](enum-cpp-mappings.md).
@@ -330,7 +330,7 @@ never-ticking false branch of a value-producing temporal `if` without `else`.
 Consider a predeclared `r` and `adjustment`, both used after the switch. One
 case computes `r` and forwards an existing `adjustment`; another computes both;
 the default forwards their incoming bindings. This uses the same output
-analysis as the agreed [multiple-result conditional](../design/control-flow.md#multiple-escaping-variables).
+analysis as the agreed [multiple-result conditional](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/control-flow.md#multiple-escaping-variables).
 
 ```hgl
 fn multiple_switch_results(mode: i64, x: i64, y: i64) -> i64 {
@@ -418,7 +418,7 @@ graphs. Any producer wired before the switch remains outside them.
 
 Inside a node, the equivalent C++ uses a direct return from the current
 evaluation path. It does not transform the remaining statements into nested
-graphs. See [early returns](../design/control-flow.md#early-returns-and-continuations).
+graphs. See [early returns](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/control-flow.md#early-returns-and-continuations).
 
 ## Scenario 7: conditional sinks and an unconditional sink
 

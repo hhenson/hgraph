@@ -1,6 +1,6 @@
 # hgraph language
 
-The shared [runtime behaviour specification](../docs/source/runtime_spec/overview.md) records concepts,
+The shared [runtime behaviour specification](https://github.com/hhenson/hgraph_spec/blob/main/runtime/overview.md) records concepts,
 numbered rules, conformance cases and implementation evidence. HGL source
 syntax remains specified in this language documentation.
 
@@ -16,7 +16,7 @@ reconstructible caches are implemented. Generic value functions, non-scalar
 caches, mixed cache/state declarations, and portable native target mappings
 remain separate work. See the
 [status matrix](docs/design/roadmap.md#feature-status-matrix-2026-09-07) and
-[ADR 0008](docs/design/decisions/0008-temporal-contracts-and-target-mappings.md).
+[ADR 0008](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md).
 
 Two backends share one frontend: the direct-wiring backend wires composition
 programs onto the hgraph runtime in process, and the C++ backend writes the
@@ -95,7 +95,7 @@ part of the repository, where it reuses the repository's copy.
 
 ## Documentation
 
-- [User Guide](docs/user-guide/README.md)
+- [User Guide](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/user-guide/README.md)
 - [Developer Guide](docs/developer-guide/README.md)
 
 The guides develop the first syntax and examples from both sides of the
@@ -105,9 +105,9 @@ and preserves those semantics through hgraph's public C++ APIs.
 ### Design records
 
 - [Architecture](docs/design/architecture.md)
-- [Language model](docs/design/language-model.md)
-- [Temporal contracts and target mappings](docs/design/decisions/0008-temporal-contracts-and-target-mappings.md)
-- [Modules and native extensions](docs/design/modules.md)
+- [Language model](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/language-model.md)
+- [Temporal contracts and target mappings](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md)
+- [Modules and native extensions](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/modules.md)
 - [Roadmap](docs/design/roadmap.md)
 - [Distribution and deployment](docs/design/distribution.md)
 

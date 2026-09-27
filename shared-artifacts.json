@@ -1,0 +1,1001 @@
+{
+  "files": {
+    "docs/source/runtime_spec/boundaries.md": {
+      "path": "runtime/boundaries.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_atomic.md": {
+      "path": "runtime/cases_atomic.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_collections.md": {
+      "path": "runtime/cases_collections.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_fixed.md": {
+      "path": "runtime/cases_fixed.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_lifecycle.md": {
+      "path": "runtime/cases_lifecycle.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_nested.md": {
+      "path": "runtime/cases_nested.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_references.md": {
+      "path": "runtime/cases_references.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/cases_wiring.md": {
+      "path": "runtime/cases_wiring.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/conformance.md": {
+      "path": "runtime/conformance.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/evidence.md": {
+      "path": "runtime/evidence.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/execution_engine.md": {
+      "path": "runtime/execution_engine.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/extraction.md": {
+      "path": "runtime/extraction.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/graph.md": {
+      "path": "runtime/graph.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/injectables.md": {
+      "path": "runtime/injectables.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/layout_example.md": {
+      "path": "runtime/layout_example.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/node.md": {
+      "path": "runtime/node.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/operators.md": {
+      "path": "runtime/operators.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/overview.md": {
+      "path": "runtime/overview.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/representations.md": {
+      "path": "runtime/representations.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/scalar_types.md": {
+      "path": "runtime/scalar_types.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/time_series.md": {
+      "path": "runtime/time_series.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation.md": {
+      "path": "runtime/validation.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/CMakeLists.txt": {
+      "path": "runtime/validation/CMakeLists.txt",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/README.md": {
+      "path": "runtime/validation/README.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/adapter.patch": {
+      "path": "runtime/validation/adapter.patch",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/assertions.json": {
+      "path": "runtime/validation/assertions.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/assessment.json": {
+      "path": "runtime/validation/assessment.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/check.py": {
+      "path": "runtime/validation/check.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/decisions.json": {
+      "path": "runtime/validation/decisions.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/.gitignore": {
+      "path": "runtime/validation/fixed/.gitignore",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/CMakeLists.txt": {
+      "path": "runtime/validation/fixed/CMakeLists.txt",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/README.md": {
+      "path": "runtime/validation/fixed/README.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/adapter.patch": {
+      "path": "runtime/validation/fixed/adapter.patch",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/assessment.json": {
+      "path": "runtime/validation/fixed/assessment.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/check.py": {
+      "path": "runtime/validation/fixed/check.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/decisions.json": {
+      "path": "runtime/validation/fixed/decisions.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/evidence.py": {
+      "path": "runtime/validation/fixed/evidence.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/expand.py": {
+      "path": "runtime/validation/fixed/expand.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/harness_identity.py": {
+      "path": "runtime/validation/fixed/harness_identity.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_identity.py": {
+      "path": "runtime/validation/fixed/native_identity.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_loaded_libraries.h": {
+      "path": "runtime/validation/fixed/native_loaded_libraries.h",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_nested.py": {
+      "path": "runtime/validation/fixed/native_nested.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_nested_assessment.json": {
+      "path": "runtime/validation/fixed/native_nested_assessment.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_nested_build.py": {
+      "path": "runtime/validation/fixed/native_nested_build.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_nested_observed.json": {
+      "path": "runtime/validation/fixed/native_nested_observed.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_nested_probe.cpp": {
+      "path": "runtime/validation/fixed/native_nested_probe.cpp",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_observed.txt": {
+      "path": "runtime/validation/fixed/native_observed.txt",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/native_probe.cpp": {
+      "path": "runtime/validation/fixed/native_probe.cpp",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/observed.json": {
+      "path": "runtime/validation/fixed/observed.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/reasoned.json": {
+      "path": "runtime/validation/fixed/reasoned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/reasoning_corrections.json": {
+      "path": "runtime/validation/fixed/reasoning_corrections.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_dictionary_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_dictionary_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_dictionary_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_dictionary_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_heterogeneous_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_heterogeneous_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_heterogeneous_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_heterogeneous_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_latest_invalid.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_latest_invalid.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_passive.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_passive.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_ref_items.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_ref_items.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_ref_whole.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_ref_whole.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsb_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsb_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsb_assembled_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsb_assembled_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsb_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsb_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsb_owned_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsb_owned_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_assembled_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_assembled_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_graph_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_graph_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_graph_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_graph_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_mixed.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_mixed.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_owned_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_owned_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsb_tsl_ref.json": {
+      "path": "runtime/validation/fixed/recipes/tsb_tsl_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsd_tsb_tsl.json": {
+      "path": "runtime/validation/fixed/recipes/tsd_tsb_tsl.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsd_tsl_tsb.json": {
+      "path": "runtime/validation/fixed/recipes/tsd_tsl_tsb.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_dictionary_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_dictionary_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_dictionary_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_dictionary_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_latest_invalid.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_latest_invalid.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_passive.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_passive.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_ref_items.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_ref_items.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_ref_whole.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_ref_whole.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_assembled_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_assembled_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_graph_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_graph_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_graph_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_graph_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_mixed.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_mixed.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_owned_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_owned_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsb_ref.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsb_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsl_assembled.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsl_assembled.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsl_assembled_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsl_assembled_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsl_owned.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsl_owned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/recipes/tsl_tsl_owned_invalidate.json": {
+      "path": "runtime/validation/fixed/recipes/tsl_tsl_owned_invalidate.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/fixed/reference_identity.py": {
+      "path": "runtime/validation/fixed/reference_identity.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/replay.py": {
+      "path": "runtime/validation/fixed/replay.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/test_check.py": {
+      "path": "runtime/validation/fixed/test_check.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/test_evidence.py": {
+      "path": "runtime/validation/fixed/test_evidence.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/test_identity.py": {
+      "path": "runtime/validation/fixed/test_identity.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/test_native_nested.py": {
+      "path": "runtime/validation/fixed/test_native_nested.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/fixed/test_replay.py": {
+      "path": "runtime/validation/fixed/test_replay.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/native_observed.txt": {
+      "path": "runtime/validation/native_observed.txt",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/native_probe.cpp": {
+      "path": "runtime/validation/native_probe.cpp",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/observed.json": {
+      "path": "runtime/validation/observed.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/parity/README.md": {
+      "path": "runtime/validation/parity/README.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/parity/assessment.json": {
+      "path": "runtime/validation/parity/assessment.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/parity/check.py": {
+      "path": "runtime/validation/parity/check.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/parity/decisions.json": {
+      "path": "runtime/validation/parity/decisions.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/parity/observed.json": {
+      "path": "runtime/validation/parity/observed.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/parity/reasoned.json": {
+      "path": "runtime/validation/parity/reasoned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/parity/tsd_set_model.py": {
+      "path": "runtime/validation/parity/tsd_set_model.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/reasoned.json": {
+      "path": "runtime/validation/reasoned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/cancel_timer.json": {
+      "path": "runtime/validation/recipes/cancel_timer.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/child_failure.json": {
+      "path": "runtime/validation/recipes/child_failure.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/child_start_failure.json": {
+      "path": "runtime/validation/recipes/child_start_failure.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/dictionary_ref.json": {
+      "path": "runtime/validation/recipes/dictionary_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/expired_ref.json": {
+      "path": "runtime/validation/recipes/expired_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/mapped_ref.json": {
+      "path": "runtime/validation/recipes/mapped_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/membership.json": {
+      "path": "runtime/validation/recipes/membership.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/nested_mapped_ref.json": {
+      "path": "runtime/validation/recipes/nested_mapped_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/nested_timer.json": {
+      "path": "runtime/validation/recipes/nested_timer.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/parallel_children.json": {
+      "path": "runtime/validation/recipes/parallel_children.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/quote.json": {
+      "path": "runtime/validation/recipes/quote.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/restore.json": {
+      "path": "runtime/validation/recipes/restore.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/scalar_ref.json": {
+      "path": "runtime/validation/recipes/scalar_ref.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/recipes/timer.json": {
+      "path": "runtime/validation/recipes/timer.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/README.md": {
+      "path": "runtime/validation/wiring/README.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/assessment.json": {
+      "path": "runtime/validation/wiring/assessment.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/cases.py": {
+      "path": "runtime/validation/wiring/cases.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/check.py": {
+      "path": "runtime/validation/wiring/check.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/contract_extra_argument.hgl": {
+      "path": "runtime/validation/wiring/contract_extra_argument.hgl",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/contract_required_extra.hgl": {
+      "path": "runtime/validation/wiring/contract_required_extra.hgl",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/contract_superset.hgl": {
+      "path": "runtime/validation/wiring/contract_superset.hgl",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/contract_widening.hgl": {
+      "path": "runtime/validation/wiring/contract_widening.hgl",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/decisions.json": {
+      "path": "runtime/validation/wiring/decisions.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/front_end.hgl": {
+      "path": "runtime/validation/wiring/front_end.hgl",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/validation/wiring/observe.py": {
+      "path": "runtime/validation/wiring/observe.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/observe_hgl.py": {
+      "path": "runtime/validation/wiring/observe_hgl.py",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/observed.json": {
+      "path": "runtime/validation/wiring/observed.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/observed_96d364e87.json": {
+      "path": "runtime/validation/wiring/observed_96d364e87.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/observed_hgl.json": {
+      "path": "runtime/validation/wiring/observed_hgl.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/runtime_spec/validation/wiring/reasoned.json": {
+      "path": "runtime/validation/wiring/reasoned.json",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/runtime_spec/wiring.md": {
+      "path": "runtime/wiring.md",
+      "repository": "hgraph_spec"
+    },
+    "docs/source/specification/00_INDEX.md": {
+      "path": "historical/python/00_INDEX.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/01_OVERVIEW.md": {
+      "path": "historical/python/01_OVERVIEW.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/02_TYPE_SYSTEM.md": {
+      "path": "historical/python/02_TYPE_SYSTEM.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/03_WIRING_SYSTEM.md": {
+      "path": "historical/python/03_WIRING_SYSTEM.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/04_RUNTIME_SYSTEM.md": {
+      "path": "historical/python/04_RUNTIME_SYSTEM.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/05_TIME_SERIES_TYPES.md": {
+      "path": "historical/python/05_TIME_SERIES_TYPES.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/06_NODE_TYPES.md": {
+      "path": "historical/python/06_NODE_TYPES.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/07_OPERATORS.md": {
+      "path": "historical/python/07_OPERATORS.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/08_ADVANCED_CONCEPTS.md": {
+      "path": "historical/python/08_ADVANCED_CONCEPTS.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/09_CONTROL_FLOW.md": {
+      "path": "historical/python/09_CONTROL_FLOW.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/10_DATA_SOURCES.md": {
+      "path": "historical/python/10_DATA_SOURCES.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "docs/source/specification/index.rst": {
+      "path": "historical/python/index.rst",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/docs/design/const-debug-bootstrap.md": {
+      "path": "language/docs/design/const-debug-bootstrap.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/control-flow.md": {
+      "path": "language/docs/design/control-flow.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0005-inline-cpp-native-functions.md": {
+      "path": "language/docs/design/decisions/0005-inline-cpp-native-functions.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0006-multi-file-module-parts.md": {
+      "path": "language/docs/design/decisions/0006-multi-file-module-parts.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0007-parameter-packs.md": {
+      "path": "language/docs/design/decisions/0007-parameter-packs.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md": {
+      "path": "language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0009-native-errors-and-the-node-error-model.md": {
+      "path": "language/docs/design/decisions/0009-native-errors-and-the-node-error-model.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0010-lifecycle-capabilities.md": {
+      "path": "language/docs/design/decisions/0010-lifecycle-capabilities.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0011-cache-declarations.md": {
+      "path": "language/docs/design/decisions/0011-cache-declarations.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0012-recursive-struct-fields.md": {
+      "path": "language/docs/design/decisions/0012-recursive-struct-fields.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0013-struct-imports.md": {
+      "path": "language/docs/design/decisions/0013-struct-imports.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/0014-native-implementation-interfaces.md": {
+      "path": "language/docs/design/decisions/0014-native-implementation-interfaces.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/decisions/README.md": {
+      "path": "language/docs/design/decisions/README.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/iteration.md": {
+      "path": "language/docs/design/iteration.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/language-model.md": {
+      "path": "language/docs/design/language-model.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/migration-requirements.md": {
+      "path": "language/docs/design/migration-requirements.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/modules.md": {
+      "path": "language/docs/design/modules.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/native-implementation-parts.md": {
+      "path": "language/docs/design/native-implementation-parts.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/native-interface.md": {
+      "path": "language/docs/design/native-interface.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/native-surface-proposal.md": {
+      "path": "language/docs/design/native-surface-proposal.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/operators.md": {
+      "path": "language/docs/design/operators.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/switch.md": {
+      "path": "language/docs/design/switch.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/design/type-extensions.md": {
+      "path": "language/docs/design/type-extensions.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/developer-guide/syntax-and-semantics.md": {
+      "path": "language/docs/developer-guide/syntax-and-semantics.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/README.md": {
+      "path": "language/docs/user-guide/README.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/functions.md": {
+      "path": "language/docs/user-guide/functions.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/language-tour.md": {
+      "path": "language/docs/user-guide/language-tour.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/modules-and-tools.md": {
+      "path": "language/docs/user-guide/modules-and-tools.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/testing-and-running.md": {
+      "path": "language/docs/user-guide/testing-and-running.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/types-and-expressions.md": {
+      "path": "language/docs/user-guide/types-and-expressions.md",
+      "repository": "hgraph_spec"
+    },
+    "language/docs/user-guide/value-functions.md": {
+      "path": "language/docs/user-guide/value-functions.md",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/README.md": {
+      "path": "language/examples/README.md",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/collection-views.hgl": {
+      "path": "language/examples/collection-views.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-early-return.hgl": {
+      "path": "language/examples/conditional-early-return.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-forwarding.hgl": {
+      "path": "language/examples/conditional-forwarding.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-mixed-results.hgl": {
+      "path": "language/examples/conditional-mixed-results.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-omitted-else.hgl": {
+      "path": "language/examples/conditional-omitted-else.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-result.hgl": {
+      "path": "language/examples/conditional-result.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-results.hgl": {
+      "path": "language/examples/conditional-results.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/conditional-sinks.hgl": {
+      "path": "language/examples/conditional-sinks.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/const-debug.hgl": {
+      "path": "language/examples/const-debug.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/dynamic-collection-iteration.hgl": {
+      "path": "language/examples/dynamic-collection-iteration.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/fixed-list-iteration.hgl": {
+      "path": "language/examples/fixed-list-iteration.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/lifecycle-capabilities.hgl": {
+      "path": "language/examples/lifecycle-capabilities.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/midpoint.hgl": {
+      "path": "language/examples/midpoint.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/native-functions.hgl": {
+      "path": "examples/examples/native-functions.hgl",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/examples/operator-properties.hgl": {
+      "path": "language/examples/operator-properties.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/operators-and-generics.hgl": {
+      "path": "language/examples/operators-and-generics.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/parameter-packs.hgl": {
+      "path": "language/examples/parameter-packs.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/recursive-fields.hgl": {
+      "path": "language/examples/recursive-fields.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/reference-routing.hgl": {
+      "path": "language/examples/reference-routing.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/runtime-choice.hgl": {
+      "path": "language/examples/runtime-choice.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/stateful-node.hgl": {
+      "path": "language/examples/stateful-node.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/struct-imports/instrument-book.hgl": {
+      "path": "language/examples/struct-imports/instrument-book.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/struct-imports/market-data.hgl": {
+      "path": "language/examples/struct-imports/market-data.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/structural-types.hgl": {
+      "path": "language/examples/structural-types.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/test-contexts.hgl": {
+      "path": "language/examples/test-contexts.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/examples/when-defaults.hgl": {
+      "path": "language/examples/when-defaults.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/catalogue/README.md": {
+      "path": "catalogue/README.md",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/stdlib/catalogue/catalogue.json": {
+      "path": "catalogue/catalogue.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/stdlib/catalogue/registry.json": {
+      "path": "catalogue/registry.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/stdlib/catalogue/status.json": {
+      "path": "catalogue/status.json",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/stdlib/examples/elements-iteration.hgl": {
+      "path": "language/stdlib/examples/elements-iteration.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/enum-enumeration-order.hgl": {
+      "path": "language/stdlib/examples/enum-enumeration-order.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/enum-number-range.hgl": {
+      "path": "language/stdlib/examples/enum-number-range.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/enum-switch.hgl": {
+      "path": "language/stdlib/examples/enum-switch.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/enum-values.hgl": {
+      "path": "language/stdlib/examples/enum-values.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/conditional-unassigned-result.hgl": {
+      "path": "language/stdlib/examples/invalid/conditional-unassigned-result.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-conversion-unknown-name.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-conversion-unknown-name.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-conversion-unknown-number.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-conversion-unknown-number.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-duplicate-number.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-duplicate-number.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-implicit-duplicate-number.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-implicit-duplicate-number.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-number-above-range.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-number-above-range.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-number-below-range.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-number-below-range.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-number-overflow.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-number-overflow.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-switch-duplicate-case.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-switch-duplicate-case.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-switch-integer-case.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-switch-integer-case.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-switch-other-enum-case.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-switch-other-enum-case.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/enum-switch-unassigned-result.hgl": {
+      "path": "language/stdlib/examples/invalid/enum-switch-unassigned-result.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/invalid/switch-temporal-case.hgl": {
+      "path": "language/stdlib/examples/invalid/switch-temporal-case.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/string-conversion.hgl": {
+      "path": "language/stdlib/examples/string-conversion.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/examples/switch-scenarios.hgl": {
+      "path": "language/stdlib/examples/switch-scenarios.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/stdlib/hgl/examples/core-native-library.hgl": {
+      "path": "hgl/examples/core-native-library.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/control.hgl": {
+      "path": "hgl/hgraph/control.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/native/scalar_values.hgl": {
+      "path": "hgl/hgraph/native/scalar_values.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/native/scalar_values_i64.hgl": {
+      "path": "hgl/hgraph/native/scalar_values_i64.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/native/temporal_values.hgl": {
+      "path": "hgl/hgraph/native/temporal_values.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/operators.hgl": {
+      "path": "hgl/hgraph/operators.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/standard.hgl": {
+      "path": "hgl/hgraph/standard.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/stream.hgl": {
+      "path": "hgl/hgraph/stream.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/stdlib/hgl/hgraph/temporal.hgl": {
+      "path": "hgl/hgraph/temporal.hgl",
+      "repository": "hgraph_std"
+    },
+    "language/tests/codegen/native-provider.hgl": {
+      "path": "language/examples/native-provider.hgl",
+      "repository": "hgraph_spec"
+    }
+  },
+  "repositories": {
+    "hgraph_spec": "external/hgraph_spec",
+    "hgraph_spec_audit": "external/hgraph_spec_audit",
+    "hgraph_std": "external/hgraph_std"
+  }
+}
