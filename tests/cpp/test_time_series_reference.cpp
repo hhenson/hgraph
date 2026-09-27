@@ -141,7 +141,8 @@ TEST_CASE("TimeSeriesReference: alternative identities reseed after registry res
         const auto *ref_dict = registry.ref(dict);
         const auto *dict_of_ref = registry.tsd(integer, ref);
         const auto *source_bundle = registry.tsb("AlternativeResetSource", {{"value", ts}});
-        const auto *requested_bundle = registry.tsb("AlternativeResetRequested", {{"value", ref}});
+        // Unnamed: two named bundles match only by name (runtime spec WIR-15).
+        const auto *requested_bundle = registry.un_named_tsb({{"value", ref}});
 
         TSOutput scalar_source{ts};
         TSOutput bundle_source{source_bundle};
@@ -724,9 +725,11 @@ TEST_CASE("TimeSeriesReference: fixed to-REF owns Data storage behind an Output 
     const auto *ts = registry.ts(integer);
     const auto *ref = registry.ref(ts);
     const auto *source_nested = registry.tsb("ToRefRoleSourceNested", {{"value", ts}});
-    const auto *requested_nested = registry.tsb("ToRefRoleRequestedNested", {{"value", ref}});
+    // The requested bundles are unnamed: two named bundles match only by
+    // name (runtime spec WIR-15).
+    const auto *requested_nested = registry.un_named_tsb({{"value", ref}});
     const auto *source_root = registry.tsb("ToRefRoleSourceRoot", {{"nested", source_nested}});
-    const auto *requested_root = registry.tsb("ToRefRoleRequestedRoot", {{"nested", requested_nested}});
+    const auto *requested_root = registry.un_named_tsb({{"nested", requested_nested}});
 
     TSOutput target{source_root};
     auto target_view = target.view(MIN_ST);
@@ -853,7 +856,7 @@ TEST_CASE("TimeSeriesReference: to-REF TSD path constructs normal child structur
     const auto *requested_list = registry.tsl(ref_int, 2);
     const auto *source_bundle = registry.tsb("TimeSeriesReferenceTSDPathSourceBundle", {{"items", source_list}});
     const auto *requested_bundle =
-        registry.tsb("TimeSeriesReferenceTSDPathRequestedBundle", {{"items", requested_list}});
+        registry.un_named_tsb({{"items", requested_list}});  // unnamed: WIR-15
     const auto *source_schema = registry.tsd(int_meta, source_bundle);
     const auto *requested_schema = registry.tsd(int_meta, requested_bundle);
 

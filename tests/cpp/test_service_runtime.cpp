@@ -175,8 +175,10 @@ namespace
         }
     };
 
-    using RuntimeReorderedFields =
-        TSB<"RuntimeReorderedFields", Field<"rhs", TS<Int>>, Field<"lhs", TS<Int>>>;
+    // The interface declares RuntimeMultiFields' fields in another order. It is
+    // unnamed: two named bundles with different names never bind (runtime spec
+    // WIR-15, which pairs fields by name in any order).
+    using RuntimeReorderedFields = UnNamedTSB<Field<"rhs", TS<Int>>, Field<"lhs", TS<Int>>>;
 
     struct RuntimeReferenceLeafServiceAdaptor : service_adaptor::interface
     {
