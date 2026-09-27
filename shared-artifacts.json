@@ -804,10 +804,6 @@
       "path": "language/examples/midpoint.hgl",
       "repository": "hgraph_spec"
     },
-    "language/examples/native-functions.hgl": {
-      "path": "examples/examples/native-functions.hgl",
-      "repository": "hgraph_spec_audit"
-    },
     "language/examples/operator-properties.hgl": {
       "path": "language/examples/operator-properties.hgl",
       "repository": "hgraph_spec"
@@ -991,6 +987,26 @@
     "language/tests/codegen/native-provider.hgl": {
       "path": "language/examples/native-provider.hgl",
       "repository": "hgraph_spec"
+    },
+    "language/tests/conformance/stdlib/cases.hgl": {
+      "path": "compiler/stdlib/cases.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/tests/conformance/stdlib/cases.json": {
+      "path": "compiler/stdlib/cases.json",
+      "repository": "hgraph_spec"
+    },
+    "language/tests/conformance/stdlib/main.cpp": {
+      "path": "compiler/stdlib/native/main.cpp",
+      "repository": "hgraph_spec_audit"
+    },
+    "language/tests/conformance/stdlib/nodes.hgl": {
+      "path": "compiler/stdlib/nodes.hgl",
+      "repository": "hgraph_spec"
+    },
+    "language/tests/conformance/stdlib_cases.py": {
+      "path": "tools/stdlib_cases.py",
+      "repository": "hgraph_spec_audit"
     }
   },
   "repositories": {

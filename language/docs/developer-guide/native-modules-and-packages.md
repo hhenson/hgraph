@@ -85,8 +85,8 @@ parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
 validates that the generated descriptor fits the version-one native ABI.
 Native compilation validates the C++ declarations and body.
 
-The complete, compiled example is
-[`native-functions.hgl`](https://github.com/hhenson/hgraph_spec_audit/blob/main/examples/examples/native-functions.hgl).
+Legacy inline syntax is covered by the compiled regression fixture
+[`native-functions.hgl`](https://github.com/hhenson/hgraph/blob/main/language/tests/codegen/native-functions.hgl).
 
 ## Compiled module lifecycle
 

@@ -229,7 +229,6 @@ test_package/CMakeUserPresets.json
 /language/examples/fixed-list-iteration.hgl
 /language/examples/lifecycle-capabilities.hgl
 /language/examples/midpoint.hgl
-/language/examples/native-functions.hgl
 /language/examples/operator-properties.hgl
 /language/examples/operators-and-generics.hgl
 /language/examples/parameter-packs.hgl
@@ -276,3 +275,6 @@ test_package/CMakeUserPresets.json
 /language/stdlib/hgl/hgraph/stream.hgl
 /language/stdlib/hgl/hgraph/temporal.hgl
 /language/tests/codegen/native-provider.hgl
+
+/language/tests/conformance/stdlib/
+/language/tests/conformance/stdlib_cases.py

@@ -406,8 +406,32 @@ hgl_add_module(hgl_native_scalar_import_fixture STATIC
     LINK_LIBRARIES hgl_native_scalar_dependency
 )
 hgl_apply_warnings(hgl_native_scalar_import_fixture)
-hgl_add_module(hgl_inline_native_fixture STATIC HGL ../examples/native-functions.hgl)
+hgl_add_module(hgl_inline_native_fixture STATIC HGL codegen/native-functions.hgl)
 hgl_apply_warnings(hgl_inline_native_fixture)
+
+# Conformance inputs are owned by the shared specification; the audit owns the
+# C++ harness. Materialized paths also support source archives without Git.
+set(_spec_stdlib "${CMAKE_CURRENT_SOURCE_DIR}/conformance/stdlib")
+set(_spec_cases "${CMAKE_CURRENT_SOURCE_DIR}/conformance/stdlib_cases.py")
+hgl_add_module(hgl_spec_stdlib_fixture STATIC HGL "${_spec_stdlib}/nodes.hgl" PARTS "${_spec_stdlib}/cases.hgl"
+    LINK_LIBRARIES hgl::standard_library)
+hgl_apply_warnings(hgl_spec_stdlib_fixture)
+add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib"
+    COMMAND "${Python_EXECUTABLE}" "${_spec_cases}"
+        --cases "${_spec_stdlib}/cases.json"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc"
+    DEPENDS "${_spec_stdlib}/cases.json" "${_spec_cases}"
+    VERBATIM)
+add_executable(hgl_spec_stdlib_conformance "${_spec_stdlib}/main.cpp"
+    "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib/cases.inc")
+target_include_directories(hgl_spec_stdlib_conformance PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/spec-stdlib")
+target_link_libraries(hgl_spec_stdlib_conformance PRIVATE hgl_spec_stdlib_fixture)
+hgl_link_runtime_executable(hgl_spec_stdlib_conformance)
+hgl_apply_warnings(hgl_spec_stdlib_conformance)
+add_test(NAME hgraph_language_spec_stdlib_conformance COMMAND hgl_spec_stdlib_conformance)
+unset(_spec_stdlib)
+unset(_spec_cases)
 hgl_add_module(hgl_inline_native_consumer_fixture STATIC
     HGL codegen/inline-native-consumer.hgl
     LINK_LIBRARIES hgl_inline_native_fixture
