@@ -22,6 +22,8 @@ on:
       - CMakeLists.txt
       - conanfile.py
       - language/CMakeLists.txt
+      - tools/source_archive.py
+      - tools/test_source_archive.py
   pull_request:
     paths:
       - packaging/**
@@ -29,6 +31,8 @@ on:
       - CMakeLists.txt
       - conanfile.py
       - language/CMakeLists.txt
+      - tools/source_archive.py
+      - tools/test_source_archive.py
   workflow_dispatch:
 
 concurrency:
@@ -39,6 +43,20 @@ permissions:
   contents: read
 
 jobs:
+  source-archive:
+    name: Source archive boundaries
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+      - run: python -m unittest discover -s tools -p test_source_archive.py
+      - run: python tools/shared_artifacts.py
+      - run: python tools/source_archive.py
+
   homebrew:
     name: Homebrew formula / macOS
     # macos-26 is the runner every other macOS job builds on. The hosted
@@ -76,8 +94,8 @@ jobs:
         shell: bash
         run: |
           version="$(git describe --tags --match '[0-9]*')"
-          tarball="$RUNNER_TEMP/hgraph-${version}.tar.gz"
-          python3 tools/source_archive.py --prefix "hgraph-${version}" --output "$tarball"
+          python3 tools/source_archive.py
+          tarball="$GITHUB_WORKSPACE/dist/hgraph-source.tar.gz"
           digest="$(shasum -a 256 "$tarball" | cut -d' ' -f1)"
           formula="$(brew --repository local/hgraph)/Formula/hgraph.rb"
           python3 - "$formula" "$tarball" "$digest" "$version" <<'PY'

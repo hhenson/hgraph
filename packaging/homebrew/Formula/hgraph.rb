@@ -10,7 +10,7 @@
 #
 # RELEASE SWITCH: set `url` and `sha256` to the first release tag that
 # contains language/ (0.8.22 predates it), then let `brew test-bot` add the
-# bottle block. Use the source bundle from tools/source_archive.py: generated
+# bottle block. Run tools/source_archive.py for dist/hgraph-source.tar.gz;
 # GitHub tag archives omit the separately owned HGL inputs.
 class Hgraph < Formula
   desc "Reactive time-series runtime SDK and the hgl language toolchain"
