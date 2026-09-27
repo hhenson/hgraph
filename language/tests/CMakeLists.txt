@@ -121,6 +121,7 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}
+        -DSHARED_EXAMPLES=${HGRAPH_SPEC}/language/examples
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/module-parts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/module_parts.cmake
 )
@@ -904,7 +905,7 @@ foreach(_fixture IN LISTS _hgl_stdlib_invalid_fixtures)
         NAME hgraph_language_stdlib_invalid_${_fixture}
         COMMAND ${CMAKE_COMMAND}
             -DHGL=$<TARGET_FILE:hgl>
-            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/examples/invalid/${_fixture}.hgl
+            -DSOURCE=${HGRAPH_SPEC}/language/stdlib/examples/invalid/${_fixture}.hgl
             -P ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/check_invalid_fixture.cmake
     )
 endforeach()
