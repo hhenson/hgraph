@@ -1736,7 +1736,7 @@ namespace hgl::descriptor
                 for (const auto &capability : declaration.capabilities) {
                     if ((capability != "logger" && capability != "clock" &&
                          (declaration.implementation_kind != NativeImplementationKind::Node ||
-                          (capability != "out" && capability != "scheduler"))) ||
+                          (capability != "out" && capability != "scheduler" && capability != "alarm"))) ||
                         !capability_names.insert(capability).second) {
                         return fail(member_path(path, "capabilities"), "unknown or duplicate native capability");
                     }

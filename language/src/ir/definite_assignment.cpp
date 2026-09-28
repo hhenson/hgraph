@@ -151,6 +151,13 @@ namespace hgl::ir
                             expression(node.iterable, flow);
                             Flow nested = flow;
                             block(node.block, nested);
+                        } else if constexpr (std::is_same_v<T, WhileStmt>) {
+                            if (node.condition.valid()) { expression(node.condition, flow); }
+                            Flow nested = flow;
+                            block(node.block, nested);
+                        } else if constexpr (std::is_same_v<T, YieldStmt>) {
+                            expression(node.time, flow);
+                            expression(node.value, flow);
                         } else if constexpr (std::is_same_v<T, AssignStmt>) {
                             const SymbolId root = place_root(node.place);
                             const bool     direct_initialization =

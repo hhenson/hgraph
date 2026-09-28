@@ -192,6 +192,12 @@ namespace hgl::codegen
             bool                                     output_available{false};
             /// `inject scheduler` is bound in this frame (ADR 0010).
             bool                                     scheduler_available{false};
+            /// `inject alarm`, the stateless one-shot scheduler, is bound (ADR 0015).
+            bool                                     alarm_available{false};
+            /// The hook belongs to a generator source: locals are hoisted into
+            /// the state struct and `yield` expands to park/schedule/resume.
+            bool                                     generator{false};
+            std::size_t                              yield_index{0};
             /// Which source bindings the body reaches, from the hgraph IR
             /// (`hgraph_ir::binding_uses`). It decides whether a state local
             /// is emitted and whether a loop or `let` binding the body never
@@ -660,6 +666,8 @@ namespace hgl::codegen
             void                      struct_references(gir::TypeId id, std::vector<std::string_view> &out);
             [[nodiscard]] std::string struct_template_head(const gir::StructContract &item);
             void                      emit_runtime_function(gir::CallableId id, Writer &out);
+            void                      emit_generator_function(gir::CallableId id, Writer &out);
+            void                      emit_cache_scalar_name(Writer &out, const std::string &cache_name, std::string_view identity);
             [[nodiscard]] RuntimeInfo runtime_info(gir::CallableId id);
             [[nodiscard]] bool        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
                                                                             const gir::Parameter &parameter);
@@ -698,6 +706,10 @@ namespace hgl::codegen
             Writer                                              generated_helpers_{};
             std::size_t                                         anonymous_function_index_{0};
             Writer                                             *current_body_{nullptr};
+            /// The namespace nested in the module namespace that private
+            /// bodies are emitted into ("" for the anonymous one), or none
+            /// while emitting at the module level (the public header).
+            std::optional<std::string>                          private_namespace_{};
             std::size_t placeholder_count_{0};
             [[nodiscard]] std::string next_placeholder() { return "/*hgl-signature-" + std::to_string(++placeholder_count_) + "*/"; }
             /// The `used` set of the body being emitted. The emitter records a
@@ -2777,7 +2789,8 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
                         const Value target = eval_planned_expr(node.target, frame);
                         if (target.kind == Value::Kind::Intrinsic &&
-                            (target.name == "logger" || target.name == "clock" || target.name == "scheduler")) {
+                            (target.name == "logger" || target.name == "clock" || target.name == "scheduler" ||
+                             target.name == "alarm")) {
                             use(target.name);
                             Value value;
                             value.kind  = Value::Kind::Intrinsic;
@@ -3205,7 +3218,7 @@ namespace hgl::codegen
 
         Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
             const std::string &name = callee.name;
-            if (name.starts_with("clock.") || name.starts_with("scheduler.")) {
+            if (name.starts_with("clock.") || name.starts_with("scheduler.") || name.starts_with("alarm.")) {
                 if (name.starts_with("clock.")) { use("hgl_cap_clock"); }
                 // ADR 0010: each method is one call on the injected hgraph
                 // selector; typed HIR fixed the arities and argument types.
@@ -3243,13 +3256,26 @@ namespace hgl::codegen
                 if (name == "scheduler.next_scheduled_time") {
                     return result_of("scheduler.next_scheduled_time()", hir::ScalarType::DateTime);
                 }
+                if (name == "alarm.schedule" || name == "alarm.schedule_at") {
+                    // SingleShotScheduler overloads schedule() on TimeDelta and
+                    // DateTime; the HGL spelling picks the overload by its type.
+                    if (arguments.size() != 1U) { backend(range, "typed HIR admitted '" + name + "' with the wrong arity"); }
+                    return result_of("alarm.schedule(" + arguments[0] + ")", std::nullopt);
+                }
                 backend(range, "typed HIR admitted the capability method '" + name + "'");
             }
             if (name == "scheduled") {
                 if (!frame.runtime || !frame.when_condition) {
                     fail(Category::Type, range, "'scheduled' is only available in a function-level 'when' condition");
                 }
-                if (!frame.scheduler_available) { fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler'"); }
+                if (!frame.scheduler_available && !frame.alarm_available) {
+                    fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler' or 'inject alarm'");
+                }
+                if (!frame.scheduler_available) {
+                    // A source on the stateless alarm has no input: every
+                    // evaluation is its alarm firing (ADR 0015).
+                    return make_runtime("true", scalar_type(hir::ScalarType::Bool), range);
+                }
                 use("scheduler");
                 return make_runtime("scheduler.is_scheduled_now()", scalar_type(hir::ScalarType::Bool), range);
             }
@@ -4211,6 +4237,21 @@ namespace hgl::codegen
                             backend(statement.range, "hgraph IR local statement refers to a non-local binding");
                         }
                         const HType       declared = planned_type(node.type, statement.range);
+                        if (frame.generator) {
+                            // A generator's locals live in its state struct
+                            // (hoisted by emit_generator_function), so a
+                            // declaration is an assignment to the field.
+                            const auto hoisted = frame.planned_bindings.find(node.binding.value);
+                            if (hoisted == frame.planned_bindings.end()) {
+                                backend(statement.range, "hgraph IR generator local was not hoisted");
+                            }
+                            const std::string target = hoisted->second.assignment_target;
+                            if (!node.init.valid()) { return; }
+                            const Value init = eval_planned_expr(node.init, frame);
+                            use("hgl_cache");
+                            out.line(target + " = " + as_runtime(init, declared, init.range, "'" + binding.name + "'") + ";");
+                            return;
+                        }
                         const std::string base     = cpp_name(binding.name);
                         std::string       local    = base;
                         int              &suffix   = local_counts_[base];
@@ -4338,13 +4379,26 @@ namespace hgl::codegen
                                 }
                             }
                         } else {
-                            out.line(current.code + " = " + converted + ";");
+                            // A generator's hoisted local writes through its state field.
+                            out.line((current.assignment_target.empty() ? current.code : current.assignment_target) + " = " +
+                                     converted + ";");
                             Value updated                                    = current;
                             updated.kind                                     = Value::Kind::Runtime;
                             updated.number                                   = {};
                             frame.planned_bindings[reference->binding.value] = std::move(updated);
                         }
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
+                        if (frame.generator) {
+                            // A bare `return` finishes the generator; its values come
+                            // from `yield` (ADR 0015).
+                            if (node.value.valid()) {
+                                backend(statement.range, "typed HIR admitted 'return' with a value in a generator source");
+                            }
+                            use("hgl_cache");
+                            out.line("hgl_cache.modify().hgl_resume = -1;");
+                            out.line("return;");
+                            return;
+                        }
                         if (callable(frame.fn).kind == gir::CallableKind::ValueFunction) {
                             if (!node.value.valid()) {
                                 out.line("return;");
@@ -4410,6 +4464,67 @@ namespace hgl::codegen
                         out.line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
                     } else if constexpr (std::is_same_v<T, gir::Assert>) {
                         fail(Category::Type, statement.range, "'assert' is only valid in a test");
+                    } else if constexpr (std::is_same_v<T, gir::Loop>) {
+                        // `while [condition] { ... }` (ADR 0015): a plain C++ loop; an
+                        // omitted condition is unbounded and ends by `return`.
+                        if (!frame.runtime) { fail(Category::Phase, statement.range, "'while' is only available in runtime hooks"); }
+                        if (node.condition.valid()) {
+                            const gir::Value &condition_expression = planned_value(node.condition, statement.range);
+                            const Value       condition            = eval_planned_expr(node.condition, frame);
+                            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
+                                fail(Category::Type, condition_expression.range, "a 'while' condition is a bool scalar");
+                            }
+                            out.open("while (" + condition.code + ")");
+                        } else {
+                            out.open("while (true)");
+                        }
+                        emit_runtime_block(node.block, frame, out, statement.range);
+                        out.close();
+                    } else if constexpr (std::is_same_v<T, gir::Yield>) {
+                        // `yield time: value` (ADR 0015). Due now: publish and keep
+                        // running. Later: park the value, wake up then, and resume
+                        // after this point. Earlier: skip. The label is the resume
+                        // point the dispatch switch jumps to.
+                        if (!frame.generator) { backend(statement.range, "typed HIR admitted 'yield' outside a generator source"); }
+                        const gir::Callable &planned = callable(frame.fn);
+                        const HType          result  = planned_type(planned.result, planned.range);
+                        const std::size_t    point   = ++frame.yield_index;
+                        const std::string    when    = "hgl_when_" + std::to_string(point);
+                        const Value          time    = eval_planned_expr(node.time, frame);
+                        std::string          instant;
+                        if (time.type.is(hir::ScalarType::Duration)) {
+                            instant = "alarm.now() + " +
+                                      as_runtime(time, scalar_type(hir::ScalarType::Duration), time.range, "yield delay");
+                        } else if (time.type.is(hir::ScalarType::DateTime)) {
+                            instant = as_runtime(time, scalar_type(hir::ScalarType::DateTime), time.range, "yield time");
+                        } else {
+                            fail(Category::Type, time.range, "a yield time is a duration (from now) or a datetime");
+                        }
+                        const Value       value     = eval_planned_expr(node.value, frame);
+                        const std::string converted = as_runtime(value, result, value.range, "yield value");
+                        use("alarm");
+                        use("hgl_output");
+                        use("hgl_cache");
+                        out.open("");
+                        out.line("const hgraph::DateTime " + when + " = " + instant + ";");
+                        out.open("if (" + when + " == alarm.now())");
+                        out.open("if (hgl_output.modified())");
+                        out.line("throw std::runtime_error(" +
+                                 quote("duplicate time produced by generator '" + std::string{active_callable_identity(planned)} +
+                                       "'") +
+                                 ");");
+                        out.close();
+                        out.line("hgl_output.set(" + converted + ");");
+                        out.close();
+                        out.open("else if (" + when + " > alarm.now())");
+                        out.line("hgl_cache.modify().hgl_value = " + converted + ";");
+                        out.line("hgl_cache.modify().hgl_parked = true;");
+                        out.line("hgl_cache.modify().hgl_resume = " + std::to_string(point) + ";");
+                        out.line("alarm.schedule(" + when + ");");
+                        out.line("return;");
+                        out.close();
+                        out.close();
+                        out.line("hgl_yield_" + std::to_string(point) + ":;");
                     } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                         const gir::Value &iterable = planned_value(node.iterable, statement.range);
                         const Value       iterator = eval_planned_expr(node.iterable, frame);
@@ -4620,7 +4735,7 @@ namespace hgl::codegen
             if (tests.empty()) {
                 // A scheduler-driven source has no temporal input: its implicit
                 // `valid()` is vacuous and its implicit `modified()` never holds.
-                if (!frame.scheduler_available) {
+                if (!frame.scheduler_available && !frame.alarm_available) {
                     backend(planned.range, "a runtime default predicate requires a temporal input");
                 }
                 return method == "valid()" ? "true" : "false";
@@ -4674,18 +4789,20 @@ namespace hgl::codegen
             if (!info.states.empty()) {
                 params.push_back(named_if("hgraph::RecordableState<recordable_state>", "hgl_state", uses));
             }
-            if (!info.caches.empty()) {
-                const RuntimeState &cache = info.caches.front();
-                params.push_back(
-                    named_if("hgraph::State<" +
-                                 (info.caches.size() == 1 ? value_type(planned_type(cache.type, cache.range), cache.range)
-                                                          : "hgl_cache_fields") +
-                                 ">",
-                             "hgl_cache", uses));
+            const bool generator = fn.generator;
+            if (!info.caches.empty() || generator) {
+                const std::string cache_type = generator || info.caches.size() != 1
+                                                   ? std::string{"hgl_cache_fields"}
+                                                   : value_type(planned_type(info.caches.front().type, info.caches.front().range),
+                                                                info.caches.front().range);
+                params.push_back(named_if("hgraph::State<" + cache_type + ">", "hgl_cache", uses));
             }
             if (info.logger_binding.valid()) { params.push_back(named_if("hgraph::LoggerView", "hgl_cap_logger", uses)); }
             if (info.clock_binding.valid()) { params.push_back(named_if("hgraph::EvaluationClockView", "hgl_cap_clock", uses)); }
             if (info.scheduler_binding.valid()) { params.push_back(named_if("hgraph::NodeScheduler", "scheduler", uses)); }
+            if (info.alarm_binding.valid() || generator) {
+                params.push_back(named_if("hgraph::SingleShotScheduler", "alarm", uses));
+            }
             if (include_output && has_planned_result(fn.result, fn.range)) {
                 params.push_back(named_if("hgraph::Out<" + schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">",
                                           "hgl_output", uses));
@@ -4701,6 +4818,7 @@ namespace hgl::codegen
             frame.runtime_inputs_available = include_inputs;
             frame.output_available         = include_output;
             frame.scheduler_available      = info.scheduler_binding.valid();
+            frame.alarm_available          = info.alarm_binding.valid();
             frame.used.clear();
             frame.binding_names.clear();
             active_uses_ = &frame.used;
@@ -4714,6 +4832,7 @@ namespace hgl::codegen
             local_names_.insert("logger");
             local_names_.insert("clock");
             local_names_.insert("scheduler");
+            local_names_.insert("alarm");
             for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
                 const gir::Parameter &parameter = planned.parameters[index];
                 const gir::Binding   &binding   = planned_binding(parameter.binding, planned.range);
@@ -4791,7 +4910,8 @@ namespace hgl::codegen
                     backend(planned.range, "hgraph IR callable repeats the logger capability binding");
                 }
             }
-            for (const auto &[binding, name] : {std::pair{info.clock_binding, "clock"}, std::pair{info.scheduler_binding, "scheduler"}}) {
+            for (const auto &[binding, name] : {std::pair{info.clock_binding, "clock"}, std::pair{info.scheduler_binding, "scheduler"},
+                                                std::pair{info.alarm_binding, "alarm"}}) {
                 if (!binding.valid()) { continue; }
                 Value capability;
                 capability.kind = Value::Kind::Intrinsic;
@@ -4814,8 +4934,196 @@ namespace hgl::codegen
             if (!defaults.empty()) { out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }"); }
         }
 
+        /// The registry names a cache struct through a
+        /// `hgraph::static_schema_detail::scalar_name` specialisation, which
+        /// has to be declared at global scope: leave every namespace the
+        /// struct was emitted into, specialise, and reopen them.
+        void Emitter::emit_cache_scalar_name(Writer &out, const std::string &cache_name, std::string_view identity) {
+            std::string qualified = "::" + namespace_;
+            if (private_namespace_) {
+                out.line("} // namespace " + *private_namespace_);
+                if (!private_namespace_->empty()) { qualified += "::" + *private_namespace_; }
+            }
+            out.line("} // namespace " + namespace_);
+            out.line("namespace hgraph::static_schema_detail {");
+            out.line("template <> struct scalar_name<" + qualified + "::" + cache_name + "> {");
+            out.line("static constexpr std::string_view value = " + quote(std::string{identity} + ".cache") + ";");
+            out.line("};");
+            out.line("}");
+            out.line("namespace " + namespace_ + " {");
+            if (private_namespace_) { out.line("namespace " + *private_namespace_ + " {"); }
+        }
+
+        /// A generator source (ADR 0015). The body becomes a resumable state
+        /// machine: one State<> struct holds the resume index, the parked value
+        /// and every local, the node is scheduled for the start cycle, and
+        /// `eval` publishes a parked value, jumps to the last yield point and
+        /// runs to the next one. Nothing is recorded: a restore reruns `start`,
+        /// which rebuilds the struct, and the body restarts from the top.
+        void Emitter::emit_generator_function(gir::CallableId decl, Writer &out) {
+            const gir::Callable &planned = callable(decl);
+            const RuntimeInfo    info    = runtime_info(decl);
+            if (!has_planned_result(planned.result, planned.range)) {
+                backend(planned.range, "typed HIR admitted a generator source without a result");
+            }
+            if (!info.states.empty() || !info.caches.empty() || !info.start_blocks.empty() || !info.stop_blocks.empty() ||
+                info.has_when || info.out_binding.valid() || info.scheduler_binding.valid() || info.alarm_binding.valid()) {
+                backend(planned.range, "typed HIR admitted state, cache, lifecycle, when or a scheduler in a generator source");
+            }
+            const HType       result     = planned_type(planned.result, planned.range);
+            const std::string cache_name = callable_cpp_name(decl) + "_cache_fields";
+            const gir::Block &function_body = planned_block(planned.block_body, planned.range);
+
+            // Every local is hoisted into the state struct: a resumed body reads
+            // what the suspended body left, and the dispatch jump bypasses no
+            // C++ local with an initializer.
+            struct Hoisted
+            {
+                gir::BindingId binding{};
+                HType          type{};
+                SourceRange    range{};
+                std::string    field{};
+            };
+            std::vector<Hoisted> hoisted;
+            const auto           collect = [&](auto &&self, gir::BlockId block_id, SourceRange fallback) -> void {
+                if (!block_id.valid()) { return; }
+                const gir::Block &block         = planned_block(block_id, fallback);
+                const auto        collect_value = [&](gir::ValueId value_id, SourceRange range) {
+                    gir::ValueId current = value_id;
+                    while (current.valid()) {
+                        const gir::Value &value = planned_value(current, range);
+                        if (const auto *branch = std::get_if<gir::Conditional>(&value.node)) {
+                            self(self, branch->then_block, value.range);
+                            current = branch->otherwise;
+                            continue;
+                        }
+                        if (const auto *nested = std::get_if<gir::BlockValue>(&value.node)) {
+                            self(self, nested->block, value.range);
+                        }
+                        break;
+                    }
+                };
+                for (gir::StatementId id : block.statements) {
+                    const gir::Statement &statement = planned_statement(id, block.range);
+                    std::visit(
+                        [&](const auto &node) {
+                            using T = std::decay_t<decltype(node)>;
+                            if constexpr (std::is_same_v<T, gir::LocalBinding>) {
+                                const gir::Binding &binding = planned_binding(node.binding, statement.range);
+                                hoisted.push_back(Hoisted{node.binding, planned_type(node.type, statement.range), binding.range,
+                                                          "field_" + std::to_string(node.binding.value)});
+                                collect_value(node.init, statement.range);
+                            } else if constexpr (std::is_same_v<T, gir::Loop>) {
+                                self(self, node.block, statement.range);
+                            } else if constexpr (std::is_same_v<T, gir::Traversal>) {
+                                unsupported(statement.range, "'for' inside a generator source");
+                            } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
+                                collect_value(node.value, statement.range);
+                            } else if constexpr (std::is_same_v<T, gir::Assignment>) {
+                                collect_value(node.value, statement.range);
+                            } else if constexpr (std::is_same_v<T, gir::Yield>) {
+                                collect_value(node.time, statement.range);
+                                collect_value(node.value, statement.range);
+                            }
+                        },
+                        statement.node);
+                }
+                collect_value(block.tail, block.range);
+            };
+            collect(collect, planned.block_body, planned.range);
+
+            out.line("// " + where(planned.range));
+            out.open("struct " + cache_name);
+            out.line("hgraph::Int hgl_resume{};");
+            out.line("hgraph::Bool hgl_parked{};");
+            out.line(value_type(result, planned.range) + " hgl_value{};");
+            for (const Hoisted &local : hoisted) {
+                out.line(value_type(local.type, local.range) + " " + local.field + "{};");
+            }
+            out.close(";");
+            emit_cache_scalar_name(out, cache_name, active_callable_identity(planned));
+
+            out.open("struct " + callable_cpp_name(decl));
+            out.line("using hgl_cache_fields = " + cache_name + ";");
+            out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
+            out.line("// A generator asks for its first evaluation in the start cycle.");
+            out.line("static constexpr bool schedule_on_start = true;");
+            emit_defaults(planned, out);
+
+            Frame frame;
+            frame.fn        = decl;
+            frame.runtime   = true;
+            frame.generator = true;
+            const auto finish_hook = [&](const std::string &placeholder, bool include_inputs, bool include_output) {
+                out.replace_first(placeholder, runtime_signature(decl, info, &frame.used, include_inputs, include_output));
+                out.close();
+            };
+            {
+                // Every start rebuilds the machine (the cache policy of ADR 0011).
+                const std::string placeholder = next_placeholder();
+                out.line("static void start(" + placeholder + ")");
+                out.open("");
+                frame.reachable = {};
+                prepare_runtime_frame(decl, info, frame, out, false, false, true);
+                use("hgl_cache");
+                out.line("hgl_cache.set(" + cache_name + "{});");
+                finish_hook(placeholder, false, false);
+            }
+            const std::string eval_placeholder = next_placeholder();
+            out.line("static void eval(" + eval_placeholder + ")");
+            out.open("");
+            frame.reachable = reachable_in(planned.block_body);
+            prepare_runtime_frame(decl, info, frame, out, true, true, false);
+            for (const Hoisted &local : hoisted) {
+                Value value = make_runtime("hgl_cache.ref()." + local.field, local.type, local.range, "hgl_cache");
+                value.assignment_target = "hgl_cache.modify()." + local.field;
+                if (!frame.planned_bindings.emplace(local.binding.value, std::move(value)).second) {
+                    backend(local.range, "hgraph IR generator repeats a local binding");
+                }
+                frame.binding_names[local.binding.value] = "hgl_cache";
+            }
+            use("hgl_cache");
+            use("hgl_output");
+            use("alarm");
+            out.line("// A value parked by the previous evaluation is due now.");
+            out.open("if (hgl_cache.ref().hgl_parked)");
+            out.line("hgl_cache.modify().hgl_parked = false;");
+            out.line("hgl_output.set(hgl_cache.ref().hgl_value);");
+            out.close();
+            const std::string dispatch = next_placeholder();
+            out.line(dispatch);
+            frame.yield_index = 0;
+            for (gir::StatementId id : function_body.statements) { emit_runtime_stmt(id, frame, out, function_body.range); }
+            if (function_body.tail.valid()) {
+                const gir::Value &expression = planned_value(function_body.tail, function_body.range);
+                if (const auto *branch = std::get_if<gir::Conditional>(&expression.node)) {
+                    emit_runtime_if(*branch, expression.range, frame, out);
+                } else {
+                    const Value value = eval_planned_expr(function_body.tail, frame);
+                    out.line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
+                }
+            }
+            out.line("// The body ended: the source is finished.");
+            out.line("hgl_cache.modify().hgl_resume = -1;");
+            out.line("return;");
+            std::string cases = "switch (hgl_cache.ref().hgl_resume) {";
+            for (std::size_t point = 1; point <= frame.yield_index; ++point) {
+                cases += " case " + std::to_string(point) + ": goto hgl_yield_" + std::to_string(point) + ";";
+            }
+            cases += " case -1: return; default: break; }";
+            out.replace_first(dispatch, cases);
+            finish_hook(eval_placeholder, true, true);
+            active_uses_ = nullptr;
+            out.close(";");
+            out.line();
+        }
+
         void Emitter::emit_runtime_function(gir::CallableId decl, Writer &out) {
             const gir::Callable &planned = callable(decl);
+            if (planned.generator) {
+                emit_generator_function(decl, out);
+                return;
+            }
             const RuntimeInfo    info    = runtime_info(decl);
             Frame                frame;
             frame.fn      = decl;
@@ -4829,14 +5137,7 @@ namespace hgl::codegen
                              std::to_string(cache.binding.value) + "{};");
                 }
                 out.close(";");
-                out.line("} // namespace " + namespace_);
-                out.line("namespace hgraph::static_schema_detail {");
-                out.line("template <> struct scalar_name<::" + namespace_ + "::" + cache_name + "> {");
-                out.line("static constexpr std::string_view value = " +
-                         quote(std::string{active_callable_identity(planned)} + ".cache") + ";");
-                out.line("};");
-                out.line("}");
-                out.line("namespace " + namespace_ + " {");
+                emit_cache_scalar_name(out, cache_name, active_callable_identity(planned));
             }
             out.open("struct " + callable_cpp_name(decl));
             if (info.caches.size() > 1) { out.line("using hgl_cache_fields = " + callable_cpp_name(decl) + "_cache_fields;"); }
@@ -5490,6 +5791,7 @@ namespace hgl::codegen
             // header must include. Anonymous graph bodies are collected while
             // their containing functions emit, then placed before every use.
             Writer private_functions;
+            private_namespace_ = split ? std::string{"hgl_detail"} : std::string{};
             for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
                 // Value helpers have one definition in the public header so
@@ -5509,6 +5811,7 @@ namespace hgl::codegen
                 emit_function(materialization.implementation, private_functions, Form::InlineStruct);
                 end_materialization();
             }
+            private_namespace_.reset();
             Writer public_functions;
             std::vector<std::string> compositions;
             for (const gir::CallableId id : exports) {

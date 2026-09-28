@@ -61,7 +61,7 @@ namespace hgl::syntax
                          TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs,
                          TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwCache, TokenKind::KwInject, TokenKind::KwReturn,
                          TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop,
-                         TokenKind::KwFor, TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue,
+                         TokenKind::KwFor, TokenKind::KwWhile, TokenKind::KwYield, TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue,
                          TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64,
                          TokenKind::KwStr, TokenKind::KwDate, TokenKind::KwTime, TokenKind::KwDateTime, TokenKind::KwDuration,
                          TokenKind::KwCivilDateTime, TokenKind::KwZonedDateTime, TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
@@ -451,6 +451,24 @@ namespace hgl::syntax
                        dsl::if_(dsl::peek_not(token<TokenKind::LBrace>) >> dsl::recurse<expression>) + dsl::recurse<block>;
         };
 
+        /// `while [condition] block`: the runtime conditional loop; an omitted
+        /// condition is unbounded, as an omitted `when` predicate is the default
+        /// handler (ADR 0015).
+        struct while_stmt
+        {
+            static constexpr auto
+                rule = token<TokenKind::KwWhile> >>
+                       dsl::if_(dsl::peek_not(token<TokenKind::LBrace>) >> dsl::recurse<expression>) + dsl::recurse<block>;
+        };
+
+        /// `yield time: value`: a generator source publishes `value` at `time`
+        /// (ADR 0015). The pair is spelled like a timed sequence element.
+        struct yield_stmt
+        {
+            static constexpr auto rule = token<TokenKind::KwYield> >> dsl::recurse<expression> + token<TokenKind::Colon> +
+                                                                       dsl::p<newlines> + dsl::recurse<expression>;
+        };
+
         struct for_stmt
         {
             static constexpr auto rule = token<TokenKind::KwFor> >>
@@ -479,14 +497,15 @@ namespace hgl::syntax
         struct statement
         {
             static constexpr auto rule = dsl::p<local_decl> | dsl::p<state_decl> | dsl::p<cache_decl> | dsl::p<inject_decl> | dsl::p<lifecycle_stmt> |
-                                         dsl::p<when_stmt> | dsl::p<for_stmt> | dsl::p<return_stmt> | dsl::p<assert_stmt> |
-                                         dsl::p<assign_or_expression_stmt>;
+                                         dsl::p<when_stmt> | dsl::p<for_stmt> | dsl::p<while_stmt> | dsl::p<yield_stmt> |
+                                         dsl::p<return_stmt> | dsl::p<assert_stmt> | dsl::p<assign_or_expression_stmt>;
         };
 
         inline constexpr auto statement_start = token<TokenKind::KwLet> / token<TokenKind::KwVar> / token<TokenKind::KwState> /
                                                 token<TokenKind::KwCache> /
                                                 token<TokenKind::KwInject> / token<TokenKind::KwStart> / token<TokenKind::KwStop> /
-                                                token<TokenKind::KwWhen> / token<TokenKind::KwFor> / token<TokenKind::KwReturn> /
+                                                token<TokenKind::KwWhen> / token<TokenKind::KwFor> / token<TokenKind::KwWhile> /
+                                                token<TokenKind::KwYield> / token<TokenKind::KwReturn> /
                                                 token<TokenKind::KwAssert> / expression_start;
 
         struct block_item

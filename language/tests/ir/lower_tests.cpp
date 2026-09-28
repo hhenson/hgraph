@@ -2811,13 +2811,129 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
 TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lifecycle]") {
     CHECK(completion_diagnostics("module checks.unscheduled_source\n"
                                  "fn source(const value: i64) -> i64 { when { return value } }\n")
-              .find("injectable: a runtime function without temporal parameters must 'inject scheduler'") != std::string::npos);
+              .find("injectable: a runtime function without temporal parameters must 'inject scheduler' or 'inject alarm'") !=
+          std::string::npos);
     CHECK(completes("module checks.scheduled_source\n"
                     "fn source() -> bool {\n"
                     "    inject scheduler\n"
                     "    start { scheduler.schedule(0s) }\n"
                     "    when scheduled() { return true }\n"
                     "}\n"));
+}
+
+TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][adr-0015]") {
+    CHECK(completes("module checks.alarm_source\n"
+                    "fn source(const value: i64, const delay: duration = 0s) -> i64 {\n"
+                    "    inject alarm\n"
+                    "    start { alarm.schedule(delay) }\n"
+                    "    when scheduled() { return value }\n"
+                    "}\n"));
+    CHECK(completes("module checks.alarm_at\n"
+                    "fn source(const at: datetime) -> bool {\n"
+                    "    inject alarm\n"
+                    "    start { alarm.schedule_at(at) }\n"
+                    "    when scheduled() { return true }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.alarm_with_input\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    when modified(value) { alarm.schedule(1s)\n        return value }\n"
+                                 "}\n")
+              .find("'alarm' is admitted only in a source") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.alarm_query\n"
+                                 "fn source() -> bool {\n"
+                                 "    inject alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when scheduled() { return alarm.is_scheduled() }\n"
+                                 "}\n")
+              .find("'alarm.is_scheduled' is not a capability method") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.alarm_const\n"
+                                 "const fn f(value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    return value\n"
+                                 "}\n")
+              .find("const fn cannot inject its own 'alarm'") != std::string::npos);
+}
+
+TEST_CASE("typed HIR admits while in runtime bodies only", "[ir][typed][adr-0015]") {
+    CHECK(completes("module checks.while_runtime\n"
+                    "fn f(value: i64) -> i64 {\n"
+                    "    when modified(value) {\n"
+                    "        var n: i64 = 0\n"
+                    "        while n < value { n += 1 }\n"
+                    "        while { return n }\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.while_composition\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    while value {\n"
+                                 "        value\n"
+                                 "    }\n"
+                                 "    value\n"
+                                 "}\n")
+              .find("'while' is a runtime statement") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.while_condition\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    when modified(value) {\n"
+                                 "        while value { return value }\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("while condition") != std::string::npos);
+}
+
+TEST_CASE("typed HIR classifies a yielding body as a generator source", "[ir][typed][adr-0015]") {
+    CHECK(completes("module checks.generator\n"
+                    "fn constant(const value: i64, const delay: duration = 0s) -> i64 {\n"
+                    "    yield delay: value\n"
+                    "}\n"
+                    "fn heartbeat(const period: duration, const beats: i64) -> bool {\n"
+                    "    var count: i64 = 0\n"
+                    "    while count < beats {\n"
+                    "        yield period: true\n"
+                    "        count += 1\n"
+                    "    }\n"
+                    "}\n"
+                    "fn at(const when_: datetime) -> i64 {\n"
+                    "    yield when_: 1\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.generator_input\n"
+                                 "fn g(value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source has no temporal parameters") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_result\n"
+                                 "fn g(const value: i64) {\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source declares a result type") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_state\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    state count: i64 = 0\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source declares no state") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_out\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    inject out\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source cannot inject 'out'") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_when\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "    when { return value }\n"
+                                 "}\n")
+              .find("a generator source has no 'when' handler") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_time\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield \"soon\": value\n"
+                                 "}\n")
+              .find("a yield time is a duration (from now) or a datetime") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_value\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: \"text\"\n"
+                                 "}\n")
+              .find("yield value") != std::string::npos);
 }
 
 TEST_CASE("typed HIR rejects input activity in lifecycle hooks", "[ir][typed][lifecycle]") {
@@ -3340,4 +3456,51 @@ TEST_CASE("const is admitted as an operator name and const(f) stays the selector
                                  "    const(42, delay: 1s)\n"
                                  "}\n")
               .find("is a library operator and is not in scope") != std::string::npos);
+}
+
+TEST_CASE("typed HIR bounds the statements a generator source may hold", "[ir][typed][adr-0015]") {
+    // A bare return finishes the source; a yield sits at statement level in
+    // the body, a while block or an if statement.
+    CHECK(completes("module checks.generator_forms\n"
+                    "fn bounded(const n: i64) -> i64 {\n"
+                    "    var i: i64 = 0\n"
+                    "    while {\n"
+                    "        if i >= n { return }\n"
+                    "        yield 1us: i\n"
+                    "        i += 1\n"
+                    "    }\n"
+                    "}\n"
+                    "fn branch(const even: bool) -> i64 {\n"
+                    "    if even {\n"
+                    "        yield 0s: 2\n"
+                    "    } else {\n"
+                    "        yield 0s: 1\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.generator_return\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "    return value\n"
+                                 "}\n")
+              .find("a generator source returns no value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_early_return\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    if value < 0 { return value }\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source returns no value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_for\n"
+                                 "fn g(const values: list<i64>) -> i64 {\n"
+                                 "    for value in elements(values) {\n"
+                                 "        yield 1us: value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("'for' is not available in a generator source") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_value_yield\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    let picked: i64 = if value > 0 { yield 0s: value\n"
+                                 "        value } else { 0 }\n"
+                                 "    yield 1us: picked\n"
+                                 "}\n")
+              .find("cannot sit inside a value") != std::string::npos);
 }

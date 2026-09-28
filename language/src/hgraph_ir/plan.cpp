@@ -535,6 +535,12 @@ namespace hgl::hgraph_ir
                     } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                         check_runtime_expr(node.iterable, decl, valid);
                         check_runtime_block(node.block, decl, valid);
+                    } else if constexpr (std::is_same_v<T, gir::Loop>) {
+                        if (node.condition.valid()) { check_runtime_expr(node.condition, decl, valid); }
+                        check_runtime_block(node.block, decl, valid);
+                    } else if constexpr (std::is_same_v<T, gir::Yield>) {
+                        check_runtime_expr(node.time, decl, valid);
+                        check_runtime_expr(node.value, decl, valid);
                     } else if constexpr (std::is_same_v<T, gir::Assignment>) {
                         check_runtime_expr(node.value, decl, valid);
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
@@ -652,6 +658,11 @@ namespace hgl::hgraph_ir
                                         backend(binding.range, "runtime function injects 'scheduler' more than once");
                                     }
                                     info.scheduler_binding = binding_id;
+                                } else if (binding.name == "alarm") {
+                                    if (info.alarm_binding.valid()) {
+                                        backend(binding.range, "runtime function injects 'alarm' more than once");
+                                    }
+                                    info.alarm_binding = binding_id;
                                 } else {
                                     // The checker admits only the approved names
                                     // and rejects the agreed-but-unimplemented ones.
@@ -700,12 +711,15 @@ namespace hgl::hgraph_ir
             if (info.stop_blocks.size() > 1U) {
                 backend(planned_block(info.stop_blocks[1], body.range).range, "typed HIR admitted a second 'stop' block");
             }
-            if (info.uses_scheduled && !info.scheduler_binding.valid()) {
-                backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
+            if (info.uses_scheduled && !info.scheduler_binding.valid() && !info.alarm_binding.valid()) {
+                backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler' or 'inject alarm'");
             }
-            if (temporal_count == 0 && !info.scheduler_binding.valid()) {
-                // A source with nothing to activate it never evaluates (ADR 0010).
-                backend(planned.range, "typed HIR admitted a runtime source without the scheduler capability");
+            if (temporal_count == 0 && !info.scheduler_binding.valid() && !info.alarm_binding.valid() && !planned.generator) {
+                // A source with nothing to activate it never evaluates (ADR 0010, ADR 0015).
+                backend(planned.range, "typed HIR admitted a runtime source without a scheduler, an alarm or a yield");
+            }
+            if (temporal_count != 0 && info.alarm_binding.valid()) {
+                backend(planned.range, "typed HIR admitted 'inject alarm' in a function with temporal parameters");
             }
             if (temporal_count != 0 && info.has_when && info.active_parameters.empty() && !info.uses_scheduled) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
@@ -807,6 +821,12 @@ namespace hgl::hgraph_ir
                             validate_traversal(node.iterable);
                             collect_calls(node.iterable, calls, statement.range);
                             collect_calls(node.block, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Loop>) {
+                            if (node.condition.valid()) { collect_calls(node.condition, calls, statement.range); }
+                            collect_calls(node.block, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Yield>) {
+                            collect_calls(node.time, calls, statement.range);
+                            collect_calls(node.value, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Assignment>) {
                             collect_calls(node.place, calls, statement.range);
                             collect_calls(node.value, calls, statement.range);

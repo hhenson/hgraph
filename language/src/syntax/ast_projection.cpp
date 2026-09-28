@@ -743,6 +743,24 @@ namespace hgl::syntax
                             result.block    = project_block(only_child(statement, SyntaxKind::Block));
                             return module_.add(ast::Stmt{range, result});
                         }
+                    case SyntaxKind::WhileStmt:
+                        {
+                            ast::WhileStmt result;
+                            if (const auto condition = find_child(statement, SyntaxKind::Expression)) {
+                                result.condition = project_expression(*condition);
+                            }
+                            result.block = project_block(only_child(statement, SyntaxKind::Block));
+                            return module_.add(ast::Stmt{range, result});
+                        }
+                    case SyntaxKind::YieldStmt:
+                        {
+                            const std::vector<SyntaxNodeId> expressions = child_nodes(statement, SyntaxKind::Expression);
+                            require(expressions.size() == 2, "yield statement has an invalid time/value pair");
+                            ast::YieldStmt result;
+                            result.time  = project_expression(expressions[0]);
+                            result.value = project_expression(expressions[1]);
+                            return module_.add(ast::Stmt{range, result});
+                        }
                     case SyntaxKind::ReturnStmt:
                         {
                             ast::ReturnStmt result;

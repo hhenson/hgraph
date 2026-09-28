@@ -1,0 +1,190 @@
+# Pull sources and runtime loops (ADR 0015): the stateless `alarm`, `while`
+# with and without a condition, and `yield` generator sources. Emitted and
+# compiled as a package through hgl_add_module() and run as a transient
+# scripted image through `hgl test`.
+
+module hgl.codegen.sources
+
+operator constant<T>(const value: T, const delay: duration = 0s) -> T
+operator sink(ts: signal)
+
+# A source on the stateless alarm: one wake-up, nothing recorded.
+impl fn constant<T>(const value: T, const delay: duration = 0s) -> T {
+    inject alarm
+    start { alarm.schedule(delay) }
+    when scheduled() { return value }
+}
+instantiate constant<i64>, constant<str>
+
+impl fn sink(ts: signal) { when { } }
+
+# An absolute alarm; `alarm.schedule_at` takes a datetime. The harness starts
+# at 1970-01-01T00:00:00.000001Z and steps one microsecond per cycle.
+fn at_time(const at: datetime) -> bool {
+    inject alarm
+    start { alarm.schedule_at(at) }
+    when scheduled() { return true }
+}
+
+fn triangular(ts: i64) -> i64 {
+    when {
+        var total: i64 = 0
+        var n: i64 = 0
+        while n < ts {
+            total += n
+            n += 1
+        }
+        return total
+    }
+}
+
+# An unbounded loop ends by returning.
+fn count_up_to(ts: i64) -> i64 {
+    when {
+        var n: i64 = 0
+        while {
+            n += 1
+            if n >= ts {
+                return n
+            }
+        }
+    }
+}
+
+# eval needs a time-series input to bound the run; the sink consumes it.
+fn at_start(tick: i64) -> i64 {
+    sink(tick)
+    constant(42)
+}
+fn delayed(tick: i64) -> i64 {
+    sink(tick)
+    constant(7, delay: 2us)
+}
+fn text(tick: i64) -> str {
+    sink(tick)
+    constant("hgl")
+}
+fn absolute(tick: i64) -> bool {
+    sink(tick)
+    at_time(@1970-01-01T00:00:00.000003Z)
+}
+
+test alarm_sources_tick_once {
+    assert eval(at_start, tick: [_, 1, 1]) == [42, _, _]
+    assert eval(delayed, tick: [1, 1, 1]) == [_, _, 7]
+    assert eval(text, tick: [1]) == ["hgl"]
+}
+test alarm_at_an_absolute_time {
+    assert eval(absolute, tick: [1, 1, 1]) == [_, _, true]
+}
+test while_loops {
+    assert eval(triangular, ts: [0, 1, 4]) == [0, 0, 6]
+    assert eval(count_up_to, ts: [1, 3]) == [1, 3]
+}
+
+# Generator sources: `yield time: value` lowers to a resumable state machine
+# on the alarm (ADR 0015). A duration is relative to the time the body is
+# running; `0s` publishes in the same cycle.
+operator gen_constant<T>(const value: T) -> T
+impl fn gen_constant<T>(const value: T) -> T {
+    yield 0s: value
+}
+instantiate gen_constant<i64>, gen_constant<str>
+
+# One value per microsecond after the start cycle; the local lives across
+# the suspensions.
+fn count_to(const n: i64) -> i64 {
+    var i = 0
+    while i < n {
+        yield 1us: i
+        i += 1
+    }
+}
+
+# One parked value, then the body ends: the source is finished.
+fn once() -> i64 {
+    yield 1us: 5
+}
+
+# A datetime is absolute: the third cycle.
+fn at_third() -> i64 {
+    yield @1970-01-01T00:00:00.000003Z: 7
+}
+
+# A time already past is skipped and the body continues.
+fn skips_past() -> i64 {
+    yield @1969-01-01T00:00:00Z: 1
+    yield 0s: 2
+}
+
+# A bare return finishes the source from inside an unbounded loop.
+fn bare_return(const n: i64) -> i64 {
+    var i = 0
+    while {
+        if i >= n { return }
+        yield 1us: i
+        i += 1
+    }
+}
+
+# A yield is a resume point inside an if statement too.
+fn branch(const even: bool) -> i64 {
+    if even {
+        yield 0s: 2
+    } else {
+        yield 0s: 1
+    }
+}
+
+fn gen_int(tick: i64) -> i64 {
+    sink(tick)
+    gen_constant(42)
+}
+fn gen_text(tick: i64) -> str {
+    sink(tick)
+    gen_constant("hgl")
+}
+fn counting(tick: i64) -> i64 {
+    sink(tick)
+    count_to(3)
+}
+fn parked_once(tick: i64) -> i64 {
+    sink(tick)
+    once()
+}
+fn absolute_yield(tick: i64) -> i64 {
+    sink(tick)
+    at_third()
+}
+fn skipped(tick: i64) -> i64 {
+    sink(tick)
+    skips_past()
+}
+fn finishing(tick: i64) -> i64 {
+    sink(tick)
+    bare_return(2)
+}
+fn even_branch(tick: i64) -> i64 {
+    sink(tick)
+    branch(true)
+}
+fn odd_branch(tick: i64) -> i64 {
+    sink(tick)
+    branch(false)
+}
+
+test generator_sources {
+    assert eval(gen_int, tick: [1, 1]) == [42, _]
+    assert eval(gen_text, tick: [1]) == ["hgl"]
+    assert eval(counting, tick: [1, 1, 1, 1, 1, 1]) == [_, 0, 1, 2, _, _]
+    assert eval(parked_once, tick: [1, 1, 1]) == [_, 5, _]
+}
+test generator_times {
+    assert eval(absolute_yield, tick: [1, 1, 1, 1]) == [_, _, 7, _]
+    assert eval(skipped, tick: [1, 1]) == [2, _]
+}
+test generator_control_flow {
+    assert eval(finishing, tick: [1, 1, 1, 1]) == [_, 0, 1, _]
+    assert eval(even_branch, tick: [1]) == [2]
+    assert eval(odd_branch, tick: [1]) == [1]
+}
