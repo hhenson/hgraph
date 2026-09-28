@@ -2853,6 +2853,15 @@ TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][a
                                  "    return value\n"
                                  "}\n")
               .find("const fn cannot inject its own 'alarm'") != std::string::npos);
+    // One wake-up mechanism per source: with both injected, scheduled()
+    // could not answer for the alarm.
+    CHECK(completion_diagnostics("module checks.alarm_and_scheduler\n"
+                                 "fn source(const value: i64) -> i64 {\n"
+                                 "    inject scheduler, alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when scheduled() { return value }\n"
+                                 "}\n")
+              .find("a source injects 'scheduler' or 'alarm', not both") != std::string::npos);
 }
 
 TEST_CASE("typed HIR admits while in runtime bodies only", "[ir][typed][adr-0015]") {

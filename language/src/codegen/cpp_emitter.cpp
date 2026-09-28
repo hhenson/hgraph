@@ -3271,9 +3271,10 @@ namespace hgl::codegen
                 if (!frame.scheduler_available && !frame.alarm_available) {
                     fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler' or 'inject alarm'");
                 }
-                if (!frame.scheduler_available) {
+                if (frame.alarm_available) {
                     // A source on the stateless alarm has no input: every
-                    // evaluation is its alarm firing (ADR 0015).
+                    // evaluation is its alarm firing (ADR 0015). Typed HIR
+                    // admits one wake-up mechanism, so the alarm answers.
                     return make_runtime("true", scalar_type(hir::ScalarType::Bool), range);
                 }
                 use("scheduler");

@@ -766,6 +766,14 @@ namespace hgl::ir
                                                         "'alarm' is admitted only in a source, a runtime function with no "
                                                         "temporal parameters; a function with inputs uses 'scheduler'");
                                 }
+                                // One wake-up mechanism per source: `scheduled()` answers for
+                                // it, and the alarm's contract is that every evaluation is its
+                                // wake-up (ADR 0015).
+                                if (injects_capability(id, "alarm") && injects_capability(id, "scheduler")) {
+                                    diagnostics_.report(syntax::Category::Injectable, declaration.range,
+                                                        "a source injects 'scheduler' or 'alarm', not both; the stateless "
+                                                        "alarm and the recoverable scheduler are alternatives");
+                                }
                                 if (node.is_generator) { check_generator(declaration, node); }
                             }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
