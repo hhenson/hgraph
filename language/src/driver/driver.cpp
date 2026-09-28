@@ -15,6 +15,7 @@
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
+#include "syntax/documentation.h"
 #include "syntax/formatter.h"
 #include "syntax/lexer.h"
 #include "syntax/parser.h"
@@ -53,7 +54,7 @@ namespace hgl::driver
                          "Usage:\n"
                          "  hgl fmt <file> [--check | --write]\n"
                          "  hgl check <file> [--part <file>]... [--module-descriptor <file>]...\n"
-                         "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
+                         "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir] [--dump-docs]\n"
                          "  hgl test <file> [test-name]... [--part <file>]... [--module-descriptor <file>]...\n"
                          "  hgl run <file> [--part <file>]... [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
@@ -265,14 +266,15 @@ namespace hgl::driver
 
         struct ModulePart
         {
-            std::string         path{};
-            std::string         text{};
-            std::string         module{};
-            std::string         name{};
-            syntax::SourceRange module_range{};
-            syntax::SourceRange name_range{};
-            syntax::SourceRange clause_range{};
-            std::uint32_t       assembled_begin{0};
+            std::string                        path{};
+            std::string                        text{};
+            std::string                        module{};
+            std::string                        name{};
+            syntax::SourceRange                module_range{};
+            syntax::SourceRange                name_range{};
+            syntax::SourceRange                clause_range{};
+            std::uint32_t                      assembled_begin{0};
+            std::vector<syntax::Documentation> documentation{};
         };
 
         void blank(std::string &text, syntax::SourceRange range) {
@@ -334,7 +336,8 @@ namespace hgl::driver
                     return unit;
                 }
                 parts.push_back(ModulePart{path, std::move(*text), module_path(*header), std::string{header->part.text},
-                                           header_range, header->part.range, header->part_clause});
+                                           header_range, header->part.range, header->part_clause, 0,
+                                           std::move(parsed.documentation)});
             }
 
             std::ranges::sort(parts, [](const ModulePart &left, const ModulePart &right) {
@@ -357,6 +360,7 @@ namespace hgl::driver
                 ModulePart &part       = parts[index];
                 part.assembled_begin   = static_cast<std::uint32_t>(text.size());
                 std::string normalized = part.text;
+                for (const auto &doc : part.documentation) { blank(normalized, doc.comment); }
                 blank(normalized, index == 0U ? part.clause_range : part.module_range);
                 text += normalized;
                 const std::uint32_t end = static_cast<std::uint32_t>(text.size());
@@ -368,6 +372,13 @@ namespace hgl::driver
             unit.module = syntax::parse(unit.file, unit.diagnostics, syntax::ParseOptions{.allow_late_use = true});
             if (unit.diagnostics.has_errors()) { return unit; }
 
+            for (const auto &part : parts) {
+                for (auto doc : part.documentation) {
+                    doc.target  = assembled_range(part, doc.target);
+                    doc.comment = assembled_range(part, doc.comment);
+                    unit.module.documentation.push_back(std::move(doc));
+                }
+            }
             const std::string                                       expected_module = parts.front().module;
             std::map<std::string, syntax::SourceRange, std::less<>> names;
             for (const ModulePart &part : parts) {
@@ -449,13 +460,16 @@ namespace hgl::driver
         int check(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
+            bool                       want_docs      = false;
             bool                       want_tokens    = false;
             bool                       want_ast       = false;
             bool                       want_hir       = false;
             bool                       want_hgraph_ir = false;
             for (std::size_t index = 0; index < arguments.size(); ++index) {
                 const std::string_view argument = arguments[index];
-                if (argument == "--dump-tokens") {
+                if (argument == "--dump-docs") {
+                    want_docs = true;
+                } else if (argument == "--dump-tokens") {
                     want_tokens = true;
                 } else if (argument == "--dump-ast") {
                     want_ast = true;
@@ -496,6 +510,7 @@ namespace hgl::driver
                     std::cerr << *path << ':' << error.path << ": descriptor: " << error.message << '\n';
                     return exit_diagnostics;
                 }
+                if (want_docs) { std::cout << syntax::documentation_rst(result.value->documentation); }
                 return exit_ok;
             }
 
@@ -509,6 +524,7 @@ namespace hgl::driver
                 dump_tokens(unit.file, syntax::lex(unit.file, lex_diagnostics));
                 // The parser lexes again so token diagnostics are reported once.
             }
+            if (want_docs && !unit.diagnostics.has_errors()) { std::cout << syntax::documentation_rst(unit.module.documentation); }
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
             if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
             if (want_hgraph_ir && unit.hgraph) { std::cout << hgraph_ir::print(*unit.hgraph); }
@@ -914,7 +930,8 @@ namespace hgl::driver
                 return exit_ok;
             }
             if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source) ||
-                !write_file(descriptor_path, emitted->descriptor)) {
+                !write_file(descriptor_path, emitted->descriptor) ||
+                !write_file(descriptor_path.parent_path() / (stem + ".rst"), emitted->documentation)) {
                 return exit_usage;
             }
             for (const auto &[file, contents] : implementation_files) {

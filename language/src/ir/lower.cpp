@@ -227,6 +227,7 @@ namespace hgl::ir
 
             hir::Module run() {
                 result_.path = resolved_.module_path;
+                result_.documentation = module_.documentation;
                 mark_owners();
                 declare_symbols();
 

@@ -3760,3 +3760,32 @@ TEST_CASE("imported native graph and node contracts admit graph construction", "
         CHECK(hook.has(Category::Type, "a temporal native fn can only be called during graph construction"));
     }
 }
+
+TEST_CASE("documentation survives checking lowering and C++ emission", "[documentation][codegen]") {
+    Unit unit{R"hgl(module docs
+/**
+Keep the value α.
+
+Args:
+    value: Input.
+
+Notes:
+    .. math::
+
+        y = x
+*/
+export fn keep(value: i64) -> i64 => value
+)hgl"};
+    auto emitted = unit.emit();
+    REQUIRE(emitted);
+    REQUIRE(unit.module.documentation.size() == 1);
+    CHECK(unit.hir.documentation == unit.module.documentation);
+    CHECK(unit.graph.documentation == unit.module.documentation);
+    CHECK(emitted->header.find("Keep the value α.") != std::string::npos);
+    CHECK(emitted->documentation.find(".. math::\n\n    y = x") != std::string::npos);
+    CHECK(emitted->descriptor.find("Keep the value α.") != std::string::npos);
+    Unit changed{"module docs\n/** Changed explanation. */\nexport fn keep(value: i64) -> i64 => value\n"};
+    auto other = changed.emit();
+    REQUIRE(other);
+    CHECK(emitted->descriptor_fingerprint == other->descriptor_fingerprint);
+}

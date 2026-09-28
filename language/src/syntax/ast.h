@@ -577,6 +577,7 @@ namespace hgl::syntax::ast
     /// module declaration is first when present.
     struct Module
     {
+        std::vector<syntax::Documentation> documentation{};
         std::vector<Type>       types{};
         std::vector<Expr>       exprs{};
         std::vector<Stmt>       stmts{};

@@ -60,6 +60,8 @@ namespace hgl::codegen
         std::vector<std::string> implementation_sources{};
         /// Canonical UTF-8 JSON for `<stem>.hgl-module.json`.
         std::string descriptor{};
+        /// reStructuredText documentation, independent of the executable provider.
+        std::string documentation{};
         /// Canonical descriptor fingerprint also embedded in a dynamic module
         /// lifecycle table and checked before activation.
         std::string descriptor_fingerprint{};

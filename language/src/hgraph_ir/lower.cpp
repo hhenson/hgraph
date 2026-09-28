@@ -24,6 +24,7 @@ namespace hgl::hgraph_ir
           public:
             Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
                 result_.path         = source.path;
+                result_.documentation = source.documentation;
                 result_.cpp_includes = source.cpp_includes;
             }
 

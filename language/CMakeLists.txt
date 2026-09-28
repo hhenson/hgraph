@@ -108,6 +108,7 @@ target_include_directories(hgl_native_interface INTERFACE
 # (developer guide, "Frontend components": src/syntax).
 add_library(hgl_syntax STATIC
     src/syntax/source.cpp
+    src/syntax/documentation.cpp
     src/syntax/diagnostic.cpp
     src/syntax/temporal.cpp
     src/syntax/token.cpp

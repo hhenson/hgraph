@@ -1,6 +1,7 @@
 #include "syntax/parser.h"
 
 #include "syntax/ast_projection.h"
+#include "syntax/documentation.h"
 #include "syntax/lexer.h"
 #include "syntax/syntax_diagnostics.h"
 #include "syntax/token_grammar.h"
@@ -12,7 +13,10 @@ namespace hgl::syntax
         const SyntaxParseResult syntax = parse_source_syntax(file, lexed);
         report_syntax_issues(syntax.tree, lexed, diagnostics);
         if (syntax.tree.has_root()) {
-            return project_ast(syntax.tree, lexed, diagnostics, AstProjectionOptions{.allow_late_use = options.allow_late_use});
+            auto module =
+                project_ast(syntax.tree, lexed, diagnostics, AstProjectionOptions{.allow_late_use = options.allow_late_use});
+            if (!diagnostics.has_errors()) { capture_documentation(file, module, diagnostics); }
+            return module;
         }
         return {};
     }
