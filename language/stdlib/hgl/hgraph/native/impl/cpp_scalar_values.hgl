@@ -30,3 +30,13 @@ native const fn slice(value: str, begin: i64, end: i64) -> str {}
 native const fn as_int(value: f64) -> i64 {}
 native const fn as_float(value: bool) -> f64 {}
 native const fn as_float(value: i64) -> f64 {}
+native const fn as_str(value: bool) -> str {}
+native const fn as_str(value: i64) -> str {}
+native const fn as_str(value: f64) -> str {}
+native const fn as_str(value: str) -> str {}
+native const fn as_str(value: date) -> str {}
+native const fn as_str(value: time) -> str {}
+native const fn as_str(value: datetime) -> str {}
+native const fn as_str(value: duration) -> str {}
+native const fn print_line(text: str) {}
+native const fn raise_error(message: str) throws {}
