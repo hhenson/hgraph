@@ -26,6 +26,14 @@ namespace hgl::syntax
         friend constexpr bool operator==(SourceRange, SourceRange) noexcept = default;
     };
 
+    /// Owned documentation survives source buffers and compiler lowering.
+    struct Documentation
+    {
+        std::string name{}, declaration{}, text{}, part{};
+        SourceRange target{}, comment{};
+        friend bool operator==(const Documentation &, const Documentation &) = default;
+    };
+
     struct SourceComment
     { SourceRange range{}; };
 

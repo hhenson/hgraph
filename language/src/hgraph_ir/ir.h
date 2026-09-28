@@ -694,6 +694,7 @@ namespace hgl::hgraph_ir
 
     struct Module
     {
+        std::vector<syntax::Documentation> documentation{};
         std::string             path{};
         Completion              completion{Completion::Interfaces};
         std::vector<ConstExpr>  const_exprs{};

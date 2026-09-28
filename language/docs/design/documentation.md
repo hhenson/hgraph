@@ -94,3 +94,23 @@ The compiler provides readable views at its durable boundaries:
 These views are test and diagnostic formats during the prototype. Any format
 that becomes an interchange or cache contract receives its own version and
 compatibility policy first.
+
+## HGL source documentation
+
+The agreed [source documentation contract](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/documentation.md)
+uses `/** ... */`, Google-style sections and reST content. Parsing attaches owned
+records to declarations and checks `Args`, `Type Args`, `Properties` and `Requires`
+keys. AST, typed HIR and hgraph IR retain the records; selected native parts retain
+their own documentation. Formatting preserves the comment text.
+
+`hgl check module.hgl --dump-docs` emits reST, including with `--part` selections.
+The same option reads documentation from an emitted `.hgl-module.json` descriptor.
+`emit-cpp` writes `<stem>.rst` beside the descriptor and preserves the source docs
+in generated header comments. The optional descriptor `documentation` array holds
+qualified names, source signatures, part labels and normalized text. Source byte
+ranges remain compiler-local. Documentation is excluded from the semantic provider
+fingerprint; descriptors without documentation remain compatible.
+
+The reST export converts section headings to rubrics and keyed descriptions to
+definition lists. Sphinx renders math with its math extension and diagrams with
+`sphinxcontrib-mermaid`. The compiler never executes documentation directives.

@@ -397,6 +397,7 @@ namespace hgl::descriptor
 
     ModuleDescriptor describe_module(const hgraph_ir::Module &module, DescribeOptions options) {
         ModuleDescriptor result;
+        result.documentation = module.documentation;
         result.module_identity           = module.path;
         result.language_version          = std::move(options.language_version);
         result.provider_identity         = options.provider_identity.empty() ? module.path : std::move(options.provider_identity);

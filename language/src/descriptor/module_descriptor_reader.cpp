@@ -143,6 +143,24 @@ namespace hgl::descriptor
                     return failure();
                 }
 
+                if (const Element *docs = document.find("documentation")) {
+                    simdjson::dom::array array;
+                    if (docs->get(array)) {
+                        fail("$.documentation", "expected array");
+                        return failure();
+                    }
+                    for (Element item : array) {
+                        ObjectFields          fields;
+                        syntax::Documentation doc;
+                        if (!object(item, "$.documentation[]", fields) ||
+                            !required_string(fields, "name", "$.documentation[]", doc.name) ||
+                            !required_string(fields, "declaration", "$.documentation[]", doc.declaration) ||
+                            !required_string(fields, "text", "$.documentation[]", doc.text) ||
+                            !required_string(fields, "part", "$.documentation[]", doc.part))
+                            return failure();
+                        descriptor.documentation.push_back(std::move(doc));
+                    }
+                }
                 const Element *module = required(document, "module", "$");
                 if (module == nullptr || !read_module(*module, descriptor)) { return failure(); }
                 const Element *interface = required(document, "interface", "$");

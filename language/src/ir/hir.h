@@ -732,6 +732,7 @@ namespace hgl::ir::hir
 
     struct Module
     {
+        std::vector<syntax::Documentation> documentation{};
         std::string         path{};
         Completion          completion{Completion::Resolved};
         std::vector<Symbol> symbols{};
