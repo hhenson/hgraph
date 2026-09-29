@@ -2693,11 +2693,39 @@ namespace hgl::ir
                 return {};
             }
 
+            /// `const(f)` with one unnamed argument naming a function is the
+            /// value-role selector of ADR 0008, whichever `const` the name
+            /// resolved to: a library `operator const` (MIG-009) shadows the
+            /// intrinsic, and the selector keeps working through it. Returns
+            /// whether the call was the selector; a `const(...)` that is not
+            /// falls through to the callee's own dispatch.
+            bool check_const_selector(Expr &expression, const Call &call) {
+                if (call.arguments.size() != 1 || !call.arguments.front().name.empty()) { return false; }
+                const Expr &argument = module_.expr(call.arguments.front().value);
+                const auto *named    = std::get_if<SymbolRef>(&argument.node);
+                if (named == nullptr || !named->symbol.valid()) { return false; }
+                const SymbolKind kind = module_.symbol(named->symbol).kind;
+                if (kind != SymbolKind::Function && kind != SymbolKind::ImportedFunction) { return false; }
+                (void)check_expr(call.arguments.front().value);
+                const SymbolId value = value_counterpart(named->symbol);
+                if (!value.valid()) {
+                    type_error(expression.range, "const(function) requires a const fn declaration");
+                    return true;
+                }
+                expression.type        = callable_type(value);
+                expression.phase       = Phase::Constant;
+                expression.value_kind  = ValueKind::Function;
+                expression.force_value = true;
+                expression.node        = SymbolRef{value};
+                return true;
+            }
+
             void check_call(Expr &expression, const Call &call, TypeId expected) {
                 Expr &callee    = check_expr(call.callee);
                 auto *reference = std::get_if<SymbolRef>(&callee.node);
                 if (reference && reference->symbol.valid()) {
                     const Symbol &symbol = module_.symbol(reference->symbol);
+                    if (symbol.name == "const" && check_const_selector(expression, call)) { return; }
                     if (active_value_function_ &&
                         (symbol.kind == SymbolKind::Operator || symbol.kind == SymbolKind::ImportedOperator)) {
                         type_error(expression.range, "a temporal operator cannot be called inside a const fn");
@@ -2778,23 +2806,14 @@ namespace hgl::ir
                     }
                     if (symbol.kind == SymbolKind::Intrinsic) {
                         if (symbol.name == "const") {
-                            if (call.arguments.size() != 1 || !call.arguments.front().name.empty()) {
-                                type_error(expression.range, "const(function) requires one function name");
-                                return;
-                            }
-                            Expr          &argument = check_expr(call.arguments.front().value);
-                            const auto    *selected = std::get_if<SymbolRef>(&argument.node);
-                            const SymbolId value =
-                                selected && selected->symbol.valid() ? value_counterpart(selected->symbol) : SymbolId{};
-                            if (!value.valid()) {
-                                type_error(expression.range, "const(function) requires a const fn declaration");
-                                return;
-                            }
-                            expression.type        = callable_type(value);
-                            expression.phase       = Phase::Constant;
-                            expression.value_kind  = ValueKind::Function;
-                            expression.force_value = true;
-                            expression.node        = SymbolRef{value};
+                            // Not the selector shape, and no `operator const` in
+                            // scope to take the call (MIG-009).
+                            for (const Argument &argument : call.arguments) { (void)check_expr(argument.value); }
+                            type_error(expression.range,
+                                       call.arguments.size() == 1 && call.arguments.front().name.empty()
+                                           ? "const(function) requires a const fn declaration"
+                                           : "const(function) requires one function name; the constant source "
+                                             "'const' is a library operator and is not in scope");
                             return;
                         }
                         check_intrinsic_call(expression, call, reference->symbol, expected);

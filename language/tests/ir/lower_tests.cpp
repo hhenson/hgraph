@@ -3302,3 +3302,42 @@ fn use_it(lhs: i64, rhs: i64) -> i64 => apply(lhs, rhs)
     CHECK_FALSE(complete(lowered));
     CHECK(lowered.diagnostics.render(lowered.file).find("native scalar requirement is ambiguous") != std::string::npos);
 }
+
+TEST_CASE("const is admitted as an operator name and const(f) stays the selector", "[ir][typed][mig-009]") {
+    // The library spells hgraph's `const` by its own name; a call with one
+    // argument naming a function is still the ADR 0008 value-role selector.
+    CHECK(completes("module checks.const_name\n"
+                    "operator const<T>(const value: T, const delay: duration = 0s) -> T\n"
+                    "impl fn const<T>(const value: T, const delay: duration = 0s) -> T {\n"
+                    "    inject scheduler\n"
+                    "    start { scheduler.schedule(delay) }\n"
+                    "    when scheduled() { return value }\n"
+                    "}\n"
+                    "instantiate const<i64>\n"
+                    "operator sink(ts: signal)\n"
+                    "impl fn sink(ts: signal) { when { } }\n"
+                    "fn c(tick: i64) -> i64 {\n"
+                    "    sink(tick)\n"
+                    "    const(42)\n"
+                    "}\n"
+                    "const fn scale(value: f64, factor: f64) -> f64 => value * factor\n"
+                    "fn scale(value: f64, factor: f64) -> f64 { when { return value * factor } }\n"
+                    "fn selected(value: f64) -> f64 { const(scale)(value, 3.0) }\n"));
+    // Without an operator in scope, `const(value)` is still no selector.
+    CHECK(completion_diagnostics("module checks.no_const_operator\n"
+                                 "operator sink(ts: signal)\n"
+                                 "impl fn sink(ts: signal) { when { } }\n"
+                                 "fn c(tick: i64) -> i64 {\n"
+                                 "    sink(tick)\n"
+                                 "    const(42)\n"
+                                 "}\n")
+              .find("const(function) requires a const fn declaration") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.no_const_operator_delay\n"
+                                 "operator sink(ts: signal)\n"
+                                 "impl fn sink(ts: signal) { when { } }\n"
+                                 "fn c(tick: i64) -> i64 {\n"
+                                 "    sink(tick)\n"
+                                 "    const(42, delay: 1s)\n"
+                                 "}\n")
+              .find("is a library operator and is not in scope") != std::string::npos);
+}

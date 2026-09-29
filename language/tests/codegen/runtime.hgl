@@ -414,3 +414,34 @@ test {
         assert eval(ordered_seed, value: [1, 2]) == [87, 107]
     }
 }
+
+# The library constant is spelled `const` (MIG-009): an operator named by a
+# reserved word, emitted as a C++ struct under a mangled name, and called as
+# `const(value)`; `const(f)` with a function name stays the ADR 0008 selector.
+operator const<T>(const value: T, const delay: duration = 0s) -> T
+impl fn const<T>(const value: T, const delay: duration = 0s) -> T {
+    inject scheduler
+    start { scheduler.schedule(delay) }
+    when scheduled() { return value }
+}
+instantiate const<i64>, const<str>
+
+operator const_sink(ts: signal)
+impl fn const_sink(ts: signal) { when { } }
+
+fn const_forty_two(tick: i64) -> i64 {
+    const_sink(tick)
+    const(42)
+}
+fn const_text(tick: i64) -> str {
+    const_sink(tick)
+    const("hgl", delay: 1us)
+}
+const fn const_scale(value: f64, factor: f64) -> f64 => value * factor
+fn const_selected(value: f64) -> f64 { const(const_scale)(value, 3.0) }
+
+test const_by_its_own_name {
+    assert eval(const_forty_two, tick: [1, 1]) == [42, _]
+    assert eval(const_text, tick: [1, 1]) == [_, "hgl"]
+    assert eval(const_selected, value: [1.0, 2.0]) == [3.0, 6.0]
+}

@@ -718,7 +718,8 @@ namespace hgl::syntax
         struct instantiate_decl
         {
             static constexpr auto rule = token<TokenKind::KwInstantiate> >>
-                                         dsl::list(dsl::peek(ordinary_name + token<TokenKind::Less>) >> dsl::p<instantiation>,
+                                         dsl::list(dsl::peek((ordinary_name / token<TokenKind::KwConst>) + token<TokenKind::Less>) >>
+                                                       dsl::p<instantiation>,
                                                    dsl::trailing_sep(dsl::p<comma_separator>));
         };
 

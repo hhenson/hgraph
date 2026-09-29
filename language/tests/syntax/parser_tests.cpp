@@ -1444,6 +1444,14 @@ TEST_CASE("reserved words cannot be used as names", "[parser]") {
             std::vector<std::string>{"'fn' is a reserved word and cannot be used as an imported name"});
     REQUIRE(Parsed{"module t\nfn f() {\n    state let = 1\n}\n"}.messages() ==
             std::vector<std::string>{"'let' is a reserved word and cannot be used as a state variable name"});
+    // `const` is the one exception (MIG-009): an operator, function,
+    // instantiation or imported name, never a parameter or variable.
+    REQUIRE(Parsed{"module t\nuse a.b::{const}\noperator const<T>(const value: T) -> T\n"
+                   "impl fn const<T>(const value: T) -> T => value\ninstantiate const<i64>\n"}
+                .messages()
+                .empty());
+    REQUIRE(Parsed{"module t\nfn f() {\n    let const = 1\n    2\n}\n"}.messages() ==
+            std::vector<std::string>{"'const' is a reserved word and cannot be used as a variable name"});
     REQUIRE(Parsed{"module t\nfn f() {\n    inject return\n}\n"}.messages() ==
             std::vector<std::string>{"'return' is a reserved word and cannot be used as an injectable name"});
     REQUIRE(Parsed{"module t\nstruct fn {\n    let: i64\n}\n"}.messages() ==

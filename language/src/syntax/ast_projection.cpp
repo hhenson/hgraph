@@ -157,13 +157,21 @@ namespace hgl::syntax
                 return ast::Name{token.text, token.range};
             }
 
+            /// `const` is the one reserved word admitted as a declared name:
+            /// the library spells hgraph's `const` by its own name (MIG-009).
+            /// It stays refused as a parameter, variable, field or generic
+            /// name, where it would read as the modifier.
+            [[nodiscard]] static bool admits_const(std::string_view role) noexcept {
+                return role == "a function name" || role == "an operator name" || role == "an imported name";
+            }
+
             [[nodiscard]] std::vector<ast::Name> direct_names(SyntaxNodeId id, std::string_view role = {}) {
                 std::vector<ast::Name> names;
                 const auto             append_name = [&](SyntaxNodeId name_node) {
                     const std::vector<SyntaxTokenId> tokens = child_tokens(name_node);
                     require(tokens.size() == 1, "name production does not contain exactly one token");
                     const Token &token = source_token(tokens.front());
-                    if (!role.empty() && is_keyword(token.kind)) {
+                    if (!role.empty() && is_keyword(token.kind) && !(token.kind == TokenKind::KwConst && admits_const(role))) {
                         diagnostics_.report(Category::Parse, token.range,
                                             "'" + std::string{token.text} + "' is a reserved word and cannot be used as " +
                                                 std::string{role});
