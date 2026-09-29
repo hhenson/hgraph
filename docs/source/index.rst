@@ -58,7 +58,6 @@ RFCs
    user_guide/index
    reference/index
    runtime_spec/index
-   specification/index
    developer_guide/index
    rfc/index
    papers/index

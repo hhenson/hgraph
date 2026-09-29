@@ -1868,3 +1868,37 @@ TEST_CASE("native implementation shape and hooks survive descriptor imports", "[
     descriptor::seal(source);
     CHECK(descriptor::read_json(descriptor::to_json(source)));
 }
+
+TEST_CASE("native scalar requirements retain their execution role in descriptor JSON", "[descriptor][native][constraints]") {
+    auto source        = minimal_descriptor();
+    source.types       = {{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+    source.constraints = {
+        {.category = descriptor::ConstraintCategory::Type, .type = 0U},
+        {.category  = descriptor::ConstraintCategory::NativeScalar,
+         .identity  = "checks.values::combine",
+         .result    = 0U,
+         .arguments = {0U, 0U}},
+    };
+    descriptor::seal(source);
+    const auto result = descriptor::read_json(descriptor::to_json(source));
+    REQUIRE(result);
+    CHECK(result.value->constraints[1].category == descriptor::ConstraintCategory::NativeScalar);
+    CHECK(result.value->constraints[1].registry_name.empty());
+    CHECK(result.value->constraints[1].identity == "checks.values::combine");
+}
+
+TEST_CASE("documentation descriptor extension round trips without changing provider identity", "[documentation][descriptor]") {
+    auto descriptor = minimal_descriptor();
+    descriptor::seal(descriptor);
+    const auto fingerprint = descriptor.descriptor_fingerprint;
+    descriptor.documentation.push_back({.name        = "checks.reader.f",
+                                        .declaration = "native const fn f(x: i64) -> i64",
+                                        .text        = "Unicode α.\n\nNotes:\n    .. math::\n\n        y = x",
+                                        .part        = "rust_impl"});
+    descriptor::seal(descriptor);
+    CHECK(descriptor.descriptor_fingerprint == fingerprint);
+    auto read = descriptor::read_json(descriptor::to_json(descriptor));
+    REQUIRE(read);
+    CHECK(read.value->documentation == descriptor.documentation);
+    CHECK(descriptor::to_json(*read.value) == descriptor::to_json(descriptor));
+}

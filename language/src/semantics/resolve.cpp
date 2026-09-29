@@ -145,6 +145,22 @@ namespace hgl::semantics
                 }
                 validate_structs();
                 validate_constructors();
+                for (const auto &structure : result_.imported_structs) {
+                    for (const auto &constraint : structure.constraints) {
+                        if (constraint.kind != ImportedConstraintKind::NativeScalar) { continue; }
+                        const auto separator = constraint.identity.rfind("::");
+                        const auto functions = separator == std::string::npos
+                                                   ? std::span<const ImportedFunction>{}
+                                                   : catalog_.find_functions(constraint.identity.substr(0, separator),
+                                                                             constraint.identity.substr(separator + 2));
+                        if (functions.empty()) {
+                            report(Category::Module, {},
+                                   "missing native scalar requirement interface '" + constraint.identity + "'");
+                        } else {
+                            (void)imported_function(functions, {});
+                        }
+                    }
+                }
                 return std::move(result_);
             }
 
@@ -964,15 +980,18 @@ namespace hgl::semantics
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::StateDecl> || std::is_same_v<T, ast::LifecycleBlock> ||
-                                      std::is_same_v<T, ast::WhenStmt>) {
+                                      std::is_same_v<T, ast::WhenStmt> || std::is_same_v<T, ast::YieldStmt>) {
+                            // `yield` makes a generator source, a runtime function (ADR 0015).
                             return true;
                         } else if constexpr (std::is_same_v<T, ast::InjectDecl>) {
                             return !value_function;
-                        } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
+                        } else if constexpr (std::is_same_v<T, ast::ForStmt> || std::is_same_v<T, ast::WhileStmt>) {
                             // Iteration follows the phase established by its
                             // containing function. A node-only construct in
                             // the body still classifies the whole function as
-                            // runtime, but `for` itself is phase-neutral.
+                            // runtime, but `for` itself is phase-neutral, and
+                            // `while` does not classify either: the checker
+                            // rejects it in a composition body (ADR 0015).
                             return block_has_runtime_form(node.block, value_function);
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             return expr_has_runtime_form(node.expr);
@@ -1050,6 +1069,16 @@ namespace hgl::semantics
                             reject_in_test(context, stmt.range, "when");
                             if (node.condition != ast::no_node) { resolve_expr(node.condition, context); }
                             resolve_block(node.block, context);
+                        } else if constexpr (std::is_same_v<T, ast::WhileStmt>) {
+                            reject_in_test(context, stmt.range, "while");
+                            if (node.condition != ast::no_node) { resolve_expr(node.condition, context); }
+                            push_scope();
+                            resolve_block(node.block, context);
+                            pop_scope();
+                        } else if constexpr (std::is_same_v<T, ast::YieldStmt>) {
+                            reject_in_test(context, stmt.range, "yield");
+                            resolve_expr(node.time, context);
+                            resolve_expr(node.value, context);
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             reject_in_test(context, stmt.range, "for");
                             resolve_expr(node.iterable, context);
@@ -1616,7 +1645,9 @@ namespace hgl::semantics
                             Binding binding;
                             if (node.qualifier.empty()) {
                                 const std::optional<Binding> found = lookup(node.name.text);
-                                if (found && (found->kind == BindingKind::Operator || found->kind == BindingKind::LocalOperator)) {
+                                if (found &&
+                                    (found->kind == BindingKind::Operator || found->kind == BindingKind::LocalOperator ||
+                                     found->kind == BindingKind::NativeFunction || found->kind == BindingKind::ImportedFunction)) {
                                     binding = *found;
                                 } else {
                                     report(Category::Name, node.name.range,
@@ -1629,6 +1660,13 @@ namespace hgl::semantics
                                     found_alias = true;
                                     if (const auto *contract = catalog_.find_operator(alias.module, node.name.text)) {
                                         if (const auto imported = imported_operator(*contract, node.name.range)) {
+                                            binding = *imported;
+                                        }
+                                        break;
+                                    }
+                                    const auto functions = catalog_.find_functions(alias.module, node.name.text);
+                                    if (!functions.empty()) {
+                                        if (const auto imported = imported_function(functions, node.name.range)) {
                                             binding = *imported;
                                         }
                                         break;

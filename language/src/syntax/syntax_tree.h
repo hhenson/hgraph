@@ -72,6 +72,8 @@ namespace hgl::syntax
         LifecycleStmt,
         WhenStmt,
         ForStmt,
+        WhileStmt,
+        YieldStmt,
         ReturnStmt,
         AssertStmt,
         AssignOrExpressionStmt,

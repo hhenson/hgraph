@@ -3760,3 +3760,67 @@ TEST_CASE("imported native graph and node contracts admit graph construction", "
         CHECK(hook.has(Category::Type, "a temporal native fn can only be called during graph construction"));
     }
 }
+
+TEST_CASE("documentation survives checking lowering and C++ emission", "[documentation][codegen]") {
+    Unit unit{R"hgl(module docs
+/**
+Keep the value α.
+
+Args:
+    value: Input.
+
+Notes:
+    .. math::
+
+        y = x
+*/
+export fn keep(value: i64) -> i64 => value
+)hgl"};
+    auto emitted = unit.emit();
+    REQUIRE(emitted);
+    REQUIRE(unit.module.documentation.size() == 1);
+    CHECK(unit.hir.documentation == unit.module.documentation);
+    CHECK(unit.graph.documentation == unit.module.documentation);
+    CHECK(emitted->header.find("Keep the value α.") != std::string::npos);
+    CHECK(emitted->documentation.find(".. math::\n\n    y = x") != std::string::npos);
+    CHECK(emitted->descriptor.find("Keep the value α.") != std::string::npos);
+    Unit changed{"module docs\n/** Changed explanation. */\nexport fn keep(value: i64) -> i64 => value\n"};
+    auto other = changed.emit();
+    REQUIRE(other);
+    CHECK(emitted->descriptor_fingerprint == other->descriptor_fingerprint);
+}
+
+TEST_CASE("emit-cpp lowers a generator source to a resumable state machine", "[codegen][runtime][adr-0015]") {
+    Unit unit{R"(
+module checks.generator
+fn count_to(const n: i64) -> i64 {
+    var i: i64 = 0
+    while i < n {
+        yield 1us: i
+        i += 1
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    // The machine's storage is one cache struct: resume index, parked value,
+    // and the hoisted local; the node asks for its first evaluation at start.
+    CHECK(contains(emitted->source, "struct count_to_cache_fields"));
+    CHECK(contains(emitted->source, "hgraph::Int hgl_resume{};"));
+    CHECK(contains(emitted->source, "hgl_value{};"));
+    CHECK(contains(emitted->source, "static constexpr bool schedule_on_start = true;"));
+    CHECK(contains(emitted->source, "hgraph::SingleShotScheduler alarm"));
+    // The registry name lives at global scope even for a private body.
+    CHECK(contains(emitted->source, "scalar_name<::checks::generator::count_to_cache_fields>"));
+    // Dispatch, park and resume.
+    CHECK(contains(emitted->source, "case 1: goto hgl_yield_1;"));
+    CHECK(contains(emitted->source, "case -1: return;"));
+    CHECK(contains(emitted->source, "alarm.schedule(hgl_when_1);"));
+    CHECK(contains(emitted->source, "hgl_yield_1:;"));
+    CHECK(contains(emitted->source, "hgl_cache.modify().hgl_resume = -1;"));
+    CHECK(contains(emitted->source, "duplicate time produced by generator"));
+    // The local is read and written through the state slot, never a C++ local.
+    CHECK(contains(emitted->source, "hgl_cache.modify().field_"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::Int i ="));
+}

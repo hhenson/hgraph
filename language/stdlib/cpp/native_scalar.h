@@ -18,6 +18,306 @@ namespace hgl::stdlib
 
     struct ScalarNative
     {
+        static hgraph::Int add(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_add<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float add(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_add<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float add(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_add<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float add(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_add<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Int sub(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_sub<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float sub(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_sub<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float sub(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_sub<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float sub(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_sub<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Int mul(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_mul<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mul(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_mul<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mul(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_mul<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mul(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_mul<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float div(hgraph::Int lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float div(hgraph::Int lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float div(hgraph::Float lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_div<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float div(hgraph::Float lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_div<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Int floordiv(hgraph::Int lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_floordiv<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float floordiv(hgraph::Int lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_floordiv<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float floordiv(hgraph::Float lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_floordiv<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float floordiv(hgraph::Float lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_floordiv<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Int mod(hgraph::Int lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_mod<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mod(hgraph::Int lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_mod<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mod(hgraph::Float lhs, hgraph::Int rhs) {
+            return hgraph::stdlib::scalar_mod<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Float mod(hgraph::Float lhs, hgraph::Float rhs) {
+            return hgraph::stdlib::scalar_mod<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(hgraph::Bool lhs, hgraph::Bool rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::Bool, hgraph::Bool>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(hgraph::Bool lhs, hgraph::Bool rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Bool, hgraph::Bool>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(hgraph::Int lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Int, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(hgraph::Float lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Float, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(hgraph::Int lhs, hgraph::Float rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Int, hgraph::Float>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(hgraph::Float lhs, hgraph::Int rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Float, hgraph::Int>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(const hgraph::Str &lhs, const hgraph::Str &rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Int neg(hgraph::Int ts) noexcept { return hgraph::stdlib::scalar_neg<hgraph::Int>::apply(ts); }
+
+        static hgraph::Float neg(hgraph::Float ts) noexcept { return hgraph::stdlib::scalar_neg<hgraph::Float>::apply(ts); }
+
+        static hgraph::Str add(const hgraph::Str &lhs, const hgraph::Str &rhs) {
+            return hgraph::stdlib::scalar_add<hgraph::Str, hgraph::Str>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool lt(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_lt<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool le(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_le<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool gt(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_gt<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(const hgraph::Date &lhs, const hgraph::Date &rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::Date, hgraph::Date>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(const hgraph::DateTime &lhs, const hgraph::DateTime &rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::DateTime, hgraph::DateTime>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ge(const hgraph::TimeDelta &lhs, const hgraph::TimeDelta &rhs) noexcept {
+            return hgraph::stdlib::scalar_ge<hgraph::TimeDelta, hgraph::TimeDelta>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool eq(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+            return hgraph::stdlib::scalar_eq<hgraph::Time, hgraph::Time>::apply(lhs, rhs);
+        }
+
+        static hgraph::Bool ne(const hgraph::Time &lhs, const hgraph::Time &rhs) noexcept {
+            return hgraph::stdlib::scalar_ne<hgraph::Time, hgraph::Time>::apply(lhs, rhs);
+        }
+
         static hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
         static hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }

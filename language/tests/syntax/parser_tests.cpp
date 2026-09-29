@@ -1,5 +1,7 @@
 #include "syntax/ast_printer.h"
 #include "syntax/ast_projection.h"
+#include "syntax/documentation.h"
+#include "syntax/formatter.h"
 #include "syntax/lexer.h"
 #include "syntax/parser.h"
 #include "syntax/token_grammar.h"
@@ -1152,6 +1154,44 @@ TEST_CASE("for loops over one or two names", "[parser]") {
             std::vector<std::string>{"expected 'in' after the loop pattern, found 'xs'"});
 }
 
+TEST_CASE("while loops with and without a condition", "[parser][adr-0015]") {
+    REQUIRE(body_dump("    while n < 3 {\n"
+                      "        n += 1\n"
+                      "    }\n"
+                      "    while {\n"
+                      "        n += 1\n"
+                      "    }") == "Block\n"
+                                  "  While\n"
+                                  "    condition: Binary <\n"
+                                  "      NameRef n\n"
+                                  "      IntLiteral 3\n"
+                                  "    Block\n"
+                                  "      Assign +=\n"
+                                  "        place: NameRef n\n"
+                                  "        value: IntLiteral 1\n"
+                                  "  While\n"
+                                  "    condition: Unbounded\n"
+                                  "    Block\n"
+                                  "      Assign +=\n"
+                                  "        place: NameRef n\n"
+                                  "        value: IntLiteral 1\n");
+}
+
+TEST_CASE("yield pairs a time with a value", "[parser][adr-0015]") {
+    REQUIRE(body_dump("    yield 5m: value\n"
+                      "    yield clock.evaluation_time(): 1") == "Block\n"
+                                                                 "  Yield\n"
+                                                                 "    time: TemporalLiteral 5m\n"
+                                                                 "    value: NameRef value\n"
+                                                                 "  Yield\n"
+                                                                 "    time: Call\n"
+                                                                 "      callee: Field evaluation_time\n"
+                                                                 "        NameRef clock\n"
+                                                                 "    value: IntLiteral 1\n");
+    REQUIRE(Parsed{"module t\nfn f() {\n    yield 5m value\n}\n"}.messages() ==
+            std::vector<std::string>{"expected ':' between the yield time and its value, found 'value'"});
+}
+
 TEST_CASE("assignments", "[parser]") {
     REQUIRE(body_dump("    a = 1\n"
                       "    a += 1\n"
@@ -1442,6 +1482,16 @@ TEST_CASE("reserved words cannot be used as names", "[parser]") {
             std::vector<std::string>{"'fn' is a reserved word and cannot be used as an imported name"});
     REQUIRE(Parsed{"module t\nfn f() {\n    state let = 1\n}\n"}.messages() ==
             std::vector<std::string>{"'let' is a reserved word and cannot be used as a state variable name"});
+    // `const` is the one exception (MIG-009): an operator, function,
+    // instantiation or imported name, never a parameter or variable.
+    REQUIRE(Parsed{"module t\nuse a.b::{const}\noperator const<T>(const value: T) -> T\n"
+                   "impl fn const<T>(const value: T) -> T => value\ninstantiate const<i64>\n"}
+                .messages()
+                .empty());
+    REQUIRE(Parsed{"module t\nfn f() {\n    let const = 1\n    2\n}\n"}.messages() ==
+            std::vector<std::string>{"'const' is a reserved word and cannot be used as a variable name"});
+    // The aliased import form reaches the same operator.
+    REQUIRE(Parsed{"module t\nuse a.b as m\nfn f() => m::const(1)\n"}.messages().empty());
     REQUIRE(Parsed{"module t\nfn f() {\n    inject return\n}\n"}.messages() ==
             std::vector<std::string>{"'return' is a reserved word and cannot be used as an injectable name"});
     REQUIRE(Parsed{"module t\nstruct fn {\n    let: i64\n}\n"}.messages() ==
@@ -1644,4 +1694,119 @@ native fn filter(value: i64, const limit: i64) -> i64 { inject out, logger; star
     CHECK(natives[2]->capabilities.size() == 2);
     Parsed ordinary{"module t\nfn f(value: i64) -> i64 { when { return value; } }\n"};
     CHECK(ordinary.diagnostics.has_errors());
+}
+
+TEST_CASE("documentation preserves math diagrams and declaration attachment", "[documentation]") {
+    const std::string source = R"hgl(/** Module overview. */
+module docs
+
+/**
+Transform a value α.
+
+Args:
+    value: Input value: unmodified.
+
+Notes:
+    .. math::
+
+        y = \frac{x}{2}
+
+    .. mermaid::
+
+        sequenceDiagram
+            Node->>Output: Publish
+*/
+export fn transform(value: i64) -> i64 => value
+
+struct Quote {
+    /** Bid value. */
+    bid: f64
+}
+)hgl";
+    Parsed            parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.documentation.size() == 3);
+    CHECK(parsed.module.documentation[0].name == "docs");
+    CHECK(parsed.module.documentation[1].name == "docs.transform");
+    CHECK(parsed.module.documentation[1].declaration == "export fn transform(value: i64) -> i64");
+    CHECK(parsed.module.documentation[1].text.find("        y = \\frac{x}{2}") != std::string::npos);
+    CHECK(parsed.module.documentation[2].name == "docs.Quote.bid");
+    auto formatted = format_declarations(parsed.file, parsed.diagnostics);
+    REQUIRE(formatted);
+    Parsed again{*formatted};
+    REQUIRE_FALSE(again.diagnostics.has_errors());
+    REQUIRE(again.module.documentation.size() == 3);
+    for (std::size_t i = 0; i < 3; ++i) {
+        CHECK(parsed.module.documentation[i].text == again.module.documentation[i].text);
+        CHECK(parsed.module.documentation[i].name == again.module.documentation[i].name);
+    }
+    const auto rst = documentation_rst(parsed.module.documentation);
+    CHECK(rst.find(".. math::\n\n    y = \\frac{x}{2}") != std::string::npos);
+    CHECK(rst.find(".. mermaid::\n\n    sequenceDiagram") != std::string::npos);
+}
+
+TEST_CASE("documentation keys refer to declared contracts", "[documentation]") {
+    const std::string source = R"hgl(module docs
+/**
+Add values.
+
+Args:
+    lhs: Left.
+    rhs: Right.
+
+Type Args:
+    L: Left type.
+    R: Right type.
+    O: Result type.
+
+Properties:
+    <i64, i64, i64>:
+        commutative:
+            Exchanging inputs preserves the result.
+*/
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+    properties<i64, i64, i64> { commutative }
+
+/**
+Implement addition.
+
+Requires:
+    native::add(L, R) -> O:
+        Exact native overload.
+*/
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+    requires native::add(L, R) -> O {
+    when { return native::add(lhs, rhs) }
+}
+)hgl";
+    Parsed            good{source};
+    INFO(good.diagnostics.render(good.file));
+    REQUIRE_FALSE(good.diagnostics.has_errors());
+    for (const auto &[from, to] :
+         std::vector<std::pair<std::string, std::string>>{{"lhs: Left", "missing: Left"},
+                                                          {"L: Left type", "X: Left type"},
+                                                          {"<i64, i64, i64>:", "<str, str, str>:"},
+                                                          {"commutative:", "associative:"},
+                                                          {"native::add(L, R) -> O:", "native::sub(L, R) -> O:"}}) {
+        auto bad = source;
+        bad.replace(bad.find(from), from.size(), to);
+        Parsed parsed{bad};
+        CHECK(parsed.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("documentation cannot cross ordinary comments or attach from bodies", "[documentation]") {
+    for (const std::string suffix :
+         {"/** Orphan. */\n", "/** First. */\n/** Second. */\nfn f() {}\n", "/** Interrupted. */\n# barrier\nfn f() {}\n",
+          "fn f() {\n/** Body comment. */\n}\nfn g() {}\n"}) {
+        Parsed parsed{"module docs\n" + suffix};
+        CHECK(parsed.diagnostics.has_errors());
+    }
+    Parsed plain{"module docs\n/* Ordinary. */\nfn f() {}\n"};
+    CHECK(plain.module.documentation.empty());
+    Parsed crlf{"module docs\r\n    /** Same line.\r\n\r\n    Notes:\r\n        Nested.\r\n    */\r\nfn f() {}\r\n"};
+    REQUIRE_FALSE(crlf.diagnostics.has_errors());
+    REQUIRE(crlf.module.documentation.size() == 1);
+    CHECK(crlf.module.documentation[0].text == "Same line.\n\nNotes:\n    Nested.");
 }

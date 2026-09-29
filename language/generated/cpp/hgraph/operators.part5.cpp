@@ -12,24 +12,24 @@ namespace hgraph_::operators_
     namespace hgl_detail
     {
         void register_operators(std::integral_constant<std::size_t, 5>) {
-            hgraph::register_overload<operators::mod_, mod__impl_24__f64__i64__f64__m22>();
-            hgraph::register_overload<operators::mod_, mod__impl_24__f64__f64__f64__m23>();
-            hgraph::register_overload<operators::eq_, eq__impl_25__i64__i64__m24>();
-            hgraph::register_overload<operators::eq_, eq__impl_25__str__str__m25>();
-            hgraph::register_overload<operators::eq_, eq__impl_25__bool__bool__m26>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__i64__i64__m27>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__f64__f64__m28>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__i64__f64__m29>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__f64__i64__m30>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__str__str__m31>();
-            hgraph::register_overload<operators::ne_, ne__impl_26__bool__bool__m32>();
-            hgraph::register_overload<operators::lt_, lt__impl_27__i64__i64__m33>();
-            hgraph::register_overload<operators::lt_, lt__impl_27__f64__f64__m34>();
-            hgraph::register_overload<operators::lt_, lt__impl_27__i64__f64__m35>();
-            hgraph::register_overload<operators::lt_, lt__impl_27__f64__i64__m36>();
-            hgraph::register_overload<operators::lt_, lt__impl_27__str__str__m37>();
-            hgraph::register_overload<operators::le_, le__impl_28__i64__i64__m38>();
-            hgraph::register_overload<operators::le_, le__impl_28__f64__f64__m39>();
+            hgraph::register_overload<operators::mod_, mod__impl_41__f64__i64__f64__m22>();
+            hgraph::register_overload<operators::mod_, mod__impl_41__f64__f64__f64__m23>();
+            hgraph::register_overload<operators::eq_, eq__impl_42__i64__i64__m24>();
+            hgraph::register_overload<operators::eq_, eq__impl_42__str__str__m25>();
+            hgraph::register_overload<operators::eq_, eq__impl_42__bool__bool__m26>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__i64__i64__m27>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__f64__f64__m28>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__i64__f64__m29>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__f64__i64__m30>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__str__str__m31>();
+            hgraph::register_overload<operators::ne_, ne__impl_43__bool__bool__m32>();
+            hgraph::register_overload<operators::lt_, lt__impl_44__i64__i64__m33>();
+            hgraph::register_overload<operators::lt_, lt__impl_44__f64__f64__m34>();
+            hgraph::register_overload<operators::lt_, lt__impl_44__i64__f64__m35>();
+            hgraph::register_overload<operators::lt_, lt__impl_44__f64__i64__m36>();
+            hgraph::register_overload<operators::lt_, lt__impl_44__str__str__m37>();
+            hgraph::register_overload<operators::le_, le__impl_45__i64__i64__m38>();
+            hgraph::register_overload<operators::le_, le__impl_45__f64__f64__m39>();
         }
     }  // namespace hgl_detail
 }  // namespace hgraph_::operators_

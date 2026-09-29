@@ -24,6 +24,7 @@ namespace hgl::hgraph_ir
           public:
             Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
                 result_.path         = source.path;
+                result_.documentation = source.documentation;
                 result_.cpp_includes = source.cpp_includes;
             }
 
@@ -654,7 +655,12 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                             OperatorRequirement lowered;
                             lowered.operator_identity = symbol_identity(node.op);
-                            if (node.op.valid()) { lowered.operator_registry_name = source_.symbol(node.op).external_name; }
+                            if (node.op.valid()) {
+                                lowered.native_scalar = source_.symbol(node.op).kind == hir::SymbolKind::ImportedFunction;
+                                if (!lowered.native_scalar) {
+                                    lowered.operator_registry_name = source_.symbol(node.op).external_name;
+                                }
+                            }
                             for (hir::ConstraintId argument : node.arguments) {
                                 lowered.arguments.push_back(lower_constraint(argument));
                             }
@@ -927,6 +933,7 @@ namespace hgl::hgraph_ir
                 for (const Value &value : result_.values) {
                     if (value.test_only) { continue; }
                     production_use(value.operation.native_function);
+                    for (auto candidate : value.operation.native_candidates) { production_use(candidate); }
                     if (const auto *reference = std::get_if<Reference>(&value.node)) { production_use(reference->native_function); }
                 }
             }
@@ -998,6 +1005,7 @@ namespace hgl::hgraph_ir
                 target.provider_key    = source.provider_key;
                 target.deferred        = source.deferred;
                 target.lift_inputs     = source.lift_inputs;
+                for (auto candidate : source.native_candidates) { target.native_candidates.push_back(native_function(candidate)); }
                 if (source.target.valid()) {
                     const hir::Symbol &symbol = source_.symbol(source.target);
                     if (target.identity.empty()) { target.identity = symbol_identity(source.target); }
@@ -1167,6 +1175,10 @@ namespace hgl::hgraph_ir
                             lowered.iterable = lower_value(node.iterable);
                             lowered.block    = lower_block(node.block);
                             return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::WhileStmt>) {
+                            return Loop{lower_value(node.condition), lower_block(node.block)};
+                        } else if constexpr (std::is_same_v<T, hir::YieldStmt>) {
+                            return Yield{lower_value(node.time), lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::AssignStmt>) {
                             return Assignment{lower_assign_op(node.op), lower_value(node.place), lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::ReturnStmt>) {
@@ -1225,6 +1237,7 @@ namespace hgl::hgraph_ir
                     target.kind       = source->is_const                                 ? CallableKind::ValueFunction
                                         : source->kind == hir::FunctionKind::Composition ? CallableKind::Composition
                                                                                          : CallableKind::RuntimeNode;
+                    target.generator  = source->is_generator;
                     target.effects    = source->effects;
                     target.range      = declaration.range;
                     if (source->operator_contract.valid()) {

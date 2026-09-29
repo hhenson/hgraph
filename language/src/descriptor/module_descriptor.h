@@ -137,6 +137,7 @@ namespace hgl::descriptor
         Call,
         Each,
         Operator,
+        NativeScalar,
         Relation,
         Not,
         Logic,
@@ -395,6 +396,7 @@ namespace hgl::descriptor
     /// computed over the canonical descriptor with that field empty.
     struct ModuleDescriptor
     {
+        std::vector<syntax::Documentation>    documentation{};
         std::uint32_t                         format_version{module_descriptor_format_version};
         std::string                           module_identity{};
         std::string                           language_version{};

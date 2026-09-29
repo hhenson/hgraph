@@ -181,6 +181,7 @@ namespace hgl::semantics
         Call,
         Each,
         Operator,
+        NativeScalar,
         Relation,
         Not,
         Logic,

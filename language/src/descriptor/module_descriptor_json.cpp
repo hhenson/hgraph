@@ -156,6 +156,7 @@ namespace hgl::descriptor
                 case ConstraintCategory::Call: return "call";
                 case ConstraintCategory::Each: return "each";
                 case ConstraintCategory::Operator: return "operator";
+                case ConstraintCategory::NativeScalar: return "native-scalar";
                 case ConstraintCategory::Relation: return "relation";
                 case ConstraintCategory::Not: return "not";
                 case ConstraintCategory::Logic: return "logic";
@@ -648,8 +649,25 @@ namespace hgl::descriptor
     std::string to_json(const ModuleDescriptor &descriptor) {
         std::ostringstream out;
         out.imbue(std::locale::classic());
-        out << "{\n"
-            << "  \"format\": \"hgl.module\",\n"
+        out << "{\n";
+        if (!descriptor.documentation.empty()) {
+            out << "  \"documentation\": [";
+            for (std::size_t i = 0; i < descriptor.documentation.size(); ++i) {
+                const auto &doc = descriptor.documentation[i];
+                if (i) out << ',';
+                out << "{\"name\":";
+                quote_json(out, doc.name);
+                out << ",\"declaration\":";
+                quote_json(out, doc.declaration);
+                out << ",\"text\":";
+                quote_json(out, doc.text);
+                out << ",\"part\":";
+                quote_json(out, doc.part);
+                out << '}';
+            }
+            out << "],\n";
+        }
+        out << "  \"format\": \"hgl.module\",\n"
             << "  \"format_version\": " << descriptor.format_version << ",\n"
             << "  \"module\": {\n"
             << "    \"identity\": ";
@@ -754,6 +772,7 @@ namespace hgl::descriptor
     std::string fingerprint(const ModuleDescriptor &descriptor) {
         ModuleDescriptor canonical = descriptor;
         canonical.descriptor_fingerprint.clear();
+        canonical.documentation.clear();
         const std::string          bytes = to_json(canonical);
         const std::array<char, 64> hex   = detail::sha256_hex(std::as_bytes(std::span{bytes.data(), bytes.size()}));
         return "sha256:" + std::string{hex.data(), hex.size()};

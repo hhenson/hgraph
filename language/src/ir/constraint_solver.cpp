@@ -181,8 +181,11 @@ namespace hgl::ir::detail
         }
         if (const auto *premise_requirement = std::get_if<OperatorRequirement>(&premise.node)) {
             const auto *goal_requirement = std::get_if<OperatorRequirement>(&goal.node);
-            if (goal_requirement == nullptr ||
-                !identity_matches(operator_identity(premise_requirement->op), operator_identity(goal_requirement->op)) ||
+            if (goal_requirement == nullptr || !premise_requirement->op.valid() || !goal_requirement->op.valid() ||
+                (module_.symbol(premise_requirement->op).kind == SymbolKind::ImportedFunction ||
+                         module_.symbol(goal_requirement->op).kind == SymbolKind::ImportedFunction
+                     ? operator_identity(premise_requirement->op) != operator_identity(goal_requirement->op)
+                     : !identity_matches(operator_identity(premise_requirement->op), operator_identity(goal_requirement->op))) ||
                 premise_requirement->arguments.size() != goal_requirement->arguments.size()) {
                 return false;
             }
@@ -699,10 +702,60 @@ namespace hgl::ir::detail
         return lhs == rhs || trim(lhs) == trim(rhs);
     }
 
+    ConstraintSolver::Truth ConstraintSolver::evaluate_native(const OperatorRequirement &requirement,
+                                                              GenericSubstitution &substitution, bool infer_result, bool *changed) {
+        std::vector<TypeId> arguments;
+        for (ConstraintId argument : requirement.arguments) {
+            const Operand value = operand(argument, substitution);
+            if (!value.known) { return Truth::Unresolved; }
+            if (value.kind != OperandKind::Type || module_.type(types_.canonical(value.type)).kind != TypeKind::Scalar) {
+                fail("native scalar requirements need scalar value types");
+                return Truth::False;
+            }
+            arguments.push_back(value.type);
+        }
+        const Operand         result   = type_operand(requirement.result, substitution);
+        const NativeFunction *selected = nullptr;
+        for (const NativeFunction &candidate : module_.native_functions) {
+            if ((candidate.symbol != requirement.op && candidate.family != requirement.op) ||
+                candidate.execution_role != NativeExecutionRole::Value || !candidate.generics.empty() ||
+                candidate.parameters.size() != arguments.size() ||
+                module_.type(types_.canonical(candidate.result)).kind != TypeKind::Scalar) {
+                continue;
+            }
+            bool matches = true;
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const auto &parameter = candidate.parameters[index];
+                matches               = matches && !parameter.is_const && parameter.access == NativeParameterAccess::Value &&
+                                        types_.same(parameter.type, arguments[index]);
+            }
+            if (result.known) { matches = matches && types_.same(candidate.result, result.type); }
+            if (!matches) { continue; }
+            if (selected) {
+                fail("native scalar requirement is ambiguous");
+                return Truth::False;
+            }
+            selected = &candidate;
+        }
+        if (!selected) {
+            fail("native scalar requirement has no matching value overload");
+            return Truth::False;
+        }
+        if (!result.known && requirement.result.valid()) {
+            if (!infer_result || !result.variable.valid()) { return Truth::Unresolved; }
+            if (!substitution.bind_type(result.variable, selected->result)) { return Truth::False; }
+            if (changed) { *changed = true; }
+        }
+        return Truth::True;
+    }
+
     ConstraintSolver::Truth ConstraintSolver::evaluate_operator(const OperatorRequirement &requirement,
                                                                 GenericSubstitution &substitution, syntax::SourceRange range,
                                                                 std::span<const ConstraintPremise> premises) {
         if (!requirement.op.valid()) { return Truth::False; }
+        if (module_.symbol(requirement.op).kind == SymbolKind::ImportedFunction) {
+            return evaluate_native(requirement, substitution);
+        }
         OperatorQuery        query;
         std::vector<Operand> arguments;
         query.identity = operator_registry_name(requirement.op);
@@ -925,6 +978,10 @@ namespace hgl::ir::detail
             if (logic->op != ConstraintLogicOp::And) { return true; }
             return infer_equalities(logic->lhs, substitution, changed) && infer_equalities(logic->rhs, substitution, changed);
         }
+        if (const auto *required = std::get_if<OperatorRequirement>(&constraint.node);
+            required && required->op.valid() && module_.symbol(required->op).kind == SymbolKind::ImportedFunction) {
+            return evaluate_native(*required, substitution, true, &changed) != Truth::False;
+        }
         const auto *relation = std::get_if<ConstraintRelation>(&constraint.node);
         if (!relation || relation->op != ConstraintRelationOp::Equal) { return true; }
         Operand lhs = operand(relation->lhs, substitution);
@@ -1035,7 +1092,10 @@ namespace hgl::ir::detail
             return find_required_operation(logic->rhs, identity, arguments, substitution);
         }
         const auto *required = std::get_if<OperatorRequirement>(&constraint.node);
-        if (!required || !identity_matches(operator_registry_name(required->op), identity) ||
+        if (!required || !required->op.valid() ||
+            (module_.symbol(required->op).kind == SymbolKind::ImportedFunction
+                 ? operator_identity(required->op) != identity
+                 : !identity_matches(operator_registry_name(required->op), identity)) ||
             required->arguments.size() != arguments.size()) {
             return std::nullopt;
         }

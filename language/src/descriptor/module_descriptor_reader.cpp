@@ -143,6 +143,24 @@ namespace hgl::descriptor
                     return failure();
                 }
 
+                if (const Element *docs = document.find("documentation")) {
+                    simdjson::dom::array array;
+                    if (docs->get(array)) {
+                        fail("$.documentation", "expected array");
+                        return failure();
+                    }
+                    for (Element item : array) {
+                        ObjectFields          fields;
+                        syntax::Documentation doc;
+                        if (!object(item, "$.documentation[]", fields) ||
+                            !required_string(fields, "name", "$.documentation[]", doc.name) ||
+                            !required_string(fields, "declaration", "$.documentation[]", doc.declaration) ||
+                            !required_string(fields, "text", "$.documentation[]", doc.text) ||
+                            !required_string(fields, "part", "$.documentation[]", doc.part))
+                            return failure();
+                        descriptor.documentation.push_back(std::move(doc));
+                    }
+                }
                 const Element *module = required(document, "module", "$");
                 if (module == nullptr || !read_module(*module, descriptor)) { return failure(); }
                 const Element *interface = required(document, "interface", "$");
@@ -839,6 +857,7 @@ namespace hgl::descriptor
                                      {"call", ConstraintCategory::Call},
                                      {"each", ConstraintCategory::Each},
                                      {"operator", ConstraintCategory::Operator},
+                                     {"native-scalar", ConstraintCategory::NativeScalar},
                                      {"relation", ConstraintCategory::Relation},
                                      {"not", ConstraintCategory::Not},
                                      {"logic", ConstraintCategory::Logic}},
@@ -1717,7 +1736,7 @@ namespace hgl::descriptor
                 for (const auto &capability : declaration.capabilities) {
                     if ((capability != "logger" && capability != "clock" &&
                          (declaration.implementation_kind != NativeImplementationKind::Node ||
-                          (capability != "out" && capability != "scheduler"))) ||
+                          (capability != "out" && capability != "scheduler" && capability != "alarm"))) ||
                         !capability_names.insert(capability).second) {
                         return fail(member_path(path, "capabilities"), "unknown or duplicate native capability");
                     }
@@ -1967,6 +1986,7 @@ namespace hgl::descriptor
                                 fail(member_path(path, "identity"), "each constraint is missing its binding identity")) &&
                                constraint_ref(record.source, member_path(path, "source")) &&
                                constraint_ref(record.body, member_path(path, "body"));
+                    case ConstraintCategory::NativeScalar:
                     case ConstraintCategory::Operator:
                         return (!record.identity.empty() ||
                                 fail(member_path(path, "identity"), "operator requirement is missing its identity")) &&

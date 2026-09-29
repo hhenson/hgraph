@@ -12,23 +12,23 @@ namespace hgraph_::operators_
     namespace hgl_detail
     {
         void register_operators(std::integral_constant<std::size_t, 0>) {
-            hgraph::register_overload<operators::and_, and__impl_33>();
-            hgraph::register_overload<operators::and_, and__impl_34>();
-            hgraph::register_overload<operators::and_, and__impl_35>();
-            hgraph::register_overload<operators::and_, and__impl_36>();
-            hgraph::register_overload<operators::and_, and__impl_37>();
-            hgraph::register_overload<operators::and_, and__impl_38>();
-            hgraph::register_overload<operators::or_, or__impl_39>();
-            hgraph::register_overload<operators::or_, or__impl_40>();
-            hgraph::register_overload<operators::or_, or__impl_41>();
-            hgraph::register_overload<operators::or_, or__impl_42>();
-            hgraph::register_overload<operators::or_, or__impl_43>();
-            hgraph::register_overload<operators::or_, or__impl_44>();
-            hgraph::register_overload<operators::not_, not__impl_45>();
-            hgraph::register_overload<operators::not_, not__impl_46>();
-            hgraph::register_overload<operators::not_, not__impl_47>();
-            hgraph::register_overload<operators::not_, not__impl_48>();
-            hgraph::register_overload<operators::eq_, eq__impl_49>();
+            hgraph::register_overload<operators::and_, and__impl_50>();
+            hgraph::register_overload<operators::and_, and__impl_51>();
+            hgraph::register_overload<operators::and_, and__impl_52>();
+            hgraph::register_overload<operators::and_, and__impl_53>();
+            hgraph::register_overload<operators::and_, and__impl_54>();
+            hgraph::register_overload<operators::and_, and__impl_55>();
+            hgraph::register_overload<operators::or_, or__impl_56>();
+            hgraph::register_overload<operators::or_, or__impl_57>();
+            hgraph::register_overload<operators::or_, or__impl_58>();
+            hgraph::register_overload<operators::or_, or__impl_59>();
+            hgraph::register_overload<operators::or_, or__impl_60>();
+            hgraph::register_overload<operators::or_, or__impl_61>();
+            hgraph::register_overload<operators::not_, not__impl_62>();
+            hgraph::register_overload<operators::not_, not__impl_63>();
+            hgraph::register_overload<operators::not_, not__impl_64>();
+            hgraph::register_overload<operators::not_, not__impl_65>();
+            hgraph::register_overload<operators::eq_, eq__impl_66>();
         }
     }  // namespace hgl_detail
 }  // namespace hgraph_::operators_

@@ -131,9 +131,15 @@ def registry_inventory() -> dict:
     return dict(source_fingerprint=source_inventory()["source_fingerprint"], operators=operators)
 
 
+def hgl_sources(root: Path):
+    return sorted(path for directory in ('language/stdlib/hgl/hgraph',
+                                        'external/hgraph_std/hgl/hgraph')
+                  for path in (root / directory).rglob('*.hgl'))
+
+
 def hgl_inventory(root: Path = ROOT) -> list[dict]:
     result = []
-    for path in sorted((root / "language/stdlib/hgl/hgraph").rglob("*.hgl")):
+    for path in hgl_sources(root):
         text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
         module = re.search(r"(?m)^module\s+([\w.]+)", text)
         if module is None:
@@ -163,7 +169,7 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
 
 def hgl_materializations(root: Path = ROOT) -> list[dict]:
     result = []
-    for path in sorted((root / "language/stdlib/hgl/hgraph").rglob("*.hgl")):
+    for path in hgl_sources(root):
         text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
         for match in re.finditer(r"(?m)^instantiate[^\n]*(?:\n[ \t]+[^\n]+)*", text):
             result.append(dict(source=path.relative_to(root).as_posix(),
@@ -246,7 +252,7 @@ def render(data: dict) -> str:
               "# After changing native library registrations, use a freshly built wheel:",
               "python tools/hgl_catalogue.py --refresh-registry", "```", "",
               "See [the design record](https://github.com/hhenson/hgraph/blob/main/language/docs/design/migration-catalogue.md) and the",
-              "[requirements ledger](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.", ""]
+              "[requirements ledger](https://github.com/hhenson/hgraph_spec/blob/main/external/hgraph_spec/language/docs/design/migration-requirements.md) for the `HGL-MIG-*` and `HGL-LIB-*` identifiers.", ""]
     return "\n".join(lines)
 
 

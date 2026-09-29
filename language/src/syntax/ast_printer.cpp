@@ -543,6 +543,20 @@ namespace hgl::syntax
                 expr(depth + 1, s.iterable, "in");
                 block(depth + 1, s.block);
             }
+            void stmt_node(int depth, SourceRange range, const ast::WhileStmt &s, ast::ExprId) {
+                line(depth, "While", range, "");
+                if (s.condition == ast::no_node) {
+                    line(depth + 1, "Unbounded", range, "", "condition");
+                } else {
+                    expr(depth + 1, s.condition, "condition");
+                }
+                block(depth + 1, s.block);
+            }
+            void stmt_node(int depth, SourceRange range, const ast::YieldStmt &s, ast::ExprId) {
+                line(depth, "Yield", range, "");
+                expr(depth + 1, s.time, "time");
+                expr(depth + 1, s.value, "value");
+            }
             void stmt_node(int depth, SourceRange range, const ast::AssignStmt &s, ast::ExprId) {
                 line(depth, "Assign", range, std::string{ast::assign_op_spelling(s.op)});
                 expr(depth + 1, s.place, "place");

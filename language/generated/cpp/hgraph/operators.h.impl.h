@@ -5,10 +5,10 @@ namespace hgraph_::operators_
 {
     namespace hgl_detail
     {
-        // operators.hgl:194
-        struct and__impl_33
+        // operators.hgl:157
+        struct and__impl_50
         {
-            static constexpr auto name = "hgraph.operators.and_#33";
+            static constexpr auto name = "hgraph.operators.and_#50";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -19,10 +19,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:200
-        struct and__impl_34
+        // operators.hgl:163
+        struct and__impl_51
         {
-            static constexpr auto name = "hgraph.operators.and_#34";
+            static constexpr auto name = "hgraph.operators.and_#51";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
@@ -34,10 +34,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:206
-        struct and__impl_35
+        // operators.hgl:169
+        struct and__impl_52
         {
-            static constexpr auto name = "hgraph.operators.and_#35";
+            static constexpr auto name = "hgraph.operators.and_#52";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -49,10 +49,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:212
-        struct and__impl_36
+        // operators.hgl:175
+        struct and__impl_53
         {
-            static constexpr auto name = "hgraph.operators.and_#36";
+            static constexpr auto name = "hgraph.operators.and_#53";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
@@ -64,10 +64,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:218
-        struct and__impl_37
+        // operators.hgl:181
+        struct and__impl_54
         {
-            static constexpr auto name = "hgraph.operators.and_#37";
+            static constexpr auto name = "hgraph.operators.and_#54";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -79,10 +79,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:224
-        struct and__impl_38
+        // operators.hgl:187
+        struct and__impl_55
         {
-            static constexpr auto name = "hgraph.operators.and_#38";
+            static constexpr auto name = "hgraph.operators.and_#55";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -94,10 +94,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:230
-        struct or__impl_39
+        // operators.hgl:193
+        struct or__impl_56
         {
-            static constexpr auto name = "hgraph.operators.or_#39";
+            static constexpr auto name = "hgraph.operators.or_#56";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -108,10 +108,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:236
-        struct or__impl_40
+        // operators.hgl:199
+        struct or__impl_57
         {
-            static constexpr auto name = "hgraph.operators.or_#40";
+            static constexpr auto name = "hgraph.operators.or_#57";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
@@ -123,10 +123,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:242
-        struct or__impl_41
+        // operators.hgl:205
+        struct or__impl_58
         {
-            static constexpr auto name = "hgraph.operators.or_#41";
+            static constexpr auto name = "hgraph.operators.or_#58";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -138,10 +138,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:248
-        struct or__impl_42
+        // operators.hgl:211
+        struct or__impl_59
         {
-            static constexpr auto name = "hgraph.operators.or_#42";
+            static constexpr auto name = "hgraph.operators.or_#59";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
@@ -153,10 +153,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:254
-        struct or__impl_43
+        // operators.hgl:217
+        struct or__impl_60
         {
-            static constexpr auto name = "hgraph.operators.or_#43";
+            static constexpr auto name = "hgraph.operators.or_#60";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -168,10 +168,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:260
-        struct or__impl_44
+        // operators.hgl:223
+        struct or__impl_61
         {
-            static constexpr auto name = "hgraph.operators.or_#44";
+            static constexpr auto name = "hgraph.operators.or_#61";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -183,10 +183,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:266
-        struct not__impl_45
+        // operators.hgl:229
+        struct not__impl_62
         {
-            static constexpr auto name = "hgraph.operators.not_#45";
+            static constexpr auto name = "hgraph.operators.not_#62";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -196,10 +196,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:272
-        struct not__impl_46
+        // operators.hgl:235
+        struct not__impl_63
         {
-            static constexpr auto name = "hgraph.operators.not_#46";
+            static constexpr auto name = "hgraph.operators.not_#63";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                       hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -209,10 +209,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:278
-        struct not__impl_47
+        // operators.hgl:241
+        struct not__impl_64
         {
-            static constexpr auto name = "hgraph.operators.not_#47";
+            static constexpr auto name = "hgraph.operators.not_#64";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -222,10 +222,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:284
-        struct not__impl_48
+        // operators.hgl:247
+        struct not__impl_65
         {
-            static constexpr auto name = "hgraph.operators.not_#48";
+            static constexpr auto name = "hgraph.operators.not_#65";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                       hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -235,10 +235,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:290
-        struct eq__impl_49
+        // operators.hgl:253
+        struct eq__impl_66
         {
-            static constexpr auto name = "hgraph.operators.eq_#49";
+            static constexpr auto name = "hgraph.operators.eq_#66";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -250,10 +250,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:297
-        struct eq__impl_50
+        // operators.hgl:260
+        struct eq__impl_67
         {
-            static constexpr auto name = "hgraph.operators.eq_#50";
+            static constexpr auto name = "hgraph.operators.eq_#67";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -265,10 +265,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:304
-        struct eq__impl_51
+        // operators.hgl:267
+        struct eq__impl_68
         {
-            static constexpr auto name = "hgraph.operators.eq_#51";
+            static constexpr auto name = "hgraph.operators.eq_#68";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
@@ -280,10 +280,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:321
-        struct abs__impl_61
+        // operators.hgl:274
+        struct abs__impl_69
         {
-            static constexpr auto name = "hgraph.operators.abs_#61";
+            static constexpr auto name = "hgraph.operators.abs_#69";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -293,10 +293,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:327
-        struct pos__impl_62
+        // operators.hgl:280
+        struct pos__impl_70
         {
-            static constexpr auto name = "hgraph.operators.pos_#62";
+            static constexpr auto name = "hgraph.operators.pos_#70";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -306,10 +306,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:333
-        struct sign_impl_63
+        // operators.hgl:286
+        struct sign_impl_71
         {
-            static constexpr auto name = "hgraph.operators.sign#63";
+            static constexpr auto name = "hgraph.operators.sign#71";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -323,10 +323,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:342
-        struct abs__impl_64
+        // operators.hgl:295
+        struct abs__impl_72
         {
-            static constexpr auto name = "hgraph.operators.abs_#64";
+            static constexpr auto name = "hgraph.operators.abs_#72";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -336,10 +336,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:348
-        struct pos__impl_65
+        // operators.hgl:301
+        struct pos__impl_73
         {
-            static constexpr auto name = "hgraph.operators.pos_#65";
+            static constexpr auto name = "hgraph.operators.pos_#73";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -349,10 +349,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:354
-        struct sign_impl_66
+        // operators.hgl:307
+        struct sign_impl_74
         {
-            static constexpr auto name = "hgraph.operators.sign#66";
+            static constexpr auto name = "hgraph.operators.sign#74";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -366,10 +366,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:363
-        struct ln_impl_67
+        // operators.hgl:316
+        struct ln_impl_75
         {
-            static constexpr auto name = "hgraph.operators.ln#67";
+            static constexpr auto name = "hgraph.operators.ln#75";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -379,10 +379,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:369
-        struct round__impl_68
+        // operators.hgl:322
+        struct round__impl_76
         {
-            static constexpr auto name = "hgraph.operators.round_#68";
+            static constexpr auto name = "hgraph.operators.round_#76";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked>     ts,
                                        hgraph::In<"n_digits", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> n_digits,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                            hgl_output) {
@@ -393,10 +393,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:375
-        struct invert__impl_69
+        // operators.hgl:328
+        struct invert__impl_77
         {
-            static constexpr auto name = "hgraph.operators.invert_#69";
+            static constexpr auto name = "hgraph.operators.invert_#77";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -406,10 +406,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:381
-        struct bit_and_impl_70
+        // operators.hgl:334
+        struct bit_and_impl_78
         {
-            static constexpr auto name = "hgraph.operators.bit_and#70";
+            static constexpr auto name = "hgraph.operators.bit_and#78";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -420,10 +420,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:387
-        struct bit_or_impl_71
+        // operators.hgl:340
+        struct bit_or_impl_79
         {
-            static constexpr auto name = "hgraph.operators.bit_or#71";
+            static constexpr auto name = "hgraph.operators.bit_or#79";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -434,10 +434,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:393
-        struct bit_xor_impl_72
+        // operators.hgl:346
+        struct bit_xor_impl_80
         {
-            static constexpr auto name = "hgraph.operators.bit_xor#72";
+            static constexpr auto name = "hgraph.operators.bit_xor#80";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -448,10 +448,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:399
-        struct invert__impl_73
+        // operators.hgl:352
+        struct invert__impl_81
         {
-            static constexpr auto name = "hgraph.operators.invert_#73";
+            static constexpr auto name = "hgraph.operators.invert_#81";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
@@ -461,10 +461,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:405
-        struct bit_and_impl_74
+        // operators.hgl:358
+        struct bit_and_impl_82
         {
-            static constexpr auto name = "hgraph.operators.bit_and#74";
+            static constexpr auto name = "hgraph.operators.bit_and#82";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -475,10 +475,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:411
-        struct bit_or_impl_75
+        // operators.hgl:364
+        struct bit_or_impl_83
         {
-            static constexpr auto name = "hgraph.operators.bit_or#75";
+            static constexpr auto name = "hgraph.operators.bit_or#83";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -489,10 +489,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:417
-        struct bit_xor_impl_76
+        // operators.hgl:370
+        struct bit_xor_impl_84
         {
-            static constexpr auto name = "hgraph.operators.bit_xor#76";
+            static constexpr auto name = "hgraph.operators.bit_xor#84";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -503,10 +503,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:426
-        struct min__impl_79
+        // operators.hgl:376
+        struct min__impl_85
         {
-            static constexpr auto name = "hgraph.operators.min_#79";
+            static constexpr auto name = "hgraph.operators.min_#85";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -521,119 +521,119 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:435
-        struct min__impl_80
-        {
-            static constexpr auto name = "hgraph.operators.min_#80";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set(lhs.value());
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:444
-        struct min__impl_81
-        {
-            static constexpr auto name = "hgraph.operators.min_#81";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set(lhs.value());
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:453
-        struct min__impl_82
-        {
-            static constexpr auto name = "hgraph.operators.min_#82";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Date>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set(lhs.value());
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:462
-        struct min__impl_83
-        {
-            static constexpr auto name = "hgraph.operators.min_#83";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::DateTime>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set(lhs.value());
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:471
-        struct min__impl_84
-        {
-            static constexpr auto name = "hgraph.operators.min_#84";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set(lhs.value());
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:480
-        struct min__impl_85
-        {
-            static constexpr auto name = "hgraph.operators.min_#85";
-            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
-                                       hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
-                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    if ((rhs.value() < lhs.value())) {
-                        hgl_output.set(rhs.value());
-                        return;
-                    }
-                    hgl_output.set((lhs.value() + hgraph::Float{0.0}));
-                    return;
-                }
-            }
-        };
-
-        // operators.hgl:489
+        // operators.hgl:385
         struct min__impl_86
         {
             static constexpr auto name = "hgraph.operators.min_#86";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set(lhs.value());
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:394
+        struct min__impl_87
+        {
+            static constexpr auto name = "hgraph.operators.min_#87";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set(lhs.value());
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:403
+        struct min__impl_88
+        {
+            static constexpr auto name = "hgraph.operators.min_#88";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::Date>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set(lhs.value());
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:412
+        struct min__impl_89
+        {
+            static constexpr auto name = "hgraph.operators.min_#89";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::DateTime>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set(lhs.value());
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:421
+        struct min__impl_90
+        {
+            static constexpr auto name = "hgraph.operators.min_#90";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set(lhs.value());
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:430
+        struct min__impl_91
+        {
+            static constexpr auto name = "hgraph.operators.min_#91";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
+                                       hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
+                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
+                    if ((rhs.value() < lhs.value())) {
+                        hgl_output.set(rhs.value());
+                        return;
+                    }
+                    hgl_output.set((lhs.value() + hgraph::Float{0.0}));
+                    return;
+                }
+            }
+        };
+
+        // operators.hgl:439
+        struct min__impl_92
+        {
+            static constexpr auto name = "hgraph.operators.min_#92";
+            static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
@@ -647,10 +647,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:498
-        struct max__impl_87
+        // operators.hgl:448
+        struct max__impl_93
         {
-            static constexpr auto name = "hgraph.operators.max_#87";
+            static constexpr auto name = "hgraph.operators.max_#93";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -665,10 +665,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:507
-        struct max__impl_88
+        // operators.hgl:457
+        struct max__impl_94
         {
-            static constexpr auto name = "hgraph.operators.max_#88";
+            static constexpr auto name = "hgraph.operators.max_#94";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -683,10 +683,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:516
-        struct max__impl_89
+        // operators.hgl:466
+        struct max__impl_95
         {
-            static constexpr auto name = "hgraph.operators.max_#89";
+            static constexpr auto name = "hgraph.operators.max_#95";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
@@ -701,10 +701,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:525
-        struct max__impl_90
+        // operators.hgl:475
+        struct max__impl_96
         {
-            static constexpr auto name = "hgraph.operators.max_#90";
+            static constexpr auto name = "hgraph.operators.max_#96";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Date>>                                         hgl_output) {
@@ -719,10 +719,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:534
-        struct max__impl_91
+        // operators.hgl:484
+        struct max__impl_97
         {
-            static constexpr auto name = "hgraph.operators.max_#91";
+            static constexpr auto name = "hgraph.operators.max_#97";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::DateTime>>                                         hgl_output) {
@@ -737,10 +737,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:543
-        struct max__impl_92
+        // operators.hgl:493
+        struct max__impl_98
         {
-            static constexpr auto name = "hgraph.operators.max_#92";
+            static constexpr auto name = "hgraph.operators.max_#98";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::TimeDelta>>                                         hgl_output) {
@@ -755,10 +755,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:552
-        struct max__impl_93
+        // operators.hgl:502
+        struct max__impl_99
         {
-            static constexpr auto name = "hgraph.operators.max_#93";
+            static constexpr auto name = "hgraph.operators.max_#99";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -773,10 +773,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:561
-        struct max__impl_94
+        // operators.hgl:511
+        struct max__impl_100
         {
-            static constexpr auto name = "hgraph.operators.max_#94";
+            static constexpr auto name = "hgraph.operators.max_#100";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -791,10 +791,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:571
-        struct contains__impl_96
+        // operators.hgl:520
+        struct contains__impl_101
         {
-            static constexpr auto name = "hgraph.operators.contains_#96";
+            static constexpr auto name = "hgraph.operators.contains_#101";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>   ts,
                                        hgraph::In<"item", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> item,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
@@ -805,10 +805,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:580
-        struct substr_impl_98
+        // operators.hgl:528
+        struct substr_impl_102
         {
-            static constexpr auto name = "hgraph.operators.substr#98";
+            static constexpr auto name = "hgraph.operators.substr#102";
             static void           eval(hgraph::In<"s", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>     s,
                                        hgraph::In<"begin", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> begin,
                                        hgraph::In<"end", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   end,
@@ -820,10 +820,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:590
-        struct pow__impl_100
+        // operators.hgl:537
+        struct pow__impl_103
         {
-            static constexpr auto name = "hgraph.operators.pow_#100";
+            static constexpr auto name = "hgraph.operators.pow_#103";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -834,10 +834,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:593
-        struct pow__impl_101
+        // operators.hgl:540
+        struct pow__impl_104
         {
-            static constexpr auto name = "hgraph.operators.pow_#101";
+            static constexpr auto name = "hgraph.operators.pow_#104";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -848,10 +848,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:596
-        struct pow__impl_102
+        // operators.hgl:543
+        struct pow__impl_105
         {
-            static constexpr auto name = "hgraph.operators.pow_#102";
+            static constexpr auto name = "hgraph.operators.pow_#105";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -862,10 +862,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:599
-        struct pow__impl_103
+        // operators.hgl:546
+        struct pow__impl_106
         {
-            static constexpr auto name = "hgraph.operators.pow_#103";
+            static constexpr auto name = "hgraph.operators.pow_#106";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
@@ -876,10 +876,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:605
-        struct lshift__impl_106
+        // operators.hgl:550
+        struct lshift__impl_107
         {
-            static constexpr auto name = "hgraph.operators.lshift_#106";
+            static constexpr auto name = "hgraph.operators.lshift_#107";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -890,10 +890,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:608
-        struct rshift__impl_107
+        // operators.hgl:553
+        struct rshift__impl_108
         {
-            static constexpr auto name = "hgraph.operators.rshift_#107";
+            static constexpr auto name = "hgraph.operators.rshift_#108";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
@@ -904,7 +904,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:612
+        // operators.hgl:556
         struct mean_impl_109
         {
             static constexpr auto name = "hgraph.operators.mean#109";
@@ -919,7 +919,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:615
+        // operators.hgl:559
         struct mean_impl_110
         {
             static constexpr auto name = "hgraph.operators.mean#110";
@@ -934,7 +934,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:618
+        // operators.hgl:562
         struct mean_impl_111
         {
             static constexpr auto name = "hgraph.operators.mean#111";
@@ -949,7 +949,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:621
+        // operators.hgl:565
         struct mean_impl_112
         {
             static constexpr auto name = "hgraph.operators.mean#112";
@@ -964,7 +964,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:624
+        // operators.hgl:568
         struct pos__impl_113
         {
             static constexpr auto name = "hgraph.operators.pos_#113";
@@ -977,10 +977,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:659
-        struct eq_epsilon_impl_128
+        // operators.hgl:575
+        struct eq_epsilon_impl_115
         {
-            static constexpr auto name = "hgraph.operators.eq_epsilon#128";
+            static constexpr auto name = "hgraph.operators.eq_epsilon#115";
             static auto           defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
@@ -993,10 +993,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:665
-        struct eq_epsilon_impl_129
+        // operators.hgl:581
+        struct eq_epsilon_impl_116
         {
-            static constexpr auto name = "hgraph.operators.eq_epsilon#129";
+            static constexpr auto name = "hgraph.operators.eq_epsilon#116";
             static auto           defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                              hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
@@ -1009,10 +1009,10 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:671
-        struct eq_epsilon_impl_130
+        // operators.hgl:587
+        struct eq_epsilon_impl_117
         {
-            static constexpr auto name = "hgraph.operators.eq_epsilon#130";
+            static constexpr auto name = "hgraph.operators.eq_epsilon#117";
             static auto           defaults() { return std::tuple{hgraph::arg<"epsilon">(hgraph::Float{1e-10})}; }
             static void eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                              hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
@@ -1025,1063 +1025,1063 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:46
-        struct add__impl_19__i64__i64__i64__m0
+        // operators.hgl:9
+        struct add__impl_36__i64__i64__i64__m0
         {
-            static constexpr auto name = "hgraph.operators.add_#19@instantiate:0";
+            static constexpr auto name = "hgraph.operators.add_#36@instantiate:0";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() + rhs.value()));
+                    hgl_output.set(hgraph_::native::native::add(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:46
-        struct add__impl_19__i64__f64__f64__m1
+        // operators.hgl:9
+        struct add__impl_36__i64__f64__f64__m1
         {
-            static constexpr auto name = "hgraph.operators.add_#19@instantiate:1";
+            static constexpr auto name = "hgraph.operators.add_#36@instantiate:1";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() + rhs.value()));
+                    hgl_output.set(hgraph_::native::native::add__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:46
-        struct add__impl_19__f64__i64__f64__m2
+        // operators.hgl:9
+        struct add__impl_36__f64__i64__f64__m2
         {
-            static constexpr auto name = "hgraph.operators.add_#19@instantiate:2";
+            static constexpr auto name = "hgraph.operators.add_#36@instantiate:2";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() + rhs.value()));
+                    hgl_output.set(hgraph_::native::native::add__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:46
-        struct add__impl_19__f64__f64__f64__m3
+        // operators.hgl:9
+        struct add__impl_36__f64__f64__f64__m3
         {
-            static constexpr auto name = "hgraph.operators.add_#19@instantiate:3";
+            static constexpr auto name = "hgraph.operators.add_#36@instantiate:3";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() + rhs.value()));
+                    hgl_output.set(hgraph_::native::native::add__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:53
-        struct sub__impl_20__i64__i64__i64__m4
+        // operators.hgl:16
+        struct sub__impl_37__i64__i64__i64__m4
         {
-            static constexpr auto name = "hgraph.operators.sub_#20@instantiate:4";
+            static constexpr auto name = "hgraph.operators.sub_#37@instantiate:4";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() - rhs.value()));
+                    hgl_output.set(hgraph_::native::native::sub(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:53
-        struct sub__impl_20__i64__f64__f64__m5
+        // operators.hgl:16
+        struct sub__impl_37__i64__f64__f64__m5
         {
-            static constexpr auto name = "hgraph.operators.sub_#20@instantiate:5";
+            static constexpr auto name = "hgraph.operators.sub_#37@instantiate:5";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() - rhs.value()));
+                    hgl_output.set(hgraph_::native::native::sub__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:53
-        struct sub__impl_20__f64__i64__f64__m6
+        // operators.hgl:16
+        struct sub__impl_37__f64__i64__f64__m6
         {
-            static constexpr auto name = "hgraph.operators.sub_#20@instantiate:6";
+            static constexpr auto name = "hgraph.operators.sub_#37@instantiate:6";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() - rhs.value()));
+                    hgl_output.set(hgraph_::native::native::sub__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:53
-        struct sub__impl_20__f64__f64__f64__m7
+        // operators.hgl:16
+        struct sub__impl_37__f64__f64__f64__m7
         {
-            static constexpr auto name = "hgraph.operators.sub_#20@instantiate:7";
+            static constexpr auto name = "hgraph.operators.sub_#37@instantiate:7";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() - rhs.value()));
+                    hgl_output.set(hgraph_::native::native::sub__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:60
-        struct mul__impl_21__i64__i64__i64__m8
+        // operators.hgl:23
+        struct mul__impl_38__i64__i64__i64__m8
         {
-            static constexpr auto name = "hgraph.operators.mul_#21@instantiate:8";
+            static constexpr auto name = "hgraph.operators.mul_#38@instantiate:8";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() * rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mul(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:60
-        struct mul__impl_21__i64__f64__f64__m9
+        // operators.hgl:23
+        struct mul__impl_38__i64__f64__f64__m9
         {
-            static constexpr auto name = "hgraph.operators.mul_#21@instantiate:9";
+            static constexpr auto name = "hgraph.operators.mul_#38@instantiate:9";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() * rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mul__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:60
-        struct mul__impl_21__f64__i64__f64__m10
+        // operators.hgl:23
+        struct mul__impl_38__f64__i64__f64__m10
         {
-            static constexpr auto name = "hgraph.operators.mul_#21@instantiate:10";
+            static constexpr auto name = "hgraph.operators.mul_#38@instantiate:10";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() * rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mul__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:60
-        struct mul__impl_21__f64__f64__f64__m11
+        // operators.hgl:23
+        struct mul__impl_38__f64__f64__f64__m11
         {
-            static constexpr auto name = "hgraph.operators.mul_#21@instantiate:11";
+            static constexpr auto name = "hgraph.operators.mul_#38@instantiate:11";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() * rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mul__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:67
-        struct div__impl_22__i64__i64__f64__m12
+        // operators.hgl:30
+        struct div__impl_39__i64__i64__f64__m12
         {
-            static constexpr auto name = "hgraph.operators.div_#22@instantiate:12";
+            static constexpr auto name = "hgraph.operators.div_#39@instantiate:12";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                       hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::div(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:67
-        struct div__impl_22__i64__f64__f64__m13
+        // operators.hgl:30
+        struct div__impl_39__i64__f64__f64__m13
         {
-            static constexpr auto name = "hgraph.operators.div_#22@instantiate:13";
+            static constexpr auto name = "hgraph.operators.div_#39@instantiate:13";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::div__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:67
-        struct div__impl_22__f64__i64__f64__m14
+        // operators.hgl:30
+        struct div__impl_39__f64__i64__f64__m14
         {
-            static constexpr auto name = "hgraph.operators.div_#22@instantiate:14";
+            static constexpr auto name = "hgraph.operators.div_#39@instantiate:14";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_div<hgraph::Float, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::div__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:67
-        struct div__impl_22__f64__f64__f64__m15
+        // operators.hgl:30
+        struct div__impl_39__f64__f64__f64__m15
         {
-            static constexpr auto name = "hgraph.operators.div_#22@instantiate:15";
+            static constexpr auto name = "hgraph.operators.div_#39@instantiate:15";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_div<hgraph::Float, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::div__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:74
-        struct floordiv__impl_23__i64__i64__i64__m16
+        // operators.hgl:37
+        struct floordiv__impl_40__i64__i64__i64__m16
         {
-            static constexpr auto name = "hgraph.operators.floordiv_#23@instantiate:16";
+            static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:16";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_floordiv<hgraph::Int, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::floordiv(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:74
-        struct floordiv__impl_23__i64__f64__f64__m17
+        // operators.hgl:37
+        struct floordiv__impl_40__i64__f64__f64__m17
         {
-            static constexpr auto name = "hgraph.operators.floordiv_#23@instantiate:17";
+            static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:17";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_floordiv<hgraph::Int, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::floordiv__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:74
-        struct floordiv__impl_23__f64__i64__f64__m18
+        // operators.hgl:37
+        struct floordiv__impl_40__f64__i64__f64__m18
         {
-            static constexpr auto name = "hgraph.operators.floordiv_#23@instantiate:18";
+            static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:18";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_floordiv<hgraph::Float, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::floordiv__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:74
-        struct floordiv__impl_23__f64__f64__f64__m19
+        // operators.hgl:37
+        struct floordiv__impl_40__f64__f64__f64__m19
         {
-            static constexpr auto name = "hgraph.operators.floordiv_#23@instantiate:19";
+            static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:19";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_floordiv<hgraph::Float, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::floordiv__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:81
-        struct mod__impl_24__i64__i64__i64__m20
+        // operators.hgl:44
+        struct mod__impl_41__i64__i64__i64__m20
         {
-            static constexpr auto name = "hgraph.operators.mod_#24@instantiate:20";
+            static constexpr auto name = "hgraph.operators.mod_#41@instantiate:20";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_mod<hgraph::Int, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mod(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:81
-        struct mod__impl_24__i64__f64__f64__m21
+        // operators.hgl:44
+        struct mod__impl_41__i64__f64__f64__m21
         {
-            static constexpr auto name = "hgraph.operators.mod_#24@instantiate:21";
+            static constexpr auto name = "hgraph.operators.mod_#41@instantiate:21";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_mod<hgraph::Int, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mod__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:81
-        struct mod__impl_24__f64__i64__f64__m22
+        // operators.hgl:44
+        struct mod__impl_41__f64__i64__f64__m22
         {
-            static constexpr auto name = "hgraph.operators.mod_#24@instantiate:22";
+            static constexpr auto name = "hgraph.operators.mod_#41@instantiate:22";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_mod<hgraph::Float, hgraph::Int>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mod__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:81
-        struct mod__impl_24__f64__f64__f64__m23
+        // operators.hgl:44
+        struct mod__impl_41__f64__f64__f64__m23
         {
-            static constexpr auto name = "hgraph.operators.mod_#24@instantiate:23";
+            static constexpr auto name = "hgraph.operators.mod_#41@instantiate:23";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set(hgraph::stdlib::scalar_mod<hgraph::Float, hgraph::Float>::apply(lhs.value(), rhs.value()));
+                    hgl_output.set(hgraph_::native::native::mod__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__i64__i64__m24
+        // operators.hgl:51
+        struct eq__impl_42__i64__i64__m24
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:24";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:24";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__str__str__m25
+        // operators.hgl:51
+        struct eq__impl_42__str__str__m25
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:25";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:25";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__bool__bool__m26
+        // operators.hgl:51
+        struct eq__impl_42__bool__bool__m26
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:26";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:26";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__i64__i64__m27
+        // operators.hgl:58
+        struct ne__impl_43__i64__i64__m27
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:27";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:27";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__f64__f64__m28
+        // operators.hgl:58
+        struct ne__impl_43__f64__f64__m28
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:28";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:28";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__i64__f64__m29
+        // operators.hgl:58
+        struct ne__impl_43__i64__f64__m29
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:29";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:29";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__f64__i64__m30
+        // operators.hgl:58
+        struct ne__impl_43__f64__i64__m30
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:30";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:30";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__str__str__m31
+        // operators.hgl:58
+        struct ne__impl_43__str__str__m31
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:31";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:31";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__bool__bool__m32
+        // operators.hgl:58
+        struct ne__impl_43__bool__bool__m32
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:32";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:32";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__i64__i64__m33
+        // operators.hgl:65
+        struct lt__impl_44__i64__i64__m33
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:33";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:33";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__f64__f64__m34
+        // operators.hgl:65
+        struct lt__impl_44__f64__f64__m34
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:34";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:34";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__i64__f64__m35
+        // operators.hgl:65
+        struct lt__impl_44__i64__f64__m35
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:35";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:35";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__f64__i64__m36
+        // operators.hgl:65
+        struct lt__impl_44__f64__i64__m36
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:36";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:36";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__str__str__m37
+        // operators.hgl:65
+        struct lt__impl_44__str__str__m37
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:37";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:37";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__i64__i64__m38
+        // operators.hgl:72
+        struct le__impl_45__i64__i64__m38
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:38";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:38";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__f64__f64__m39
+        // operators.hgl:72
+        struct le__impl_45__f64__f64__m39
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:39";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:39";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__i64__f64__m40
+        // operators.hgl:72
+        struct le__impl_45__i64__f64__m40
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:40";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:40";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__f64__i64__m41
+        // operators.hgl:72
+        struct le__impl_45__f64__i64__m41
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:41";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:41";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__str__str__m42
+        // operators.hgl:72
+        struct le__impl_45__str__str__m42
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:42";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:42";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__i64__i64__m43
+        // operators.hgl:79
+        struct gt__impl_46__i64__i64__m43
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:43";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:43";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__f64__f64__m44
+        // operators.hgl:79
+        struct gt__impl_46__f64__f64__m44
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:44";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:44";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__i64__f64__m45
+        // operators.hgl:79
+        struct gt__impl_46__i64__f64__m45
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:45";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:45";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__f64__i64__m46
+        // operators.hgl:79
+        struct gt__impl_46__f64__i64__m46
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:46";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:46";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__str__str__m47
+        // operators.hgl:79
+        struct gt__impl_46__str__str__m47
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:47";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:47";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__i64__i64__m48
+        // operators.hgl:86
+        struct ge__impl_47__i64__i64__m48
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:48";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:48";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__f64__f64__m49
+        // operators.hgl:86
+        struct ge__impl_47__f64__f64__m49
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:49";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:49";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_2(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__i64__f64__m50
+        // operators.hgl:86
+        struct ge__impl_47__i64__f64__m50
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:50";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:50";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_3(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__f64__i64__m51
+        // operators.hgl:86
+        struct ge__impl_47__f64__i64__m51
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:51";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:51";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__str__str__m52
+        // operators.hgl:86
+        struct ge__impl_47__str__str__m52
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:52";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:52";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:130
-        struct neg__impl_31__i64__i64__m53
+        // operators.hgl:93
+        struct neg__impl_48__i64__i64__m53
         {
-            static constexpr auto name = "hgraph.operators.neg_#31@instantiate:53";
+            static constexpr auto name = "hgraph.operators.neg_#48@instantiate:53";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
-                    hgl_output.set((-ts.value()));
+                    hgl_output.set(hgraph_::native::native::neg(ts.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:130
-        struct neg__impl_31__f64__f64__m54
+        // operators.hgl:93
+        struct neg__impl_48__f64__f64__m54
         {
-            static constexpr auto name = "hgraph.operators.neg_#31@instantiate:54";
+            static constexpr auto name = "hgraph.operators.neg_#48@instantiate:54";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
                                        hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
-                    hgl_output.set((-ts.value()));
+                    hgl_output.set(hgraph_::native::native::neg__candidate_2(ts.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:46
-        struct add__impl_19__str__str__str__m55
+        // operators.hgl:9
+        struct add__impl_36__str__str__str__m55
         {
-            static constexpr auto name = "hgraph.operators.add_#19@instantiate:55";
+            static constexpr auto name = "hgraph.operators.add_#36@instantiate:55";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() + rhs.value()));
+                    hgl_output.set(hgraph_::native::native::add__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__date__date__m56
+        // operators.hgl:51
+        struct eq__impl_42__date__date__m56
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:56";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:56";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_4(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__datetime__datetime__m57
+        // operators.hgl:51
+        struct eq__impl_42__datetime__datetime__m57
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:57";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:57";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_5(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__duration__duration__m58
+        // operators.hgl:51
+        struct eq__impl_42__duration__duration__m58
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:58";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:58";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__date__date__m59
+        // operators.hgl:58
+        struct ne__impl_43__date__date__m59
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:59";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:59";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__datetime__datetime__m60
+        // operators.hgl:58
+        struct ne__impl_43__datetime__datetime__m60
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:60";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:60";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__duration__duration__m61
+        // operators.hgl:58
+        struct ne__impl_43__duration__duration__m61
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:61";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:61";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_9(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__date__date__m62
+        // operators.hgl:65
+        struct lt__impl_44__date__date__m62
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:62";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:62";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__datetime__datetime__m63
+        // operators.hgl:65
+        struct lt__impl_44__datetime__datetime__m63
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:63";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:63";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:102
-        struct lt__impl_27__duration__duration__m64
+        // operators.hgl:65
+        struct lt__impl_44__duration__duration__m64
         {
-            static constexpr auto name = "hgraph.operators.lt_#27@instantiate:64";
+            static constexpr auto name = "hgraph.operators.lt_#44@instantiate:64";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() < rhs.value()));
+                    hgl_output.set(hgraph_::native::native::lt__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__date__date__m65
+        // operators.hgl:72
+        struct le__impl_45__date__date__m65
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:65";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:65";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__datetime__datetime__m66
+        // operators.hgl:72
+        struct le__impl_45__datetime__datetime__m66
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:66";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:66";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:109
-        struct le__impl_28__duration__duration__m67
+        // operators.hgl:72
+        struct le__impl_45__duration__duration__m67
         {
-            static constexpr auto name = "hgraph.operators.le_#28@instantiate:67";
+            static constexpr auto name = "hgraph.operators.le_#45@instantiate:67";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() <= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::le__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__date__date__m68
+        // operators.hgl:79
+        struct gt__impl_46__date__date__m68
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:68";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:68";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__datetime__datetime__m69
+        // operators.hgl:79
+        struct gt__impl_46__datetime__datetime__m69
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:69";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:69";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:116
-        struct gt__impl_29__duration__duration__m70
+        // operators.hgl:79
+        struct gt__impl_46__duration__duration__m70
         {
-            static constexpr auto name = "hgraph.operators.gt_#29@instantiate:70";
+            static constexpr auto name = "hgraph.operators.gt_#46@instantiate:70";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() > rhs.value()));
+                    hgl_output.set(hgraph_::native::native::gt__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__date__date__m71
+        // operators.hgl:86
+        struct ge__impl_47__date__date__m71
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:71";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:71";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_6(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__datetime__datetime__m72
+        // operators.hgl:86
+        struct ge__impl_47__datetime__datetime__m72
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:72";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:72";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:123
-        struct ge__impl_30__duration__duration__m73
+        // operators.hgl:86
+        struct ge__impl_47__duration__duration__m73
         {
-            static constexpr auto name = "hgraph.operators.ge_#30@instantiate:73";
+            static constexpr auto name = "hgraph.operators.ge_#47@instantiate:73";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() >= rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ge__candidate_8(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:88
-        struct eq__impl_25__time__time__m74
+        // operators.hgl:51
+        struct eq__impl_42__time__time__m74
         {
-            static constexpr auto name = "hgraph.operators.eq_#25@instantiate:74";
+            static constexpr auto name = "hgraph.operators.eq_#42@instantiate:74";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() == rhs.value()));
+                    hgl_output.set(hgraph_::native::native::eq__candidate_7(lhs.value(), rhs.value()));
                     return;
                 }
             }
         };
 
-        // operators.hgl:95
-        struct ne__impl_26__time__time__m75
+        // operators.hgl:58
+        struct ne__impl_43__time__time__m75
         {
-            static constexpr auto name = "hgraph.operators.ne_#26@instantiate:75";
+            static constexpr auto name = "hgraph.operators.ne_#43@instantiate:75";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
                                        hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
-                    hgl_output.set((lhs.value() != rhs.value()));
+                    hgl_output.set(hgraph_::native::native::ne__candidate_10(lhs.value(), rhs.value()));
                     return;
                 }
             }

@@ -30,9 +30,9 @@ class SourceArchive(unittest.TestCase):
         self.output = self.root / 'dist/hgraph-source.tar.gz'
         self.output.write_bytes(b'previous bundle')
 
-    def reject(self, data, manifest=None):
+    def reject(self, data, *additional):
         with self.assertRaises(ValueError):
-            write_archive(self.root, data, manifest or {'files': {}})
+            write_archive(self.root, [data, *additional])
         self.assertEqual(self.output.read_bytes(), b'previous bundle')
 
     def test_member_paths_cannot_escape_on_posix_or_windows(self):
@@ -65,22 +65,27 @@ class SourceArchive(unittest.TestCase):
         for members in ((link, nested), (nested, link)):
             self.reject(archive(*members))
 
-    def test_manifest_paths_and_source_symlinks_cannot_escape(self):
-        for name in ('../escape', '/escape', 'C:/escape', '..\\escape'):
-            with self.subTest(name=name):
-                self.reject(archive(), {'files': {name: {}}})
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = Path(tmp) / 'private'
-            outside.write_text('not part of the bundle')
-            (self.root / 'link').symlink_to(outside)
-            self.reject(archive(), {'files': {'link': {}}})
+    def test_dependency_archives_receive_the_same_validation(self):
+        self.reject(archive(), archive(tarfile.TarInfo('hgraph/external/../../escape')))
+        link = tarfile.TarInfo('hgraph/external/link')
+        link.type, link.linkname = tarfile.SYMTYPE, '../../../escape'
+        self.reject(archive(), archive(link))
+
+    def test_duplicate_package_directories_are_merged(self):
+        directory = tarfile.TarInfo('hgraph/external/package')
+        directory.type = tarfile.DIRTYPE
+        member = tarfile.TarInfo('hgraph/external/package/file.hgl')
+        output = write_archive(self.root, [archive(directory), archive(directory, member)])
+        with tarfile.open(output) as result:
+            self.assertEqual(result.getnames().count(directory.name), 1)
+            self.assertEqual(result.extractfile(member.name).read(), b'payload')
 
     def test_symlinked_output_directory_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'dist').symlink_to(self.output.parent, target_is_directory=True)
             with self.assertRaisesRegex(ValueError, 'dist must be'):
-                write_archive(root, archive(), {'files': {}})
+                write_archive(root, [archive()])
         self.assertEqual(self.output.read_bytes(), b'previous bundle')
 
     def test_output_symlink_is_replaced_without_following_it(self):
@@ -88,36 +93,35 @@ class SourceArchive(unittest.TestCase):
         victim.write_bytes(b'untouched')
         self.output.unlink()
         self.output.symlink_to(victim)
-        write_archive(self.root, archive(), {'files': {}})
+        write_archive(self.root, [archive()])
         self.assertFalse(self.output.is_symlink())
         self.assertEqual(victim.read_bytes(), b'untouched')
 
     def test_write_failure_preserves_previous_bundle_and_cleans_temporary_file(self):
         with patch('source_archive.os.replace', side_effect=OSError('publication failed')):
             with self.assertRaises(OSError):
-                write_archive(self.root, archive(), {'files': {}})
+                write_archive(self.root, [archive()])
         self.assertEqual(self.output.read_bytes(), b'previous bundle')
         self.assertEqual(list(self.output.parent.iterdir()), [self.output])
 
     def test_duplicate_entries_are_rejected(self):
         member = tarfile.TarInfo('hgraph/source')
         self.reject(archive(member, member))
-        (self.root / 'source').write_bytes(b'shared')
-        self.reject(archive(member), {'files': {'source': {}}})
+        self.reject(archive(member), archive(member))
 
     def test_regular_files_internal_links_and_shared_inputs_survive(self):
         regular = tarfile.TarInfo('hgraph/Formula/package.rb')
         regular.mode = 0o755
         link = tarfile.TarInfo('hgraph/Aliases/package')
         link.type, link.linkname = tarfile.SYMTYPE, '../Formula/package.rb'
-        (self.root / 'shared.hgl').write_bytes(b'module shared\n')
-        output = write_archive(self.root, archive(regular, link), {'files': {'shared.hgl': {}}})
+        shared = tarfile.TarInfo('hgraph/external/hgraph_std/shared.hgl')
+        output = write_archive(self.root, [archive(regular, link), archive(shared)])
         self.assertEqual(output, self.output)
         with tarfile.open(output) as result:
             self.assertEqual(result.extractfile('hgraph/Formula/package.rb').read(), b'payload')
             self.assertEqual(result.getmember('hgraph/Formula/package.rb').mode, 0o755)
             self.assertEqual(result.getmember('hgraph/Aliases/package').linkname, '../Formula/package.rb')
-            self.assertEqual(result.extractfile('hgraph/shared.hgl').read(), b'module shared\n')
+            self.assertEqual(result.extractfile(shared.name).read(), b'payload')
 
     def test_cli_does_not_accept_output_or_prefix_arguments(self):
         script = Path(__file__).with_name('source_archive.py')

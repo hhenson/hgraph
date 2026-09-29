@@ -166,4 +166,4 @@ References
 * :doc:`../developer_guide/data_structures/schemas/scalar`, "Recursive Bundle
   fields".
 * :doc:`../developer_guide/data_structures/schemas/static_schema`.
-* HGL ADR 0012, ``language/docs/design/decisions/0012-recursive-struct-fields.md``.
+* HGL ADR 0012, ``external/hgraph_spec/language/docs/design/decisions/0012-recursive-struct-fields.md``.

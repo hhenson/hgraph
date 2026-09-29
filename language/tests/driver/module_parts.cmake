@@ -92,7 +92,7 @@ if(_duplicate_decl_result EQUAL 0 OR
 endif()
 
 # Native requirements complete a shared declaration, never another overload.
-set(_native_api "${SOURCE}/codegen/native-provider.hgl")
+set(_native_api "${SHARED_EXAMPLES}/native-provider.hgl")
 set(_native_impl "${SOURCE}/codegen/native-provider-impl.hgl")
 run_hgl(_native_result _native_output check "${_native_api}" --part "${_native_impl}" --dump-hir)
 if(NOT _native_result EQUAL 0 OR NOT _native_output MATCHES "implementation=value inject=logger")
@@ -139,4 +139,58 @@ endif()
 run_hgl(_result _output emit-native-rust "${OUT}/value.hgl" --out "${OUT}/missing.rs")
 if(_result EQUAL 0 OR NOT _output MATCHES "requires a selected implementation part")
     message(FATAL_ERROR "a bare declaration silently acquired an implementation:\n${_output}")
+endif()
+
+# Declaration and selected-part docs must survive assembly, which blanks part headers.
+file(WRITE "${OUT}/documented.hgl" [=[/** Shared module. */
+module checks.documentation
+/** Shared contract. */
+native const fn helper(value: i64) -> i64
+/** First overload. */
+native const fn combine(lhs: i64, rhs: i64) -> i64
+/** Second overload. */
+native const fn combine(lhs: f64, rhs: f64) -> f64
+]=])
+file(WRITE "${OUT}/documented-part.hgl" [=[/** Selected module. */
+module checks.documentation part cpp_impl
+/** Selected implementation. */
+native const fn helper(value: i64) -> i64 {}
+]=])
+run_hgl(_docs_result _docs_output
+    check "${OUT}/documented.hgl" --part "${OUT}/documented-part.hgl" --dump-docs)
+if(NOT _docs_result EQUAL 0)
+    message(FATAL_ERROR "documented parts failed to check:\n${_docs_output}")
+endif()
+foreach(_text IN ITEMS "Shared module." "Shared contract." "Selected module." "Selected implementation."
+        "First overload." "Second overload." "cpp_impl")
+    if(NOT _docs_output MATCHES "${_text}")
+        message(FATAL_ERROR "documentation lost ${_text}:\n${_docs_output}")
+    endif()
+endforeach()
+
+file(WRITE "${OUT}/published.hgl" [=[module checks.published
+/**
+Keep the input.
+
+Args:
+    value: The current input.
+
+Notes:
+    .. math::
+
+        y = x
+*/
+export fn keep(value: i64) -> i64 => value
+]=])
+run_hgl(_published_result _published_output
+    emit-cpp "${OUT}/published.hgl" --out-dir "${OUT}/first")
+if(NOT _published_result EQUAL 0)
+    message(FATAL_ERROR "documented emission failed:\n${_published_output}")
+endif()
+file(READ "${OUT}/first/published.rst" _published_docs)
+run_hgl(_read_result _read_docs check "${OUT}/first/published.hgl-module.json" --dump-docs)
+string(STRIP "${_published_docs}" _published_docs)
+string(STRIP "${_read_docs}" _read_docs)
+if(NOT _read_result EQUAL 0 OR NOT _read_docs STREQUAL _published_docs)
+    message(FATAL_ERROR "descriptor documentation did not round trip:\n${_read_docs}")
 endif()

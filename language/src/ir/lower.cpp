@@ -227,6 +227,7 @@ namespace hgl::ir
 
             hir::Module run() {
                 result_.path = resolved_.module_path;
+                result_.documentation = module_.documentation;
                 mark_owners();
                 declare_symbols();
 
@@ -341,6 +342,12 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             mark_expr(node.iterable, owner);
                             mark_block(node.block, owner);
+                        } else if constexpr (std::is_same_v<T, ast::WhileStmt>) {
+                            if (node.condition != ast::no_node) { mark_expr(node.condition, owner); }
+                            mark_block(node.block, owner);
+                        } else if constexpr (std::is_same_v<T, ast::YieldStmt>) {
+                            mark_expr(node.time, owner);
+                            mark_expr(node.value, owner);
                         } else if constexpr (std::is_same_v<T, ast::AssignStmt>) {
                             mark_expr(node.place, owner);
                             mark_expr(node.value, owner);
@@ -818,6 +825,31 @@ namespace hgl::ir
                     case K::Each:
                         target.node = hir::ConstraintEach{symbol(source.identity), child(source.source), child(source.body)};
                         break;
+                    case K::NativeScalar:
+                        {
+                            hir::SymbolId native{};
+                            for (std::size_t index = 0; index < resolved_.imported_functions.size(); ++index) {
+                                const auto &function = resolved_.imported_functions[index];
+                                if (function.identity != source.identity) { continue; }
+                                semantics::Binding binding;
+                                binding.kind  = semantics::BindingKind::ImportedFunction;
+                                binding.index = static_cast<std::uint32_t>(index);
+                                while (index + binding.count < resolved_.imported_functions.size() &&
+                                       resolved_.imported_functions[index + binding.count].identity == source.identity) {
+                                    ++binding.count;
+                                }
+                                native = imported_function(binding, range, function.name);
+                                break;
+                            }
+                            if (!native.valid()) {
+                                diagnostics_.report(syntax::Category::Module, range, "missing native scalar requirement interface");
+                            }
+                            hir::OperatorRequirement requirement{native, {}, hir::no_type};
+                            for (auto argument : source.arguments) { requirement.arguments.push_back(child(argument)); }
+                            if (source.type) { requirement.result = imported_type(*source.type, generics, range); }
+                            target.node = std::move(requirement);
+                            break;
+                        }
                     case K::Operator:
                         {
                             // An operator requirement names an OPERATOR, not one of
@@ -1497,6 +1529,10 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             target.node = hir::ForStmt{statement_symbols_[index], id<hir::ExprId>(node.iterable),
                                                        id<hir::BlockId>(node.block)};
+                        } else if constexpr (std::is_same_v<T, ast::WhileStmt>) {
+                            target.node = hir::WhileStmt{id<hir::ExprId>(node.condition), id<hir::BlockId>(node.block)};
+                        } else if constexpr (std::is_same_v<T, ast::YieldStmt>) {
+                            target.node = hir::YieldStmt{id<hir::ExprId>(node.time), id<hir::ExprId>(node.value)};
                         } else if constexpr (std::is_same_v<T, ast::AssignStmt>) {
                             target.node =
                                 hir::AssignStmt{lower_assign_op(node.op), id<hir::ExprId>(node.place), id<hir::ExprId>(node.value)};

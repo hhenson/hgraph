@@ -126,6 +126,12 @@ namespace hgl::hgraph_ir
                                 for (BindingId binding : node.bindings) { add_local(binding); }
                                 collect_value_locals(node.iterable);
                                 collect_locals(node.block);
+                            } else if constexpr (std::is_same_v<T, Loop>) {
+                                if (node.condition.valid()) { collect_value_locals(node.condition); }
+                                collect_locals(node.block);
+                            } else if constexpr (std::is_same_v<T, Yield>) {
+                                collect_value_locals(node.time);
+                                collect_value_locals(node.value);
                             } else if constexpr (std::is_same_v<T, Assignment>) {
                                 collect_value_locals(node.place);
                                 collect_value_locals(node.value);
@@ -281,6 +287,14 @@ namespace hgl::hgraph_ir
                                 const auto defined = defined_outer_;
                                 (void)scan_block(node.block);
                                 defined_outer_ = defined;
+                            } else if constexpr (std::is_same_v<T, Loop>) {
+                                if (node.condition.valid() && !scan_value(node.condition)) { return false; }
+                                const auto defined = defined_outer_;
+                                (void)scan_block(node.block);
+                                defined_outer_ = defined;
+                            } else if constexpr (std::is_same_v<T, Yield>) {
+                                if (!scan_value(node.time)) { return false; }
+                                if (!scan_value(node.value)) { return false; }
                             } else if constexpr (std::is_same_v<T, Assignment>) {
                                 const BindingId target = place_root(node.place);
                                 if (node.op != AssignOp::Assign || direct_assignment_target(node.place) != target) {
@@ -782,6 +796,14 @@ namespace hgl::hgraph_ir
                             }
                             visit_value(node.iterable);
                             visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, Loop>) {
+                            if (!runtime_) { report(statement.range, "'while' loops in a composition body"); }
+                            if (node.condition.valid()) { visit_value(node.condition); }
+                            visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, Yield>) {
+                            if (!runtime_) { report(statement.range, "'yield' in a composition body"); }
+                            visit_value(node.time);
+                            visit_value(node.value);
                         } else if constexpr (std::is_same_v<T, Assignment>) {
                             const Value *place     = value_at(module_, node.place);
                             const auto  *reference = place != nullptr ? std::get_if<Reference>(&place->node) : nullptr;

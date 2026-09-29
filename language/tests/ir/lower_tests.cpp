@@ -1428,7 +1428,7 @@ namespace
 
 TEST_CASE("typed HIR binds a generic with every reference removed (runtime spec WIR-7, WIR-14)",
           "[ir][typed][generics][ref]") {
-    // docs/source/runtime_spec/validation/wiring/front_end.hgl: the runtime
+    // external/hgraph_spec/runtime/validation/wiring/front_end.hgl: the runtime
     // binds T to the argument's type without its references, and so must HGL.
     Lowered lowered{R"(
 module checks.wiring_front_end
@@ -2811,13 +2811,148 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
 TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lifecycle]") {
     CHECK(completion_diagnostics("module checks.unscheduled_source\n"
                                  "fn source(const value: i64) -> i64 { when { return value } }\n")
-              .find("injectable: a runtime function without temporal parameters must 'inject scheduler'") != std::string::npos);
+              .find("injectable: a runtime function without temporal parameters must 'inject scheduler' or 'inject alarm'") !=
+          std::string::npos);
     CHECK(completes("module checks.scheduled_source\n"
                     "fn source() -> bool {\n"
                     "    inject scheduler\n"
                     "    start { scheduler.schedule(0s) }\n"
                     "    when scheduled() { return true }\n"
                     "}\n"));
+}
+
+TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][adr-0015]") {
+    // An alarm source publishes from a plain `when`: every evaluation is its
+    // wake-up. `scheduled()` belongs to `scheduler`.
+    CHECK(completes("module checks.alarm_source\n"
+                    "fn source(const value: i64, const delay: duration = 0s) -> i64 {\n"
+                    "    inject alarm\n"
+                    "    start { alarm.schedule(delay) }\n"
+                    "    when { return value }\n"
+                    "}\n"));
+    CHECK(completes("module checks.alarm_at\n"
+                    "fn source(const at: datetime) -> bool {\n"
+                    "    inject alarm\n"
+                    "    start { alarm.schedule_at(at) }\n"
+                    "    when { return true }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.alarm_scheduled\n"
+                                 "fn source(const value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when scheduled() { return value }\n"
+                                 "}\n")
+              .find("'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes from a plain 'when'") !=
+          std::string::npos);
+    CHECK(completion_diagnostics("module checks.alarm_with_input\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    when modified(value) { alarm.schedule(1s)\n        return value }\n"
+                                 "}\n")
+              .find("'alarm' is admitted only in a source") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.alarm_query\n"
+                                 "fn source() -> bool {\n"
+                                 "    inject alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when { return alarm.is_scheduled() }\n"
+                                 "}\n")
+              .find("'alarm.is_scheduled' is not a capability method") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.alarm_const\n"
+                                 "const fn f(value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    return value\n"
+                                 "}\n")
+              .find("const fn cannot inject its own 'alarm'") != std::string::npos);
+    // One wake-up mechanism per source: with both injected, scheduled()
+    // could not answer for the alarm.
+    CHECK(completion_diagnostics("module checks.alarm_and_scheduler\n"
+                                 "fn source(const value: i64) -> i64 {\n"
+                                 "    inject scheduler, alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when scheduled() { return value }\n"
+                                 "}\n")
+              .find("a source injects 'scheduler' or 'alarm', not both") != std::string::npos);
+}
+
+TEST_CASE("typed HIR admits while in runtime bodies only", "[ir][typed][adr-0015]") {
+    CHECK(completes("module checks.while_runtime\n"
+                    "fn f(value: i64) -> i64 {\n"
+                    "    when modified(value) {\n"
+                    "        var n: i64 = 0\n"
+                    "        while n < value { n += 1 }\n"
+                    "        while { return n }\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.while_composition\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    while value {\n"
+                                 "        value\n"
+                                 "    }\n"
+                                 "    value\n"
+                                 "}\n")
+              .find("'while' is a runtime statement") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.while_condition\n"
+                                 "fn f(value: i64) -> i64 {\n"
+                                 "    when modified(value) {\n"
+                                 "        while value { return value }\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("while condition") != std::string::npos);
+}
+
+TEST_CASE("typed HIR classifies a yielding body as a generator source", "[ir][typed][adr-0015]") {
+    CHECK(completes("module checks.generator\n"
+                    "fn constant(const value: i64, const delay: duration = 0s) -> i64 {\n"
+                    "    yield delay: value\n"
+                    "}\n"
+                    "fn heartbeat(const period: duration, const beats: i64) -> bool {\n"
+                    "    var count: i64 = 0\n"
+                    "    while count < beats {\n"
+                    "        yield period: true\n"
+                    "        count += 1\n"
+                    "    }\n"
+                    "}\n"
+                    "fn at(const when_: datetime) -> i64 {\n"
+                    "    yield when_: 1\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.generator_input\n"
+                                 "fn g(value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source has no temporal parameters") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_result\n"
+                                 "fn g(const value: i64) {\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source declares a result type") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_state\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    state count: i64 = 0\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source declares no state") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_out\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    inject out\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source cannot inject 'out'") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_when\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "    when { return value }\n"
+                                 "}\n")
+              .find("a generator source has no 'when' handler") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_time\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield \"soon\": value\n"
+                                 "}\n")
+              .find("a yield time is a duration (from now) or a datetime") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_value\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: \"text\"\n"
+                                 "}\n")
+              .find("yield value") != std::string::npos);
 }
 
 TEST_CASE("typed HIR rejects input activity in lifecycle hooks", "[ir][typed][lifecycle]") {
@@ -3207,4 +3342,184 @@ native fn identity<U, const M: i64>(value: list<U, M>) -> list<U, M> { when; }
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(completed);
     CHECK(unit.hir.native_functions.size() == 1);
+}
+
+TEST_CASE("native scalar requirements admit exact value signatures and infer results", "[ir][native][constraints]") {
+    Lowered lowered{R"(
+module checks.native_requirements
+native const fn sum(lhs: i64, rhs: i64) -> i64
+native const fn sum(lhs: i64, rhs: f64) -> f64
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+requires sum(L, R) -> O {
+    when { return sum(lhs, rhs) }
+}
+instantiate add_<i64, i64, i64>, add_<i64, f64, f64>
+const fn integer_sum(lhs: i64, rhs: i64) -> i64
+requires sum(i64, i64) -> i64 => sum(lhs, rhs)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK(std::ranges::any_of(lowered.hir.exprs,
+                              [](const auto &expression) { return expression.operation.native_candidates.size() == 2; }));
+}
+
+TEST_CASE("native scalar requirements reject absent wrong-result and temporal candidates", "[ir][native][constraints]") {
+    for (const auto &signature : {"native const fn sum(lhs: f64, rhs: f64) -> f64",
+                                  "native const fn sum(lhs: i64, rhs: i64) -> f64", "native fn sum(lhs: i64, rhs: i64) -> i64"}) {
+        Lowered lowered{std::string{"module checks.bad_native_requirement\n"} + signature + R"(
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+requires sum(L, R) -> O { when { return sum(lhs, rhs) } }
+instantiate add_<i64, i64, i64>
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("instantiate matches no") != std::string::npos);
+    }
+}
+
+TEST_CASE("imported native scalar requirements use nominal identity and propagate capabilities", "[ir][native][constraints]") {
+    using namespace hgl::semantics;
+    ImportableModule provider;
+    provider.identity = "checks.values";
+    for (auto type : {ImportedScalarType::I64, ImportedScalarType::F64}) {
+        provider.functions.push_back(ImportedFunction{
+            .module_identity    = provider.identity,
+            .name               = "combine",
+            .identity           = "checks.values::combine",
+            .candidate_identity = type == ImportedScalarType::I64 ? "integer" : "float",
+            .cpp_symbol         = type == ImportedScalarType::I64 ? "values::integer" : "values::floating",
+            .parameters         = {{"lhs", type, false}, {"rhs", type, false}},
+            .result             = type,
+            .phases             = {NativeCallPhase::Evaluation},
+            .capabilities       = type == ImportedScalarType::I64 ? std::vector<std::string>{} : std::vector<std::string>{"logger"},
+            .execution_role     = hgl::NativeExecutionRole::Value,
+        });
+    }
+    ModuleCatalog catalog;
+    REQUIRE_FALSE(catalog.add(std::move(provider)));
+    Lowered lowered{R"(
+module checks.native_import
+use checks.values as values
+operator pair<T>(lhs: T, rhs: T) -> T
+impl fn pair<T>(lhs: T, rhs: T) -> T
+requires values::combine(T, T) -> T {
+    when { return values::combine(lhs, rhs) }
+}
+instantiate pair<i64>, pair<f64>
+)",
+                    catalog};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    const auto implementation = std::ranges::find_if(lowered.hir.declarations, [](const auto &declaration) {
+        const auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node);
+        return fn && fn->visibility == hir::Visibility::Implementation;
+    });
+    REQUIRE(implementation != lowered.hir.declarations.end());
+    CHECK(std::get<hir::FunctionDecl>(implementation->node).capabilities.size() == 1);
+}
+
+TEST_CASE("native scalar requirements reject ambiguous exact signatures", "[ir][native][constraints]") {
+    Lowered lowered{R"(
+module checks.native_ambiguity
+native const fn combine(lhs: i64, rhs: i64) -> i64
+native const fn combine(left: i64, right: i64) -> i64
+fn apply(lhs: i64, rhs: i64) -> i64
+requires combine(i64, i64) -> i64 { when { return lhs + rhs } }
+fn use_it(lhs: i64, rhs: i64) -> i64 => apply(lhs, rhs)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("native scalar requirement is ambiguous") != std::string::npos);
+}
+
+TEST_CASE("const is admitted as an operator name and const(f) stays the selector", "[ir][typed][mig-009]") {
+    // The library spells hgraph's `const` by its own name; a call with one
+    // argument naming a function is still the ADR 0008 value-role selector.
+    CHECK(completes("module checks.const_name\n"
+                    "operator const<T>(const value: T, const delay: duration = 0s) -> T\n"
+                    "impl fn const<T>(const value: T, const delay: duration = 0s) -> T {\n"
+                    "    inject scheduler\n"
+                    "    start { scheduler.schedule(delay) }\n"
+                    "    when scheduled() { return value }\n"
+                    "}\n"
+                    "instantiate const<i64>\n"
+                    "operator sink(ts: signal)\n"
+                    "impl fn sink(ts: signal) { when { } }\n"
+                    "fn c(tick: i64) -> i64 {\n"
+                    "    sink(tick)\n"
+                    "    const(42)\n"
+                    "}\n"
+                    "const fn scale(value: f64, factor: f64) -> f64 => value * factor\n"
+                    "fn scale(value: f64, factor: f64) -> f64 { when { return value * factor } }\n"
+                    "fn selected(value: f64) -> f64 { const(scale)(value, 3.0) }\n"));
+    // Without an operator in scope, `const(value)` is still no selector.
+    CHECK(completion_diagnostics("module checks.no_const_operator\n"
+                                 "operator sink(ts: signal)\n"
+                                 "impl fn sink(ts: signal) { when { } }\n"
+                                 "fn c(tick: i64) -> i64 {\n"
+                                 "    sink(tick)\n"
+                                 "    const(42)\n"
+                                 "}\n")
+              .find("const(function) requires a const fn declaration") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.no_const_operator_delay\n"
+                                 "operator sink(ts: signal)\n"
+                                 "impl fn sink(ts: signal) { when { } }\n"
+                                 "fn c(tick: i64) -> i64 {\n"
+                                 "    sink(tick)\n"
+                                 "    const(42, delay: 1s)\n"
+                                 "}\n")
+              .find("is a library operator and is not in scope") != std::string::npos);
+}
+
+TEST_CASE("typed HIR bounds the statements a generator source may hold", "[ir][typed][adr-0015]") {
+    // A bare return finishes the source; a yield sits at statement level in
+    // the body, a while block or an if statement.
+    CHECK(completes("module checks.generator_forms\n"
+                    "fn bounded(const n: i64) -> i64 {\n"
+                    "    var i: i64 = 0\n"
+                    "    while {\n"
+                    "        if i >= n { return }\n"
+                    "        yield 1us: i\n"
+                    "        i += 1\n"
+                    "    }\n"
+                    "}\n"
+                    "fn branch(const even: bool) -> i64 {\n"
+                    "    if even {\n"
+                    "        yield 0s: 2\n"
+                    "    } else {\n"
+                    "        yield 0s: 1\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.generator_return\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    yield 0s: value\n"
+                                 "    return value\n"
+                                 "}\n")
+              .find("a generator source returns no value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_early_return\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    if value < 0 { return value }\n"
+                                 "    yield 0s: value\n"
+                                 "}\n")
+              .find("a generator source returns no value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_for\n"
+                                 "fn g(const values: list<i64>) -> i64 {\n"
+                                 "    for value in elements(values) {\n"
+                                 "        yield 1us: value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("'for' is not available in a generator source") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.generator_value_yield\n"
+                                 "fn g(const value: i64) -> i64 {\n"
+                                 "    let picked: i64 = if value > 0 { yield 0s: value\n"
+                                 "        value } else { 0 }\n"
+                                 "    yield 1us: picked\n"
+                                 "}\n")
+              .find("cannot sit inside a value") != std::string::npos);
 }

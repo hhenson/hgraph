@@ -293,6 +293,16 @@ namespace hgl::syntax::ast
         ExprId  iterable{no_node};
         BlockId block{no_node};
     };
+    struct WhileStmt
+    {
+        ExprId  condition{no_node};  ///< no_node = unbounded
+        BlockId block{no_node};
+    };
+    struct YieldStmt
+    {
+        ExprId time{no_node};
+        ExprId value{no_node};
+    };
     struct AssignStmt
     {
         AssignOp op{AssignOp::Assign};
@@ -308,8 +318,8 @@ namespace hgl::syntax::ast
     struct ExprStmt
     { ExprId expr{no_node}; };
 
-    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, AssignStmt, ReturnStmt,
-                                  AssertStmt, ExprStmt>;
+    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, WhileStmt, YieldStmt,
+                                  AssignStmt, ReturnStmt, AssertStmt, ExprStmt>;
 
     struct Stmt
     {
@@ -577,6 +587,7 @@ namespace hgl::syntax::ast
     /// module declaration is first when present.
     struct Module
     {
+        std::vector<syntax::Documentation> documentation{};
         std::vector<Type>       types{};
         std::vector<Expr>       exprs{};
         std::vector<Stmt>       stmts{};

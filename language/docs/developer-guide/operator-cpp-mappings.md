@@ -95,3 +95,15 @@ In native authoring the relevant scalar function is
 time-series candidate. Its verified metadata is associative, non-commutative,
 with an empty-string identity. Neither `scalar_add<Float>` nor
 `scalar_mul<Float>` advertises associativity.
+
+## Native scalar prerequisites
+
+`requires native::add(L, R) -> O` checks the imported `native const fn`
+family by exact value types. The generic body calls that helper; each concrete
+materialization selects one native entry before C++ emission. No temporal
+operator or per-tick overload lookup is involved. Descriptors record this as a
+`native-scalar` constraint, distinct from a temporal operator requirement.
+
+The current implementation accepts concrete scalar native signatures. It does
+not extend native generic constraints, raw input access or generic `const fn`
+body lowering. Those retain their existing diagnostics.

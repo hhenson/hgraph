@@ -200,6 +200,11 @@ namespace hgl::ir
                                 }
                             }
                         }
+                        for (SymbolId candidate : expression.operation.native_candidates) {
+                            if (const auto *native = native_function(candidate)) {
+                                required.insert(required.end(), native->capabilities.begin(), native->capabilities.end());
+                            }
+                        }
                         for (const std::string &name : required) {
                             if (std::ranges::any_of(owner->capabilities,
                                                     [&](SymbolId id) { return module_.symbol(id).name == name; })) {
@@ -252,6 +257,13 @@ namespace hgl::ir
                             if (native.symbol != target) { continue; }
                             allowed = 0U;
                             for (NativePhase phase : native.phases) { allowed |= 1U << static_cast<unsigned>(phase); }
+                        }
+                        for (auto candidate : expression.operation.native_candidates) {
+                            if (const auto *native = native_function(candidate)) {
+                                unsigned candidate_phases = 0U;
+                                for (auto phase : native->phases) { candidate_phases |= 1U << static_cast<unsigned>(phase); }
+                                allowed &= candidate_phases;
+                            }
                         }
                         if (target.valid()) {
                             const DeclarationId called = module_.symbol(target).owner;
@@ -722,6 +734,11 @@ namespace hgl::ir
                                 require_assignable(node.signature.result, body, "function result");
                                 node.effects = body.effects;
                             } else if (node.block_body.valid()) {
+                                // A generator is known before its body is checked, so a
+                                // 'return' ahead of the first 'yield' sees it (ADR 0015).
+                                if (node.kind == FunctionKind::Runtime && !node.is_const) {
+                                    node.is_generator = scan_generator_body(node.block_body, false);
+                                }
                                 check_block(node.block_body, node.signature.result);
                                 const Block &body = module_.block(node.block_body);
                                 if (body.tail.valid()) {
@@ -732,14 +749,32 @@ namespace hgl::ir
                             collect_capabilities(node, id);
                             if ((node.kind == FunctionKind::Runtime || node.is_const) && node.block_body.valid()) {
                                 check_runtime_layout(node.block_body);
-                                if (!node.is_const &&
-                                    std::ranges::all_of(node.signature.parameters, [](const Parameter &parameter) {
-                                        return parameter.is_const;
-                                    }) && !injects_capability(id, "scheduler")) {
+                                const bool source =
+                                    !node.is_const &&
+                                    std::ranges::all_of(node.signature.parameters,
+                                                        [](const Parameter &parameter) { return parameter.is_const; });
+                                // A source drives itself: the recoverable scheduler, the
+                                // stateless alarm, or a generator (ADR 0010, ADR 0015).
+                                if (source && !injects_capability(id, "scheduler") && !injects_capability(id, "alarm") &&
+                                    !node.is_generator) {
                                     diagnostics_.report(syntax::Category::Injectable, declaration.range,
                                                         "a runtime function without temporal parameters must 'inject scheduler' "
-                                                        "and schedule itself");
+                                                        "or 'inject alarm' and schedule itself, or be a generator (yield)");
                                 }
+                                if (!source && injects_capability(id, "alarm")) {
+                                    diagnostics_.report(syntax::Category::Injectable, declaration.range,
+                                                        "'alarm' is admitted only in a source, a runtime function with no "
+                                                        "temporal parameters; a function with inputs uses 'scheduler'");
+                                }
+                                // One wake-up mechanism per source: `scheduled()` answers for
+                                // it, and the alarm's contract is that every evaluation is its
+                                // wake-up (ADR 0015).
+                                if (injects_capability(id, "alarm") && injects_capability(id, "scheduler")) {
+                                    diagnostics_.report(syntax::Category::Injectable, declaration.range,
+                                                        "a source injects 'scheduler' or 'alarm', not both; the stateless "
+                                                        "alarm and the recoverable scheduler are alternatives");
+                                }
+                                if (node.is_generator) { check_generator(declaration, node); }
                             }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
                             active_native_phase_ = NativePhase::Wiring;
@@ -917,6 +952,105 @@ namespace hgl::ir
                 }
             }
 
+            /// A generator source (ADR 0015): no temporal parameters, a declared
+            /// result, and none of the forms `yield` replaces.
+            /// The statement-level walk of a runtime body (ADR 0015): a `yield`
+            /// here is a resume point the backends can express. With `report`,
+            /// the forms a generator cannot hold are diagnosed: `for` (its
+            /// iteration owns the body, so a yield inside could not resume)
+            /// and a valued `return` (yield publishes; a bare return finishes).
+            bool scan_generator_body(BlockId block_id, bool report) {
+                if (!block_id.valid()) { return false; }
+                bool       found = false;
+                const auto walk_value = [&](ExprId value_id) -> void {
+                    ExprId current = value_id;
+                    while (current.valid()) {
+                        const Expr &value = module_.expr(current);
+                        if (const auto *branch = std::get_if<If>(&value.node)) {
+                            found = scan_generator_body(branch->then_block, report) || found;
+                            current = branch->otherwise;
+                            continue;
+                        }
+                        if (const auto *nested = std::get_if<BlockExpr>(&value.node)) {
+                            found = scan_generator_body(nested->block, report) || found;
+                        }
+                        break;
+                    }
+                };
+                for (StmtId stmt_id : module_.block(block_id).statements) {
+                    const Stmt &statement = module_.stmt(stmt_id);
+                    std::visit(
+                        [&](const auto &s) {
+                            using T = std::decay_t<decltype(s)>;
+                            if constexpr (std::is_same_v<T, YieldStmt>) {
+                                found = true;
+                                statement_level_yields_.insert(stmt_id.value);
+                            } else if constexpr (std::is_same_v<T, WhileStmt>) {
+                                found = scan_generator_body(s.block, report) || found;
+                            } else if constexpr (std::is_same_v<T, ForStmt>) {
+                                if (report) {
+                                    diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                        "'for' is not available in a generator source; iterate with 'while'");
+                                }
+                                found = scan_generator_body(s.block, report) || found;
+                            } else if constexpr (std::is_same_v<T, ReturnStmt>) {
+                                if (report && s.value.valid()) {
+                                    diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                        "a generator source returns no value; 'yield' publishes one and a "
+                                                        "bare 'return' finishes the source");
+                                }
+                            } else if constexpr (std::is_same_v<T, ExprStmt>) {
+                                walk_value(s.expr);
+                            }
+                        },
+                        statement.node);
+                }
+                walk_value(module_.block(block_id).tail);
+                return found;
+            }
+
+            void check_generator(const Declaration &declaration, const FunctionDecl &node) {
+                scan_generator_body(node.block_body, true);
+                if (std::ranges::any_of(node.signature.parameters,
+                                        [](const Parameter &parameter) { return !parameter.is_const; })) {
+                    diagnostics_.report(syntax::Category::FunctionKind, declaration.range,
+                                        "a generator source has no temporal parameters");
+                }
+                if (!node.signature.result.valid() || same(node.signature.result, void_type_)) {
+                    diagnostics_.report(syntax::Category::FunctionKind, declaration.range,
+                                        "a generator source declares a result type");
+                }
+                for (StmtId stmt_id : module_.block(node.block_body).statements) {
+                    const Stmt &statement = module_.stmt(stmt_id);
+                    std::visit(
+                        [&](const auto &s) {
+                            using T = std::decay_t<decltype(s)>;
+                            if constexpr (std::is_same_v<T, StateDecl>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    s.cache ? "a generator source declares no cache; its locals already live "
+                                                              "across yields"
+                                                            : "a generator source declares no state; it restarts after a restore");
+                            } else if constexpr (std::is_same_v<T, InjectDecl>) {
+                                for (SymbolId symbol : s.symbols) {
+                                    const Symbol &injected = module_.symbol(symbol);
+                                    if (injected.name != "logger" && injected.name != "clock") {
+                                        diagnostics_.report(syntax::Category::Injectable, injected.range,
+                                                            "a generator source cannot inject '" + injected.name +
+                                                                "'; yield owns the output and the scheduling");
+                                    }
+                                }
+                            } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    "a generator source has no 'start' or 'stop' block");
+                            } else if constexpr (std::is_same_v<T, WhenStmt>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    "a generator source has no 'when' handler; yield publishes");
+                            }
+                        },
+                        statement.node);
+                }
+            }
+
             void check_runtime_layout(BlockId body) {
                 bool        executable_seen = false;
                 std::size_t starts          = 0;
@@ -967,6 +1101,12 @@ namespace hgl::ir
                 if constexpr (std::is_same_v<Node, ForStmt>) {
                     reject_nested_function_level_in(node.iterable);
                     reject_nested_function_level(node.block);
+                } else if constexpr (std::is_same_v<Node, WhileStmt>) {
+                    if (node.condition.valid()) { reject_nested_function_level_in(node.condition); }
+                    reject_nested_function_level(node.block);
+                } else if constexpr (std::is_same_v<Node, YieldStmt>) {
+                    reject_nested_function_level_in(node.time);
+                    reject_nested_function_level_in(node.value);
                 } else if constexpr (std::is_same_v<Node, LocalDecl>) {
                     reject_nested_function_level_in(node.init);
                 } else if constexpr (std::is_same_v<Node, AssignStmt>) {
@@ -2150,6 +2290,61 @@ namespace hgl::ir
                 return true;
             }
 
+            bool check_required_native_call(Expr &expression, const Call &call, SymbolId family, TypeId expected) {
+                std::vector<TypeId> argument_types;
+                for (const Argument &argument : call.arguments) {
+                    if (!argument.name.empty()) { return false; }
+                    argument_types.push_back(module_.expr(argument.value).type);
+                }
+                const auto required = active_required_operation(operator_identity(family), argument_types);
+                if (!required || module_.symbol(required->op).kind != SymbolKind::ImportedFunction || !required->result.valid()) {
+                    return false;
+                }
+                // Named arguments and live views require a concrete signature. The
+                // scalar requirement has positional value types only.
+                std::vector<SymbolId> candidates;
+                for (const NativeFunction *candidate : native_candidates(family)) {
+                    if (candidate->execution_role != NativeExecutionRole::Value || !candidate->generics.empty() ||
+                        candidate->parameters.size() != call.arguments.size() ||
+                        module_.type(canonical(candidate->result)).kind != TypeKind::Scalar) {
+                        continue;
+                    }
+                    bool eligible = true;
+                    for (std::size_t index = 0; index < candidate->parameters.size(); ++index) {
+                        const auto &parameter = candidate->parameters[index];
+                        const auto  argument  = canonical(argument_types[index]);
+                        eligible = eligible && !parameter.is_const && parameter.access == NativeParameterAccess::Value &&
+                                   module_.type(canonical(parameter.type)).kind == TypeKind::Scalar &&
+                                   (module_.type(argument).kind == TypeKind::Symbol || same(parameter.type, argument));
+                    }
+                    const auto result = canonical(required->result);
+                    eligible = eligible && (module_.type(result).kind == TypeKind::Symbol || same(candidate->result, result));
+                    if (!eligible) { continue; }
+                    if (!active_value_function_ &&
+                        std::ranges::find(candidate->phases, active_native_phase_) == candidate->phases.end()) {
+                        type_error(expression.range, "required native scalar family is unavailable in this phase");
+                        return true;
+                    }
+                    candidates.push_back(candidate->symbol);
+                }
+                if (candidates.empty()) {
+                    type_error(expression.range, "native scalar requirement has no value candidates");
+                    return true;
+                }
+                auto &reference  = std::get<SymbolRef>(module_.exprs[call.callee.value].node);
+                reference.symbol = candidates.front();
+                for (const auto &argument : call.arguments) { expression.effects |= module_.expr(argument.value).effects; }
+                expression.type       = required->result;
+                expression.phase      = active_native_phase_ == NativePhase::Wiring ? Phase::Constant : Phase::Runtime;
+                expression.value_kind = value_kind_for_phase(expression.phase);
+                expression.operation  = Operation{.kind              = OperationKind::ExactFunction,
+                                                  .target            = candidates.front(),
+                                                  .identity          = operator_identity(family),
+                                                  .native_candidates = std::move(candidates)};
+                contextualize(expression, expected);
+                return true;
+            }
+
             void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
                                    TypeId expected) {
                 const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
@@ -2626,11 +2821,39 @@ namespace hgl::ir
                 return {};
             }
 
+            /// `const(f)` with one unnamed argument naming a function is the
+            /// value-role selector of ADR 0008, whichever `const` the name
+            /// resolved to: a library `operator const` (MIG-009) shadows the
+            /// intrinsic, and the selector keeps working through it. Returns
+            /// whether the call was the selector; a `const(...)` that is not
+            /// falls through to the callee's own dispatch.
+            bool check_const_selector(Expr &expression, const Call &call) {
+                if (call.arguments.size() != 1 || !call.arguments.front().name.empty()) { return false; }
+                const Expr &argument = module_.expr(call.arguments.front().value);
+                const auto *named    = std::get_if<SymbolRef>(&argument.node);
+                if (named == nullptr || !named->symbol.valid()) { return false; }
+                const SymbolKind kind = module_.symbol(named->symbol).kind;
+                if (kind != SymbolKind::Function && kind != SymbolKind::ImportedFunction) { return false; }
+                (void)check_expr(call.arguments.front().value);
+                const SymbolId value = value_counterpart(named->symbol);
+                if (!value.valid()) {
+                    type_error(expression.range, "const(function) requires a const fn declaration");
+                    return true;
+                }
+                expression.type        = callable_type(value);
+                expression.phase       = Phase::Constant;
+                expression.value_kind  = ValueKind::Function;
+                expression.force_value = true;
+                expression.node        = SymbolRef{value};
+                return true;
+            }
+
             void check_call(Expr &expression, const Call &call, TypeId expected) {
                 Expr &callee    = check_expr(call.callee);
                 auto *reference = std::get_if<SymbolRef>(&callee.node);
                 if (reference && reference->symbol.valid()) {
                     const Symbol &symbol = module_.symbol(reference->symbol);
+                    if (symbol.name == "const" && check_const_selector(expression, call)) { return; }
                     if (active_value_function_ &&
                         (symbol.kind == SymbolKind::Operator || symbol.kind == SymbolKind::ImportedOperator)) {
                         type_error(expression.range, "a temporal operator cannot be called inside a const fn");
@@ -2671,6 +2894,9 @@ namespace hgl::ir
                         for (const NativeFunction *candidate : candidates) {
                             if (native_candidate_matches(*candidate, call.arguments, expected)) { matches.push_back(candidate); }
                         }
+                        if (matches.empty() && check_required_native_call(expression, call, reference->symbol, expected)) {
+                            return;
+                        }
                         if (matches.empty()) {
                             std::string arguments;
                             for (const Argument &argument : call.arguments) {
@@ -2708,23 +2934,14 @@ namespace hgl::ir
                     }
                     if (symbol.kind == SymbolKind::Intrinsic) {
                         if (symbol.name == "const") {
-                            if (call.arguments.size() != 1 || !call.arguments.front().name.empty()) {
-                                type_error(expression.range, "const(function) requires one function name");
-                                return;
-                            }
-                            Expr          &argument = check_expr(call.arguments.front().value);
-                            const auto    *selected = std::get_if<SymbolRef>(&argument.node);
-                            const SymbolId value =
-                                selected && selected->symbol.valid() ? value_counterpart(selected->symbol) : SymbolId{};
-                            if (!value.valid()) {
-                                type_error(expression.range, "const(function) requires a const fn declaration");
-                                return;
-                            }
-                            expression.type        = callable_type(value);
-                            expression.phase       = Phase::Constant;
-                            expression.value_kind  = ValueKind::Function;
-                            expression.force_value = true;
-                            expression.node        = SymbolRef{value};
+                            // Not the selector shape, and no `operator const` in
+                            // scope to take the call (MIG-009).
+                            for (const Argument &argument : call.arguments) { (void)check_expr(argument.value); }
+                            type_error(expression.range,
+                                       call.arguments.size() == 1 && call.arguments.front().name.empty()
+                                           ? "const(function) requires a const fn declaration"
+                                           : "const(function) requires one function name; the constant source "
+                                             "'const' is a library operator and is not in scope");
                             return;
                         }
                         check_intrinsic_call(expression, call, reference->symbol, expected);
@@ -3653,8 +3870,13 @@ namespace hgl::ir
                     if (!runtime_owner(expression.owner) || !active_when_condition_) {
                         type_error(expression.range, "'scheduled' is only valid in a function-level 'when' condition");
                     } else if (!injects_capability(expression.owner, "scheduler")) {
+                        // A source on the stateless alarm publishes from a plain
+                        // `when` instead: every evaluation is its wake-up (ADR 0015).
                         diagnostics_.report(syntax::Category::Injectable, expression.range,
-                                            "'scheduled' requires 'inject scheduler'");
+                                            injects_capability(expression.owner, "alarm")
+                                                ? "'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes "
+                                                  "from a plain 'when', which runs on every wake-up"
+                                                : "'scheduled' requires 'inject scheduler'");
                     }
                     expression.type = scalar(ScalarType::Bool);
                 } else if (name == "passivate" || name == "activate") {
@@ -3717,7 +3939,7 @@ namespace hgl::ir
                 expression.effects    = member.effects | Effect::UseCapability;
                 for (ExprId argument : args) { expression.effects |= module_.expr(argument).effects; }
                 const std::string &identity = member.operation.identity;
-                if (identity.starts_with("clock.") || identity.starts_with("scheduler.")) {
+                if (identity.starts_with("clock.") || identity.starts_with("scheduler.") || identity.starts_with("alarm.")) {
                     check_lifecycle_capability_call(expression, call, identity, args);
                 }
                 expression.operation = Operation{.kind     = OperationKind::Capability,
@@ -3767,11 +3989,16 @@ namespace hgl::ir
                     if (arity(0U, 0U)) { expression.type = scalar(ScalarType::Bool); }
                 } else if (identity == "scheduler.next_scheduled_time") {
                     if (arity(0U, 0U)) { expression.type = scalar(ScalarType::DateTime); }
+                } else if (identity == "alarm.schedule") {
+                    // The stateless one-shot alarm (ADR 0015): no tag, no wall clock.
+                    if (arity(1U, 1U)) { argument_is(0U, ScalarType::Duration, "alarm.schedule delay"); }
+                } else if (identity == "alarm.schedule_at") {
+                    if (arity(1U, 1U)) { argument_is(0U, ScalarType::DateTime, "alarm.schedule_at time"); }
                 } else {
                     type_error(expression.range,
                                "'" + identity + "' is not a capability method; clock has evaluation_time, now and "
                                                 "next_cycle_evaluation_time; scheduler has schedule, schedule_at, "
-                                                "is_scheduled and next_scheduled_time");
+                                                "is_scheduled and next_scheduled_time; alarm has schedule and schedule_at");
                 }
             }
 
@@ -3838,7 +4065,8 @@ namespace hgl::ir
                                 // (syntax-and-semantics.md, "Runtime state,
                                 // injectables, and lifecycle"): `out`, `logger`,
                                 // `clock` and `scheduler` (ADR 0010).
-                                if (fn && fn->is_const && (symbol.name == "out" || symbol.name == "scheduler")) {
+                                if (fn && fn->is_const &&
+                                    (symbol.name == "out" || symbol.name == "scheduler" || symbol.name == "alarm")) {
                                     diagnostics_.report(syntax::Category::Injectable, symbol.range,
                                                         "const fn cannot inject its own '" + symbol.name + "'");
                                 }
@@ -3850,11 +4078,12 @@ namespace hgl::ir
                                     }
                                     symbol.type = fn ? fn->signature.result : void_type_;
                                 } else {
-                                    if (symbol.name != "logger" && symbol.name != "clock" && symbol.name != "scheduler") {
+                                    if (symbol.name != "logger" && symbol.name != "clock" && symbol.name != "scheduler" &&
+                                        symbol.name != "alarm") {
                                         diagnostics_.report(syntax::Category::Injectable, symbol.range,
                                                             "'" + symbol.name +
                                                                 "' is not an approved runtime capability; the "
-                                                                "injectables are out, logger, clock, and scheduler");
+                                                                "injectables are out, logger, clock, scheduler, and alarm");
                                     }
                                     symbol.type = make_type(TypeKind::Capability, {}, symbol_id);
                                 }
@@ -3892,6 +4121,48 @@ namespace hgl::ir
                             }
                             check_block(node.block, expected_return);
                             statement.effects = iterable.effects | module_.block(node.block).effects | Effect::IterateCollection;
+                        } else if constexpr (std::is_same_v<T, WhileStmt>) {
+                            // The runtime conditional loop (ADR 0015); a composition
+                            // body wires structure and cannot loop on a value.
+                            if (!runtime_owner(statement.owner)) {
+                                diagnostics_.report(syntax::Category::Phase, statement.range,
+                                                    "'while' is a runtime statement; a composition body cannot loop");
+                            }
+                            if (node.condition.valid()) {
+                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                require_assignable(scalar(ScalarType::Bool), condition, "while condition");
+                                statement.effects = condition.effects;
+                            }
+                            check_block(node.block, expected_return);
+                            statement.effects |= module_.block(node.block).effects;
+                        } else if constexpr (std::is_same_v<T, YieldStmt>) {
+                            // `yield time: value` makes the function a generator source
+                            // (ADR 0015): the time is a duration or a datetime and the
+                            // value is the function's result.
+                            FunctionDecl *fn = function(statement.owner);
+                            if (fn == nullptr || !runtime_owner(statement.owner) || fn->is_const) {
+                                diagnostics_.report(syntax::Category::Phase, statement.range,
+                                                    "'yield' is only available in a runtime function body");
+                            }
+                            Expr &time = check_expr(node.time);
+                            if (time.type.valid()) {
+                                const TypeId time_type = canonical(time.type);
+                                if (!same(time_type, scalar(ScalarType::Duration)) && !same(time_type, scalar(ScalarType::DateTime))) {
+                                    type_error(time.range, "a yield time is a duration (from now) or a datetime");
+                                }
+                            }
+                            const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
+                            Expr        &value  = check_expr(node.value, result);
+                            if (result.valid() && !same(result, void_type_)) {
+                                require_assignable(result, value, "yield value");
+                            }
+                            if (fn != nullptr) { fn->is_generator = true; }
+                            if (!statement_level_yields_.contains(id.value)) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    "'yield' is a statement of the generator body, of a 'while' block or of "
+                                                    "an 'if' statement; it cannot sit inside a value");
+                            }
+                            statement.effects = time.effects | value.effects | Effect::WriteOutput;
                         } else if constexpr (std::is_same_v<T, AssignStmt>) {
                             Expr &place = check_expr(node.place);
                             Expr &value = check_expr(node.value, place.type);
@@ -3915,6 +4186,13 @@ namespace hgl::ir
                                 diagnostics_.report(syntax::Category::Phase, statement.range,
                                                     std::string{"'return' is not available during "} +
                                                         (active_native_phase_ == NativePhase::Stop ? "stop" : "start"));
+                            }
+                            if (const FunctionDecl *fn = function(statement.owner); fn != nullptr && fn->is_generator) {
+                                // A bare 'return' finishes a generator; a valued one is
+                                // reported by check_generator (ADR 0015).
+                                if (node.value.valid()) { check_expr(node.value); }
+                                statement.effects = Effect::None;
+                                return;
                             }
                             Expr &value = check_expr(node.value, expected_return);
                             require_assignable(expected_return, value, "return value");
@@ -4011,6 +4289,8 @@ namespace hgl::ir
             std::optional<detail::GenericSubstitution>        inherited_substitution_{};
             std::vector<Materialization>                      materializations_{};
             Expr                                              missing_expression_{};
+            /// Statements the generator walk admitted as resume points.
+            std::unordered_set<std::uint32_t>                 statement_level_yields_{};
         };
     }  // namespace
 

@@ -15,6 +15,8 @@
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
+#include "syntax/documentation.h"
+#include "syntax/formatter.h"
 #include "syntax/lexer.h"
 #include "syntax/parser.h"
 #include "syntax/source.h"
@@ -50,8 +52,9 @@ namespace hgl::driver
         void print_help() {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
+                         "  hgl fmt <file> [--check | --write]\n"
                          "  hgl check <file> [--part <file>]... [--module-descriptor <file>]...\n"
-                         "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
+                         "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir] [--dump-docs]\n"
                          "  hgl test <file> [test-name]... [--part <file>]... [--module-descriptor <file>]...\n"
                          "  hgl run <file> [--part <file>]... [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
@@ -66,6 +69,7 @@ namespace hgl::driver
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
+                         "  fmt       format declaration layout; preview by default\n"
                          "  check     validate an HGL source module or .hgl-module.json descriptor\n"
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
@@ -98,6 +102,82 @@ namespace hgl::driver
             std::ifstream in{path, std::ios::binary};
             if (!in) { return std::nullopt; }
             return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+        }
+
+        int format_command(std::span<const std::string_view> arguments) {
+            std::string path;
+            bool        check_only = false, write = false;
+            for (auto argument : arguments) {
+                if (argument == "--check") {
+                    check_only = true;
+                } else if (argument == "--write") {
+                    write = true;
+                } else if (argument.starts_with("-") || !path.empty()) {
+                    return usage_error("fmt expects one file and --check or --write");
+                } else {
+                    path = argument;
+                }
+            }
+            if (path.empty() || (check_only && write)) { return usage_error("fmt expects one file and --check or --write"); }
+            const auto original = read_file(path);
+            if (!original) { return usage_error("cannot read '" + path + "'"); }
+            const syntax::SourceFile file{path, *original};
+            syntax::DiagnosticSink   diagnostics;
+            const auto               formatted = syntax::format_declarations(file, diagnostics);
+            if (!formatted) {
+                std::cerr << diagnostics.render(file);
+                return exit_diagnostics;
+            }
+            if (check_only) {
+                if (*formatted == *original) { return exit_ok; }
+                std::cerr << path << ": declaration layout needs formatting\n";
+                return exit_diagnostics;
+            }
+            if (!write) {
+                std::cout << *formatted;
+                return exit_ok;
+            }
+            if (*formatted == *original) { return exit_ok; }
+            std::error_code             error;
+            const std::filesystem::path destination{path};
+            const auto                  status = std::filesystem::symlink_status(destination, error);
+            if (error || !std::filesystem::is_regular_file(status)) {
+                return usage_error("fmt --write requires a regular file, not a symbolic link");
+            }
+            // Reserve a sibling directory so replacement stays on the same
+            // filesystem and an interrupted write cannot truncate the source.
+            std::filesystem::path temporary;
+            for (int attempt = 0; attempt < 16; ++attempt) {
+                const auto candidate = destination.string() + ".fmt-" +
+                                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" +
+                                       std::to_string(attempt);
+                if (std::filesystem::create_directory(candidate, error)) {
+                    temporary = candidate;
+                    break;
+                }
+                if (error) { return usage_error("cannot create formatter temporary directory: " + error.message()); }
+            }
+            if (temporary.empty()) { return usage_error("cannot reserve formatter temporary directory"); }
+            struct Cleanup
+            {
+                std::filesystem::path path;
+                ~Cleanup() {
+                    std::error_code ignored;
+                    std::filesystem::remove_all(path, ignored);
+                }
+            } cleanup{temporary};
+            const auto replacement = temporary / "formatted.hgl";
+            {
+                std::ofstream stream{replacement, std::ios::binary};
+                stream << *formatted;
+                stream.close();
+                if (!stream) { return usage_error("cannot write formatted source"); }
+            }
+            std::filesystem::permissions(replacement, status.permissions(), error);
+            if (error) { return usage_error("cannot preserve source permissions: " + error.message()); }
+            std::filesystem::rename(replacement, destination, error);
+            if (error) { return usage_error("cannot replace formatted source: " + error.message()); }
+            return exit_ok;
         }
 
         std::optional<int> collect_module_descriptors(std::span<const std::string_view> arguments,
@@ -186,14 +266,15 @@ namespace hgl::driver
 
         struct ModulePart
         {
-            std::string         path{};
-            std::string         text{};
-            std::string         module{};
-            std::string         name{};
-            syntax::SourceRange module_range{};
-            syntax::SourceRange name_range{};
-            syntax::SourceRange clause_range{};
-            std::uint32_t       assembled_begin{0};
+            std::string                        path{};
+            std::string                        text{};
+            std::string                        module{};
+            std::string                        name{};
+            syntax::SourceRange                module_range{};
+            syntax::SourceRange                name_range{};
+            syntax::SourceRange                clause_range{};
+            std::uint32_t                      assembled_begin{0};
+            std::vector<syntax::Documentation> documentation{};
         };
 
         void blank(std::string &text, syntax::SourceRange range) {
@@ -255,7 +336,8 @@ namespace hgl::driver
                     return unit;
                 }
                 parts.push_back(ModulePart{path, std::move(*text), module_path(*header), std::string{header->part.text},
-                                           header_range, header->part.range, header->part_clause});
+                                           header_range, header->part.range, header->part_clause, 0,
+                                           std::move(parsed.documentation)});
             }
 
             std::ranges::sort(parts, [](const ModulePart &left, const ModulePart &right) {
@@ -278,6 +360,7 @@ namespace hgl::driver
                 ModulePart &part       = parts[index];
                 part.assembled_begin   = static_cast<std::uint32_t>(text.size());
                 std::string normalized = part.text;
+                for (const auto &doc : part.documentation) { blank(normalized, doc.comment); }
                 blank(normalized, index == 0U ? part.clause_range : part.module_range);
                 text += normalized;
                 const std::uint32_t end = static_cast<std::uint32_t>(text.size());
@@ -289,6 +372,13 @@ namespace hgl::driver
             unit.module = syntax::parse(unit.file, unit.diagnostics, syntax::ParseOptions{.allow_late_use = true});
             if (unit.diagnostics.has_errors()) { return unit; }
 
+            for (const auto &part : parts) {
+                for (auto doc : part.documentation) {
+                    doc.target  = assembled_range(part, doc.target);
+                    doc.comment = assembled_range(part, doc.comment);
+                    unit.module.documentation.push_back(std::move(doc));
+                }
+            }
             const std::string                                       expected_module = parts.front().module;
             std::map<std::string, syntax::SourceRange, std::less<>> names;
             for (const ModulePart &part : parts) {
@@ -370,13 +460,16 @@ namespace hgl::driver
         int check(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
+            bool                       want_docs      = false;
             bool                       want_tokens    = false;
             bool                       want_ast       = false;
             bool                       want_hir       = false;
             bool                       want_hgraph_ir = false;
             for (std::size_t index = 0; index < arguments.size(); ++index) {
                 const std::string_view argument = arguments[index];
-                if (argument == "--dump-tokens") {
+                if (argument == "--dump-docs") {
+                    want_docs = true;
+                } else if (argument == "--dump-tokens") {
                     want_tokens = true;
                 } else if (argument == "--dump-ast") {
                     want_ast = true;
@@ -417,6 +510,7 @@ namespace hgl::driver
                     std::cerr << *path << ':' << error.path << ": descriptor: " << error.message << '\n';
                     return exit_diagnostics;
                 }
+                if (want_docs) { std::cout << syntax::documentation_rst(result.value->documentation); }
                 return exit_ok;
             }
 
@@ -430,6 +524,7 @@ namespace hgl::driver
                 dump_tokens(unit.file, syntax::lex(unit.file, lex_diagnostics));
                 // The parser lexes again so token diagnostics are reported once.
             }
+            if (want_docs && !unit.diagnostics.has_errors()) { std::cout << syntax::documentation_rst(unit.module.documentation); }
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
             if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
             if (want_hgraph_ir && unit.hgraph) { std::cout << hgraph_ir::print(*unit.hgraph); }
@@ -835,7 +930,8 @@ namespace hgl::driver
                 return exit_ok;
             }
             if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source) ||
-                !write_file(descriptor_path, emitted->descriptor)) {
+                !write_file(descriptor_path, emitted->descriptor) ||
+                !write_file(descriptor_path.parent_path() / (stem + ".rst"), emitted->documentation)) {
                 return exit_usage;
             }
             for (const auto &[file, contents] : implementation_files) {
@@ -1101,6 +1197,7 @@ namespace hgl::driver
             print_version(tool_version);
             return exit_ok;
         }
+        if (command == "fmt") { return format_command(rest); }
         semantics::ModuleCatalog      catalog;
         std::vector<std::string_view> command_arguments;
         if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }
