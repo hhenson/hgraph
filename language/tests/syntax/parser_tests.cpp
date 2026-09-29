@@ -1452,6 +1452,8 @@ TEST_CASE("reserved words cannot be used as names", "[parser]") {
                 .empty());
     REQUIRE(Parsed{"module t\nfn f() {\n    let const = 1\n    2\n}\n"}.messages() ==
             std::vector<std::string>{"'const' is a reserved word and cannot be used as a variable name"});
+    // The aliased import form reaches the same operator.
+    REQUIRE(Parsed{"module t\nuse a.b as m\nfn f() => m::const(1)\n"}.messages().empty());
     REQUIRE(Parsed{"module t\nfn f() {\n    inject return\n}\n"}.messages() ==
             std::vector<std::string>{"'return' is a reserved word and cannot be used as an injectable name"});
     REQUIRE(Parsed{"module t\nstruct fn {\n    let: i64\n}\n"}.messages() ==

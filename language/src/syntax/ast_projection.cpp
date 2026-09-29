@@ -491,8 +491,11 @@ namespace hgl::syntax
             }
 
             [[nodiscard]] ast::ExprId project_name_reference(SyntaxNodeId id) {
+                // A reference may end in `const`: the bare selector or library
+                // operator, and its aliased import `m::const` (MIG-009). A
+                // keyword qualifier cannot reach here: it is no expression start.
                 std::vector<ast::Name> names = direct_names(id);
-                if (names.size() != 1 || names.front().text != "const") { names = direct_names(id, "a name"); }
+                if (names.empty() || names.back().text != "const") { names = direct_names(id, "a name"); }
                 require(names.size() == 1 || names.size() == 2, "reference has an invalid qualified name");
                 if (names.size() == 1) { return module_.add(ast::Expr{names[0].range, ast::NameRef{names[0]}}); }
                 return module_.add(ast::Expr{names[0].range.join(names[1].range), ast::QualifiedRef{names[0], names[1]}});
