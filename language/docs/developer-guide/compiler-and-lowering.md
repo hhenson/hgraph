@@ -437,11 +437,15 @@ capability requirements propagate transitively through value calls and imports.
 Temporal classification rules:
 
 - no runtime-only construct produces `CompositionFn`;
-- the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
-  the body produces `RuntimeFn` for the complete body;
-- `for`, `keys`, `values`, `elements`, and `items` are phase-neutral: they follow the
-  containing function's phase and never select it
+- the presence of `state`, `inject`, `start`, `when`, `stop`, or `yield`
+  anywhere in the body produces `RuntimeFn` for the complete body; a body
+  with `yield` is a generator source
+  ([ADR 0015](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0015-pull-sources.md));
+- `for`, `while`, `keys`, `values`, `elements`, and `items` are phase-neutral: they
+  follow the containing function's phase and never select it
   ([Iteration](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/iteration.md));
+  `while` is admitted in runtime bodies only, so a while-only body classifies
+  as a composition and phase checking then rejects it by name;
 - a function that mixes phases is rejected. Invalid declaration order,
   duplicate lifecycle blocks, and unsupported capabilities are today rejected
   by the C++ emitter rather than by the checker (#767 item 2).
