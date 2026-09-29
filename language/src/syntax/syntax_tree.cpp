@@ -64,6 +64,8 @@ namespace hgl::syntax
             KindName{SyntaxKind::LifecycleStmt, "lifecycle_stmt"},
             KindName{SyntaxKind::WhenStmt, "when_stmt"},
             KindName{SyntaxKind::ForStmt, "for_stmt"},
+            KindName{SyntaxKind::WhileStmt, "while_stmt"},
+            KindName{SyntaxKind::YieldStmt, "yield_stmt"},
             KindName{SyntaxKind::ReturnStmt, "return_stmt"},
             KindName{SyntaxKind::AssertStmt, "assert_stmt"},
             KindName{SyntaxKind::AssignOrExpressionStmt, "assign_or_expression_stmt"},

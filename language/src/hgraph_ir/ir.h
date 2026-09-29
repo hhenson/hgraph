@@ -531,6 +531,18 @@ namespace hgl::hgraph_ir
         ValueId                iterable{};
         BlockId                block{};
     };
+    /// `while [condition] block` (ADR 0015); an invalid condition is unbounded.
+    struct Loop
+    {
+        ValueId condition{};
+        BlockId block{};
+    };
+    /// `yield time: value` in a generator source (ADR 0015).
+    struct Yield
+    {
+        ValueId time{};
+        ValueId value{};
+    };
     enum class AssignOp : std::uint8_t {
         Assign,
         Add,
@@ -551,7 +563,8 @@ namespace hgl::hgraph_ir
     struct Evaluate
     { ValueId value{}; };
     using StatementNode =
-        std::variant<LocalBinding, StateBinding, Inject, Lifecycle, Activation, Traversal, Assignment, Return, Assert, Evaluate>;
+        std::variant<LocalBinding, StateBinding, Inject, Lifecycle, Activation, Traversal, Loop, Yield, Assignment, Return, Assert,
+                     Evaluate>;
 
     struct Statement
     {
@@ -601,6 +614,9 @@ namespace hgl::hgraph_ir
         BlockId                       block_body{};
         syntax::SourceRange           range{};
         bool                          test_only{false};
+        /// A runtime node whose body yields (ADR 0015); it is lowered by each
+        /// backend as a resumable state machine over the stateless alarm.
+        bool generator{false};
     };
 
     /// One resolver candidate requested from a generic source `impl fn`.
@@ -682,6 +698,8 @@ namespace hgl::hgraph_ir
         BindingId                                            logger_binding{};
         BindingId                                            clock_binding{};
         BindingId                                            scheduler_binding{};
+        /// `inject alarm`: the stateless one-shot scheduler (ADR 0015).
+        BindingId                                            alarm_binding{};
         std::unordered_map<std::uint32_t, RuntimeActivation> activations{};
         bool                                                 has_when{false};
         /// A handler is activated by `scheduled()` (ADR 0010); such a

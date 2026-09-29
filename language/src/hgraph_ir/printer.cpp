@@ -908,6 +908,20 @@ namespace hgl::hgraph_ir
                         print_value_id(out, node.iterable);
                         out << " body=";
                         print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, Loop>) {
+                        out << "while condition=";
+                        if (node.condition.valid()) {
+                            print_value_id(out, node.condition);
+                        } else {
+                            out << "unbounded";
+                        }
+                        out << " body=";
+                        print_block_id(out, node.block);
+                    } else if constexpr (std::is_same_v<T, Yield>) {
+                        out << "yield time=";
+                        print_value_id(out, node.time);
+                        out << " value=";
+                        print_value_id(out, node.value);
                     } else if constexpr (std::is_same_v<T, Assignment>) {
                         out << assign_name(node.op) << " place=";
                         print_value_id(out, node.place);

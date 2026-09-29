@@ -417,6 +417,16 @@ namespace hgl::ir::hir
         ExprId                iterable{};
         BlockId               block{};
     };
+    struct WhileStmt
+    {
+        ExprId  condition{};  ///< invalid = unbounded
+        BlockId block{};
+    };
+    struct YieldStmt
+    {
+        ExprId time{};
+        ExprId value{};
+    };
     struct AssignStmt
     {
         AssignOp op{AssignOp::Assign};
@@ -430,8 +440,8 @@ namespace hgl::ir::hir
     struct ExprStmt
     { ExprId expr{}; };
 
-    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, AssignStmt, ReturnStmt,
-                                  AssertStmt, ExprStmt>;
+    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, WhileStmt, YieldStmt,
+                                  AssignStmt, ReturnStmt, AssertStmt, ExprStmt>;
 
     struct Stmt
     {
@@ -703,6 +713,9 @@ namespace hgl::ir::hir
     struct FunctionDecl
     {
         bool         is_const{false};
+        /// A runtime function whose body contains `yield`: a generator source
+        /// (ADR 0015). Set by the checker; it owns its output and scheduling.
+        bool         is_generator{false};
         Visibility   visibility{Visibility::Internal};
         FunctionKind kind{FunctionKind::Composition};
         /// The nominal operator implemented by an `impl fn`.

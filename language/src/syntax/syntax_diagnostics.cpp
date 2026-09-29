@@ -58,6 +58,9 @@ namespace hgl::syntax
             if (issue.context == SyntaxKind::ForStmt && issue.expected == TokenKind::Identifier) {
                 return "expected 'in' after the loop pattern, found " + actual;
             }
+            if (issue.context == SyntaxKind::YieldStmt && issue.expected == TokenKind::Colon) {
+                return "expected ':' between the yield time and its value, found " + actual;
+            }
             if (issue.context == SyntaxKind::Block && issue.expected == TokenKind::RBrace) {
                 return "expected '}' to close the block, found " + actual;
             }

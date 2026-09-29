@@ -1175,6 +1175,10 @@ namespace hgl::hgraph_ir
                             lowered.iterable = lower_value(node.iterable);
                             lowered.block    = lower_block(node.block);
                             return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::WhileStmt>) {
+                            return Loop{lower_value(node.condition), lower_block(node.block)};
+                        } else if constexpr (std::is_same_v<T, hir::YieldStmt>) {
+                            return Yield{lower_value(node.time), lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::AssignStmt>) {
                             return Assignment{lower_assign_op(node.op), lower_value(node.place), lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::ReturnStmt>) {
@@ -1233,6 +1237,7 @@ namespace hgl::hgraph_ir
                     target.kind       = source->is_const                                 ? CallableKind::ValueFunction
                                         : source->kind == hir::FunctionKind::Composition ? CallableKind::Composition
                                                                                          : CallableKind::RuntimeNode;
+                    target.generator  = source->is_generator;
                     target.effects    = source->effects;
                     target.range      = declaration.range;
                     if (source->operator_contract.valid()) {

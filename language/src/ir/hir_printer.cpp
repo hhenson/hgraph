@@ -459,6 +459,12 @@ namespace hgl::ir
                                 out_ << "for bindings=";
                                 refs(out_, 's', node.bindings);
                                 out_ << " iterable=" << ref('e', node.iterable) << " block=" << ref('b', node.block);
+                            } else if constexpr (std::is_same_v<T, hir::WhileStmt>) {
+                                out_ << "while condition="
+                                     << (node.condition.valid() ? ref('e', node.condition) : std::string{"unbounded"})
+                                     << " block=" << ref('b', node.block);
+                            } else if constexpr (std::is_same_v<T, hir::YieldStmt>) {
+                                out_ << "yield time=" << ref('e', node.time) << " value=" << ref('e', node.value);
                             } else if constexpr (std::is_same_v<T, hir::AssignStmt>) {
                                 out_ << assign_name(node.op) << " place=" << ref('e', node.place)
                                      << " value=" << ref('e', node.value);

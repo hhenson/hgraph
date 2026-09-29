@@ -34,6 +34,12 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, Traversal>) {
                             value(node.iterable);
                             block(node.block);
+                        } else if constexpr (std::is_same_v<T, Loop>) {
+                            value(node.condition);
+                            block(node.block);
+                        } else if constexpr (std::is_same_v<T, Yield>) {
+                            value(node.time);
+                            value(node.value);
                         } else if constexpr (std::is_same_v<T, Assignment>) {
                             // The bare target of a plain `=` is written, not read.
                             const Value     *place     = node.place.valid() && node.place.value < module.values.size()

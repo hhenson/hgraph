@@ -56,6 +56,8 @@ namespace hgl::syntax
         KwWhen,
         KwStop,
         KwFor,  ///< `in` is contextual after the pattern and lexes as an identifier
+        KwWhile,
+        KwYield,
         KwTest,
         KwAssert,
         KwEval,

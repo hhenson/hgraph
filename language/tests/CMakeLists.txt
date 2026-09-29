@@ -371,6 +371,7 @@ hgl_add_module(hgl_codegen_fixture STATIC SOURCE_PARTS 3 HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl
+    codegen/sources.hgl
     codegen/value-functions.hgl
     codegen/system-operators.hgl
     ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/test-contexts.hgl
@@ -672,7 +673,7 @@ foreach(_example IN LISTS _hgl_examples)
         continue()
     endif()
     file(STRINGS ${_example} _runtime_lines
-        REGEX "^[ \t]*(state|inject|when|start|stop)([^A-Za-z0-9_]|$)|^impl fn")
+        REGEX "^[ \t]*(state|inject|when|start|stop|yield)([^A-Za-z0-9_]|$)|^impl fn")
     if(_runtime_lines)
         list(APPEND _hgl_runtime_example_tests ${_example})
         continue()
@@ -771,6 +772,11 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_sources
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/sources.hgl)
+    set_tests_properties(hgraph_language_test_sources PROPERTIES
+        PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     add_test(NAME hgraph_language_test_value_functions
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/value-functions.hgl)
     set_tests_properties(hgraph_language_test_value_functions PROPERTIES

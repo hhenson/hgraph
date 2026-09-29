@@ -7,7 +7,7 @@ namespace hgl::syntax
 {
     namespace
     {
-        constexpr std::array<std::pair<std::string_view, TokenKind>, 46> keywords{{
+        constexpr std::array<std::pair<std::string_view, TokenKind>, 48> keywords{{
             {"module", TokenKind::KwModule},
             {"part", TokenKind::KwPart},
             {"use", TokenKind::KwUse},
@@ -35,6 +35,8 @@ namespace hgl::syntax
             {"when", TokenKind::KwWhen},
             {"stop", TokenKind::KwStop},
             {"for", TokenKind::KwFor},
+            {"while", TokenKind::KwWhile},
+            {"yield", TokenKind::KwYield},
             {"test", TokenKind::KwTest},
             {"assert", TokenKind::KwAssert},
             {"eval", TokenKind::KwEval},

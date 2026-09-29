@@ -342,6 +342,12 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             mark_expr(node.iterable, owner);
                             mark_block(node.block, owner);
+                        } else if constexpr (std::is_same_v<T, ast::WhileStmt>) {
+                            if (node.condition != ast::no_node) { mark_expr(node.condition, owner); }
+                            mark_block(node.block, owner);
+                        } else if constexpr (std::is_same_v<T, ast::YieldStmt>) {
+                            mark_expr(node.time, owner);
+                            mark_expr(node.value, owner);
                         } else if constexpr (std::is_same_v<T, ast::AssignStmt>) {
                             mark_expr(node.place, owner);
                             mark_expr(node.value, owner);
@@ -1523,6 +1529,10 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             target.node = hir::ForStmt{statement_symbols_[index], id<hir::ExprId>(node.iterable),
                                                        id<hir::BlockId>(node.block)};
+                        } else if constexpr (std::is_same_v<T, ast::WhileStmt>) {
+                            target.node = hir::WhileStmt{id<hir::ExprId>(node.condition), id<hir::BlockId>(node.block)};
+                        } else if constexpr (std::is_same_v<T, ast::YieldStmt>) {
+                            target.node = hir::YieldStmt{id<hir::ExprId>(node.time), id<hir::ExprId>(node.value)};
                         } else if constexpr (std::is_same_v<T, ast::AssignStmt>) {
                             target.node =
                                 hir::AssignStmt{lower_assign_op(node.op), id<hir::ExprId>(node.place), id<hir::ExprId>(node.value)};

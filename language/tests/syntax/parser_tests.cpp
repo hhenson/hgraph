@@ -1154,6 +1154,44 @@ TEST_CASE("for loops over one or two names", "[parser]") {
             std::vector<std::string>{"expected 'in' after the loop pattern, found 'xs'"});
 }
 
+TEST_CASE("while loops with and without a condition", "[parser][adr-0015]") {
+    REQUIRE(body_dump("    while n < 3 {\n"
+                      "        n += 1\n"
+                      "    }\n"
+                      "    while {\n"
+                      "        n += 1\n"
+                      "    }") == "Block\n"
+                                  "  While\n"
+                                  "    condition: Binary <\n"
+                                  "      NameRef n\n"
+                                  "      IntLiteral 3\n"
+                                  "    Block\n"
+                                  "      Assign +=\n"
+                                  "        place: NameRef n\n"
+                                  "        value: IntLiteral 1\n"
+                                  "  While\n"
+                                  "    condition: Unbounded\n"
+                                  "    Block\n"
+                                  "      Assign +=\n"
+                                  "        place: NameRef n\n"
+                                  "        value: IntLiteral 1\n");
+}
+
+TEST_CASE("yield pairs a time with a value", "[parser][adr-0015]") {
+    REQUIRE(body_dump("    yield 5m: value\n"
+                      "    yield clock.evaluation_time(): 1") == "Block\n"
+                                                                 "  Yield\n"
+                                                                 "    time: TemporalLiteral 5m\n"
+                                                                 "    value: NameRef value\n"
+                                                                 "  Yield\n"
+                                                                 "    time: Call\n"
+                                                                 "      callee: Field evaluation_time\n"
+                                                                 "        NameRef clock\n"
+                                                                 "    value: IntLiteral 1\n");
+    REQUIRE(Parsed{"module t\nfn f() {\n    yield 5m value\n}\n"}.messages() ==
+            std::vector<std::string>{"expected ':' between the yield time and its value, found 'value'"});
+}
+
 TEST_CASE("assignments", "[parser]") {
     REQUIRE(body_dump("    a = 1\n"
                       "    a += 1\n"
