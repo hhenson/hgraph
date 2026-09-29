@@ -711,8 +711,8 @@ namespace hgl::hgraph_ir
             if (info.stop_blocks.size() > 1U) {
                 backend(planned_block(info.stop_blocks[1], body.range).range, "typed HIR admitted a second 'stop' block");
             }
-            if (info.uses_scheduled && !info.scheduler_binding.valid() && !info.alarm_binding.valid()) {
-                backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler' or 'inject alarm'");
+            if (info.uses_scheduled && !info.scheduler_binding.valid()) {
+                backend(planned.range, "typed HIR admitted 'scheduled()' without 'inject scheduler'");
             }
             if (temporal_count == 0 && !info.scheduler_binding.valid() && !info.alarm_binding.valid() && !planned.generator) {
                 // A source with nothing to activate it never evaluates (ADR 0010, ADR 0015).

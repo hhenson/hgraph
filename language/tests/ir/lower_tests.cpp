@@ -2822,18 +2822,28 @@ TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lif
 }
 
 TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][adr-0015]") {
+    // An alarm source publishes from a plain `when`: every evaluation is its
+    // wake-up. `scheduled()` belongs to `scheduler`.
     CHECK(completes("module checks.alarm_source\n"
                     "fn source(const value: i64, const delay: duration = 0s) -> i64 {\n"
                     "    inject alarm\n"
                     "    start { alarm.schedule(delay) }\n"
-                    "    when scheduled() { return value }\n"
+                    "    when { return value }\n"
                     "}\n"));
     CHECK(completes("module checks.alarm_at\n"
                     "fn source(const at: datetime) -> bool {\n"
                     "    inject alarm\n"
                     "    start { alarm.schedule_at(at) }\n"
-                    "    when scheduled() { return true }\n"
+                    "    when { return true }\n"
                     "}\n"));
+    CHECK(completion_diagnostics("module checks.alarm_scheduled\n"
+                                 "fn source(const value: i64) -> i64 {\n"
+                                 "    inject alarm\n"
+                                 "    start { alarm.schedule(1s) }\n"
+                                 "    when scheduled() { return value }\n"
+                                 "}\n")
+              .find("'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes from a plain 'when'") !=
+          std::string::npos);
     CHECK(completion_diagnostics("module checks.alarm_with_input\n"
                                  "fn f(value: i64) -> i64 {\n"
                                  "    inject alarm\n"
@@ -2844,7 +2854,7 @@ TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][a
                                  "fn source() -> bool {\n"
                                  "    inject alarm\n"
                                  "    start { alarm.schedule(1s) }\n"
-                                 "    when scheduled() { return alarm.is_scheduled() }\n"
+                                 "    when { return alarm.is_scheduled() }\n"
                                  "}\n")
               .find("'alarm.is_scheduled' is not a capability method") != std::string::npos);
     CHECK(completion_diagnostics("module checks.alarm_const\n"

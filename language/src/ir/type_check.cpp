@@ -3869,10 +3869,14 @@ namespace hgl::ir
                     if (!args.empty()) { type_error(expression.range, "'scheduled' takes no arguments"); }
                     if (!runtime_owner(expression.owner) || !active_when_condition_) {
                         type_error(expression.range, "'scheduled' is only valid in a function-level 'when' condition");
-                    } else if (!injects_capability(expression.owner, "scheduler") &&
-                               !injects_capability(expression.owner, "alarm")) {
+                    } else if (!injects_capability(expression.owner, "scheduler")) {
+                        // A source on the stateless alarm publishes from a plain
+                        // `when` instead: every evaluation is its wake-up (ADR 0015).
                         diagnostics_.report(syntax::Category::Injectable, expression.range,
-                                            "'scheduled' requires 'inject scheduler' or 'inject alarm'");
+                                            injects_capability(expression.owner, "alarm")
+                                                ? "'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes "
+                                                  "from a plain 'when', which runs on every wake-up"
+                                                : "'scheduled' requires 'inject scheduler'");
                     }
                     expression.type = scalar(ScalarType::Bool);
                 } else if (name == "passivate" || name == "activate") {

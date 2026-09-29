@@ -8,11 +8,12 @@ module hgl.codegen.sources
 operator constant<T>(const value: T, const delay: duration = 0s) -> T
 operator sink(ts: signal)
 
-# A source on the stateless alarm: one wake-up, nothing recorded.
+# A source on the stateless alarm: one wake-up, nothing recorded. It has no
+# temporal input, so its plain `when` runs on every evaluation, the wake-up.
 impl fn constant<T>(const value: T, const delay: duration = 0s) -> T {
     inject alarm
     start { alarm.schedule(delay) }
-    when scheduled() { return value }
+    when { return value }
 }
 instantiate constant<i64>, constant<str>
 
@@ -23,7 +24,7 @@ impl fn sink(ts: signal) { when { } }
 fn at_time(const at: datetime) -> bool {
     inject alarm
     start { alarm.schedule_at(at) }
-    when scheduled() { return true }
+    when { return true }
 }
 
 fn triangular(ts: i64) -> i64 {

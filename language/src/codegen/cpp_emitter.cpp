@@ -3268,14 +3268,11 @@ namespace hgl::codegen
                 if (!frame.runtime || !frame.when_condition) {
                     fail(Category::Type, range, "'scheduled' is only available in a function-level 'when' condition");
                 }
-                if (!frame.scheduler_available && !frame.alarm_available) {
-                    fail(Category::Injectable, range, "'scheduled' requires 'inject scheduler' or 'inject alarm'");
-                }
-                if (frame.alarm_available) {
-                    // A source on the stateless alarm has no input: every
-                    // evaluation is its alarm firing (ADR 0015). Typed HIR
-                    // admits one wake-up mechanism, so the alarm answers.
-                    return make_runtime("true", scalar_type(hir::ScalarType::Bool), range);
+                if (!frame.scheduler_available) {
+                    fail(Category::Injectable, range,
+                         frame.alarm_available ? "'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes from "
+                                                 "a plain 'when', which runs on every wake-up"
+                                               : "'scheduled' requires 'inject scheduler'");
                 }
                 use("scheduler");
                 return make_runtime("scheduler.is_scheduled_now()", scalar_type(hir::ScalarType::Bool), range);
@@ -4734,12 +4731,15 @@ namespace hgl::codegen
                 tests.push_back(value.selector + "." + std::string{method});
             }
             if (tests.empty()) {
-                // A scheduler-driven source has no temporal input: its implicit
-                // `valid()` is vacuous and its implicit `modified()` never holds.
+                // A source has no temporal input: its implicit `valid()` is
+                // vacuous. On the stateless alarm every evaluation is the
+                // wake-up, so a plain `when` runs each time (ADR 0015); on
+                // `scheduler` the implicit `modified()` never holds and the
+                // handler names `scheduled()` (ADR 0010).
                 if (!frame.scheduler_available && !frame.alarm_available) {
                     backend(planned.range, "a runtime default predicate requires a temporal input");
                 }
-                return method == "valid()" ? "true" : "false";
+                return method == "valid()" || frame.alarm_available ? "true" : "false";
             }
             return "(" + join(tests, joiner) + ")";
         }
