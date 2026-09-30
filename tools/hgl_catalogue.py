@@ -137,10 +137,20 @@ def hgl_sources(root: Path):
                   for path in (root / directory).rglob('*.hgl'))
 
 
+def strip_comments(text: str) -> str:
+    """Blank out line and block comments, keeping every newline so line numbers hold.
+
+    A ``/** ... */`` documentation comment precedes its declaration; left in,
+    it would be captured as the tail of the previous record's declaration.
+    """
+    text = re.sub(r"/\*.*?\*/", lambda match: "\n" * match[0].count("\n"), text, flags=re.S)
+    return re.sub(r"(?m)^[ \t]*#.*$", "", text)
+
+
 def hgl_inventory(root: Path = ROOT) -> list[dict]:
     result = []
     for path in hgl_sources(root):
-        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
+        text = strip_comments(path.read_text(encoding="utf-8"))
         module = re.search(r"(?m)^module\s+([\w.]+)", text)
         if module is None:
             raise ValueError(f"missing module declaration: {path}")
@@ -170,7 +180,7 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
 def hgl_materializations(root: Path = ROOT) -> list[dict]:
     result = []
     for path in hgl_sources(root):
-        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
+        text = strip_comments(path.read_text(encoding="utf-8"))
         for match in re.finditer(r"(?m)^instantiate[^\n]*(?:\n[ \t]+[^\n]+)*", text):
             result.append(dict(source=path.relative_to(root).as_posix(),
                                line=text.count("\n", 0, match.start()) + 1,
