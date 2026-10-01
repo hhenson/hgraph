@@ -302,6 +302,18 @@ namespace hgraph_::native
         hgraph::Float as_float__candidate_2(const hgraph::Int &value) noexcept {
             return hgl::stdlib::scalar_native.as_float(value);
         }
+        hgraph::Str as_str(const hgraph::Bool &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_2(const hgraph::Int &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_3(const hgraph::Float &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_4(const hgraph::Str &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_5(const hgraph::Date &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_6(const hgraph::Time &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_7(const hgraph::DateTime &value) noexcept { return hgl::stdlib::scalar_native.as_str(value); }
+        hgraph::Str as_str__candidate_8(const hgraph::TimeDelta &value) noexcept {
+            return hgl::stdlib::scalar_native.as_str(value);
+        }
+        void        print_line(const hgraph::Str &text) noexcept { return hgl::stdlib::scalar_native.print_line(text); }
+        void        raise_error(const hgraph::Str &message) { return hgl::stdlib::scalar_native.raise_error(message); }
         hgraph::Int bit_and__candidate_2(const hgraph::Int &lhs, const hgraph::Int &rhs) noexcept {
             return hgl::stdlib::scalar_native.bit_and(lhs, rhs);
         }

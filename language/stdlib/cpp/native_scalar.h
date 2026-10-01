@@ -6,8 +6,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <hgraph/lib/std/lifted_kernels.h>
+#include <hgraph/lib/std/operators/impl/io_impl.h>
 #include <hgraph/lib/std/scalar_round.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/value/value_ops.h>
 #include <native.h>
 #include <stdexcept>
 
@@ -502,6 +504,32 @@ namespace hgl::stdlib
         static hgraph::Date calendar_date(const hgraph::DateTime &value) noexcept {
             return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
         }
+
+        // Python's str() of a scalar: the value layer's one text for the value
+        // (value_ops to_string), which is what str_, format_ and debug_print
+        // print, except that a top-level string is its characters.
+        static hgraph::Str as_str(hgraph::Bool value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::Bool>(nullptr, &value); }
+
+        static hgraph::Str as_str(hgraph::Int value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::Int>(nullptr, &value); }
+
+        static hgraph::Str as_str(hgraph::Float value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::Float>(nullptr, &value); }
+
+        static hgraph::Str as_str(const hgraph::Str &value) noexcept { return value; }
+
+        static hgraph::Str as_str(const hgraph::Date &value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::Date>(nullptr, &value); }
+
+        static hgraph::Str as_str(const hgraph::Time &value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::Time>(nullptr, &value); }
+
+        static hgraph::Str as_str(const hgraph::DateTime &value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::DateTime>(nullptr, &value); }
+
+        static hgraph::Str as_str(const hgraph::TimeDelta &value) noexcept { return hgraph::value_ops_detail::to_string_thunk<hgraph::TimeDelta>(nullptr, &value); }
+
+        // One line on standard output through hgraph's io writer slot, so a
+        // test that captures printed lines sees HGL sinks as it sees debug_print.
+        static void print_line(const hgraph::Str &text) noexcept { hgraph::stdlib::io_write_slot()(text, true); }
+
+        // assert_: the raise ends the evaluation under the node error model.
+        [[noreturn]] static void raise_error(const hgraph::Str &message) { throw std::runtime_error(message); }
     };
 
     inline constexpr auto scalar_native = hgraph_::native::native_interface::bind<ScalarNative>();
