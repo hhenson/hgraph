@@ -87,8 +87,16 @@ namespace hgraph::python_bridge
         {
             distributed::PipeEndpoint endpoint;
 
-            PyDistributedWorkerChannel(std::int64_t read_handle, std::int64_t write_handle)
-                : endpoint(distributed::PipeEndpoint::adopt(read_handle, write_handle)) {}
+            PyDistributedWorkerChannel(std::int64_t read_handle, std::int64_t write_handle,
+                                       std::size_t max_frame_bytes)
+                : endpoint(distributed::PipeEndpoint::adopt(read_handle, write_handle))
+            {
+                // The bootstrap frame is the first thing this channel carries,
+                // so the cap must be in place before it is read -- a recipe
+                // carrying a large scalar configuration is exactly the case
+                // that needs it raised.
+                endpoint.set_max_frame_size(max_frame_bytes);
+            }
 
             std::string receive_bootstrap()
             {
@@ -198,21 +206,38 @@ namespace hgraph::python_bridge
     void bind_distributed(nb::module_ &m)
     {
         nb::class_<PyDistributedWorkerChannel>(m, "_DistributedWorkerChannel")
-            .def(nb::init<std::int64_t, std::int64_t>())
+            .def(nb::init<std::int64_t, std::int64_t, std::size_t>(), nb::arg("read_handle"),
+                 nb::arg("write_handle"),
+                 nb::arg("max_frame_bytes") = distributed::DEFAULT_MAX_FRAME_SIZE)
             .def("receive_bootstrap", &PyDistributedWorkerChannel::receive_bootstrap)
             .def("send_spawn_error", [](PyDistributedWorkerChannel &channel, const std::string &message) {
                 nb::gil_scoped_release release;
                 channel.endpoint.send(distributed::encode_reply({}, distributed::CycleReply{MAX_DT, {}, message}));
             });
         m.def("_serve_spawn_worker", [](PyWiredFn func, nb::dict recipe,
-                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end) {
+                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end,
+                    Int max_decode_work, Int max_decode_depth) {
+            if (max_decode_work <= 0 || max_decode_depth <= 0)
+                throw nb::value_error("spawn_: decode limits must be positive");
+            const BinaryDecodeLimits decode{static_cast<std::uint64_t>(max_decode_work),
+                                            static_cast<std::size_t>(max_decode_depth)};
             std::vector<const TSValueTypeMetaData *> inputs;
             for (auto input : nb::cast<nb::list>(recipe["inputs"]))
                 inputs.push_back(load_ts(nb::cast<nb::dict>(input)));
-            auto plan = prepare_spawn_worker(func.fn, inputs);
+            auto plan = prepare_spawn_worker(func.fn, inputs, decode);
             nb::gil_scoped_release release;
             serve_spawn_worker(channel.endpoint, std::move(plan),
-                DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase);
+                DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase, decode);
+        }, nb::arg("func"), nb::arg("recipe"), nb::arg("channel"), nb::arg("start"), nb::arg("end"),
+           nb::arg("max_decode_work") = static_cast<Int>(BinaryDecodeLimits{}.max_work),
+           nb::arg("max_decode_depth") = static_cast<Int>(BinaryDecodeLimits{}.max_depth));
+
+        // The runtime owns the defaults; Python reads them rather than
+        // restating numbers that would then have two places to change.
+        m.def("distributed_transport_defaults", [] {
+            return nb::make_tuple(static_cast<Int>(distributed::DEFAULT_MAX_FRAME_SIZE),
+                                  static_cast<Int>(BinaryDecodeLimits{}.max_work),
+                                  static_cast<Int>(BinaryDecodeLimits{}.max_depth));
         });
 
         m.def("_distributed_describe_ts", [](PyTsType schema) { return describe_ts(schema.meta); });
@@ -228,10 +253,14 @@ namespace hgraph::python_bridge
         });
         m.def("distributed_map", [](PyWiring &wiring, PyWiredFn func, nb::tuple args, nb::dict kwargs,
                                     Int workers, bool in_process, const std::string &bootstrap,
-                                    const std::string &program, const std::vector<std::string> &arguments, double timeout_seconds) -> nb::object {
+                                    const std::string &program, const std::vector<std::string> &arguments,
+                                    double timeout_seconds, Int max_frame_bytes, Int max_decode_work,
+                                    Int max_decode_depth) -> nb::object {
             if (workers <= 0) throw nb::value_error("dmap_ needs at least one worker");
             if (!std::isfinite(timeout_seconds) || timeout_seconds <= 0 || timeout_seconds > 86'400)
                 throw nb::value_error("dmap_ worker timeout must be positive and finite, at most 24 hours");
+            if (max_frame_bytes <= 0 || max_decode_work <= 0 || max_decode_depth <= 0)
+                throw nb::value_error("dmap_ transport limits must be positive");
             if (wiring.finished) throw nb::value_error("Wiring is already finished");
             std::vector<distributed::DistributedMapInput> descriptors;
             std::vector<WiringPortRef> inputs;
@@ -255,6 +284,9 @@ namespace hgraph::python_bridge
             config.arguments = arguments;
             config.timeout = std::chrono::milliseconds{static_cast<std::int64_t>(std::ceil(timeout_seconds * 1000))};
             config.recipe_over_channel = !in_process;
+            config.limits.max_frame_size = static_cast<std::size_t>(max_frame_bytes);
+            config.limits.decode.max_work = static_cast<std::uint64_t>(max_decode_work);
+            config.limits.decode.max_depth = static_cast<std::size_t>(max_decode_depth);
             auto plan = distributed::prepare_distributed_map_pool(func.fn, descriptors, key_arg, config);
             plan.phase_runner = &py_run_executor_phase;
             if (!in_process)
@@ -277,10 +309,19 @@ namespace hgraph::python_bridge
                 std::make_shared<const distributed::DistributedMapPlan>(std::move(plan)));
             return result.erased().schema == nullptr ? nb::none() : nb::cast(PyPort{result.erased()});
         }, nb::arg("wiring"), nb::arg("func"), nb::arg("args"), nb::arg("kwargs"), nb::arg("workers"),
-           nb::arg("in_process"), nb::arg("bootstrap"), nb::arg("program"), nb::arg("arguments"), nb::arg("timeout_seconds"));
+           nb::arg("in_process"), nb::arg("bootstrap"), nb::arg("program"), nb::arg("arguments"),
+           nb::arg("timeout_seconds"),
+           nb::arg("max_frame_bytes") = static_cast<Int>(distributed::DEFAULT_MAX_FRAME_SIZE),
+           nb::arg("max_decode_work") = static_cast<Int>(BinaryDecodeLimits{}.max_work),
+           nb::arg("max_decode_depth") = static_cast<Int>(BinaryDecodeLimits{}.max_depth));
 
         m.def("serve_distributed_worker", [](PyWiredFn func, nb::dict recipe,
-                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end) {
+                    PyDistributedWorkerChannel &channel, std::int64_t start, std::int64_t end,
+                    Int max_decode_work, Int max_decode_depth) {
+            if (max_decode_work <= 0 || max_decode_depth <= 0)
+                throw nb::value_error("dmap_ decode limits must be positive");
+            const BinaryDecodeLimits decode{static_cast<std::uint64_t>(max_decode_work),
+                                            static_cast<std::size_t>(max_decode_depth)};
             std::vector<distributed::DistributedMapInput> inputs;
             for (auto item : nb::cast<nb::list>(recipe["inputs"]))
             {
@@ -291,12 +332,14 @@ namespace hgraph::python_bridge
             std::optional<std::string> key_arg;
             if (!recipe["key_arg"].is_none()) key_arg = nb::cast<std::string>(recipe["key_arg"]);
             auto plan = distributed::prepare_distributed_map(func.fn, inputs, key_arg,
-                nb::cast<std::size_t>(recipe["group"]), nb::cast<std::size_t>(recipe["groups"]));
+                nb::cast<std::size_t>(recipe["group"]), nb::cast<std::size_t>(recipe["groups"]), decode);
             if (output_identity(plan.output) != nb::cast<std::string>(recipe["output"]))
                 throw nb::value_error("dmap_: worker result schema differs from caller");
             nb::gil_scoped_release release;
             distributed::serve_worker(channel.endpoint, std::move(plan.child), plan.slots,
-                DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase);
-        });
+                DateTime{TimeDelta{start}}, DateTime{TimeDelta{end}}, &py_run_executor_phase, decode);
+        }, nb::arg("func"), nb::arg("recipe"), nb::arg("channel"), nb::arg("start"), nb::arg("end"),
+           nb::arg("max_decode_work") = static_cast<Int>(BinaryDecodeLimits{}.max_work),
+           nb::arg("max_decode_depth") = static_cast<Int>(BinaryDecodeLimits{}.max_depth));
     }
 }

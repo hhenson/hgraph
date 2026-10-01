@@ -125,7 +125,7 @@ namespace hgraph::distributed
     }  // namespace
 
     PipeEndpoint::PipeEndpoint(PipeEndpoint &&other) noexcept
-        : buffer_(std::move(other.buffer_))
+        : buffer_(std::move(other.buffer_)), max_frame_size_(other.max_frame_size_)
     {
 #ifdef _WIN32
         read_handle_        = std::exchange(other.read_handle_, nullptr);
@@ -141,7 +141,8 @@ namespace hgraph::distributed
         if (this != &other)
         {
             close();
-            buffer_ = std::move(other.buffer_);
+            buffer_         = std::move(other.buffer_);
+            max_frame_size_ = other.max_frame_size_;
 #ifdef _WIN32
             read_handle_  = std::exchange(other.read_handle_, nullptr);
             write_handle_ = std::exchange(other.write_handle_, nullptr);
@@ -207,7 +208,7 @@ namespace hgraph::distributed
 
     void PipeEndpoint::send(std::string_view payload, Deadline deadline)
     {
-        const std::string framed = write_frame(payload);
+        const std::string framed = write_frame(payload, max_frame_size_);
         std::size_t sent = 0;
         while (sent < framed.size())
         {
@@ -225,7 +226,7 @@ namespace hgraph::distributed
         {
             std::string_view frame;
             std::size_t consumed = 0;
-            if (read_frame(buffer_, frame, consumed))
+            if (read_frame(buffer_, frame, consumed, max_frame_size_))
             {
                 payload = std::string{frame};
                 buffer_.erase(0, consumed);
@@ -285,7 +286,7 @@ namespace hgraph::distributed
 
     void PipeEndpoint::send(std::string_view payload, Deadline deadline)
     {
-        const std::string framed = write_frame(payload);
+        const std::string framed = write_frame(payload, max_frame_size_);
         std::size_t       sent   = 0;
         while (sent < framed.size())
         {
@@ -314,7 +315,7 @@ namespace hgraph::distributed
             // or part of one.
             std::string_view frame;
             std::size_t      consumed = 0;
-            if (read_frame(buffer_, frame, consumed))
+            if (read_frame(buffer_, frame, consumed, max_frame_size_))
             {
                 payload = std::string{frame};
                 buffer_.erase(0, consumed);
@@ -346,6 +347,16 @@ namespace hgraph::distributed
     }
 
 #endif
+
+    void PipeEndpoint::set_max_frame_size(std::size_t bytes)
+    {
+        // A zero cap would refuse every message, including an empty one, so it
+        // is a configuration fault rather than a very strict channel.
+        if (bytes == 0)
+            throw std::invalid_argument(
+                "distributed transport: the maximum frame size must be positive");
+        max_frame_size_ = bytes;
+    }
 
     void connected_pipe_pair(PipeEndpoint &first, PipeEndpoint &second)
     {

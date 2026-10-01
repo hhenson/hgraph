@@ -19,6 +19,7 @@
 // than transporting it).
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/distributed_limits.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/binary_codec.h>
 #include <hgraph/util/date_time.h>
@@ -40,7 +41,38 @@ namespace hgraph
 
 namespace hgraph::distributed
 {
-    inline constexpr std::size_t DEFAULT_MAX_FRAME_SIZE = 64 * 1024 * 1024;
+    /**
+     * What one channel will carry, and how hard it will work to decode it.
+     *
+     * Deployment policy rather than protocol: the two sides must agree on the
+     * numbers, but WHICH numbers is the operator's choice, because what bounds
+     * a hostile or corrupt message and what bounds a legitimate large workload
+     * are not the same quantity. The defaults suit a boundary carrying a
+     * cycle's delta; a boundary carrying a whole day's state, or a dictionary
+     * with millions of keys, needs them raised rather than needs a rebuild.
+     *
+     * ``decode.max_work`` counts decoded values and declared collection
+     * extents, not bytes, so a wide collection exhausts it long before
+     * ``max_frame_size``. ``decode.max_depth`` bounds recursion over NESTED
+     * SCHEMAS, so it is a property of the type and not of the data; raising it
+     * far trades a clean error for a deeper decode stack.
+     */
+    struct TransportLimits
+    {
+        /** Largest single framed message, in bytes. Must be positive. */
+        std::size_t        max_frame_size{DEFAULT_MAX_FRAME_SIZE};
+        /** The budget each decoded payload shares. Both fields must be positive. */
+        BinaryDecodeLimits decode{};
+    };
+
+    /**
+     * Reject limits no channel could honour, naming ``what`` is being built.
+     *
+     * Checked where an override is accepted rather than where a frame is
+     * written, so a zero cap fails the configuration that set it instead of
+     * the first cycle that happens to use it.
+     */
+    HGRAPH_EXPORT void validate_transport_limits(const TransportLimits &limits, std::string_view what);
 
     /** One boundary slot's value for one cycle. */
     struct HGRAPH_CLASS_EXPORT SlotDelta

@@ -134,7 +134,7 @@ namespace hgraph::spawn_detail
             for (std::size_t index = 0; index < stages_.size(); ++index)
                 stages_[index]->process = distributed::spawn_worker(plan_->config.worker_program,
                     std::string{spawn_worker_prefix} + plan_->stages[index].recipe,
-                    start_, end_, plan_->config.worker_arguments);
+                    start_, end_, plan_->config.worker_arguments, plan_->config.limits);
             for (std::size_t index = 0; index < stages_.size(); ++index)
                 stages_[index]->thread = std::thread([this, index] { run_stage(index); });
             wait_call([&] {
@@ -331,7 +331,7 @@ namespace hgraph::spawn_detail
             const auto receive = [&](distributed::PipeEndpoint::Deadline until) {
                 std::string payload;
                 if (!channel.receive(payload, until)) throw std::runtime_error("worker process exited before replying");
-                auto reply = distributed::decode_reply(plan.slots, payload);
+                auto reply = distributed::decode_reply(plan.slots, payload, plan_->config.limits.decode);
                 if (!reply.error.empty()) throw std::runtime_error(reply.error);
                 return reply;
             };
@@ -584,7 +584,8 @@ namespace hgraph
         return stage;
     }
 
-    SpawnWorkerPlan prepare_spawn_worker(WiredFn function, std::span<const TSValueTypeMetaData *const> schemas)
+    SpawnWorkerPlan prepare_spawn_worker(WiredFn function, std::span<const TSValueTypeMetaData *const> schemas,
+                                         BinaryDecodeLimits decode)
     {
         if (!function.valid() || function.variadic || function.arity != schemas.size())
             throw std::invalid_argument("spawn_: worker signature does not match its inputs");
@@ -616,7 +617,7 @@ namespace hgraph
         {
             append_identity(schemas[i]);
             auto transfer =
-                std::make_shared<const distributed::BoundaryTransfer>(schemas[i], "spawn_ input " + std::to_string(i));
+                std::make_shared<const distributed::BoundaryTransfer>(schemas[i], "spawn_ input " + std::to_string(i), decode);
             const Str slot = "__spawn_input_" + std::to_string(i);
             plan.slots.add(slot, distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Input);
             inputs.push_back(boundary([&] {
@@ -630,7 +631,7 @@ namespace hgraph
         {
             plan.output = TypeRegistry::instance().dereference(result.schema);
             append_identity(plan.output);
-            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(plan.output, "the output of a spawn_ stage");
+            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(plan.output, "the output of a spawn_ stage", decode);
             plan.slots.add("__spawn_output", distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Output);
             const auto *sink_schema = TypeRegistry::instance().un_named_tsb({{"ts", plan.output}});
             NodeTypeMetaData meta;
@@ -691,6 +692,7 @@ namespace hgraph
         if (pipeline.stages.empty()) throw std::invalid_argument("spawn_: empty pipeline");
         if (!config.capacity_frames || !config.capacity_bytes)
             throw std::invalid_argument("spawn_: capacities must be positive");
+        distributed::validate_transport_limits(config.limits, "spawn_");
         if (config.worker_timeout.count() <= 0 || config.worker_timeout > std::chrono::hours{24})
             throw std::invalid_argument("spawn_: worker_timeout must be positive and at most 24 hours");
         auto plan = std::make_shared<Plan>();
@@ -745,7 +747,8 @@ namespace hgraph
                     prepared.flow_slot = i;
                     schema = previous_output;
                 }
-                auto transfer = std::make_shared<const BoundaryTransfer>(schema, "spawn_ input " + std::to_string(i));
+                auto transfer = std::make_shared<const BoundaryTransfer>(
+                    schema, "spawn_ input " + std::to_string(i), config.limits.decode);
                 input_schemas.push_back(schema);
                 if (ports[i])
                 {
@@ -756,7 +759,7 @@ namespace hgraph
             }
             if (index != 0 && prepared.flow_slot == static_cast<std::size_t>(-1))
                 throw std::invalid_argument("spawn_: a downstream stage requires one unbound flow input");
-            auto worker = prepare_spawn_worker(function, input_schemas);
+            auto worker = prepare_spawn_worker(function, input_schemas, config.limits.decode);
             previous_output = worker.output;
             prepared.output = worker.output != nullptr;
             prepared.slots = std::move(worker.slots);

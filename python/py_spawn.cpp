@@ -26,10 +26,13 @@ namespace hgraph::python_bridge
         m.def("spawn", [](PyWiring &wiring, nb::list stages, nb::tuple args,
                            nb::dict kwargs, std::size_t capacity_frames,
                            std::size_t capacity_bytes, double timeout_seconds,
-                           const std::string &program, const std::vector<std::string> &worker_arguments) {
+                           const std::string &program, const std::vector<std::string> &worker_arguments,
+                           Int max_frame_bytes, Int max_decode_work, Int max_decode_depth) {
             if (wiring.finished) throw nb::value_error("Wiring is already finished");
             if (!std::isfinite(timeout_seconds) || timeout_seconds <= 0 || timeout_seconds > 86'400)
                 throw nb::value_error("spawn_: worker timeout must be positive and at most 24 hours");
+            if (max_frame_bytes <= 0 || max_decode_work <= 0 || max_decode_depth <= 0)
+                throw nb::value_error("spawn_: transport limits must be positive");
             SpawnPipeline pipeline;
             pipeline.stages.reserve(nb::len(stages));
             for (auto item : stages)
@@ -54,12 +57,19 @@ namespace hgraph::python_bridge
                 pipeline.stages.push_back(std::move(stage));
             }
             auto arguments = build_args(args, kwargs);
-            wire_spawn(wiring.wiring_ref(), std::move(pipeline), arguments,
-                       SpawnConfig{capacity_frames, capacity_bytes,
-                           std::chrono::milliseconds{static_cast<std::int64_t>(std::ceil(timeout_seconds * 1000))},
-                           program, worker_arguments}, &run_spawn_wait);
+            SpawnConfig config{capacity_frames, capacity_bytes,
+                std::chrono::milliseconds{static_cast<std::int64_t>(std::ceil(timeout_seconds * 1000))},
+                program, worker_arguments};
+            config.limits.max_frame_size   = static_cast<std::size_t>(max_frame_bytes);
+            config.limits.decode.max_work  = static_cast<std::uint64_t>(max_decode_work);
+            config.limits.decode.max_depth = static_cast<std::size_t>(max_decode_depth);
+            wire_spawn(wiring.wiring_ref(), std::move(pipeline), arguments, std::move(config),
+                       &run_spawn_wait);
         }, nb::arg("wiring"), nb::arg("stages"), nb::arg("args"),
            nb::arg("kwargs"), nb::arg("capacity_frames"), nb::arg("capacity_bytes"),
-           nb::arg("timeout_seconds"), nb::arg("program"), nb::arg("worker_arguments"));
+           nb::arg("timeout_seconds"), nb::arg("program"), nb::arg("worker_arguments"),
+           nb::arg("max_frame_bytes") = static_cast<Int>(distributed::DEFAULT_MAX_FRAME_SIZE),
+           nb::arg("max_decode_work") = static_cast<Int>(BinaryDecodeLimits{}.max_work),
+           nb::arg("max_decode_depth") = static_cast<Int>(BinaryDecodeLimits{}.max_depth));
     }
 }

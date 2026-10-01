@@ -115,8 +115,18 @@ def _load_callable(recipe):
     return result
 
 
+def _limit(value, name, default, operator="dmap_"):
+    """A transport bound: the default when unset, otherwise a positive count."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{operator} {name} must be a positive integer")
+    return value
+
+
 def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False, __label__=None,
-          __keys__=None, __key_arg__=None, **kwargs):
+          __keys__=None, __key_arg__=None, __max_frame_bytes__=None, __max_decode_work__=None,
+          __max_decode_depth__=None, **kwargs):
     """Run map_ children in worker processes using the native map wiring rules.
 
     Positional/named inputs, scalar configuration, pass_through/no_key,
@@ -124,6 +134,13 @@ def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False,
     references are materialized values. Children must be importable and cannot
     capture live resources or access parent services/contexts. in_process is
     an explicit diagnostic mode; it uses the same plans and transfer protocol.
+
+    ``__max_frame_bytes__``, ``__max_decode_work__`` and ``__max_decode_depth__``
+    raise (or lower) the channel bounds this pool's workers enforce. They are
+    defaults rather than protocol constants: a boundary carrying more than 64
+    MiB a cycle, or a collection with more members than the decode budget
+    counts, needs them raised. Each applies to both ends, because a cap only
+    one side holds would make the stricter end reject what the other wrote.
     """
     from ._wiring._graph import _prepare_higher_order_call
     if isinstance(__workers__, bool) or not isinstance(__workers__, int) or __workers__ <= 0:
@@ -132,6 +149,12 @@ def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False,
             or __worker_timeout__ <= 0 or __worker_timeout__ > 86_400
             or not math.isfinite(__worker_timeout__)):
         raise ValueError("dmap_ __worker_timeout__ must be a finite positive number of seconds, at most 24 hours")
+    # Asked of the runtime rather than restated here: the C++ values are the
+    # only definition, and a copy would drift the moment one of them moved.
+    frame_default, work_default, depth_default = _hgraph.distributed_transport_defaults()
+    max_frame_bytes = _limit(__max_frame_bytes__, "__max_frame_bytes__", frame_default)
+    max_decode_work = _limit(__max_decode_work__, "__max_decode_work__", work_default)
+    max_decode_depth = _limit(__max_decode_depth__, "__max_decode_depth__", depth_default)
     recipe = {} if in_process else _callable_recipe(func)
     if __keys__ is not None:
         kwargs["__keys__"] = __keys__
@@ -153,7 +176,8 @@ def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False,
         result = _hgraph.distributed_map(
             _current_wiring(), wired, tuple(_unwrap(arg) for arg in args),
             {name: _unwrap(value) for name, value in kwargs.items()}, __workers__,
-            in_process, json.dumps(recipe), sys.executable, arguments, __worker_timeout__)
+            in_process, json.dumps(recipe), sys.executable, arguments, __worker_timeout__,
+            max_frame_bytes, max_decode_work, max_decode_depth)
         return None if result is None else WiringPort(result)
 
     if __label__:

@@ -6,7 +6,7 @@ import json
 import math
 import sys
 
-from ._distributed import _callable_recipe, _pack_config
+from ._distributed import _callable_recipe, _limit, _pack_config
 
 import _hgraph
 
@@ -123,7 +123,8 @@ def _prepare_stage(stage, args=(), kwargs=None, *, first=False):
 
 
 def spawn_(function, *args, __capacity_frames__=256,
-           __capacity_bytes__=64 * 1024 * 1024, __worker_timeout__=60.0, **kwargs):
+           __capacity_bytes__=64 * 1024 * 1024, __worker_timeout__=60.0,
+           __max_frame_bytes__=None, __max_decode_work__=None, __max_decode_depth__=None, **kwargs):
     """Run a sink graph or sink-terminated pipeline behind its owning graph.
 
     Each stage runs in a separate worker process and may lag, but never advances
@@ -133,6 +134,12 @@ def spawn_(function, *args, __capacity_frames__=256,
     Stages must be importable module-level functions; configuration crosses a
     value codec, and live resources or closure captures cannot cross processes.
     The timeout bounds worker startup, each evaluation and shutdown.
+
+    ``__max_frame_bytes__``, ``__max_decode_work__`` and ``__max_decode_depth__``
+    raise (or lower) the channel bounds each stage enforces. A stage's cycle
+    payloads and its checkpoint images cross the same channel, so an image
+    larger than the default frame bound needs this raised. Each applies to both
+    ends; ``None`` keeps the default.
     """
     for name, value in (("__capacity_frames__", __capacity_frames__),
                         ("__capacity_bytes__", __capacity_bytes__)):
@@ -141,6 +148,11 @@ def spawn_(function, *args, __capacity_frames__=256,
     if (isinstance(__worker_timeout__, bool) or not isinstance(__worker_timeout__, (int, float))
             or not math.isfinite(__worker_timeout__) or not 0 < __worker_timeout__ <= 86_400):
         raise ValueError("spawn_: __worker_timeout__ must be finite, positive and at most 24 hours")
+    # Asked of the runtime: the C++ values are the only definition of a default.
+    frame_default, work_default, depth_default = _hgraph.distributed_transport_defaults()
+    max_frame_bytes = _limit(__max_frame_bytes__, "__max_frame_bytes__", frame_default, "spawn_:")
+    max_decode_work = _limit(__max_decode_work__, "__max_decode_work__", work_default, "spawn_:")
+    max_decode_depth = _limit(__max_decode_depth__, "__max_decode_depth__", depth_default, "spawn_:")
     if isinstance(function, _Pipeline):
         stages = function.stages
     else:
@@ -155,7 +167,8 @@ def spawn_(function, *args, __capacity_frames__=256,
                   tuple(_unwrap(value) for value in remaining_args),
                   {name: _unwrap(value) for name, value in remaining_kwargs.items()},
                   __capacity_frames__, __capacity_bytes__, __worker_timeout__, sys.executable,
-                  ["-m", "hgraph._spawn_worker"])
+                  ["-m", "hgraph._spawn_worker"],
+                  max_frame_bytes, max_decode_work, max_decode_depth)
 
 
 __all__ = ["spawn_", "pipeline_", "bind_"]

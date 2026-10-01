@@ -133,6 +133,64 @@ TEST_CASE("distributed transport: a message larger than one read survives")
     CHECK(got == big);
 }
 
+TEST_CASE("distributed transport: the frame limit is per endpoint and configurable")
+{
+    PipeEndpoint a;
+    PipeEndpoint b;
+    connected_pipe_pair(a, b);
+    CHECK(a.max_frame_size() == DEFAULT_MAX_FRAME_SIZE);
+
+    // Lowered on the writer, a payload the default would have carried is
+    // refused before a byte reaches the pipe.
+    const std::string payload(4096, 'x');
+    a.set_max_frame_size(1024);
+    CHECK_THROWS_WITH(a.send(payload),
+                      Catch::Matchers::ContainsSubstring("frame size limit exceeded"));
+
+    // Raised above it, the same payload crosses unchanged. Nothing about the
+    // framing differs -- only the number the two ends were given, which is the
+    // whole point of it being configuration rather than a constant.
+    a.set_max_frame_size(payload.size());
+    b.set_max_frame_size(payload.size());
+    a.send(payload);
+    std::string got;
+    REQUIRE(b.receive(got));
+    CHECK(got == payload);
+
+    // The READER enforces its own cap, which is why a channel is only as
+    // permissive as its stricter end: a raise has to be applied to both.
+    b.set_max_frame_size(1024);
+    a.send(payload);
+    CHECK_THROWS_WITH(b.receive(got),
+                      Catch::Matchers::ContainsSubstring("frame size limit exceeded"));
+
+    // Zero is not a very strict channel, it is a channel that refuses even an
+    // empty message, so it is rejected as configuration.
+    CHECK_THROWS_WITH(a.set_max_frame_size(0),
+                      Catch::Matchers::ContainsSubstring("must be positive"));
+    CHECK(a.max_frame_size() == payload.size());
+}
+
+TEST_CASE("distributed transport: a moved endpoint keeps its configured limit")
+{
+    // ``spawn_worker`` moves the local end into the ``WorkerProcess`` it
+    // returns, so a cap dropped by the move would silently become the default
+    // on the one channel a caller cannot reconfigure afterwards.
+    PipeEndpoint a;
+    PipeEndpoint b;
+    connected_pipe_pair(a, b);
+    a.set_max_frame_size(2048);
+
+    PipeEndpoint moved{std::move(a)};
+    CHECK(moved.max_frame_size() == 2048);
+
+    PipeEndpoint assigned;
+    assigned = std::move(moved);
+    CHECK(assigned.max_frame_size() == 2048);
+    CHECK_THROWS_WITH(assigned.send(std::string(4096, 'x')),
+                      Catch::Matchers::ContainsSubstring("frame size limit exceeded"));
+}
+
 TEST_CASE("distributed transport: a clean close ends the stream")
 {
     PipeEndpoint a;

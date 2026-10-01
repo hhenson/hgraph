@@ -419,6 +419,56 @@ TEST_CASE("distributed protocol: malformed and oversized prefixes fail before pa
                       Catch::Matchers::ContainsSubstring("size limit"));
 }
 
+TEST_CASE("distributed protocol: a frame limit is configuration, and says what it refused")
+{
+    // The numbers are the point of the message. A limit reported without them
+    // tells an operator that something was too big, but not what to raise or
+    // what to raise it to -- and these limits exist to BE raised.
+    CHECK_THROWS_WITH(write_frame(std::string(16, 'x'), 8),
+                      Catch::Matchers::ContainsSubstring("16 bytes") &&
+                          Catch::Matchers::ContainsSubstring("8-byte limit") &&
+                          Catch::Matchers::ContainsSubstring("max_frame_size"));
+
+    std::string_view payload;
+    std::size_t      consumed = 0;
+    const auto       framed   = write_frame(std::string(16, 'x'), 16);
+    CHECK_THROWS_WITH(read_frame(framed, payload, consumed, 8),
+                      Catch::Matchers::ContainsSubstring("announced 16 bytes") &&
+                          Catch::Matchers::ContainsSubstring("8-byte limit"));
+}
+
+TEST_CASE("distributed protocol: limits no channel could honour are refused where they are set")
+{
+    // Zero is the one value that cannot be a bound: it would refuse even an
+    // empty message. Caught at configuration, so the fault is reported by the
+    // call that set it rather than by the first cycle that happened to use it.
+    TransportLimits limits;
+    CHECK_NOTHROW(validate_transport_limits(limits, "test"));
+    CHECK(limits.max_frame_size == DEFAULT_MAX_FRAME_SIZE);
+
+    limits = TransportLimits{};
+    limits.max_frame_size = 0;
+    CHECK_THROWS_WITH(validate_transport_limits(limits, "test"),
+                      Catch::Matchers::ContainsSubstring("test: the maximum frame size must be positive"));
+
+    limits = TransportLimits{};
+    limits.decode.max_work = 0;
+    CHECK_THROWS_WITH(validate_transport_limits(limits, "test"),
+                      Catch::Matchers::ContainsSubstring("decode work budget must be positive"));
+
+    limits = TransportLimits{};
+    limits.decode.max_depth = 0;
+    CHECK_THROWS_WITH(validate_transport_limits(limits, "test"),
+                      Catch::Matchers::ContainsSubstring("decode depth budget must be positive"));
+
+    // A raised budget is accepted as readily as a lowered one: neither is a
+    // protocol constant.
+    limits = TransportLimits{};
+    limits.max_frame_size  = DEFAULT_MAX_FRAME_SIZE * 16;
+    limits.decode.max_work = 1'000'000'000;
+    CHECK_NOTHROW(validate_transport_limits(limits, "test"));
+}
+
 TEST_CASE("distributed protocol: slot direction is checked on encode and decode")
 {
     const auto slots = two_slots();

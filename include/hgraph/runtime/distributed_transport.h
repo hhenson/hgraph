@@ -14,6 +14,7 @@
 // calls, not a change to anything above them.
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/distributed_limits.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -72,6 +73,18 @@ namespace hgraph::distributed
          */
         void set_inheritable(bool inheritable) const;
 
+        /**
+         * The largest message this end will write or accept, in bytes.
+         *
+         * Per endpoint rather than per process: one run may hold a cheap
+         * control channel and an expensive boundary channel, and a global
+         * would make the larger one's cap the smaller one's exposure. Set it
+         * before the first ``send`` or ``receive``, on BOTH ends -- a cap is
+         * only as high as the stricter side of a channel.
+         */
+        void set_max_frame_size(std::size_t bytes);
+        [[nodiscard]] std::size_t max_frame_size() const noexcept { return max_frame_size_; }
+
         /** Send one message, length-prefixed. Throws on failure or deadline.
          * A deadline covers the whole frame, not each individual write.
          * After a timeout the channel must be closed: a partial frame may
@@ -105,6 +118,8 @@ namespace hgraph::distributed
 #endif
         /** Bytes read but not yet consumed: a read may straddle two frames. */
         std::string buffer_{};
+        /** What this end refuses to exceed; a default until an override sets it. */
+        std::size_t max_frame_size_{DEFAULT_MAX_FRAME_SIZE};
     };
 
     /**

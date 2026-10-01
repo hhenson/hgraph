@@ -207,8 +207,10 @@ namespace hgraph::distributed
 
     WorkerProcess spawn_worker(std::string_view program, std::string_view recipe_key,
                                DateTime start_time, DateTime end_time,
-                               std::span<const std::string> prefix_arguments)
+                               std::span<const std::string> prefix_arguments,
+                               const TransportLimits &limits)
     {
+        validate_transport_limits(limits, "distributed worker process");
         const std::string executable =
             program.empty() ? current_executable_path() : std::string{program};
 
@@ -233,7 +235,10 @@ namespace hgraph::distributed
               fmt::format("{}{}", worker_read_flag, theirs.native_read_handle()),
               fmt::format("{}{}", worker_write_flag, theirs.native_write_handle()),
               fmt::format("{}{}", worker_start_flag, start_time.time_since_epoch().count()),
-              fmt::format("{}{}", worker_end_flag, end_time.time_since_epoch().count())})
+              fmt::format("{}{}", worker_end_flag, end_time.time_since_epoch().count()),
+              fmt::format("{}{}", worker_max_frame_flag, limits.max_frame_size),
+              fmt::format("{}{}", worker_max_work_flag, limits.decode.max_work),
+              fmt::format("{}{}", worker_max_depth_flag, limits.decode.max_depth)})
         {
             command.push_back(' ');
             append_quoted(command, argument);
@@ -282,6 +287,7 @@ namespace hgraph::distributed
         if (started == 0) { fail("CreateProcess"); }
         (void)::CloseHandle(created.hThread);
 
+        mine.set_max_frame_size(limits.max_frame_size);
         WorkerProcess worker;
         worker.channel_        = std::move(mine);
         worker.pid_            = static_cast<long long>(created.dwProcessId);
@@ -357,8 +363,10 @@ namespace hgraph::distributed
 
     WorkerProcess spawn_worker(std::string_view program, std::string_view recipe_key,
                                DateTime start_time, DateTime end_time,
-                               std::span<const std::string> prefix_arguments)
+                               std::span<const std::string> prefix_arguments,
+                               const TransportLimits &limits)
     {
+        validate_transport_limits(limits, "distributed worker process");
         const std::string executable =
             program.empty() ? current_executable_path() : std::string{program};
 
@@ -392,12 +400,19 @@ namespace hgraph::distributed
             fmt::format("{}{}", worker_start_flag, start_time.time_since_epoch().count());
         const std::string end_argument =
             fmt::format("{}{}", worker_end_flag, end_time.time_since_epoch().count());
+        const std::string frame_argument =
+            fmt::format("{}{}", worker_max_frame_flag, limits.max_frame_size);
+        const std::string work_argument =
+            fmt::format("{}{}", worker_max_work_flag, limits.decode.max_work);
+        const std::string depth_argument =
+            fmt::format("{}{}", worker_max_depth_flag, limits.decode.max_depth);
 
         std::vector<char *> arguments{const_cast<char *>(executable.c_str())};
         for (const auto &argument : prefix_arguments)
             arguments.push_back(const_cast<char *>(argument.c_str()));
         for (const auto *argument : {&recipe_argument, &read_argument, &write_argument,
-                                     &start_argument, &end_argument})
+                                     &start_argument, &end_argument, &frame_argument,
+                                     &work_argument, &depth_argument})
             arguments.push_back(const_cast<char *>(argument->c_str()));
         arguments.push_back(nullptr);
 
@@ -411,6 +426,7 @@ namespace hgraph::distributed
             fail("posix_spawn");
         }
 
+        mine.set_max_frame_size(limits.max_frame_size);
         WorkerProcess worker;
         worker.channel_ = std::move(mine);
         worker.pid_     = static_cast<long long>(child);

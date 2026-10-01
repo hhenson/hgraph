@@ -30,10 +30,15 @@ namespace hgraph::distributed
     };
     using DistributedMapPlanPtr = std::shared_ptr<const DistributedMapPlan>;
 
-    /** Build one worker partition using ordinary map classification. */
+    /** Build one worker partition using ordinary map classification.
+     * ``decode`` is the budget every boundary transfer in this partition
+     * decodes under; a worker process must be given the same one its caller
+     * encodes with, which is what the pool's ``TransportLimits`` carries.
+     */
     [[nodiscard]] HGRAPH_EXPORT DistributedMapPlan prepare_distributed_map(
         const WiredFn &func, std::span<const DistributedMapInput> inputs,
-        std::optional<std::string> key_arg = {}, std::size_t group = 0, std::size_t groups = 1);
+        std::optional<std::string> key_arg = {}, std::size_t group = 0, std::size_t groups = 1,
+        BinaryDecodeLimits decode = {});
     /** Prepare every partition once, before graph execution. */
     [[nodiscard]] HGRAPH_EXPORT DistributedMapPlan prepare_distributed_map_pool(
         const WiredFn &func, std::span<const DistributedMapInput> inputs,

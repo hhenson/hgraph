@@ -57,14 +57,14 @@ namespace
 void register_spawn_consumer_recipes()
 {
     hgraph::stdlib::register_standard_operators();
-    hgraph::register_spawn_worker_recipe("installed-offset", +[](std::string_view) {
+    hgraph::register_spawn_worker_recipe("installed-offset", +[](std::string_view, BinaryDecodeLimits decode) {
         const std::array inputs{schema_descriptor<TS<Int>>::ts_meta(), schema_descriptor<TS<Int>>::ts_meta()};
-        return prepare_spawn_worker(fn<Offset>(), inputs);
+        return prepare_spawn_worker(fn<Offset>(), inputs, decode);
     });
-    hgraph::register_spawn_worker_recipe("installed-consume", +[](std::string_view path) {
+    hgraph::register_spawn_worker_recipe("installed-consume", +[](std::string_view path, BinaryDecodeLimits decode) {
         const std::array inputs{schema_descriptor<TS<Int>>::ts_meta()};
         const auto stage = spawn_fn<Consume>(arg<"path">(Str{path}));
-        return prepare_spawn_worker(stage.function, inputs);
+        return prepare_spawn_worker(stage.function, inputs, decode);
     });
 }
 

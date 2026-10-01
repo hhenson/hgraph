@@ -79,10 +79,17 @@ namespace hgraph::distributed
     /** Program-lifetime factory for one partition of a native mapped graph.
      * Only the registered name and partition numbers cross the process
      * boundary. Both programs link the same factory implementation.
+     *
+     * ``decode`` is the caller's budget, arriving from the worker's ``argv``.
+     * The factory wires this partition's boundary transfers, so it is the only
+     * place that budget can reach them: giving it to the serve loop alone
+     * would bound the outer request and leave the opaque payload inside it
+     * decoding on the default.
      */
     struct PreparedWorkerRecipe
     {
-        PreparedWorkerPlan (*build)(std::size_t group, std::size_t groups){nullptr};
+        PreparedWorkerPlan (*build)(std::size_t group, std::size_t groups,
+                                    BinaryDecodeLimits decode){nullptr};
         [[nodiscard]] bool valid() const noexcept { return build != nullptr; }
     };
 
@@ -108,12 +115,18 @@ namespace hgraph::distributed
      * propagates.
      */
     HGRAPH_EXPORT void serve_worker(PipeEndpoint &channel, const WorkerRecipe &recipe,
-                                    DateTime start_time, DateTime end_time);
+                                    DateTime start_time, DateTime end_time,
+                                    BinaryDecodeLimits decode = {});
 
-    /** Serve an embedding frontend's already wired native child. */
+    /** Serve an embedding frontend's already wired native child.
+     * ``decode`` must match what the caller encodes with: a worker that
+     * budgets less than the caller stages reports a decode failure instead of
+     * a result, which is the caller's own limit arriving one process late.
+     */
     HGRAPH_EXPORT void serve_worker(PipeEndpoint &channel, GraphBuilder child, const BoundarySlots &slots,
                                     DateTime start_time, DateTime end_time,
-                                    GraphExecutorPhaseRunner phase_runner = {});
+                                    GraphExecutorPhaseRunner phase_runner = {},
+                                    BinaryDecodeLimits decode = {});
 
     /** The flags a spawned worker is launched with (also its argv contract). */
     inline constexpr std::string_view worker_recipe_flag{"--hgraph-worker-recipe="};
@@ -121,6 +134,13 @@ namespace hgraph::distributed
     inline constexpr std::string_view worker_write_flag{"--hgraph-worker-write="};
     inline constexpr std::string_view worker_start_flag{"--hgraph-worker-start="};
     inline constexpr std::string_view worker_end_flag{"--hgraph-worker-end="};
+    /** The caller's channel bounds, so both sides enforce one agreed policy.
+     * Absent flags mean the library defaults, which is what an older caller
+     * and a hand-written launch both produce.
+     */
+    inline constexpr std::string_view worker_max_frame_flag{"--hgraph-worker-max-frame="};
+    inline constexpr std::string_view worker_max_work_flag{"--hgraph-worker-max-work="};
+    inline constexpr std::string_view worker_max_depth_flag{"--hgraph-worker-max-depth="};
 
     /**
      * Serve, if this process was launched as a worker.

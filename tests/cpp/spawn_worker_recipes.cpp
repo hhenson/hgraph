@@ -5,21 +5,21 @@ namespace
     template <typename Graph, typename... Inputs>
     void register_plain()
     {
-        register_spawn_worker_recipe(typeid(Graph).name(), +[](std::string_view) {
+        register_spawn_worker_recipe(typeid(Graph).name(), +[](std::string_view, BinaryDecodeLimits decode) {
             const std::array<const TSValueTypeMetaData *, sizeof...(Inputs)> schemas{schema_descriptor<Inputs>::ts_meta()...};
-            return prepare_spawn_worker(fn<Graph>(), schemas);
+            return prepare_spawn_worker(fn<Graph>(), schemas, decode);
         });
     }
     template <typename Graph, typename... Inputs>
     void register_trace()
     {
-        register_spawn_worker_recipe(typeid(Graph).name(), +[](std::string_view bootstrap) {
+        register_spawn_worker_recipe(typeid(Graph).name(), +[](std::string_view bootstrap, BinaryDecodeLimits decode) {
             static Trace trace;
             trace.remote = true;
             trace.path = bootstrap;
             const std::array<const TSValueTypeMetaData *, sizeof...(Inputs)> schemas{schema_descriptor<Inputs>::ts_meta()...};
             const auto stage = spawn_fn<Graph>(arg<"trace">(&trace));
-            return prepare_spawn_worker(stage.function, schemas);
+            return prepare_spawn_worker(stage.function, schemas, decode);
         });
     }
     template <typename S>
@@ -72,10 +72,10 @@ namespace hgraph_test
         register_plain<Nested<NestedKind::Map>, Dict>();
         register_plain<Nested<NestedKind::Reduce>, Dict>();
         register_plain<Nested<NestedKind::Mesh>, Dict>();
-        register_spawn_worker_recipe(typeid(AddGraph).name(), +[](std::string_view config) {
+        register_spawn_worker_recipe(typeid(AddGraph).name(), +[](std::string_view config, BinaryDecodeLimits decode) {
             const auto stage = spawn_fn<AddGraph>(arg<"factor">(static_cast<Int>(std::stoll(std::string{config}))));
             const std::array schemas{schema_descriptor<TS<Int>>::ts_meta(), schema_descriptor<TS<Int>>::ts_meta()};
-            return prepare_spawn_worker(stage.function, schemas);
+            return prepare_spawn_worker(stage.function, schemas, decode);
         });
     }
 }

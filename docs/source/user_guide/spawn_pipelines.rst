@@ -122,6 +122,31 @@ buffering. The default contract is lossless. Oversized frames and worker
 failures fail the run explicitly. Enqueueing a frame does not mean a sink has
 processed it or committed an external effect.
 
+Transport limits
+----------------
+
+Admission capacity is not the same thing as what a channel will carry. Each
+stage's channel independently bounds one framed message and the work decoding
+it, defaulting to 64 MiB, 1,000,000 work units and 256 nesting levels. These
+are defaults rather than protocol constants: they stop a malformed length
+prefix from making a reader allocate without limit.
+
+Set ``__max_frame_bytes__``, ``__max_decode_work__`` and
+``__max_decode_depth__`` on ``spawn_`` to change them; ``None`` keeps the
+default and each must be a positive integer. A stage's **checkpoint image
+crosses the same channel as its cycle payloads** (:doc:`component_recovery`), so
+an image larger than the frame bound needs ``__max_frame_bytes__`` raised rather
+than a rebuild. The work budget counts decoded values and declared collection
+extents rather than bytes, so a wide collection exhausts it while its frame is
+still small.
+
+Each limit applies to both ends: one setting configures the owner's channel and
+travels in each stage's command line, because a cap only one side holds would
+have the stricter end reject what the other was willing to write. Natively,
+``SpawnConfig::limits`` is the same ``TransportLimits``
+(``hgraph/runtime/distributed_protocol.h``) that ``WorkerPoolConfig::limits``
+carries for a ``dmap_``.
+
 Normal shutdown stops admission, drains accepted work through the final
 permitted time and joins all stage workers. It does not run future timers
 forever. A child failure reaches the owning run and wakes other waiting stages.

@@ -871,7 +871,18 @@ at every worker count tested. The layers, each with its own tests, bottom up:
 
 ``runtime/distributed_transport.h``
     ``PipeEndpoint`` and ``connected_pipe_pair``: blocking framed byte streams
-    over a ``socketpair``, or two crossed anonymous pipes on Windows.
+    over a ``socketpair``, or two crossed anonymous pipes on Windows. Each
+    endpoint carries its own ``max_frame_size``; ``distributed_limits.h`` holds
+    only the default.
+
+``runtime/distributed_limits.h``
+    ``DEFAULT_MAX_FRAME_SIZE``. The frame bound is deployment policy, not a
+    protocol constant: it exists so a malformed length prefix cannot make a
+    reader allocate without limit, and is raised through ``TransportLimits``
+    (``WorkerPoolConfig::limits``, ``dmap_``'s ``__max_frame_bytes__``) for a
+    boundary whose legitimate traffic is larger. A pool configures its own
+    channel and each worker's ``argv`` from one value, because a cap only one
+    side holds is not a cap.
 
 ``runtime/distributed_worker.h``
     The recipe registry, the serve loop, and ``run_worker_if_requested``.

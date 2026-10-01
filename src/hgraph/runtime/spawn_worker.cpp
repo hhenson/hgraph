@@ -26,7 +26,8 @@ namespace hgraph
     }
 
     void serve_spawn_worker(distributed::PipeEndpoint &channel, SpawnWorkerPlan plan,
-                            DateTime start, DateTime end, GraphExecutorPhaseRunner phase_runner)
+                            DateTime start, DateTime end, GraphExecutorPhaseRunner phase_runner,
+                            BinaryDecodeLimits decode)
     {
         using namespace distributed;
         DistributedChildHost host{std::move(plan.graph), end, std::move(phase_runner)};
@@ -64,7 +65,7 @@ namespace hgraph
                     channel.send(answer_checkpoint(host, *component));
                     continue;
                 }
-                auto reply = serve_cycle(host, plan.slots, decode_request(plan.slots, payload));
+                auto reply = serve_cycle(host, plan.slots, decode_request(plan.slots, payload, decode));
                 if (!reply.error.empty()) throw std::runtime_error(reply.error);
                 if (host.graph().executor().stop_requested())
                     throw std::runtime_error("child requested stop before its owner sealed the input");
@@ -84,15 +85,18 @@ namespace hgraph
     }
 
     void serve_registered_spawn_worker(distributed::PipeEndpoint &channel, std::string_view recipe,
-                                       DateTime start, DateTime end)
+                                       DateTime start, DateTime end, BinaryDecodeLimits decode)
     {
         static_cast<void>(fallback_on_exception(false, [&] {
             const auto factory = spawn_recipes().find(recipe);
             if (factory == spawn_recipes().end()) throw std::invalid_argument("spawn_: worker recipe is not registered");
             std::string bootstrap;
             if (!channel.receive(bootstrap)) throw std::runtime_error("spawn_: missing bootstrap");
-            auto plan = factory->second(bootstrap);
-            serve_spawn_worker(channel, std::move(plan), start, end);
+            // The factory wires this stage's boundary transfers, so it needs the
+            // budget too: giving it only to the serve loop would bound the outer
+            // request and leave the payload inside it on the default.
+            auto plan = factory->second(bootstrap, decode);
+            serve_spawn_worker(channel, std::move(plan), start, end, {}, decode);
             return true;
         }, [&](const char *message) {
             channel.send(distributed::encode_reply({}, distributed::CycleReply{MAX_DT, {}, message}));
