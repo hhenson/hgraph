@@ -226,7 +226,7 @@ namespace hgraph::distributed
             }
             if (const auto component = checkpoint_frame_component(payload))
             {
-                channel.send(answer_checkpoint(host, *component));
+                channel.send(answer_checkpoint(host, *component, channel.max_frame_size()));
                 continue;
             }
             CycleReply reply;

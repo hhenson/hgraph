@@ -62,7 +62,7 @@ namespace hgraph
                 {
                     // A stage that cannot capture says so and carries on: the
                     // refusal fails its owner's capture, not this graph.
-                    channel.send(answer_checkpoint(host, *component));
+                    channel.send(answer_checkpoint(host, *component, channel.max_frame_size()));
                     continue;
                 }
                 auto reply = serve_cycle(host, plan.slots, decode_request(plan.slots, payload, decode));

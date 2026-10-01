@@ -115,13 +115,26 @@ def _load_callable(recipe):
     return result
 
 
-def _limit(value, name, default, operator="dmap_"):
+def _limit(value, name, default, operator):
     """A transport bound: the default when unset, otherwise a positive count."""
     if value is None:
         return default
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{operator} {name} must be a positive integer")
     return value
+
+
+def _transport_limits(frame, work, depth, operator):
+    """The three channel bounds, defaulted from the runtime.
+
+    The defaults are asked of the runtime rather than restated here: the C++
+    values are the only definition, and a copy would drift the moment one of
+    them moved.
+    """
+    frame_default, work_default, depth_default = _hgraph.distributed_transport_defaults()
+    return (_limit(frame, "__max_frame_bytes__", frame_default, operator),
+            _limit(work, "__max_decode_work__", work_default, operator),
+            _limit(depth, "__max_decode_depth__", depth_default, operator))
 
 
 def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False, __label__=None,
@@ -149,12 +162,8 @@ def dmap_(func, *args, __workers__=2, __worker_timeout__=60.0, in_process=False,
             or __worker_timeout__ <= 0 or __worker_timeout__ > 86_400
             or not math.isfinite(__worker_timeout__)):
         raise ValueError("dmap_ __worker_timeout__ must be a finite positive number of seconds, at most 24 hours")
-    # Asked of the runtime rather than restated here: the C++ values are the
-    # only definition, and a copy would drift the moment one of them moved.
-    frame_default, work_default, depth_default = _hgraph.distributed_transport_defaults()
-    max_frame_bytes = _limit(__max_frame_bytes__, "__max_frame_bytes__", frame_default)
-    max_decode_work = _limit(__max_decode_work__, "__max_decode_work__", work_default)
-    max_decode_depth = _limit(__max_decode_depth__, "__max_decode_depth__", depth_default)
+    max_frame_bytes, max_decode_work, max_decode_depth = _transport_limits(
+        __max_frame_bytes__, __max_decode_work__, __max_decode_depth__, "dmap_")
     recipe = {} if in_process else _callable_recipe(func)
     if __keys__ is not None:
         kwargs["__keys__"] = __keys__

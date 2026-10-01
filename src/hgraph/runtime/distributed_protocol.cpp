@@ -394,15 +394,17 @@ namespace hgraph::distributed
         return bytes;
     }
 
-    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component)
+    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component,
+                                  std::size_t max_frame_size)
     {
         try
         {
             auto reply = encode_checkpoint_reply(capture_worker_image(host, component));
-            if (reply.size() <= DEFAULT_MAX_FRAME_SIZE) { return reply; }
+            if (reply.size() <= max_frame_size) { return reply; }
             return encode_checkpoint_error(fmt::format(
-                "distributed worker: the image is {} bytes and a frame carries at most {}; "
-                "spread the state over more workers", reply.size(), DEFAULT_MAX_FRAME_SIZE));
+                "distributed worker: the image is {} bytes and this channel's frame carries at most "
+                "{}; raise max_frame_size on both sides, or spread the state over more workers",
+                reply.size(), max_frame_size));
         }
         catch (const std::exception &error)
         {

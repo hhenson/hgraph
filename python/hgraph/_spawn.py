@@ -6,7 +6,7 @@ import json
 import math
 import sys
 
-from ._distributed import _callable_recipe, _limit, _pack_config
+from ._distributed import _callable_recipe, _pack_config, _transport_limits
 
 import _hgraph
 
@@ -148,11 +148,8 @@ def spawn_(function, *args, __capacity_frames__=256,
     if (isinstance(__worker_timeout__, bool) or not isinstance(__worker_timeout__, (int, float))
             or not math.isfinite(__worker_timeout__) or not 0 < __worker_timeout__ <= 86_400):
         raise ValueError("spawn_: __worker_timeout__ must be finite, positive and at most 24 hours")
-    # Asked of the runtime: the C++ values are the only definition of a default.
-    frame_default, work_default, depth_default = _hgraph.distributed_transport_defaults()
-    max_frame_bytes = _limit(__max_frame_bytes__, "__max_frame_bytes__", frame_default, "spawn_:")
-    max_decode_work = _limit(__max_decode_work__, "__max_decode_work__", work_default, "spawn_:")
-    max_decode_depth = _limit(__max_decode_depth__, "__max_decode_depth__", depth_default, "spawn_:")
+    max_frame_bytes, max_decode_work, max_decode_depth = _transport_limits(
+        __max_frame_bytes__, __max_decode_work__, __max_decode_depth__, "spawn_:")
     if isinstance(function, _Pipeline):
         stages = function.stages
     else:

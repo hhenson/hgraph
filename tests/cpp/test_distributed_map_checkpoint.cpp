@@ -822,13 +822,15 @@ TEST_CASE("dmap_ recovery: the frame limit bounds a worker's image, and is confi
     const auto recipe = prepared_worker_recipe_key(hgraph_test::prepared_accumulate_name, 0, 1);
     const auto slots  = prepared_worker_recipe(hgraph_test::prepared_accumulate_name)->build(0, 1, {}).slots;
 
-    // nullopt when the worker could not hand its image back at all. A cap the
-    // image does not fit is refused by the worker's own WRITE, so from here it
-    // looks like a worker that went away rather than a frame that was rejected:
-    // the exit code is what says which.
+    // A refusal is an ANSWER: the worker checks the image against its own
+    // channel's limit before writing, so an oversized one comes back as a
+    // CheckpointRefused and the worker carries on serving. ``exit_code`` is
+    // therefore also an assertion -- a worker that died in ``send`` instead
+    // would be the bug this pre-check exists to prevent.
     struct Capture
     {
         std::optional<std::string> image{};
+        std::string refusal{};
         int exit_code{0};
     };
     const auto capture = [&](const TransportLimits &limits) {
@@ -841,7 +843,9 @@ TEST_CASE("dmap_ recovery: the frame limit bounds a worker's image, and is confi
         REQUIRE(decode_reply(slots, payload, limits.decode).error.empty());
         worker.channel().send(encode_checkpoint_frame());
         Capture result;
-        if (worker.channel().receive(payload)) { result.image = decode_checkpoint_reply(payload); }
+        REQUIRE(worker.channel().receive(payload));
+        try { result.image = decode_checkpoint_reply(payload); }
+        catch (const CheckpointRefused &refused) { result.refusal = refused.what(); }
         result.exit_code = worker.wait_for_exit();
         return result;
     };
@@ -854,8 +858,8 @@ TEST_CASE("dmap_ recovery: the frame limit bounds a worker's image, and is confi
     CHECK(captured.exit_code == 0);
     const auto image = *captured.image;
 
-    // What the worker actually writes is the image inside a reply envelope, so
-    // the cap is calibrated on the FRAME rather than on the image it carries.
+    // What the worker writes is the image inside a reply envelope, so the cap
+    // is calibrated on the FRAME rather than on the image it carries.
     const auto frame_size = encode_checkpoint_reply(image).size();
     REQUIRE(frame_size > image.size());
 
@@ -863,7 +867,13 @@ TEST_CASE("dmap_ recovery: the frame limit bounds a worker's image, and is confi
     one_short.max_frame_size = frame_size - 1;
     const auto refused = capture(one_short);
     CHECK_FALSE(refused.image.has_value());
-    CHECK(refused.exit_code != 0);
+    // Against THIS channel's limit, and saying the limit can be raised: the
+    // earlier cut compared against the compiled-in default, so a run that had
+    // already raised its limit was refused against a number it no longer used
+    // and told to spread the state over more workers instead.
+    CHECK_THAT(refused.refusal, Catch::Matchers::ContainsSubstring(std::to_string(frame_size - 1)) &&
+                                    Catch::Matchers::ContainsSubstring("raise max_frame_size"));
+    CHECK(refused.exit_code == 0);
 
     // Exactly large enough, and the same image comes back: nothing about the
     // image or the protocol changed, only the number both ends were given.
