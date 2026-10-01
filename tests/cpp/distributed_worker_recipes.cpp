@@ -35,100 +35,100 @@ namespace hgraph_test
         // The same child as RunningTotalG, under a name chosen to be awkward
         // to pass to a process rather than derived from a type.
         using namespace hgraph::distributed;
-        register_prepared_worker_recipe(prepared_add_name, {+[](std::size_t group, std::size_t groups) {
+        register_prepared_worker_recipe(prepared_add_name, {+[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 3> inputs{{
                 {schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()},
                 {schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()},
                 {schema_descriptor<TS<Int>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedAdd>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedAdd>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
-        register_prepared_worker_recipe(prepared_accumulate_name, {+[](std::size_t group, std::size_t groups) {
+        register_prepared_worker_recipe(prepared_accumulate_name, {+[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedAccumulate>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedAccumulate>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
-        register_prepared_worker_recipe(prepared_nested_name, {+[](std::size_t group, std::size_t groups) {
+        register_prepared_worker_recipe(prepared_nested_name, {+[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TSD<Str, TS<Int>>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedNestedOwners>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedNestedOwners>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
         const auto hosted = [](const char *recipe, auto build) { register_prepared_worker_recipe(recipe, {build}); };
-        hosted(prepared_hosted_name, +[](std::size_t group, std::size_t groups) {
+        hosted(prepared_hosted_name, +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedHostedChild>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedHostedChild>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted(prepared_hosted_forgetful_name, +[](std::size_t group, std::size_t groups) {
+        hosted(prepared_hosted_forgetful_name, +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedHostedThenForgetful>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedHostedThenForgetful>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted(prepared_hosted_constant_name, +[](std::size_t group, std::size_t groups) {
+        hosted(prepared_hosted_constant_name, +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedHostedWithConstant>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedHostedWithConstant>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("hosted timer", +[](std::size_t group, std::size_t groups) {
+        hosted("hosted timer", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedWithTimer>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedWithTimer>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("immediate sink", +[](std::size_t group, std::size_t groups) {
+        hosted("immediate sink", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<ChildWithImmediateSink>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<ChildWithImmediateSink>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("hosted nested", +[](std::size_t group, std::size_t groups) {
+        hosted("hosted nested", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedNestedComponent>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedNestedComponent>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("compatible before", +[](std::size_t group, std::size_t groups) {
+        hosted("compatible before", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<false>>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<false>>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("compatible after", +[](std::size_t group, std::size_t groups) {
+        hosted("compatible after", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<true>>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedCompatibleComponent<true>>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("named worker", +[](std::size_t group, std::size_t groups) {
+        hosted("named worker", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker">>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker">>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("named worker boundary", +[](std::size_t group, std::size_t groups) {
+        hosted("named worker boundary", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker.boundary">>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<HostedNamedComponent<"worker.boundary">>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted(accumulate_stop_marker_name, +[](std::size_t group, std::size_t groups) {
+        hosted(accumulate_stop_marker_name, +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<AccumulateWithStopMarker>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<AccumulateWithStopMarker>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("refusing compute, stop marker", +[](std::size_t group, std::size_t groups) {
+        hosted("refusing compute, stop marker", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<RefusingComputeWithStopMarker>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<RefusingComputeWithStopMarker>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        hosted("pending compute", +[](std::size_t group, std::size_t groups) {
+        hosted("pending compute", +[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{{schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<CheckpointPendingCompute>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<CheckpointPendingCompute>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         });
-        register_prepared_worker_recipe(prepared_keys_name, {+[](std::size_t group, std::size_t groups) {
+        register_prepared_worker_recipe(prepared_keys_name, {+[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{
                 {schema_descriptor<TSS<Str>>::ts_meta(), WiringPortRef::ArgTag::None, "__keys__"}}};
-            auto plan = prepare_distributed_map(fn<PreparedKeyOnly>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedKeyOnly>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
-        register_prepared_worker_recipe(prepared_bundle_name, {+[](std::size_t group, std::size_t groups) {
+        register_prepared_worker_recipe(prepared_bundle_name, {+[](std::size_t group, std::size_t groups, BinaryDecodeLimits decode) {
             const std::array<DistributedMapInput, 1> inputs{{
                 {schema_descriptor<TSD<Str, PreparedRow>>::ts_meta()}}};
-            auto plan = prepare_distributed_map(fn<PreparedBundleIdentity>(), inputs, {}, group, groups);
+            auto plan = prepare_distributed_map(fn<PreparedBundleIdentity>(), inputs, {}, group, groups, decode);
             return PreparedWorkerPlan{std::move(plan.child), std::move(plan.slots)};
         }});
 

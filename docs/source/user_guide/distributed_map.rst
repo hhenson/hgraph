@@ -77,12 +77,52 @@ encoding or an importable type recipe. Python code, closures and live objects
 are not pickled. Functions defined in ``__main__``, notebook-local functions
 and lambdas cannot be reconstructed by process workers. Bootstrap metadata,
 including scalar configuration and import paths, travels over the connected
-channel rather than command-line arguments. Every channel frame, including
-bootstrap and cycle messages, is limited to 64 MiB; oversize messages fail
-instead of allocating unbounded buffers. Decoding also has a shared budget of
-1,000,000 work units and 256 nesting levels. Collection inventories, decoded
-values, and sparse list extents consume that budget. The lower-level native
-codec and ``BoundaryTransfer`` APIs accept ``BinaryDecodeLimits`` overrides.
+channel rather than command-line arguments.
+
+Transport limits
+----------------
+
+Every channel frame, including bootstrap and cycle messages, is bounded, and
+decoding has a shared work and nesting budget. These are defaults, not protocol
+constants: they stop a malformed length prefix or a hostile payload from
+allocating without limit, and they are expected to be raised for a boundary
+whose legitimate traffic is larger.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 20 50
+
+   * - ``dmap_`` argument
+     - Default
+     - Bounds
+   * - ``__max_frame_bytes__``
+     - 64 MiB
+     - One whole framed message: bootstrap, cycle, or a worker's checkpoint
+       image (:doc:`component_recovery`).
+   * - ``__max_decode_work__``
+     - 1,000,000
+     - Decoded values, collection inventories and sparse list extents, shared
+       across one payload.
+   * - ``__max_decode_depth__``
+     - 256
+     - Nesting levels within one payload.
+
+Each must be a positive integer; ``None`` keeps the default. Raise
+``__max_frame_bytes__`` when a cycle's encoded delta -- or a completed day's
+worker image, which crosses the same channel -- is larger than the cap,
+and ``__max_decode_work__`` when a collection has more members than the budget
+counts -- the work budget counts elements rather than bytes, so a wide
+dictionary exhausts it while its frame is still small. ``__max_decode_depth__``
+bounds recursion over nested schemas, so it is a property of the boundary type
+rather than of the data; raising it far trades a clear error for a deeper
+decode stack.
+
+A limit applies to **both ends**. One setting configures the caller's channel
+and travels in each worker's command line, because a cap only one side holds
+would have the stricter end reject what the other was willing to write. An
+exceeded limit names the size it refused and the limit it refused it against,
+so the number to raise is in the error.
+
 A boundary delta is fully decoded and validated before it changes live output;
 allocation failure during application still fails the run without rollback.
 
@@ -119,6 +159,17 @@ milliseconds and defaults to 60000. An embedding frontend can set
 ``recipe_over_channel`` to send its prepared recipe as the first bounded frame;
 the worker receives ``@hgraph-channel-bootstrap:1`` as its command-line recipe
 marker and must retain that same channel for subsequent cycle messages.
+
+``WorkerPoolConfig::limits`` is the native form of the transport limits above:
+a ``TransportLimits`` holding ``max_frame_size`` and a ``BinaryDecodeLimits``
+``decode``. The pool configures each spawned worker's channel from it and
+passes it in that worker's ``argv`` as ``--hgraph-worker-max-frame``,
+``--hgraph-worker-max-work`` and ``--hgraph-worker-max-depth``; a worker
+launched without those flags serves on the library defaults.
+``PipeEndpoint::set_max_frame_size`` configures one endpoint directly, and
+``serve_worker`` takes the decode budget a hand-rolled worker loop should
+use. ``hgraph/runtime/distributed_limits.h`` holds
+``DEFAULT_MAX_FRAME_SIZE``.
 
 A native executable registers a ``PreparedWorkerRecipe`` whose function
 reconstructs one plan for a supplied group/count. ``bind_distributed_map_recipe``

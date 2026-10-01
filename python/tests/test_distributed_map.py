@@ -186,3 +186,43 @@ def test_stop_errors_fail_the_run_and_release_the_pool(in_process):
     with pytest.raises(RuntimeError, match="distributed stop failure|worker exited with code"):
         run(stop_failure, [{"a": 2}], in_process=in_process)
     assert run(native_child, [{"a": 2}], in_process=in_process) == [{"a": 6}]
+
+
+@pytest.mark.parametrize("name", ["__max_frame_bytes__", "__max_decode_work__", "__max_decode_depth__"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_invalid_transport_limits(name, value):
+    @hg.graph
+    def graph(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return hg.dmap_(native_child, ts, **{name: value})
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        hg.eval_node(graph, [{"a": 1}])
+
+
+def test_raised_transport_limits_still_run():
+    # The knobs exist to be raised; a run under raised limits must behave
+    # exactly as one under the defaults rather than take a different path.
+    @hg.graph
+    def graph(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return hg.dmap_(native_child, ts, __max_frame_bytes__=256 * 1024 * 1024,
+                        __max_decode_work__=50_000_000, __max_decode_depth__=512)
+    assert hg.eval_node(graph, [{"a": 4}]) == [{"a": 12}]
+
+
+def test_decode_budget_reaches_the_worker_process():
+    # A budget too small to decode the staged request can only fail inside the
+    # worker, so the error proves the limit crossed the process boundary.
+    @hg.graph
+    def graph(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return hg.dmap_(native_child, ts, __max_decode_work__=1)
+    with pytest.raises(RuntimeError, match="decode work limit exceeded"):
+        hg.eval_node(graph, [{"a": 1}])
+
+
+def test_frame_limit_bounds_the_bootstrap_frame():
+    # The recipe is the first frame a worker channel carries, so a cap below it
+    # fails the launch -- the same cap, applied to the same channel, as cycles.
+    @hg.graph
+    def graph(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return hg.dmap_(native_child, ts, __max_frame_bytes__=16)
+    with pytest.raises(RuntimeError, match="frame size limit exceeded"):
+        hg.eval_node(graph, [{"a": 1}])

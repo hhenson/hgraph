@@ -89,6 +89,70 @@ TEST_CASE("distributed worker: a spawned worker is another process, and serves")
     CHECK_FALSE(worker.running());
 }
 
+TEST_CASE("distributed worker: a spawned worker serves under the limits it was given")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // Non-default on every field, so the launch exercises each flag rather
+    // than silently falling back to the value it would have had anyway.
+    TransportLimits limits;
+    limits.max_frame_size  = 32 * 1024;
+    limits.decode.max_work = 4096;
+    limits.decode.max_depth = 32;
+
+    WorkerProcess worker =
+        spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, test_recipe_key(), MIN_ST, worker_end, {}, limits);
+    REQUIRE(worker.running());
+    // The caller's own end is configured from the same value that went into
+    // argv: one setting, both halves of the channel.
+    CHECK(worker.channel().max_frame_size() == limits.max_frame_size);
+
+    const BoundarySlots slots = distributed_map_slots<Int, Int, Int>();
+    CycleRequest        request;
+    request.evaluation_time = MIN_ST;
+    worker.channel().send(encode_request(slots, request));
+
+    std::string payload;
+    REQUIRE(worker.channel().receive(payload));
+    CHECK(decode_reply(slots, payload, limits.decode).error.empty());
+    CHECK(worker.wait_for_exit() == 0);
+}
+
+TEST_CASE("distributed worker: a spawned worker enforces the frame limit from its argv")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    TransportLimits limits;
+    limits.max_frame_size = 4096;
+    WorkerProcess worker =
+        spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, test_recipe_key(), MIN_ST, worker_end, {}, limits);
+    REQUIRE(worker.running());
+
+    // Raise only OUR end, so what follows is a frame nothing but the worker's
+    // own cap can refuse -- and that cap reached it through argv alone, since
+    // nothing else in that process was told a number.
+    worker.channel().set_max_frame_size(DEFAULT_MAX_FRAME_SIZE);
+    const std::string oversized(limits.max_frame_size + 1, 'x');
+
+    // The worker may refuse the frame and exit, or have exited already by the
+    // time the write lands; both are its cap being enforced over there, so the
+    // assertion that distinguishes them is the exit code, not the exchange.
+    try
+    {
+        worker.channel().send(oversized);
+        std::string reply;
+        (void)worker.channel().receive(reply);
+    }
+    catch (const std::exception &)
+    {
+    }
+    CHECK(worker.wait_for_exit() != 0);
+}
+
 TEST_CASE("distributed worker: a second wait is harmless")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

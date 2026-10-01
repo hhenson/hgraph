@@ -17,6 +17,7 @@
 // deployments that want a smaller image, and carries the same obligation.
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/distributed_protocol.h>
 #include <hgraph/runtime/distributed_transport.h>
 #include <hgraph/util/date_time.h>
 
@@ -76,7 +77,8 @@ namespace hgraph::distributed
         friend HGRAPH_EXPORT WorkerProcess spawn_worker(std::string_view program,
                                                         std::string_view recipe_key,
                                                         DateTime start_time, DateTime end_time,
-                                                        std::span<const std::string> arguments);
+                                                        std::span<const std::string> arguments,
+                                                        const TransportLimits &limits);
 
         PipeEndpoint channel_{};
         long long    pid_{0};
@@ -91,11 +93,18 @@ namespace hgraph::distributed
      * ``program`` empty means this executable. ``recipe_key`` names the child
      * the worker builds, and must be registered in the worker program --
      * which, when it is this program, means registered here too.
+     *
+     * ``limits`` configures the returned channel AND travels in the child's
+     * ``argv``, because a cap only one side holds is not a cap: the stricter
+     * end would reject what the other was happy to write. This is the only
+     * place the two are guaranteed to agree, since it is the one place that
+     * knows both the local endpoint and the command line.
      */
     [[nodiscard]] HGRAPH_EXPORT WorkerProcess spawn_worker(std::string_view program,
                                                            std::string_view recipe_key,
                                                            DateTime start_time, DateTime end_time,
-                                                           std::span<const std::string> arguments = {});
+                                                           std::span<const std::string> arguments = {},
+                                                           const TransportLimits &limits = {});
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_PROCESS_H

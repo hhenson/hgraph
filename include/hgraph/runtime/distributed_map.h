@@ -169,6 +169,14 @@ namespace hgraph::distributed
          * component the children host, or empty for whole workers, which is
          * what a ``dmap_`` that is itself a component member saves. */
         std::string hosted_component{};
+        /** What a channel will carry and decode, for every worker in the pool.
+         * Raise ``max_frame_size`` for a boundary whose cycle delta -- or whose
+         * checkpoint image, which crosses the same channel -- is larger than
+         * the default, and ``decode.max_work`` for one whose collections hold
+         * more members than the default budget counts. Both reach the worker
+         * processes, so one setting configures both ends.
+         */
+        TransportLimits limits{};
     };
 
     /**
@@ -187,8 +195,9 @@ namespace hgraph::distributed
         {
         }
         explicit DistributedWorker(WorkerProcess process,
-                                   std::chrono::milliseconds timeout = std::chrono::milliseconds{60000})
-            : process_(std::move(process)), timeout_(timeout)
+                                   std::chrono::milliseconds timeout = std::chrono::milliseconds{60000},
+                                   BinaryDecodeLimits decode = {})
+            : process_(std::move(process)), timeout_(timeout), decode_(decode)
         {
             if (timeout <= std::chrono::milliseconds::zero() || timeout > std::chrono::hours{24})
                 throw std::invalid_argument("dmap_: worker timeout must be positive and at most 24 hours");
@@ -216,7 +225,7 @@ namespace hgraph::distributed
         {
             if (host_ != nullptr) { return std::move(pending_); }
             auto failed = make_scope_exit([this] { process_.terminate(); });
-            auto reply  = decode_reply(slots, receive());
+            auto reply  = decode_reply(slots, receive(), decode_);
             failed.release();
             return reply;
         }
@@ -306,6 +315,9 @@ namespace hgraph::distributed
         /** In-process only: the reply ``dispatch`` already produced. */
         CycleReply                            pending_{};
         std::chrono::milliseconds timeout_{60000};
+        /** The budget a reply is decoded under: the caller's half of the
+         * agreed limit, since the worker enforces its own on the request. */
+        BinaryDecodeLimits decode_{};
         PipeEndpoint::Deadline deadline_{PipeEndpoint::Deadline::max()};
     };
 
@@ -327,7 +339,7 @@ namespace hgraph::distributed
         static std::unique_ptr<WorkerPool> build(const WiredFn &func, const WorkerPoolConfig &config,
                                                  std::span<const std::string> restored = {})
         {
-            validate_timeout(config);
+            validate_config(config);
             if (config.workers == 0)
             {
                 throw std::invalid_argument("dmap_ needs at least one worker");
@@ -360,7 +372,7 @@ namespace hgraph::distributed
             std::span<const std::string> restored = {})
         {
             if (config.workers == 0) { throw std::invalid_argument("dmap_ needs at least one worker"); }
-            validate_timeout(config);
+            validate_config(config);
             reject_push_sources(child);
             require_restored_inventory(restored, config.workers);
             auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
@@ -380,7 +392,9 @@ namespace hgraph::distributed
                 else
                 {
                     pool->workers_.emplace_back(spawn_worker(config.program, recipe, config.start_time,
-                                                            config.end_time, config.arguments), config.timeout);
+                                                            config.end_time, config.arguments,
+                                                            config.limits),
+                                                config.timeout, config.limits.decode);
                 }
                 pool->selectors_.push_back(GroupSelector{i, config.workers});
             }
@@ -472,7 +486,7 @@ namespace hgraph::distributed
             std::span<const std::string> recipes, const WorkerPoolConfig &config,
             GraphExecutorPhaseRunner phase_runner = {}, std::span<const std::string> restored = {})
         {
-            validate_timeout(config);
+            validate_config(config);
             if (children.empty() || children.size() != config.workers || recipes.size() != children.size())
                 throw std::invalid_argument("dmap_: inconsistent worker plan inventory");
             require_restored_inventory(restored, children.size());
@@ -496,11 +510,11 @@ namespace hgraph::distributed
                     const std::string_view recipe_key = config.recipe_over_channel
                         ? std::string_view{"@hgraph-channel-bootstrap:1"} : std::string_view{recipes[group]};
                     auto process = spawn_worker(config.program, recipe_key, config.start_time,
-                                                config.end_time, config.arguments);
+                                                config.end_time, config.arguments, config.limits);
                     auto failed = make_scope_exit([&process] { process.terminate(); });
                     if (config.recipe_over_channel)
                         process.channel().send(recipes[group], std::chrono::steady_clock::now() + config.timeout);
-                    pool->workers_.emplace_back(std::move(process), config.timeout);
+                    pool->workers_.emplace_back(std::move(process), config.timeout, config.limits.decode);
                     failed.release();
                 }
             }
@@ -640,6 +654,11 @@ namespace hgraph::distributed
             throw std::runtime_error(refusal);
         }
 
+        static void validate_config(const WorkerPoolConfig &config)
+        {
+            validate_transport_limits(config.limits, "dmap_");
+            validate_timeout(config);
+        }
         static void validate_timeout(const WorkerPoolConfig &config)
         {
             // Also bounds chrono arithmetic and platform millisecond waits.

@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <map>
 #include <vector>
 
 namespace
@@ -32,7 +33,8 @@ namespace
                           std::initializer_list<WiringPortRef> inputs,
                           std::initializer_list<Str> names = {},
                           std::optional<std::string> key_arg = {},
-                          std::string_view recipe = {})
+                          std::string_view recipe = {},
+                          TransportLimits limits = {})
     {
         std::vector<WiringPortRef> ports{inputs};
         std::vector<DistributedMapInput> descriptions;
@@ -46,6 +48,7 @@ namespace
         WorkerPoolConfig config;
         config.hosting = WorkerHosting::InProcess;
         config.workers = 3;
+        config.limits  = limits;
         if (!recipe.empty())
         {
             config.hosting = WorkerHosting::Process;
@@ -499,9 +502,30 @@ namespace
                               hgraph_test::prepared_bundle_name).as<TSD<Str, hgraph_test::PreparedRow>>();
         }
     };
-    PreparedWorkerPlan unused_factory(std::size_t, std::size_t) { return {}; }
+    /** A prepared pool whose decode budget clears the request envelope but not
+     * the dictionary inside it.
+     *
+     * The gap is the whole point. A request's envelope costs a handful of work
+     * units however wide its payload is -- it decodes one opaque byte string --
+     * while the BOUNDARY TRANSFER inside it charges per member. A budget
+     * between the two therefore fails only if the transfer honours it, and the
+     * transfer is wired by the prepared FACTORY in the worker process. An
+     * override handed to the serve loop alone would leave it on the default and
+     * this run would succeed.
+     */
+    struct ProcessPreparedDecodeBudget
+    {
+        static Port<Dict> compose(Wiring &w, Port<Dict> values)
+        {
+            TransportLimits limits;
+            limits.decode.max_work = 24;
+            return distribute(w, fn<hgraph_test::PreparedAccumulate>(), {values.erased()}, {}, {},
+                              hgraph_test::prepared_accumulate_name, limits).as<Dict>();
+        }
+    };
+    PreparedWorkerPlan unused_factory(std::size_t, std::size_t, BinaryDecodeLimits) { return {}; }
     // Distinct behavior prevents linker identical-code folding on Windows.
-    PreparedWorkerPlan other_unused_factory(std::size_t, std::size_t)
+    PreparedWorkerPlan other_unused_factory(std::size_t, std::size_t, BinaryDecodeLimits)
     { throw std::logic_error("the second registration fixture must not execute"); }
 }
 
@@ -532,6 +556,24 @@ TEST_CASE("dmap shapes: native prepared recipes preserve partial bundles in work
     const auto inputs = values<Value>(dict_delta<Str, S>({{"a", tsb_delta<S>(Int{1}, std::nullopt)}}),
         dict_delta<Str, S>({{"a", tsb_delta<S>(std::nullopt, Str{"one"})}}), dict_delta<Str, S>({}, {"a"}));
     CHECK_OUTPUT(eval_node<ProcessBundles>(inputs), inputs);
+}
+
+TEST_CASE("dmap shapes: a prepared factory decodes under the caller's budget, not the default")
+{
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // Wide enough that its members cost many times the budget, so the refusal
+    // cannot be the envelope's doing and the test is not sitting on a knife
+    // edge between the two costs.
+    std::map<Str, static_node_detail::delta_input_t<TS<Int>>> wide;
+    for (Int i = 0; i < 64; ++i) { wide.emplace("k" + std::to_string(i), i); }
+    const Value delta = static_node_detail::build_dict_delta<Str, TS<Int>>(wide, {});
+
+    // The refusal arrives from the worker's own 'distributed_boundary_source',
+    // which is the transfer the factory wired -- not from the request envelope.
+    CHECK_THROWS_WITH(eval_node<ProcessPreparedDecodeBudget>(values<Value>(delta)),
+                      Catch::Matchers::ContainsSubstring("decode work limit exceeded"));
 }
 
 TEST_CASE("prepared worker recipes validate identities partition bounds and malformed encodings")

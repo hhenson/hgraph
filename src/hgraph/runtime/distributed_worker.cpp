@@ -105,6 +105,16 @@ namespace hgraph::distributed
             }
             return value;
         }
+
+        /** A limit is a count, so a negative one is a typo rather than a bound. */
+        [[nodiscard]] std::size_t as_size(std::string_view text, std::string_view what)
+        {
+            const auto value = as_number(text, what);
+            if (value <= 0)
+                throw std::invalid_argument(
+                    fmt::format("distributed worker: {} must be positive: '{}'", what, text));
+            return static_cast<std::size_t>(value);
+        }
     }  // namespace
 
     void register_worker_recipe(std::string key, WorkerRecipe recipe)
@@ -166,13 +176,14 @@ namespace hgraph::distributed
     }
 
     void serve_worker(PipeEndpoint &channel, const WorkerRecipe &recipe, DateTime start_time,
-                      DateTime end_time)
+                      DateTime end_time, BinaryDecodeLimits decode)
     {
-        serve_worker(channel, recipe.build(), recipe.boundary(), start_time, end_time);
+        serve_worker(channel, recipe.build(), recipe.boundary(), start_time, end_time, {}, decode);
     }
 
     void serve_worker(PipeEndpoint &channel, GraphBuilder child, const BoundarySlots &slots,
-                      DateTime start_time, DateTime end_time, GraphExecutorPhaseRunner phase_runner)
+                      DateTime start_time, DateTime end_time, GraphExecutorPhaseRunner phase_runner,
+                      BinaryDecodeLimits decode)
     {
         DistributedChildHost host{std::move(child), end_time, std::move(phase_runner)};
 
@@ -215,13 +226,13 @@ namespace hgraph::distributed
             }
             if (const auto component = checkpoint_frame_component(payload))
             {
-                channel.send(answer_checkpoint(host, *component));
+                channel.send(answer_checkpoint(host, *component, channel.max_frame_size()));
                 continue;
             }
             CycleReply reply;
             try
             {
-                reply = serve_cycle(host, slots, decode_request(slots, payload));
+                reply = serve_cycle(host, slots, decode_request(slots, payload, decode));
             }
             catch (const std::exception &error)
             {
@@ -242,6 +253,9 @@ namespace hgraph::distributed
         std::int64_t     start_micros = MIN_ST.time_since_epoch().count();
         std::int64_t     end_micros   = MAX_ET.time_since_epoch().count();
         bool             requested    = false;
+        // The caller's agreed bounds, defaulted so a launch that predates the
+        // flags -- or writes the command line by hand -- still serves.
+        TransportLimits  limits{};
 
         for (int i = 1; i < argc; ++i)
         {
@@ -267,6 +281,19 @@ namespace hgraph::distributed
             {
                 end_micros = as_number(*end_value, "the end time");
             }
+            else if (const auto frame_value = flag_value(argument, worker_max_frame_flag))
+            {
+                limits.max_frame_size = as_size(*frame_value, "the maximum frame size");
+            }
+            else if (const auto work_value = flag_value(argument, worker_max_work_flag))
+            {
+                limits.decode.max_work =
+                    static_cast<std::uint64_t>(as_size(*work_value, "the decode work budget"));
+            }
+            else if (const auto depth_value = flag_value(argument, worker_max_depth_flag))
+            {
+                limits.decode.max_depth = as_size(*depth_value, "the decode depth budget");
+            }
         }
 
         if (!requested) { return false; }
@@ -275,9 +302,11 @@ namespace hgraph::distributed
         {
             if (read_handle < 0 || write_handle < 0)
                 throw std::invalid_argument("spawn_: launched without a channel");
+            validate_transport_limits(limits, "distributed worker");
             auto channel = PipeEndpoint::adopt(read_handle, write_handle);
+            channel.set_max_frame_size(limits.max_frame_size);
             serve_registered_spawn_worker(channel, key.substr(spawn_worker_prefix.size()),
-                DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}});
+                DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}}, limits.decode);
             return true;
         }
 
@@ -297,17 +326,20 @@ namespace hgraph::distributed
                 "distributed worker: launched without a channel to serve on");
         }
 
+        validate_transport_limits(limits, "distributed worker");
         PipeEndpoint channel = PipeEndpoint::adopt(read_handle, write_handle);
+        channel.set_max_frame_size(limits.max_frame_size);
         if (prepared != nullptr)
         {
-            auto plan = prepared->build(selection->group, selection->groups);
+            auto plan = prepared->build(selection->group, selection->groups, limits.decode);
             serve_worker(channel, std::move(plan.child), plan.slots,
-                         DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}});
+                         DateTime{TimeDelta{start_micros}}, DateTime{TimeDelta{end_micros}}, {},
+                         limits.decode);
         }
         else
         {
             serve_worker(channel, *recipe, DateTime{TimeDelta{start_micros}},
-                         DateTime{TimeDelta{end_micros}});
+                         DateTime{TimeDelta{end_micros}}, limits.decode);
         }
         return true;
     }

@@ -45,7 +45,8 @@ namespace hgraph::distributed
 
     DistributedMapPlan prepare_distributed_map(
         const WiredFn &func, std::span<const DistributedMapInput> inputs,
-        std::optional<std::string> key_arg, std::size_t group, std::size_t groups)
+        std::optional<std::string> key_arg, std::size_t group, std::size_t groups,
+        BinaryDecodeLimits decode)
     try
     {
         namespace ho = stdlib::higher_order_impl_detail;
@@ -69,7 +70,7 @@ namespace hgraph::distributed
         for (std::size_t i = 0; i < inputs.size(); ++i)
         {
             const auto *schema = TypeRegistry::instance().dereference(inputs[i].schema);
-            auto transfer = std::make_shared<const BoundaryTransfer>(schema, "dmap_ input " + std::to_string(i));
+            auto transfer = std::make_shared<const BoundaryTransfer>(schema, "dmap_ input " + std::to_string(i), decode);
             const Str slot = "__hgraph_distributed_input_" + std::to_string(i);
             auto source = wire<boundary_transfer_source_impl>(worker, slot, transfer, schema).erased();
             source.arg_tag = inputs[i].tag;
@@ -118,7 +119,7 @@ namespace hgraph::distributed
             for (std::size_t i = 0; i < classified.is_multiplexed.size(); ++i)
                 if (classified.is_multiplexed[i]) multiplexed.push_back(i);
             auto lifecycle = ho::wire_keyed_lifecycle_keys(worker, keys, multiplexed, classified, bound.ordered, "dmap_");
-            auto key_transfer = std::make_shared<const BoundaryTransfer>(lifecycle.schema, "the keys of a dmap_");
+            auto key_transfer = std::make_shared<const BoundaryTransfer>(lifecycle.schema, "the keys of a dmap_", decode);
             auto partitioned = wire<distributed_keys_impl>(worker, Port<void>{worker, lifecycle},
                                                            static_cast<Int>(group), static_cast<Int>(groups), key_transfer);
             result = ho::wire_map(worker, Scalar<"func", WiredFn>{func}, key_name,
@@ -127,7 +128,7 @@ namespace hgraph::distributed
         if (result.schema != nullptr)
         {
             plan.output = TypeRegistry::instance().dereference(result.schema);
-            plan.output_transfer = std::make_shared<const BoundaryTransfer>(plan.output, "the output of a dmap_");
+            plan.output_transfer = std::make_shared<const BoundaryTransfer>(plan.output, "the output of a dmap_", decode);
             // The endpoint schema fixes the materialized boundary before
             // binding. Generic TsVar inference would retain nested REF types.
             const auto *sink_input = TypeRegistry::instance().un_named_tsb({{"ts", plan.output}});
@@ -168,12 +169,15 @@ namespace hgraph::distributed
         std::optional<std::string> key_arg, WorkerPoolConfig config)
     {
         if (config.workers == 0) throw std::invalid_argument("dmap_ needs a positive worker count");
-        auto plan = prepare_distributed_map(func, inputs, key_arg, 0, config.workers);
+        validate_transport_limits(config.limits, "dmap_");
+        const auto decode = config.limits.decode;
+        auto plan = prepare_distributed_map(func, inputs, key_arg, 0, config.workers, decode);
         plan.config = std::move(config);
         plan.children.reserve(plan.config.workers);
         plan.children.push_back(plan.child);
         for (std::size_t group = 1; group < plan.config.workers; ++group)
-            plan.children.push_back(prepare_distributed_map(func, inputs, key_arg, group, plan.config.workers).child);
+            plan.children.push_back(
+                prepare_distributed_map(func, inputs, key_arg, group, plan.config.workers, decode).child);
         plan.recipes.resize(plan.config.workers);
         return plan;
     }

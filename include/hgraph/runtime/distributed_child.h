@@ -292,13 +292,19 @@ namespace hgraph::distributed
     /**
      * A worker's whole answer to a checkpoint frame: the image, or why not.
      *
-     * An image travels as ONE frame, so one larger than the transport's frame
-     * limit cannot be sent. That is answered as a refusal that names the limit
-     * -- the worker would otherwise die in ``send`` and its owner would learn
-     * only that the channel closed.
+     * An image travels as ONE frame, so one larger than the frame limit cannot
+     * be sent. That is answered as a refusal that names the limit -- the worker
+     * would otherwise die in ``send`` and its owner would learn only that the
+     * channel closed.
+     *
+     * ``max_frame_size`` must be THIS channel's limit, not the library default:
+     * a run that raised the limit to carry a larger image would otherwise be
+     * refused here against a number its channel no longer uses, and told to
+     * spread the state over more workers when it had already said how.
      */
     [[nodiscard]] HGRAPH_EXPORT std::string answer_checkpoint(const DistributedChildHost &host,
-                                                              std::string_view component);
+                                                              std::string_view component,
+                                                              std::size_t max_frame_size = DEFAULT_MAX_FRAME_SIZE);
     /** Start ``host`` from ``image`` and report what the restored graph wants next. */
     [[nodiscard]] HGRAPH_EXPORT DateTime start_worker_restored(DistributedChildHost &host, DateTime start_time,
                                                                std::string_view image,

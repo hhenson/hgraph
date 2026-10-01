@@ -229,8 +229,13 @@ each run, so keep state that has to survive inside the component.
   restored. Nothing is restored wrongly. If the processed part changes often,
   put it in a later ``spawn_`` stage or outside the ``dmap_``, where it is no part
   of the contract (RFC 0039, "Known limits").
-* One worker's image has to fit one transport frame (64 MiB). A larger one fails
-  the completed day and says so; use more workers.
+* One worker's image has to fit one transport frame. A larger one fails the
+  completed day and says so, naming the size it refused and the limit it
+  refused it against. The 64 MiB default is deployment policy, not a format
+  constant: raise ``__max_frame_bytes__`` on the ``dmap_`` or ``spawn_`` (or
+  ``TransportLimits::max_frame_size`` natively) to carry a larger image, or use
+  more workers to make each image smaller. The limit applies to both ends of a
+  channel and one setting configures both.
 * Over a fixed-size ``TSL`` the component is wired once per index and recovers
   with any worker count. Over an unbounded ``TSL`` it recovers with one worker
   only.

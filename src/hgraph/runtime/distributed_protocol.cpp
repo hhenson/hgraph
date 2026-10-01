@@ -227,10 +227,26 @@ namespace hgraph::distributed
         return reply;
     }
 
+    void validate_transport_limits(const TransportLimits &limits, std::string_view what)
+    {
+        if (limits.max_frame_size == 0)
+            throw std::invalid_argument(
+                fmt::format("{}: the maximum frame size must be positive", what));
+        if (limits.decode.max_work == 0)
+            throw std::invalid_argument(
+                fmt::format("{}: the decode work budget must be positive", what));
+        if (limits.decode.max_depth == 0)
+            throw std::invalid_argument(
+                fmt::format("{}: the decode depth budget must be positive", what));
+    }
+
     std::string write_frame(std::string_view payload, std::size_t max_size)
     {
         if (payload.size() > max_size)
-            throw std::runtime_error("distributed protocol: frame size limit exceeded");
+            throw std::runtime_error(fmt::format(
+                "distributed protocol: frame size limit exceeded: {} bytes against a {}-byte limit. "
+                "Raise the channel's max_frame_size on both sides to carry this boundary.",
+                payload.size(), max_size));
         std::string out;
         write_varint(payload.size(), out);
         out.append(payload);
@@ -254,7 +270,11 @@ namespace hgraph::distributed
             if ((byte & 0x80u) == 0) { ++prefix; break; }
         }
         if (size > max_size)
-            throw std::runtime_error("distributed protocol: frame size limit exceeded");
+            throw std::runtime_error(fmt::format(
+                "distributed protocol: frame size limit exceeded: an announced {} bytes against a "
+                "{}-byte limit. Raise the channel's max_frame_size on both sides to carry this "
+                "boundary.",
+                size, max_size));
         if (buffer.size() - prefix < size) return false;
         payload = buffer.substr(prefix, static_cast<std::size_t>(size));
         consumed = prefix + static_cast<std::size_t>(size);
@@ -374,15 +394,17 @@ namespace hgraph::distributed
         return bytes;
     }
 
-    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component)
+    std::string answer_checkpoint(const DistributedChildHost &host, std::string_view component,
+                                  std::size_t max_frame_size)
     {
         try
         {
             auto reply = encode_checkpoint_reply(capture_worker_image(host, component));
-            if (reply.size() <= DEFAULT_MAX_FRAME_SIZE) { return reply; }
+            if (reply.size() <= max_frame_size) { return reply; }
             return encode_checkpoint_error(fmt::format(
-                "distributed worker: the image is {} bytes and a frame carries at most {}; "
-                "spread the state over more workers", reply.size(), DEFAULT_MAX_FRAME_SIZE));
+                "distributed worker: the image is {} bytes and this channel's frame carries at most "
+                "{}; raise max_frame_size on both sides, or spread the state over more workers",
+                reply.size(), max_frame_size));
         }
         catch (const std::exception &error)
         {

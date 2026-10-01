@@ -23,6 +23,13 @@ namespace hgraph
         std::chrono::milliseconds worker_timeout{60'000};
         std::string worker_program{};
         std::vector<std::string> worker_arguments{};
+        /** What each stage's channel will carry and decode. A stage's cycle
+         * payloads AND its checkpoint images cross the same channel, so an
+         * image larger than ``max_frame_size`` needs this raised rather than a
+         * rebuild. The value configures the owner's end and travels in each
+         * stage's ``argv``, so one setting holds for both.
+         */
+        distributed::TransportLimits limits{};
     };
 
     /** Embedding hook for a synchronous blocking operation (e.g. release the
@@ -64,15 +71,24 @@ namespace hgraph
         const TSValueTypeMetaData *output{};
         std::string boundary_identity{};
     };
+    /** ``decode`` is the budget this stage's boundary transfers decode under.
+     * A worker must be given the same one its owner encodes with, which is
+     * what ``SpawnConfig::limits`` carries into each stage's ``argv``.
+     */
     [[nodiscard]] HGRAPH_EXPORT SpawnWorkerPlan prepare_spawn_worker(
-        WiredFn function, std::span<const TSValueTypeMetaData *const> inputs);
-    using SpawnWorkerFactory = SpawnWorkerPlan (*)(std::string_view bootstrap);
+        WiredFn function, std::span<const TSValueTypeMetaData *const> inputs,
+        BinaryDecodeLimits decode = {});
+    /** A factory builds its plan under the owner's decode budget, for the same
+     * reason: the transfers it wires are what decode the opaque payloads.
+     */
+    using SpawnWorkerFactory = SpawnWorkerPlan (*)(std::string_view bootstrap, BinaryDecodeLimits decode);
     HGRAPH_EXPORT void register_spawn_worker_recipe(std::string name, SpawnWorkerFactory factory);
     HGRAPH_EXPORT void serve_spawn_worker(distributed::PipeEndpoint &channel, SpawnWorkerPlan plan,
-        DateTime start, DateTime end, GraphExecutorPhaseRunner phase_runner = {});
+        DateTime start, DateTime end, GraphExecutorPhaseRunner phase_runner = {},
+        BinaryDecodeLimits decode = {});
     // Called by the shared distributed worker argv entry point.
     HGRAPH_EXPORT void serve_registered_spawn_worker(distributed::PipeEndpoint &channel,
-        std::string_view recipe, DateTime start, DateTime end);
+        std::string_view recipe, DateTime start, DateTime end, BinaryDecodeLimits decode = {});
     inline constexpr std::string_view spawn_worker_prefix{"@hgraph-spawn:1:"};
 
     /** Wire a sink-only asynchronous execution plan. No result port is exposed.

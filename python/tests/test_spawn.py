@@ -449,3 +449,35 @@ def test_idle_worker_death_wakes_owner_before_end_time(exit_code):
                      __end_time__=end,
                      __run_mode__=hg.EvaluationMode.REAL_TIME)
     assert time.monotonic() - before < 5
+
+
+@pytest.mark.parametrize("name", ["__max_frame_bytes__", "__max_decode_work__", "__max_decode_depth__"])
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_invalid_transport_limits_rejected(name, value):
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        hg.spawn_(record, **{name: value})
+
+
+def test_raised_transport_limits_still_run(tmp_path):
+    # The knobs exist to be raised; a stage under raised limits must behave
+    # exactly as one under the defaults rather than take a different path.
+    trace = Trace(tmp_path / "trace")
+
+    @hg.graph
+    def app(value: hg.TS[int]) -> None:
+        hg.spawn_(trace.stage(), value, __max_frame_bytes__=256 * 1024 * 1024,
+                  __max_decode_work__=50_000_000, __max_decode_depth__=512)
+    hg.eval_node(app, [1, 2, 3])
+    assert [v for _, v, _ in trace.values()] == [1, 2, 3]
+
+
+def test_decode_budget_reaches_the_stage_process(tmp_path):
+    # A budget too small to decode what the owner stages can only fail inside
+    # the stage, so the error proves the limit crossed the process boundary.
+    trace = Trace(tmp_path / "trace")
+
+    @hg.graph
+    def app(value: hg.TS[int]) -> None:
+        hg.spawn_(trace.stage(), value, __max_decode_work__=1)
+    with pytest.raises(RuntimeError, match="decode work limit exceeded"):
+        hg.eval_node(app, [1])

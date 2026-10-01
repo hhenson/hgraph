@@ -758,7 +758,7 @@ TEST_CASE("dmap_ recovery: a worker process serves the control frames", "[checkp
     hgraph_test::register_distributed_test_recipes();
     const auto end    = MIN_ST + TimeDelta{10000};
     const auto recipe = prepared_worker_recipe_key(hgraph_test::prepared_accumulate_name, 0, 1);
-    const auto slots  = prepared_worker_recipe(hgraph_test::prepared_accumulate_name)->build(0, 1).slots;
+    const auto slots  = prepared_worker_recipe(hgraph_test::prepared_accumulate_name)->build(0, 1, {}).slots;
     const auto cycle  = [&](WorkerProcess &worker, DateTime when) {
         CycleRequest request;
         request.evaluation_time = when;
@@ -807,6 +807,82 @@ TEST_CASE("dmap_ recovery: a worker process serves the control frames", "[checkp
         CHECK_FALSE(decode_reply(slots, payload).error.empty());
         CHECK(worker.wait_for_exit() == 0);
     }
+}
+
+TEST_CASE("dmap_ recovery: the frame limit bounds a worker's image, and is configurable",
+          "[checkpoint][dmap]")
+{
+    // A completed day's image crosses the SAME channel as a cycle, so the frame
+    // bound is what caps how large a recoverable worker may be. Documented as a
+    // hard 64 MiB in an earlier cut, which left "use more workers" as the only
+    // remedy for a component whose state is simply big.
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+    const auto end    = MIN_ST + TimeDelta{10000};
+    const auto recipe = prepared_worker_recipe_key(hgraph_test::prepared_accumulate_name, 0, 1);
+    const auto slots  = prepared_worker_recipe(hgraph_test::prepared_accumulate_name)->build(0, 1, {}).slots;
+
+    // A refusal is an ANSWER: the worker checks the image against its own
+    // channel's limit before writing, so an oversized one comes back as a
+    // CheckpointRefused and the worker carries on serving. ``exit_code`` is
+    // therefore also an assertion -- a worker that died in ``send`` instead
+    // would be the bug this pre-check exists to prevent.
+    struct Capture
+    {
+        std::optional<std::string> image{};
+        std::string refusal{};
+        int exit_code{0};
+    };
+    const auto capture = [&](const TransportLimits &limits) {
+        WorkerProcess worker = spawn_worker(HGRAPH_TEST_WORKER_PROGRAM, recipe, MIN_ST, end, {}, limits);
+        CycleRequest request;
+        request.evaluation_time = MIN_ST;
+        worker.channel().send(encode_request(slots, request));
+        std::string payload;
+        REQUIRE(worker.channel().receive(payload));
+        REQUIRE(decode_reply(slots, payload, limits.decode).error.empty());
+        worker.channel().send(encode_checkpoint_frame());
+        Capture result;
+        REQUIRE(worker.channel().receive(payload));
+        try { result.image = decode_checkpoint_reply(payload); }
+        catch (const CheckpointRefused &refused) { result.refusal = refused.what(); }
+        result.exit_code = worker.wait_for_exit();
+        return result;
+    };
+
+    // Sized from the real image rather than a guessed number, so the two cases
+    // below sit either side of the only boundary that matters.
+    const auto captured = capture(TransportLimits{});
+    REQUIRE(captured.image.has_value());
+    REQUIRE(is_checkpoint_image(*captured.image));
+    CHECK(captured.exit_code == 0);
+    const auto image = *captured.image;
+
+    // What the worker writes is the image inside a reply envelope, so the cap
+    // is calibrated on the FRAME rather than on the image it carries.
+    const auto frame_size = encode_checkpoint_reply(image).size();
+    REQUIRE(frame_size > image.size());
+
+    TransportLimits one_short;
+    one_short.max_frame_size = frame_size - 1;
+    const auto refused = capture(one_short);
+    CHECK_FALSE(refused.image.has_value());
+    // Against THIS channel's limit, and saying the limit can be raised: the
+    // earlier cut compared against the compiled-in default, so a run that had
+    // already raised its limit was refused against a number it no longer used
+    // and told to spread the state over more workers instead.
+    CHECK_THAT(refused.refusal, Catch::Matchers::ContainsSubstring(std::to_string(frame_size - 1)) &&
+                                    Catch::Matchers::ContainsSubstring("raise max_frame_size"));
+    CHECK(refused.exit_code == 0);
+
+    // Exactly large enough, and the same image comes back: nothing about the
+    // image or the protocol changed, only the number both ends were given.
+    TransportLimits exact;
+    exact.max_frame_size = frame_size;
+    const auto allowed = capture(exact);
+    REQUIRE(allowed.image.has_value());
+    CHECK(*allowed.image == image);
+    CHECK(allowed.exit_code == 0);
 }
 
 namespace
