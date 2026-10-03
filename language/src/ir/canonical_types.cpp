@@ -107,6 +107,11 @@ namespace hgl::ir::detail
         for (TypeArgument &argument : value.arguments) {
             if (argument.kind == TypeArgumentKind::Type) { argument.type = canonical(argument.type); }
         }
+        if (value.kind == TypeKind::Delta && value.children.size() == 1U) {
+            const Type &origin = module_.type(value.children.front());
+            if (origin.kind == TypeKind::Scalar && origin.scalar <= ScalarType::Duration) { return value.children.front(); }
+        }
+        if (value.kind == TypeKind::List && !value.size.valid()) { value.unbounded = true; }
         value.range           = {};
         value.owner           = {};
         value.value_position  = false;
@@ -246,6 +251,7 @@ namespace hgl::ir::detail
                 case TypeKind::Atomic:
                 case TypeKind::Reference:
                 case TypeKind::Signal: return true;
+                case TypeKind::Delta:
                 case TypeKind::Schema:
                 case TypeKind::SchemaView:
                 case TypeKind::Void:
@@ -387,7 +393,8 @@ namespace hgl::ir::detail
             case TypeKind::Set: return "set";
             case TypeKind::Map: return "map";
             case TypeKind::Rolling: return "rolling";
-            case TypeKind::Atomic: return "atomic";
+            case TypeKind::Delta: return "delta";
+                case TypeKind::Atomic: return "atomic";
             case TypeKind::Reference: return "ref";
             case TypeKind::Signal: return "signal";
             case TypeKind::Schema: return "schema";

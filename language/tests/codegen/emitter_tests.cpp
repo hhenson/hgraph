@@ -2896,7 +2896,7 @@ export fn recent(window: rolling<f64, 5m>) -> f64 => mean(window)
 export fn logged(value: f64) -> f64 {
     inject logger
     when modified(value) && valid(value) {
-        logger.info("value")
+        info(logger, "value")
         return value
     }
 }
@@ -3156,7 +3156,7 @@ TEST_CASE("a scheduler source admits a bare handler with vacuous defaults", "[co
 module checks.bare_source
 export fn dormant() -> bool {
     inject scheduler
-    start { scheduler.schedule(0s) }
+    start { schedule(scheduler, 0s) }
     when { return true }
 }
 )"};
@@ -3819,8 +3819,312 @@ fn count_to(const n: i64) -> i64 {
     CHECK(contains(emitted->source, "alarm.schedule(hgl_when_1);"));
     CHECK(contains(emitted->source, "hgl_yield_1:;"));
     CHECK(contains(emitted->source, "hgl_cache.modify().hgl_resume = -1;"));
-    CHECK(contains(emitted->source, "duplicate time produced by generator"));
+    CHECK(contains(emitted->source, "non-increasing time produced by generator"));
+    CHECK(contains(emitted->source, "hgraph::Bool hgl_has_previous{};"));
+    CHECK(contains(emitted->source, "hgraph::DateTime hgl_previous{};"));
+    CHECK(contains(emitted->source, "hgl_when_1 <= hgl_cache.ref().hgl_previous"));
+    CHECK(contains(emitted->source, "hgraph::checked_add(alarm.now(), hgl_time_1)"));
+    const auto time_operand = emitted->source.find("const auto hgl_time_1 =");
+    const auto payload_operand = emitted->source.find("const auto &hgl_payload_1 =");
+    const auto negative_check = emitted->source.find("if (hgl_time_1 < hgraph::TimeDelta::zero())");
+    const auto resolution = emitted->source.find("const hgraph::DateTime hgl_when_1 =");
+    REQUIRE(time_operand != std::string::npos);
+    REQUIRE(payload_operand != std::string::npos);
+    REQUIRE(negative_check != std::string::npos);
+    REQUIRE(resolution != std::string::npos);
+    CHECK(time_operand < payload_operand);
+    CHECK(payload_operand < negative_check);
+    CHECK(negative_check < resolution);
     // The local is read and written through the state slot, never a C++ local.
     CHECK(contains(emitted->source, "hgl_cache.modify().field_"));
     CHECK_FALSE(contains(emitted->source, "hgraph::Int i ="));
+}
+
+TEST_CASE("emit-cpp lowers receiver-first capability actions and clock properties", "[codegen][runtime][capabilities]") {
+    Unit unit{R"(
+module checks.capabilities
+export fn observed() -> datetime {
+    inject clock, alarm
+    start { schedule_at(alarm, clock.next_cycle_evaluation_time) }
+    when { return clock.evaluation_time }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "alarm.schedule(hgl_cap_clock.next_cycle_evaluation_time())"));
+    CHECK(contains(emitted->header, "hgl_output.set(hgl_cap_clock.evaluation_time())"));
+    CHECK(contains(emitted->header, "hgraph::SingleShotScheduler alarm"));
+}
+
+TEST_CASE("emit-cpp checks explicit generator time arithmetic before payload evaluation", "[codegen][runtime][adr-0015]") {
+    Unit unit{R"(
+module checks.yield_arithmetic
+fn checked(const delay: duration) -> i64 {
+    inject clock
+    yield clock.evaluation_time + delay: 1
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "const auto hgl_time_1 = hgraph::checked_add(hgl_cap_clock.evaluation_time(), delay.value());"));
+    CHECK(contains(emitted->source, "const auto &hgl_payload_1 = hgraph::Int{1};"));
+    CHECK(emitted->source.find("const auto hgl_time_1") < emitted->source.find("const auto &hgl_payload_1"));
+}
+
+TEST_CASE("emit-cpp lowers ordinary lists and struct values with prepared plans", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.ordinary
+struct Pair {
+    left: i64
+    right: i64
+}
+const fn grow() -> i64 {
+    var values: list<Pair> = []
+    push(values, Pair(right: 2, left: 1))
+    let first = values[0]
+    return first.left + len(values)
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgl::ordinary::PreparedValuePlan"));
+    CHECK(contains(emitted->header, ".empty_list()"));
+    CHECK(contains(emitted->header, ".push("));
+    CHECK(contains(emitted->header, ".index("));
+    CHECK(contains(emitted->header, "auto hgl_field_1 ="));
+    CHECK(contains(emitted->header, "auto hgl_field_0 ="));
+    CHECK(emitted->header.find("auto hgl_field_1 =") < emitted->header.find("auto hgl_field_0 ="));
+    CHECK(contains(emitted->source, "hgraph::scalar_descriptor<hgl::ordinary::List<"));
+}
+
+TEST_CASE("emit-cpp prepares retained ordinary replay and recording shapes", "[codegen][ordinary][materialization]") {
+    Unit unit{R"(
+module checks.replay_values
+struct TimedValue<T> {
+    time: datetime
+    value: delta<T>
+}
+operator replay<T>(const values: list<TimedValue<T>>) -> T
+operator record<T>(ts: T, const key: str)
+impl fn replay<T>(const values: list<TimedValue<T>>) -> T {
+    var index: i64 = 0
+    while index < len(values) {
+        yield values[index].time: values[index].value
+        index += 1
+    }
+}
+impl fn record<T>(ts: T, const key: str) {
+    inject global_state, clock
+    start {
+        let initial: list<TimedValue<T>> = []
+        set(global_state, key, initial)
+    }
+    when {
+        var recording: list<TimedValue<T>> = get(global_state, key)
+        push(recording, TimedValue<T>(time: clock.evaluation_time, value: delta_value(ts)))
+    }
+}
+instantiate replay<_>, record<_>
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "static void prepare(const hgraph::NodeView &view)"));
+    CHECK(contains(emitted->source, "hgraph::PreparedGlobalEntry"));
+    CHECK(contains(emitted->source, "view.global_state().prepare("));
+    CHECK(contains(emitted->source, "hgl::ordinary::PreparedDeltaPlan"));
+    CHECK(contains(emitted->source, "view.output(hgraph::MIN_ST).schema()"));
+}
+
+TEST_CASE("emit-cpp specializes nested ordinary generic value helpers", "[codegen][ordinary][materialization]") {
+    Unit unit{R"(
+module checks.ordinary_helpers
+struct TimedValue<T> {
+    time: datetime
+    value: delta<T>
+}
+const fn publications<T>(value: delta<T>) -> list<TimedValue<T>> {
+    var values: list<TimedValue<T>> = []
+    push(values, TimedValue<T>(time: @1970-01-01T00:00:00.000003Z, value: value))
+    return values
+}
+const fn forwarded<T>(value: delta<T>) -> list<TimedValue<T>> { publications(value) }
+const fn sample() -> list<TimedValue<i64>> { forwarded(7) }
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "publications_hgl_value__specialization_"));
+    CHECK(contains(emitted->header, "forwarded_hgl_value__specialization_"));
+    CHECK(contains(emitted->header, "inline hgraph::Value sample_hgl_value("));
+}
+
+TEST_CASE("emit-cpp prepares const derived global keys and checks resolved aliases", "[codegen][ordinary][global-state]") {
+    Unit unit{R"(
+module checks.global_keys
+fn collect(ts: i64, const first: str, const second: str) {
+    inject global_state
+    when {
+        let derived = first + ".samples"
+        var live: list<i64> = get(global_state, derived)
+        let other: list<i64> = get(global_state, second)
+        push(live, ts + len(other))
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "static void preflight_keys("));
+    CHECK(contains(emitted->source, "wiring.prepare_global_entry("));
+    CHECK(contains(emitted->source, "global_state access conflicts with a live lexical borrow"));
+    CHECK(contains(emitted->source, "first.value() + hgraph::Str"));
+}
+
+TEST_CASE("emit-cpp publishes an ordinary constructor as one atomic value", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.atomic_pair
+struct Pair {
+    left: i64
+    right: i64
+}
+fn constructed(trigger: i64) -> atomic<Pair> {
+    when { return Pair(right: 2, left: 1) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::apply_delta(hgl_output,"));
+    CHECK(emitted->source.find("auto hgl_field_1 =") < emitted->source.find("auto hgl_field_0 ="));
+}
+
+TEST_CASE("emit-cpp retains nonempty ordinary lists in their exact fixedness", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.list_literals
+const fn unbounded() -> i64 {
+    var values: list<i64> = [1, 2, 3]
+    push(values, values[0])
+    return values[3] + len(values)
+}
+const fn fixed() -> i64 {
+    let values: list<i64, 2> = [4, 5]
+    return values[0] + values[1]
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, ".push(hgl_list.view(),"));
+    CHECK(contains(emitted->header, ".index_mutable(hgl_list.view(), 1)"));
+    CHECK(contains(emitted->header, ".copy_from(hgl_item_1.view())"));
+}
+
+TEST_CASE("emit-cpp uses native scalar string conversions", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.scalar_text
+const fn b(v: bool) -> str { str(v) }
+const fn i(v: i64) -> str { str(v) }
+const fn f(v: f64) -> str { str(v) }
+const fn s(v: str) -> str { str(v) }
+const fn d(v: date) -> str { str(v) }
+const fn t(v: time) -> str { str(v) }
+const fn dt(v: datetime) -> str { str(v) }
+const fn du(v: duration) -> str { str(v) }
+fn graph_text(v: i64) -> str => str(v)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    for (const std::string_view type : {"Bool", "Int", "Float", "Date", "Time", "DateTime", "TimeDelta"}) {
+        CHECK(contains(emitted->header, "to_string_thunk<hgraph::" + std::string{type} + ">"));
+    }
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::str_>"));
+}
+
+TEST_CASE("emit-cpp prepares retained local delta storage from a nested input shape", "[codegen][ordinary][materialization]") {
+    Unit unit{R"(
+module checks.nested_storage
+operator nested<T>(values: list<T, 2>) -> i64
+impl fn nested<T>(values: list<T, 2>) -> i64 {
+    when {
+        let local: list<delta<T>> = []
+        return len(local)
+    }
+}
+instantiate nested<_>
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "static void prepare(const hgraph::NodeView &view)"));
+    CHECK(contains(emitted->source, "->element_ts()"));
+    CHECK(contains(emitted->source, "hgraph::State<hgl_cache_fields>"));
+}
+
+TEST_CASE("emit-cpp resolves retained ordinary fixed extents before execution", "[codegen][ordinary][materialization]") {
+    Unit unit{R"(
+module checks.retained_extent
+operator keep<T, const n: i64>(value: list<T, n>) -> i64
+impl fn keep<T, const n: i64>(value: list<T, n>) -> i64 {
+    inject global_state
+    when {
+        let copies: list<delta<T>, n> = get(global_state, "copies")
+        return len(copies)
+    }
+}
+instantiate keep<_, _>
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "->fixed_size()"));
+    CHECK(contains(emitted->source, "hgraph::size_resolver<hgraph::SIZE<\"n\">>::resolve(resolutions)"));
+}
+
+TEST_CASE("emit-cpp preserves owning delta yield operands through admission", "[codegen][ordinary][adr-0015]") {
+    Unit unit{R"(
+module checks.owned_yield
+fn source() -> map<i64, i64> {
+    yield 0s: delta<map<i64, i64>>(upsert: [1: 10])
+    yield 1us: delta<map<i64, i64>>(upsert: [1: 11])
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, ".payload(hgl_payload_1.view())"));
+    CHECK(contains(emitted->source, ".retain(hgl_payload_2.view())"));
+}
+
+TEST_CASE("emit-cpp constructs an atomic tuple with retained ordinary elements", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.atomic_tuple
+fn pair(left: f64, right: f64) -> atomic<tuple<f64, f64>> {
+    when { return (left, right) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::apply_delta(hgl_output,"));
+    CHECK(contains(emitted->source, ".bundle(hgl_fields)"));
+}
+
+TEST_CASE("emit-cpp normalizes concrete aggregate constants before hooks", "[codegen][ordinary]") {
+    Unit unit{R"(
+module checks.configured_list
+fn length(trigger: i64, const items: list<i64>) -> i64 {
+    when { return len(items) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Value hgl_argument_1"));
+    CHECK(contains(emitted->source, ".binding().schema()}.retain("));
+    CHECK(contains(emitted->source, "hgl_cache.ref().hgl_argument_1.view()"));
 }

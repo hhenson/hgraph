@@ -169,7 +169,7 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
                 else:
                     form = "node" if re.search(r"\bwhen\s*;", body) else "graph"
             if kind == "implementation":
-                form = "native-delegation" if re.search(r"=>\s*core::", body) else "hgl-runtime" if "when" in body else "hgl-composition"
+                form = "native-delegation" if re.search(r"=>\s*core::", body) else "hgl-runtime" if re.search(r"\b(?:when|yield)\b", body) else "hgl-composition"
             result.append(dict(module=module[1], name=match[2], kind=kind, form=form,
                                source=path.relative_to(root).as_posix(),
                                line=text.count("\n", 0, match.start()) + 1,

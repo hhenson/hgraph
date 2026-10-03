@@ -65,6 +65,7 @@ namespace hgl::syntax::ast
         Set,        ///< `children[0]`
         Map,        ///< `children[0]` key, `children[1]` value
         Rolling,    ///< `children[0]`, `size` max, `min_size` (no_node = omitted)
+        Delta,      ///< ordinary publication delta; children[0] is the originating temporal shape
         Atomic,     ///< `children[0]`
         Reference,  ///< `ref<children[0]>`
         Signal,     ///< `signal`: input-only, payload-erased time-series observation

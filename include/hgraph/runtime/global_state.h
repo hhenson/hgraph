@@ -8,9 +8,31 @@
 #include <string_view>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 namespace hgraph
 {
+    using PreparedGlobalTypes = std::unordered_map<std::string, ValueTypeRef>;
+
+    /** Borrowed access to a prevalidated, stable cell with one exact storage
+        binding. The caller supplies exactly the schema checked at preparation;
+        writes retain into that binding and hooks perform no lookup. */
+    class HGRAPH_CLASS_EXPORT PreparedGlobalEntry
+    {
+      public:
+        PreparedGlobalEntry() = default;
+        [[nodiscard]] ValueView get() const;
+        void set(const ValueView &value) const;
+        [[nodiscard]] ValueTypeRef binding() const noexcept { return binding_; }
+      private:
+        friend class GlobalStateView;
+        PreparedGlobalEntry(Value &value, ValueTypeRef binding, std::string key, std::size_t &absent)
+            : value_{&value}, binding_{binding}, key_{std::move(key)}, absent_{&absent} {}
+        Value *value_{};
+        ValueTypeRef binding_{};
+        std::string key_{};
+        std::size_t *absent_{};
+    };
     /**
      * Borrowing **view** over a graph's ``GlobalState`` — the access surface and
      * the node-level injectable. It is the value/view split applied to global
@@ -27,7 +49,15 @@ namespace hgraph
     {
       public:
         GlobalStateView() noexcept = default;
-        explicit GlobalStateView(Value &map) noexcept : map_(&map) {}
+        explicit GlobalStateView(Value &map, PreparedGlobalTypes *prepared = nullptr, std::size_t *absent = nullptr) noexcept
+            : map_(&map), prepared_(prepared), absent_(absent) {}
+
+        /** Repeated preparation requires the identical storage binding, even
+            when another representation has the same schema. Existing seeds
+            of that schema are retained into the first prepared binding. */
+        [[nodiscard]] PreparedGlobalEntry prepare(std::string_view key, ValueTypeRef binding) const;
+        /** Construction-time query, including bound entries still absent. */
+        [[nodiscard]] bool is_prepared(std::string_view key) const;
 
         [[nodiscard]] bool valid() const noexcept { return map_ != nullptr; }
 
@@ -72,6 +102,8 @@ namespace hgraph
 
       private:
         Value *map_{nullptr};  // borrowed; owned by a GlobalState
+        PreparedGlobalTypes *prepared_{};
+        std::size_t *absent_{};
     };
 
     /**
@@ -99,13 +131,15 @@ namespace hgraph
         ~GlobalState()                                  = default;
 
         /** A view over this store. */
-        [[nodiscard]] GlobalStateView view() noexcept { return GlobalStateView{map_}; }
+        [[nodiscard]] GlobalStateView view() noexcept { return GlobalStateView{map_, &prepared_, &absent_}; }
 
         /** The underlying ``Map<string, Any>`` value. */
         [[nodiscard]] const Value &as_value() const noexcept { return map_; }
 
       private:
         Value map_;  // mutable Map<string, Any>
+        PreparedGlobalTypes prepared_{};
+        std::size_t absent_{};
     };
 
     /**

@@ -12,6 +12,9 @@
 
 namespace hgl::driver
 {
+    /// Locate the installed or build-tree HGL standard-library source parts.
+    [[nodiscard]] std::optional<std::filesystem::path> standard_library_source_directory();
+
     /// Validate the immutable portion of a discovered ABI table before its
     /// image is retained or any lifecycle callback is invoked.
     [[nodiscard]] bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,

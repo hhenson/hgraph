@@ -12,7 +12,7 @@ operator sink(ts: signal)
 # temporal input, so its plain `when` runs on every evaluation, the wake-up.
 impl fn constant<T>(const value: T, const delay: duration = 0s) -> T {
     inject alarm
-    start { alarm.schedule(delay) }
+    start { schedule(alarm, delay) }
     when { return value }
 }
 instantiate constant<i64>, constant<str>
@@ -23,7 +23,7 @@ impl fn sink(ts: signal) { when { } }
 # at 1970-01-01T00:00:00.000001Z and steps one microsecond per cycle.
 fn at_time(const at: datetime) -> bool {
     inject alarm
-    start { alarm.schedule_at(at) }
+    start { schedule_at(alarm, at) }
     when { return true }
 }
 
@@ -188,4 +188,44 @@ test generator_control_flow {
     assert eval(finishing, tick: [1, 1, 1, 1]) == [_, 0, 1, _]
     assert eval(even_branch, tick: [1]) == [2]
     assert eval(odd_branch, tick: [1]) == [1]
+}
+
+# ADR 0015 target admission cases, exercised through native eval_node as well.
+export fn ordered_targets(const first: datetime, const second: datetime) -> i64 {
+    yield first: -1
+    yield second: 2
+}
+
+export fn relative_targets(const first: duration, const second: duration) -> i64 {
+    yield first: -1
+    yield second: 2
+}
+
+export fn increasing_past_targets() -> i64 {
+    yield @1969-01-01T00:00:00Z: 1
+    yield @1969-01-01T00:00:00.000001Z: 2
+    yield 0s: 3
+}
+
+const fn mark_yield_time(value: duration) -> duration {
+    inject logger
+    info(logger, "time")
+    return value
+}
+const fn mark_yield_payload(value: i64) -> i64 {
+    inject logger
+    info(logger, "payload")
+    return value
+}
+export fn observed_relative(const delay: duration) -> i64 {
+    inject logger
+    yield mark_yield_time(delay): mark_yield_payload(7)
+    info(logger, "after")
+    return
+}
+export fn observed_past() -> i64 {
+    inject logger
+    yield @1969-01-01T00:00:00Z: mark_yield_payload(1)
+    info(logger, "after")
+    yield 0s: 2
 }

@@ -48,3 +48,10 @@ The parser implementation and any parsing library remain private to `syntax/`.
 Backend targets must not include syntax AST headers. Generated C++ remains
 formatted, readable output, but it is not used as an intermediate representation
 by another compiler pass.
+
+Publication-delta descriptor records use category `delta` and one child naming
+the originating temporal shape. The writer, reader and import catalog retain
+that child rather than flattening its fields. Scalar delta aliases have already
+been canonicalized by type checking. The native-package value-pattern facade
+provides the same representation; it does not expand the native ABI safety
+envelope to pass structural deltas where no native projection is supported.

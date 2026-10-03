@@ -1232,3 +1232,29 @@ fn reading(a: atomic<shapes::A>) -> atomic<shapes::A> => a
 
 
 
+
+TEST_CASE("ordinary delta generic arguments retain tuple temporal shape metadata", "[wiring][types][ordinary]") {
+    Unit unit{R"(
+module checks.ordinary_tuple_parameter
+struct TimedValue<T> {
+    time: duration
+    value: delta<T>
+}
+
+fn accept(const value: TimedValue<tuple<i64, i64>>) -> i64 => 0
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    INFO(unit.diagnostics.render(unit.file));
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto *timed = bridge.value(unit.parameter("accept", "value"));
+    REQUIRE(timed != nullptr);
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto &arguments = timed->bundle_generic_arguments();
+    REQUIRE(arguments.size() == 1);
+    auto &registry = hgraph::TypeRegistry::instance();
+    const auto *integer = registry.ts(hgraph::scalar_descriptor<hgraph::Int>::value_meta());
+    const auto *tuple = registry.un_named_tsb({{"0", integer}, {"1", integer}});
+    CHECK(arguments[0] == tuple->value_schema);
+    REQUIRE(timed->field_count == 2);
+    CHECK(timed->fields[1].type->bundle_generic_arguments() == arguments);
+}

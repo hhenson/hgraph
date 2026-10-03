@@ -77,6 +77,7 @@ namespace
         const hgl::ir::OperatorResolver resolver = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
             hgl::ir::OperatorSelection result;
             result.result          = query.expected_result;
+            if (query.identity == "const" && !query.arguments.empty()) { result.result = query.arguments.front().type; }
             result.candidate_label = query.identity + "(<typed>)";
             result.deferred        = true;
             return result;
@@ -2351,7 +2352,7 @@ fn total(value: f64) -> f64 {
     inject out, logger
     when modified(value) {
         current += value
-        logger.info("updated")
+        info(logger, "updated")
         out = current
     }
 }
@@ -2591,7 +2592,7 @@ fn total(value: f64) -> f64 {
 
     when modified(value) && valid(value) {
         current += value
-        logger.info("updated")
+        info(logger, "updated")
         out = current
     }
 }
@@ -2620,7 +2621,7 @@ fn recent(book: map<str, f64>, const cutoff: datetime) {
     inject logger
     when modified(book) {
         for key, value in items(book, fn(key, value) => last_modified(value) > cutoff) {
-            logger.info(key)
+            info(logger, key)
         }
     }
 }
@@ -2764,9 +2765,9 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
     CHECK(completes("module checks.inject_clock\n"
                     "fn f(value: f64) -> f64 {\n"
                     "    inject out, clock, scheduler\n"
-                    "    when modified(value) { if clock.evaluation_time() > @2020-01-01T00:00Z { out = value } }\n"
+                    "    when modified(value) { if clock.evaluation_time > @2020-01-01T00:00Z { out = value } }\n"
                     "    when scheduled() {\n"
-                    "        scheduler.schedule(1s)\n"
+                    "        schedule(scheduler, 1s)\n"
                     "        passivate(value)\n"
                     "    }\n"
                     "}\n"));
@@ -2791,7 +2792,7 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
     CHECK(completion_diagnostics("module checks.scheduler_method\n"
                                  "fn f(value: f64) -> f64 {\n"
                                  "    inject out, scheduler\n"
-                                 "    when modified(value) { scheduler.schedule(1) }\n"
+                                 "    when modified(value) { schedule(scheduler, 1) }\n"
                                  "}\n")
               .find("scheduler.schedule delay") != std::string::npos);
     CHECK(completion_diagnostics("module checks.clock_method\n"
@@ -2799,7 +2800,7 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
                                  "    inject out, clock\n"
                                  "    when modified(value) { out = clock.wall() }\n"
                                  "}\n")
-              .find("'clock.wall' is not a capability method") != std::string::npos);
+              .find("capabilities expose only clock properties") != std::string::npos);
     CHECK(completion_diagnostics("module checks.inject_outputless\n"
                                  "fn f(value: f64) {\n"
                                  "    inject out\n"
@@ -2816,7 +2817,7 @@ TEST_CASE("typed HIR requires a scheduler for runtime sources", "[ir][typed][lif
     CHECK(completes("module checks.scheduled_source\n"
                     "fn source() -> bool {\n"
                     "    inject scheduler\n"
-                    "    start { scheduler.schedule(0s) }\n"
+                    "    start { schedule(scheduler, 0s) }\n"
                     "    when scheduled() { return true }\n"
                     "}\n"));
 }
@@ -2827,19 +2828,19 @@ TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][a
     CHECK(completes("module checks.alarm_source\n"
                     "fn source(const value: i64, const delay: duration = 0s) -> i64 {\n"
                     "    inject alarm\n"
-                    "    start { alarm.schedule(delay) }\n"
+                    "    start { schedule(alarm, delay) }\n"
                     "    when { return value }\n"
                     "}\n"));
     CHECK(completes("module checks.alarm_at\n"
                     "fn source(const at: datetime) -> bool {\n"
                     "    inject alarm\n"
-                    "    start { alarm.schedule_at(at) }\n"
+                    "    start { schedule_at(alarm, at) }\n"
                     "    when { return true }\n"
                     "}\n"));
     CHECK(completion_diagnostics("module checks.alarm_scheduled\n"
                                  "fn source(const value: i64) -> i64 {\n"
                                  "    inject alarm\n"
-                                 "    start { alarm.schedule(1s) }\n"
+                                 "    start { schedule(alarm, 1s) }\n"
                                  "    when scheduled() { return value }\n"
                                  "}\n")
               .find("'scheduled' requires 'inject scheduler'; a source on 'alarm' publishes from a plain 'when'") !=
@@ -2847,14 +2848,14 @@ TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][a
     CHECK(completion_diagnostics("module checks.alarm_with_input\n"
                                  "fn f(value: i64) -> i64 {\n"
                                  "    inject alarm\n"
-                                 "    when modified(value) { alarm.schedule(1s)\n        return value }\n"
+                                 "    when modified(value) { schedule(alarm, 1s)\n        return value }\n"
                                  "}\n")
               .find("'alarm' is admitted only in a source") != std::string::npos);
     CHECK(completion_diagnostics("module checks.alarm_query\n"
                                  "fn source() -> bool {\n"
                                  "    inject alarm\n"
-                                 "    start { alarm.schedule(1s) }\n"
-                                 "    when { return alarm.is_scheduled() }\n"
+                                 "    start { schedule(alarm, 1s) }\n"
+                                 "    when { return is_scheduled(alarm) }\n"
                                  "}\n")
               .find("'alarm.is_scheduled' is not a capability method") != std::string::npos);
     CHECK(completion_diagnostics("module checks.alarm_const\n"
@@ -2868,7 +2869,7 @@ TEST_CASE("typed HIR admits the stateless alarm in sources only", "[ir][typed][a
     CHECK(completion_diagnostics("module checks.alarm_and_scheduler\n"
                                  "fn source(const value: i64) -> i64 {\n"
                                  "    inject scheduler, alarm\n"
-                                 "    start { alarm.schedule(1s) }\n"
+                                 "    start { schedule(alarm, 1s) }\n"
                                  "    when scheduled() { return value }\n"
                                  "}\n")
               .find("a source injects 'scheduler' or 'alarm', not both") != std::string::npos);
@@ -3064,8 +3065,8 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
     CHECK(completion_diagnostics("module checks.two_starts\n"
                                  "fn f(value: f64) -> f64 {\n"
                                  "    inject out, logger\n"
-                                 "    start { logger.info(\"a\") }\n"
-                                 "    start { logger.info(\"b\") }\n"
+                                 "    start { info(logger, \"a\") }\n"
+                                 "    start { info(logger, \"b\") }\n"
                                  "    when modified(value) { out = value }\n"
                                  "}\n")
               .find("function-kind: a runtime function has at most one 'start' block") != std::string::npos);
@@ -3088,7 +3089,7 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
                                  "fn f(value: f64) -> f64 {\n"
                                  "    inject out, logger\n"
                                  "    when modified(value) {\n"
-                                 "        start { logger.info(\"late\") }\n"
+                                 "        start { info(logger, \"late\") }\n"
                                  "        out = value\n"
                                  "    }\n"
                                  "}\n")
@@ -3182,7 +3183,7 @@ fn caller(value: i64) -> i64 {
 const fn middle(value: i64) -> i64 => leaf(value)
 const fn leaf(value: i64) -> i64 {
     inject logger
-    logger.info("value")
+    info(logger, "value")
     return value
 }
 )hgl"};
@@ -3238,7 +3239,7 @@ TEST_CASE("inferred capabilities do not create runtime context at wiring time", 
     CHECK(completion_diagnostics(R"hgl(module capabilities.phase
 const fn leaf(value: i64) -> i64 {
     inject logger
-    logger.info("value")
+    info(logger, "value")
     return value
 }
 const fn middle(value: i64) -> i64 => leaf(value)
@@ -3445,7 +3446,7 @@ TEST_CASE("const is admitted as an operator name and const(f) stays the selector
                     "operator const<T>(const value: T, const delay: duration = 0s) -> T\n"
                     "impl fn const<T>(const value: T, const delay: duration = 0s) -> T {\n"
                     "    inject scheduler\n"
-                    "    start { scheduler.schedule(delay) }\n"
+                    "    start { schedule(scheduler, delay) }\n"
                     "    when scheduled() { return value }\n"
                     "}\n"
                     "instantiate const<i64>\n"
@@ -3522,4 +3523,142 @@ TEST_CASE("typed HIR bounds the statements a generator source may hold", "[ir][t
                                  "    yield 1us: picked\n"
                                  "}\n")
               .find("cannot sit inside a value") != std::string::npos);
+}
+
+TEST_CASE("ordinary value extensions preserve delta identity and lexical access", "[ir][typed][ordinary]") {
+    const std::vector<std::string> accepted{
+        "const fn value(x: delta<i64>) -> i64 => x\n",
+        "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2])\n",
+        "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [1: 3])\n",
+        "const fn value() -> delta<tuple<i64, str>> => delta<tuple<i64, str>>(items: [1: \"yes\"])\n",
+        "const fn value() -> delta<set<i64>> => delta<set<i64>>(added: [1], removed: [2])\n",
+        "struct Box { amount: i64 }\nconst fn value() -> i64 { var box = Box(amount: 1)\nbox.amount = 2\nreturn box.amount }\n",
+        "const fn value() -> i64 { var xs: list<i64> = []\npush(xs, 1)\nreturn len(xs) }\n",
+        "fn value(x: i64) -> i64 { when { return delta_value(x) } }\n",
+        "fn value(x: i64) -> datetime { inject clock\nwhen { return clock.evaluation_time } }\n",
+        "struct Box { amount: i64 }\nfn value(x: i64) { inject global_state\nwhen { var box: Box = get(global_state, \"box\")\nbox.amount += 1 } }\n",
+        "fn value(x: i64) { inject global_state\nwhen { var n: i64 = get(global_state, \"n\")\nn += 1\nset(global_state, \"n\", n) } }\n",
+        "struct TimedValue<T> { time: datetime\nvalue: delta<T> }\nconst fn value() -> list<TimedValue<i64>> { var xs: list<TimedValue<i64>> = []\npush(xs, TimedValue(time: @2020-01-01T00:00Z, value: 1))\nreturn xs }\n"
+    };
+    for (const auto &source : accepted) {
+        Lowered unit{"module checks.ordinary\n" + source};
+        INFO(source);
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+    const std::vector<std::string> rejected{
+        "const fn value() -> i64 { let xs = []\nreturn 1 }\n",
+        "const fn value(x: delta<list<i64>>) -> i64 => 1\n",
+        "const fn value(x: delta<map<str, i64>>) -> i64 => 1\n",
+        "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2], remove: [1])\n",
+        "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [2: 3])\n",
+        "const fn value() -> i64 { let xs: list<i64> = []\npush(xs, 1)\nreturn 1 }\n",
+        "const fn value() -> i64 { var xs: list<i64, 0> = []\npush(xs, 1)\nreturn 1 }\n",
+        "fn value(x: i64) -> i64 { when { return delta(x) } }\n",
+        "fn value(x: i64) -> datetime { inject clock\nwhen { return clock.now() } }\n",
+        "fn value(x: i64) { inject global_state\nwhen { let n = get(global_state, \"n\") } }\n",
+        "fn value(x: i64) { inject global_state\nwhen { set(global_state, \"n\", 1)\nset(global_state, \"n\", true) } }\n",
+        "struct Box { amount: i64 }\nfn value(x: i64) { inject global_state\nwhen { let box: Box = get(global_state, \"box\")\nbox.amount = 1 } }\n",
+        "struct Box { amount: i64 }\nfn value(x: i64) { inject global_state\nwhen { var box: Box = get(global_state, \"box\")\nlet alias = box } }\n",
+        "struct Box { amount: i64 }\nfn value(x: i64) { inject global_state\nwhen { let box: Box = get(global_state, \"box\")\nset(global_state, \"box\", Box(amount: 1)) } }\n"
+    };
+    for (const auto &source : rejected) {
+        INFO(source);
+        Lowered unit{"module checks.ordinary\n" + source};
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("eval indexing refines contextual nullable immutable locals", "[ir][typed][nullable]") {
+    const std::vector<std::string> accepted{
+        "assert len(result) == 3\nlet item = result[0]\nassert item != null && item == 0\n",
+        "assert [0, _, 2] == result\nassert [] != result\n",
+        "let item = result[0]\nassert item == null || item == 0\n",
+        "let item = result[0]\nif !(null == item) { let ordinary: i64 = item\nassert ordinary == 0 }\n",
+        "let item = result[0]\nlet alias = item\nif item != null { if alias != null { assert alias == item } }\n",
+        "let item = result[0]\nif item != null { let copy = item\nassert copy == 0 }\n",
+        "let item = result[0]\nif item == null { return }\nassert item == 0\n",
+        "let item = result[0]\nif item != null {} else { return }\nassert item == 0\n",
+        "let item = result[0]\nif item == null || false {} else { assert item == 0 }\n"
+    };
+    const std::vector<std::string> rejected{
+        "let item = result[0]\nassert item == 0\n",
+        "let item = result[0]\nvar copy = item\n",
+        "let item: i64 = result[0]\n",
+        "let item = result[0]\nlet alias = item\nif item != null { assert alias == 0 }\n",
+        "if result[0] != null { assert result[0] == 0 }\n",
+        "let item = result[0]\nlet present = item != null\nif present { assert item == 0 }\n",
+        "let item = result[0]\nif item == null { assert item == 0 }\n",
+        "let item = result[0]\nassert item != null || item == 0\n",
+        "let item = result[0]\nif item != null {}\nassert item == 0\n",
+        "let item = result[0]\nif item != null { let item = result[1]\nassert item == 0 }\n"
+    };
+    const auto source = [](const std::string &body) {
+        return "module checks.nullable\nfn identity(value: i64) -> i64 => value\n"
+               "test check { let result = eval(identity, value: [0, _, 2])\n" + body + "}\n";
+    };
+    for (const auto &body : accepted) {
+        Lowered unit{source(body)};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+    for (const auto &body : rejected) {
+        Lowered unit{source(body)};
+        INFO(body);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+        CHECK(unit.diagnostics.render(unit.file).find("nullable") != std::string::npos);
+    }
+}
+
+TEST_CASE("generator final expressions complete without becoming publications", "[ir][typed][generator]") {
+    Lowered unit{"module checks.generator_tail\nfn values() -> i64 { inject logger\nyield 0us: 1\ninfo(logger, \"done\")\n}\n"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const bool result = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result);
+}
+
+TEST_CASE("computed const global keys defer equality to preflight", "[ir][typed][global-state]") {
+    Lowered unit{R"(
+module checks.computed_keys
+fn update(value: i64, const left: str, const right: str) {
+    inject global_state
+    when {
+        var first: list<i64> = get(global_state, left + ".samples")
+        var second: list<i64> = get(global_state, right + ".samples")
+        push(first, value)
+        push(second, value)
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const bool result = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK(result);
+}
+
+TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
+    for (const std::string shape : {"atomic<i64>", "ref<i64>", "list<i64>", "map<str, i64>", "Node"}) {
+        Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
+            "fn identity(value: " + shape + ") -> " + shape + " => value\n"
+            "test rejected { eval(identity, value: []) }\n"};
+        INFO(shape);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        CHECK_FALSE(complete(unit));
+        CHECK(unit.diagnostics.render(unit.file).find("publication profile") != std::string::npos);
+    }
+    Lowered accepted{"module checks.eval_tuple\nfn identity(value: tuple<f64, f64>) -> tuple<f64, f64> => value\n"
+        "test admitted { eval(identity, value: [(1.0, 2.0), _]) }\n"};
+    REQUIRE_FALSE(accepted.diagnostics.has_errors());
+    const bool result = complete(accepted);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(result);
 }

@@ -3,7 +3,7 @@
 Each case in ``external/hgraph_spec_audit/runtime/validation/wiring/cases.py`` runs in
 a fresh interpreter (its operators must not leak into this session) and every
 reasoned expectation in ``reasoned.json`` is asserted, naming the rules it
-comes from (``runtime_spec/wiring.md``). The HGL front end's cases are the
+comes from (``hgraph_spec/wiring/wiring.md``). The HGL front end's cases are the
 compiler's to hold (WIR-14); they are not run here.
 """
 
@@ -63,7 +63,7 @@ def test_the_wiring_case_holds(case):
 def test_every_cited_rule_is_defined():
     defined = {
         rule
-        for chapter in ("wiring.md", "time_series.md")
+        for chapter in ("../wiring/wiring.md", "time_series.md")
         for rule in re.findall(r"\*\*([A-Z]{2,4}-\d+)\*\*", (SPEC / chapter).read_text())
     }
     cited = {

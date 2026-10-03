@@ -37,6 +37,7 @@ namespace
                       [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
                           hgl::ir::OperatorSelection selected;
                           selected.result   = query.expected_result;
+                          if (query.identity == "const" && !query.arguments.empty()) { selected.result = query.arguments.front().type; }
                           selected.deferred = true;
                           return selected;
                       },
@@ -192,9 +193,8 @@ TEST_CASE("value function boundaries fail closed", "[hgraph-ir][value-function]"
     }
 }
 
-TEST_CASE("value function structural signatures fail during checking", "[hgraph-ir][value-function]") {
-    for (const std::string type : {"set<i64>", "map<i64, i64>", "list<i64, 2>", "tuple<i64, f64>", "atomic<set<i64>>", "Record",
-                                   "atomic<Record>", "ref<f64>", "signal", "rolling<f64, 3>"}) {
+TEST_CASE("value function signatures distinguish ordinary values from temporal shapes", "[hgraph-ir][value-function]") {
+    for (const std::string type : {"atomic<set<i64>>", "atomic<Record>", "ref<f64>", "signal", "rolling<f64, 3>"}) {
         for (const std::string &signature : {"(value: " + type + ") -> i64 { return 1 }",
                                              "(const value: " + type + ") -> i64 { return 1 }", "() -> " + type + " {}"}) {
             Lowered unit{"module example\nstruct Record { value: i64 }\nconst fn f" + signature + "\n"};
@@ -204,11 +204,17 @@ TEST_CASE("value function structural signatures fail during checking", "[hgraph-
             CHECK_FALSE(unit.graph);
             CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
                 return diagnostic.category == hgl::syntax::Category::Type &&
-                       (diagnostic.message.find("const fn signature currently requires scalar value types") != std::string::npos ||
+                       (diagnostic.message.find("const fn signature requires an ordinary value type") != std::string::npos ||
                         diagnostic.message.find("is a temporal shape, not a canonical value type") != std::string::npos ||
                         diagnostic.message.find("is an input-only type marker") != std::string::npos);
             }));
         }
+    }
+    for (const std::string type : {"set<i64>", "map<i64, i64>", "list<i64, 2>", "tuple<i64, f64>", "Record", "delta<map<i64, i64>>"}) {
+        Lowered ordinary{"module example\nstruct Record { value: i64 }\nconst fn f(value: " + type + ") -> " + type + " => value\n"};
+        INFO(ordinary.diagnostics.render(ordinary.file));
+        CHECK_FALSE(ordinary.diagnostics.has_errors());
+        CHECK(ordinary.graph.has_value());
     }
     Lowered scalar{"module example\nconst fn f(value: atomic<f64>) -> atomic<f64> => value\n"};
     INFO(scalar.diagnostics.render(scalar.file));
@@ -641,9 +647,9 @@ module checks.lifecycle
 
 fn observed(value: f64) -> f64 {
     inject out, logger
-    start { logger.info("start") }
+    start { info(logger, "start") }
     when modified(value) { out = value }
-    stop { logger.info("stop") }
+    stop { info(logger, "stop") }
 }
 )"};
     INFO(lowered.diagnostics.render(lowered.file));
@@ -1229,4 +1235,68 @@ export struct Tick: shapes::Base
     const hgl::hgraph_ir::StructContract *tick = structure(*lowered.graph, "checks.imported_contract.Tick");
     REQUIRE(tick != nullptr);
     CHECK(tick->exported);
+}
+
+TEST_CASE("delta observations require both publication guards", "[hgraph-ir][delta]") {
+    const std::vector<std::pair<std::string, bool>> cases{
+        {"fn f(value: i64) -> i64 { when { return delta_value(value) } }", true},
+        {"fn f(value: i64, other: i64) -> i64 { when { return delta_value(value) } }", false},
+        {"fn f(value: i64, other: i64) -> i64 { when valid(value) && modified(value) { return delta_value(value) } }", true},
+        {"fn f(value: i64) -> i64 { inject scheduler\nwhen scheduled() { return delta_value(value) } }", false},
+        {"fn f(value: i64, other: i64) -> i64 { when { if valid(value) && modified(value) { return delta_value(value) } } }", true}
+    };
+    for (const auto &[source, expected] : cases) {
+        Lowered lowered{"module checks.delta_guard\n" + source + "\n"};
+        INFO(source);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(lowered.graph.has_value());
+        hgl::hgraph_ir::plan(*lowered.graph, lowered.diagnostics);
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(!lowered.diagnostics.has_errors() == expected);
+    }
+}
+
+TEST_CASE("global entry preparation preserves unresolved key alias requirements", "[hgraph-ir][global-state]") {
+    Lowered unit{R"(
+module checks.global_keys
+fn update(value: i64, const left: str, const right: str) {
+    inject global_state
+    when {
+        var first: list<i64> = get(global_state, left)
+        var second: list<i64> = get(global_state, right)
+        push(first, value)
+        push(second, value)
+    }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(unit.graph.has_value());
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    const auto *target = callable(*unit.graph, "checks.global_keys.update");
+    REQUIRE(target != nullptr);
+    CHECK(target->global_entries.size() == 2U);
+    CHECK_FALSE(target->global_key_distinct.empty());
+    for (const auto &pair : target->global_key_distinct) {
+        CHECK(pair.first.valid());
+        CHECK(pair.second.valid());
+    }
+}
+
+TEST_CASE("string conversion admits a temporal graph input", "[hgraph-ir][str]") {
+    Lowered unit{"module checks.string_graph\nfn text(value: i64) -> str => str(value)\n"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(unit.graph.has_value());
+    hgl::hgraph_ir::plan(*unit.graph, unit.diagnostics);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("ordinary local field mutation is admitted in test value code", "[hgraph-ir][ordinary]") {
+    Lowered unit{"module checks.local_fields\nstruct Box { value: i64 }\n"
+        "test update { var item = Box(value: 1)\nitem.value = 2\nassert item.value == 2 }\n"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(unit.graph.has_value());
+    hgl::hgraph_ir::plan(*unit.graph, unit.diagnostics);
+    INFO(unit.diagnostics.render(unit.file));
+    CHECK_FALSE(unit.diagnostics.has_errors());
 }

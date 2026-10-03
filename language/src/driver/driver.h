@@ -11,7 +11,12 @@ namespace hgl::driver
     /// the process exit code (0 ok, 1 diagnostics, 2 usage). `tool_version` is what
     /// `--version` and generated-code banners report; `hgl` passes the hgraph
     /// release version (RFC 0032).
-    int run(std::span<const std::string_view> arguments, std::string_view tool_version);
+    /// Optional provider compiled from the HGL replay/record source. Invoked
+    /// only when eval needs those operators; custom hosts may omit it and use
+    /// scripted preparation where that facility is supported.
+    using EvalLibraryProvider = void (*)();
+    int run(std::span<const std::string_view> arguments, std::string_view tool_version,
+            EvalLibraryProvider eval_provider = nullptr);
 }  // namespace hgl::driver
 
 #endif  // HGL_DRIVER_DRIVER_H

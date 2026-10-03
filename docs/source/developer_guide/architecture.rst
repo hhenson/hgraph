@@ -40,6 +40,28 @@ binding.  That explicit binding is what lets distinct runs proceed on distinct
 threads.  The graph never borrows the Python seed and there is no alternate
 external-state path in ``GraphBuilder`` or the runtime.
 
+Prepared global entries
+~~~~~~~~~~~~~~~~~~~~~~~
+
+A node with a closed key/type contract binds each entry during construction
+using ``GlobalStateView::prepare(key, binding)``. Conflicting declarations or
+seed types fail then. An unseeded bound entry remains absent; ``is_prepared``
+queries its declaration independently of ``contains`` and ``size``. Copy-out
+omits entries which have never received a value.
+
+The returned ``PreparedGlobalEntry`` borrows a stable cell. Its ``get`` and
+``set`` avoid key lookup and type-system locking; the caller supplies the
+already checked type. ``set`` retains before replacing, preserving the old
+value on retention failure. Erasure and wholesale replacement of prepared
+storage are rejected. Owner move, assignment or destruction invalidates its
+handles; prepare fresh handles for copied or replacement stores.
+
+Native nodes may define ``prepare(const NodeView &)`` to cache typed entry
+handles and value plans after graph attachment, before start hooks. Preparation
+cannot publish or schedule. Language-level closed-key checks also run while
+wiring known nested graphs, before any root hook starts. Node preparation binds
+handles against the final run copy; it does not replace that earlier validation.
+
 Clock And Execution Mode
 ------------------------
 

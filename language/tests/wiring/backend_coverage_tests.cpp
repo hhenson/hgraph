@@ -216,9 +216,9 @@ test route_switching_ticks {
     check_all_pass(unit);
 }
 
-TEST_CASE("a reference result runs under eval and its adaptation to a plain result is a backend boundary",
+TEST_CASE("reference eval boundaries reject designation and retain explicit consumer coverage",
           "[wiring][coverage][ref]") {
-    SECTION("a ref<f64> composition wires and runs") {
+    SECTION("a ref<f64> result is outside the eval publication profile") {
         Unit             unit{R"(
 module coverage.reference_result
 
@@ -226,16 +226,14 @@ use hgraph.std::{if_then_else}
 
 fn pick(condition: bool, a: f64, b: f64) -> ref<f64> => if_then_else(condition, a, b)
 
-# The harness records the reference itself, so there is no float sequence to
-# assert against; the test passes when the graph wires and runs.
+# Reference forwarding is tested through scalar consumers above; eval cannot
+# record raw reference designation.
 test pick_runs {
     eval(pick, condition: [true, false], a: [1.0, 2.0], b: [10.0, 20.0])
 }
 )"};
-        const TestResult result = only(unit.tests());
-        INFO(unit.diagnostics.render(unit.file));
-        INFO(result.message);
-        CHECK(result.passed);
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.has(Category::Type, "eval output requires an exact concrete shape admitted by the publication profile"));
     }
 
     SECTION("a reference is not adapted to a declared plain result") {

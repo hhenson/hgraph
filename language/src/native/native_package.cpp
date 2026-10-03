@@ -193,6 +193,7 @@ namespace hgl::native
                     case ValueTypeCategory::Set:
                     case ValueTypeCategory::Map:
                     case ValueTypeCategory::Rolling:
+                    case ValueTypeCategory::Delta:
                         {
                             const std::size_t expected_children = type.category == ValueTypeCategory::Map ? 2U : 1U;
                             if (type.children.size() != expected_children) {
@@ -204,6 +205,7 @@ namespace hgl::native
                                 case ValueTypeCategory::Set: record.category = descriptor::TypeCategory::Set; break;
                                 case ValueTypeCategory::Map: record.category = descriptor::TypeCategory::Map; break;
                                 case ValueTypeCategory::Rolling: record.category = descriptor::TypeCategory::Rolling; break;
+                                case ValueTypeCategory::Delta: record.category = descriptor::TypeCategory::Delta; break;
                                 default: std::unreachable();
                             }
                             for (const ValueType &child : type.children) { record.children.push_back(at(child, declaration)); }

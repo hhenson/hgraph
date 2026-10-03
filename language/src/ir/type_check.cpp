@@ -308,12 +308,23 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && type(id).kind == TypeKind::Reference;
             }
+            [[nodiscard]] bool capability_value(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && type(id).kind == TypeKind::Capability;
+            }
             [[nodiscard]] bool borrowed_schema(TypeId id) const noexcept {
                 id = canonical(id);
                 return id.valid() && (type(id).kind == TypeKind::Schema || type(id).kind == TypeKind::SchemaView);
             }
             [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
+            }
+
+            void require_publication(TypeId expected, const Expr &actual, std::string_view context) {
+                const TypeId actual_id = canonical(actual.type);
+                if (actual_id.valid() && type(actual_id).kind == TypeKind::Delta && type(actual_id).children.size() == 1U &&
+                    same(expected, type(actual_id).children.front())) { return; }
+                require_assignable(expected, actual, context);
             }
 
             void type_error(syntax::SourceRange range, std::string message) {
@@ -741,7 +752,7 @@ namespace hgl::ir
                                 }
                                 check_block(node.block_body, node.signature.result);
                                 const Block &body = module_.block(node.block_body);
-                                if (body.tail.valid()) {
+                                if (body.tail.valid() && !node.is_generator) {
                                     require_assignable(node.signature.result, module_.expr(body.tail), "function result");
                                 }
                                 node.effects = body.effects;
@@ -895,18 +906,14 @@ namespace hgl::ir
             }
 
             void check_value_signature(const Signature &signature) {
-                // Structural C++ types describe schemas, not invocation values.
-                // Until the value-view/ownership ABI is lowered explicitly, do
-                // not let either backend accept these as ordinary helper values.
                 const auto check = [&](TypeId id, bool result) {
-                    const auto range = type(id).range;
-                    TypeId     value = canonical(id);
-                    while (type(value).kind == TypeKind::Atomic && type(value).children.size() == 1) {
-                        value = canonical(type(value).children.front());
-                    }
-                    if (type(value).kind == TypeKind::Scalar || (result && type(value).kind == TypeKind::Void)) { return; }
-                    type_error(range, "const fn signature currently requires scalar value types; "
-                                      "non-scalar runtime-value lowering is not implemented");
+                    const Type &value = type(canonical(id));
+                    if (value.kind == TypeKind::Atomic && value.children.size() == 1U &&
+                        type(canonical(value.children.front())).kind == TypeKind::Scalar) { return; }
+                    if (value.kind == TypeKind::Scalar || value.kind == TypeKind::Symbol || value.kind == TypeKind::List ||
+                        value.kind == TypeKind::Tuple || value.kind == TypeKind::Map || value.kind == TypeKind::Set ||
+                        value.kind == TypeKind::Delta || (result && value.kind == TypeKind::Void)) { return; }
+                    type_error(value.range, "const fn signature requires an ordinary value type");
                 };
                 for (const Parameter &parameter : signature.parameters) { check(parameter.type, false); }
                 check(signature.result, true);
@@ -1341,12 +1348,85 @@ namespace hgl::ir
                 }
             }
 
-            Expr &check_expr(ExprId id, TypeId expected = {}) {
+            using PresenceFacts = std::unordered_set<std::uint32_t>;
+
+            [[nodiscard]] bool is_null(const Expr &expression) const {
+                return expression.constant && std::holds_alternative<NullValue>(*expression.constant);
+            }
+
+            [[nodiscard]] bool nullable_origin(const Expr &expression) const {
+                if (nullable_expressions_.contains(&expression)) { return true; }
+                const auto *reference = std::get_if<SymbolRef>(&expression.node);
+                return reference && nullable_bindings_.contains(reference->symbol.value);
+            }
+
+            [[nodiscard]] bool nullable(const Expr &expression) const {
+                if (!nullable_origin(expression)) { return false; }
+                const auto *reference = std::get_if<SymbolRef>(&expression.node);
+                return !reference || !present_bindings_.contains(reference->symbol.value);
+            }
+
+            [[nodiscard]] PresenceFacts intersect_presence(const PresenceFacts &left, const PresenceFacts &right) const {
+                PresenceFacts result;
+                for (const auto binding : left) { if (right.contains(binding)) { result.insert(binding); } }
+                return result;
+            }
+
+            [[nodiscard]] PresenceFacts presence_after(ExprId id, bool truth, PresenceFacts incoming) const {
+                if (!id.valid()) { return incoming; }
+                const Expr &condition = module_.expr(id);
+                if (const auto *unary = std::get_if<Unary>(&condition.node); unary && unary->op == UnaryOp::Not) {
+                    return presence_after(unary->operand, !truth, std::move(incoming));
+                }
+                const auto *binary = std::get_if<Binary>(&condition.node);
+                if (!binary) { return incoming; }
+                if (binary->op == BinaryOp::And) {
+                    const auto left_true = presence_after(binary->lhs, true, incoming);
+                    if (truth) { return presence_after(binary->rhs, true, left_true); }
+                    return intersect_presence(presence_after(binary->lhs, false, incoming), presence_after(binary->rhs, false, left_true));
+                }
+                if (binary->op == BinaryOp::Or) {
+                    const auto left_false = presence_after(binary->lhs, false, incoming);
+                    if (!truth) { return presence_after(binary->rhs, false, left_false); }
+                    return intersect_presence(presence_after(binary->lhs, true, incoming), presence_after(binary->rhs, true, left_false));
+                }
+                if (binary->op != BinaryOp::Equal && binary->op != BinaryOp::NotEqual) { return incoming; }
+                const auto &left = module_.expr(binary->lhs);
+                const auto &right = module_.expr(binary->rhs);
+                const Expr *item = is_null(left) ? &right : is_null(right) ? &left : nullptr;
+                if (!item) { return incoming; }
+                const auto *reference = std::get_if<SymbolRef>(&item->node);
+                if (reference && nullable_bindings_.contains(reference->symbol.value)) {
+                    if (truth == (binary->op == BinaryOp::NotEqual)) { incoming.insert(reference->symbol.value); }
+                    else { incoming.erase(reference->symbol.value); }
+                }
+                return incoming;
+            }
+
+            [[nodiscard]] bool expression_terminates(ExprId id) const {
+                if (!id.valid()) { return false; }
+                const auto &expression = module_.expr(id);
+                if (const auto *block = std::get_if<BlockExpr>(&expression.node)) { return block_terminates(block->block); }
+                const auto *conditional = std::get_if<If>(&expression.node);
+                return conditional && block_terminates(conditional->then_block) && expression_terminates(conditional->otherwise);
+            }
+
+            [[nodiscard]] bool block_terminates(BlockId id) const {
+                for (const auto statement : module_.block(id).statements) {
+                    const auto &node = module_.stmt(statement).node;
+                    if (std::holds_alternative<ReturnStmt>(node)) { return true; }
+                    if (const auto *evaluate = std::get_if<ExprStmt>(&node); evaluate && expression_terminates(evaluate->expr)) { return true; }
+                }
+                return false;
+            }
+
+            Expr &check_expr(ExprId id, TypeId expected = {}, bool allow_nullable = false) {
                 if (!id.valid()) { return missing_expression_; }
                 if (id.value >= expr_state_.size()) { expr_state_.resize(module_.exprs.size()); }
                 Expr &expression = module_.exprs[id.value];
                 if (expr_state_[id.value] == 2U) {
                     contextualize(expression, expected);
+                    if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
                     return expression;
                 }
                 if (expr_state_[id.value] == 1U) {
@@ -1390,6 +1470,7 @@ namespace hgl::ir
                     expression.node);
                 contextualize(expression, expected);
                 expr_state_[id.value] = 2U;
+                if (!allow_nullable && nullable(expression)) { type_error(expression.range, "nullable payload requires a presence guard"); }
                 return expression;
             }
 
@@ -1418,6 +1499,9 @@ namespace hgl::ir
             void check_symbol(Expr &expression, const SymbolRef &reference) {
                 if (!reference.symbol.valid()) { return; }
                 Symbol &symbol = module_.symbols[reference.symbol.value];
+                if (nullable_capture_forbidden_.contains(reference.symbol.value)) {
+                    type_error(expression.range, "a nullable local cannot escape into a closure");
+                }
                 switch (symbol.kind) {
                     case SymbolKind::ConstParameter:
                         expression.type       = canonical(symbol.type);
@@ -1565,8 +1649,8 @@ namespace hgl::ir
                         expression.constant = Constant{!std::get<bool>(*operand.constant)};
                     }
                 } else {
-                    if (!numeric(operand.type) && !active_proves_numeric(operand.type)) {
-                        type_error(operand.range, "unary '-' requires i64 or f64");
+                    if (!numeric(operand.type) && !same(operand.type, scalar(ScalarType::Duration)) && !active_proves_numeric(operand.type)) {
+                        type_error(operand.range, "unary '-' requires i64, f64, or duration");
                     }
                     expression.type = operand.type;
                     if (operand.constant && std::holds_alternative<std::int64_t>(*operand.constant)) {
@@ -1578,6 +1662,16 @@ namespace hgl::ir
                         }
                     } else if (operand.constant && std::holds_alternative<double>(*operand.constant)) {
                         expression.constant = Constant{-std::get<double>(*operand.constant)};
+                    } else if (operand.constant && std::holds_alternative<syntax::TemporalValue>(*operand.constant)) {
+                        auto temporal = std::get<syntax::TemporalValue>(*operand.constant);
+                        if (temporal.kind == syntax::TemporalKind::Duration) {
+                            if (temporal.micros == std::numeric_limits<std::int64_t>::min()) {
+                                type_error(expression.range, "overflow in a temporal constant expression");
+                            } else {
+                                temporal.micros = -temporal.micros;
+                                expression.constant = Constant{temporal};
+                            }
+                        }
                     }
                 }
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
@@ -1798,8 +1892,32 @@ namespace hgl::ir
             }
 
             void check_binary(Expr &expression, const Binary &node, TypeId expected) {
-                Expr &lhs = check_expr(node.lhs);
-                Expr &rhs = check_expr(node.rhs, lhs.type.valid() ? lhs.type : expected);
+                const bool presence_test = (node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual) &&
+                    (is_null(module_.expr(node.lhs)) || is_null(module_.expr(node.rhs)));
+                const bool null_left = presence_test && is_null(module_.expr(node.lhs));
+                const bool contextual_sequence_left = (node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual) &&
+                    std::holds_alternative<Sequence>(module_.expr(node.lhs).node) &&
+                    !std::holds_alternative<Sequence>(module_.expr(node.rhs).node);
+                if (null_left || contextual_sequence_left) { check_expr(node.rhs, {}, presence_test); }
+                Expr &lhs = check_expr(node.lhs, null_left || contextual_sequence_left ? module_.expr(node.rhs).type : TypeId{}, presence_test);
+                const auto incoming = present_bindings_;
+                if (node.op == BinaryOp::And || node.op == BinaryOp::Or) {
+                    present_bindings_ = presence_after(node.lhs, node.op == BinaryOp::And, incoming);
+                }
+                Expr &rhs = check_expr(node.rhs, lhs.type.valid() ? lhs.type : expected, presence_test);
+                present_bindings_ = incoming;
+                if (presence_test && (nullable_origin(lhs) || nullable_origin(rhs))) {
+                    expression.type = scalar(ScalarType::Bool);
+                    expression.phase = join_phase(lhs.phase, rhs.phase);
+                    expression.effects = lhs.effects | rhs.effects;
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "presence"};
+                    return;
+                }
+                if ((lhs.type.valid() && type(canonical(lhs.type)).kind == TypeKind::Delta) ||
+                    (rhs.type.valid() && type(canonical(rhs.type)).kind == TypeKind::Delta)) {
+                    type_error(expression.range, "structural delta values do not support ordinary operators");
+                }
                 if (runtime_owner(expression.owner) && (reference(lhs.type) || reference(rhs.type))) {
                     type_error(expression.range, "node evaluation cannot read through ref<T>");
                 }
@@ -2128,6 +2246,7 @@ namespace hgl::ir
                     const Parameter &parameter = fn.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (capability_value(argument.type)) { type_error(argument.range, "an injected capability is not an ordinary argument"); }
                         if (borrowed_schema(argument.type)) {
                             type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
                         }
@@ -2633,6 +2752,7 @@ namespace hgl::ir
                     const Parameter &parameter = op.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (capability_value(argument.type)) { type_error(argument.range, "an injected capability is not an ordinary argument"); }
                         if (borrowed_schema(argument.type)) {
                             type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
                         }
@@ -2725,7 +2845,7 @@ namespace hgl::ir
                 }
             }
 
-            void finish_call_semantics(Expr &expression, const std::vector<ExprId> &arguments) {
+            void finish_call_semantics(Expr &expression, const std::vector<ExprId> &arguments, bool ordinary = false) {
                 expression.phase   = Phase::Constant;
                 expression.effects = Effect::None;
                 for (ExprId argument : arguments) {
@@ -2734,9 +2854,9 @@ namespace hgl::ir
                     expression.phase  = join_phase(expression.phase, value.phase);
                     expression.effects |= value.effects;
                 }
-                if (runtime_owner(expression.owner)) {
+                if (!ordinary && runtime_owner(expression.owner)) {
                     expression.phase = Phase::Runtime;
-                } else if (expression.type != void_type_) {
+                } else if ((!ordinary || expression.phase == Phase::Wiring) && expression.type != void_type_) {
                     expression.phase = Phase::Wiring;
                     expression.effects |= Effect::WireGraph;
                 }
@@ -2854,6 +2974,23 @@ namespace hgl::ir
                 if (reference && reference->symbol.valid()) {
                     const Symbol &symbol = module_.symbol(reference->symbol);
                     if (symbol.name == "const" && check_const_selector(expression, call)) { return; }
+                    if (symbol.kind == SymbolKind::Function || symbol.kind == SymbolKind::ImportedFunction) {
+                        for (const Argument &argument : call.arguments) {
+                            const SymbolId root = place_root(argument.value);
+                            if (root.valid() && global_borrows_.contains(root.value) && aggregate(module_.expr(argument.value).type)) {
+                                type_error(argument.range, "a lexical aggregate borrow cannot escape through an ordinary helper");
+                            }
+                        }
+                    }
+                    if (!call.arguments.empty()) {
+                        const auto *receiver = std::get_if<SymbolRef>(&module_.expr(call.arguments.front().value).node);
+                        if (receiver && receiver->symbol.valid() &&
+                            module_.symbol(receiver->symbol).kind == SymbolKind::InjectedCapability &&
+                            module_.symbol(receiver->symbol).name != "out") {
+                            check_receiver_capability_call(expression, call, symbol.name, receiver->symbol, expected);
+                            return;
+                        }
+                    }
                     if (active_value_function_ &&
                         (symbol.kind == SymbolKind::Operator || symbol.kind == SymbolKind::ImportedOperator)) {
                         type_error(expression.range, "a temporal operator cannot be called inside a const fn");
@@ -2956,7 +3093,8 @@ namespace hgl::ir
                     }
                 }
                 if (const auto *field = std::get_if<Field>(&callee.node)) {
-                    check_capability_call(expression, call, *field);
+                    (void)field;
+                    type_error(expression.range, "capability properties are not callable; actions use receiver-first functions");
                     return;
                 }
                 type_error(callee.range, "expression is not callable");
@@ -2986,6 +3124,10 @@ namespace hgl::ir
                     } else {
                         expression.type = base.children[static_cast<std::size_t>(*constant)];
                     }
+                } else if (base.kind == TypeKind::HarnessSequence && base.children.size() == 1U) {
+                    if (!same(index.type, scalar(ScalarType::I64))) { type_error(index.range, "sequence index must be i64"); }
+                    expression.type = make_type(TypeKind::Delta, {base.children.front()});
+                    nullable_expressions_.insert(&expression);
                 } else if (base.kind == TypeKind::List && !base.children.empty()) {
                     if (!same(index.type, scalar(ScalarType::I64))) { type_error(index.range, "list index must be i64"); }
                     expression.type = base.children.front();
@@ -3008,9 +3150,14 @@ namespace hgl::ir
                 if (const auto *reference = std::get_if<SymbolRef>(&target.node);
                     reference && reference->symbol.valid() &&
                     module_.symbol(reference->symbol).kind == SymbolKind::InjectedCapability) {
-                    expression.type       = make_type(TypeKind::Callable);
+                    const std::string &capability = module_.symbol(reference->symbol).name;
+                    if (capability != "clock" || (node.name != "evaluation_time" && node.name != "now" &&
+                                                  node.name != "next_cycle_evaluation_time")) {
+                        type_error(expression.range, "capabilities expose only clock properties; actions use receiver-first functions");
+                    }
+                    expression.type       = scalar(ScalarType::DateTime);
                     expression.phase      = Phase::Runtime;
-                    expression.value_kind = ValueKind::Function;
+                    expression.value_kind = ValueKind::RuntimeValue;
                     expression.effects    = target.effects;
                     expression.operation  = Operation{.kind     = OperationKind::Capability,
                                                       .target   = reference->symbol,
@@ -3042,6 +3189,7 @@ namespace hgl::ir
                     if ((shape.kind == TypeKind::List || shape.kind == TypeKind::HarnessSequence) && !shape.children.empty()) {
                         element_expected = shape.children.front();
                     }
+                    if (shape.kind == TypeKind::List && !shape.size.valid()) { use_expected_list = true; }
                     if (shape.kind == TypeKind::List && shape.size.valid() && !shape.unbounded) {
                         const Expr &size = module_.expr(shape.size);
                         if (size.constant) {
@@ -3058,17 +3206,29 @@ namespace hgl::ir
                 TypeId element_type = element_expected;
                 Phase  phase        = Phase::Constant;
                 for (const SequenceElement &element : node.elements) {
-                    if (element.key.valid()) { (void)check_expr(element.key); }
+                    if (element.key.valid()) {
+                        Expr &key = check_expr(element.key);
+                        const bool harness = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence;
+                        if (!harness || (!same(key.type, scalar(ScalarType::DateTime)) && !same(key.type, scalar(ScalarType::Duration)))) {
+                            type_error(key.range, "sparse entries require a delta constructor; harness keys must be temporal");
+                        }
+                    }
                     Expr &value = check_expr(element.value, element_type);
                     if (!element_type.valid() && value.type.valid()) {
                         element_type = value.type;
                     } else if (value.type.valid() && !assignable(element_type, value.type)) {
-                        type_error(value.range, "sequence elements have incompatible types");
+                        const Type payload = type(canonical(value.type));
+                        const bool publication = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence &&
+                            payload.kind == TypeKind::Delta && payload.children.size() == 1U && same(element_type, payload.children.front());
+                        if (!publication) { type_error(value.range, "sequence elements have incompatible types"); }
                     }
                     phase = join_phase(phase, value.phase);
                     expression.effects |= value.effects;
                 }
-                if (!element_type.valid()) { element_type = void_type_; }
+                if (!element_type.valid()) {
+                    type_error(expression.range, "an empty ordinary list requires an expected element type");
+                    element_type = void_type_;
+                }
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
@@ -3119,6 +3279,8 @@ namespace hgl::ir
             }
 
             void check_lambda(Expr &expression, Lambda &node, TypeId expected) {
+                const auto previous_captures = nullable_capture_forbidden_;
+                nullable_capture_forbidden_.insert(nullable_bindings_.begin(), nullable_bindings_.end());
                 std::vector<TypeId> contextual_parameters;
                 TypeId              result = node.result;
                 if (expected.valid() && type(canonical(expected)).kind == TypeKind::Callable) {
@@ -3151,6 +3313,7 @@ namespace hgl::ir
                 expression.phase      = Phase::Constant;
                 expression.value_kind = ValueKind::Function;
                 expression.effects    = body.effects;
+                nullable_capture_forbidden_ = previous_captures;
             }
 
             void check_if(Expr &expression, const If &node, TypeId expected) {
@@ -3161,7 +3324,11 @@ namespace hgl::ir
                 require_assignable(scalar(ScalarType::Bool), condition, "if condition");
                 TypeId expected_return = expected;
                 if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                const auto incoming_presence = present_bindings_;
+                present_bindings_ = presence_after(node.condition, true, incoming_presence);
                 check_block(node.then_block, expected_return, expected);
+                const auto then_presence = present_bindings_;
+                present_bindings_ = presence_after(node.condition, false, incoming_presence);
                 expression.effects      = condition.effects | module_.block(node.then_block).effects;
                 expression.phase        = condition.phase;
                 const Block &then_block = module_.block(node.then_block);
@@ -3185,6 +3352,11 @@ namespace hgl::ir
                 } else {
                     expression.type = void_type_;
                 }
+                const auto else_presence = present_bindings_;
+                const bool then_terminates = block_terminates(node.then_block);
+                const bool else_terminates = expression_terminates(node.otherwise);
+                present_bindings_ = then_terminates ? else_presence : else_terminates ? then_presence
+                    : intersect_presence(then_presence, else_presence);
                 expression.value_kind = expression.type == void_type_ ? ValueKind::Void : value_kind_for_phase(expression.phase);
             }
 
@@ -3229,6 +3401,7 @@ namespace hgl::ir
                 }
                 const BoundArguments bound = bind_arguments(fn->signature, node.arguments, expression.range);
                 std::vector<bool>    lift_inputs;
+                bool has_temporal_input = false;
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
                     const Parameter &parameter = fn->signature.parameters[index];
                     bool             input     = !parameter.is_const;
@@ -3237,10 +3410,27 @@ namespace hgl::ir
                                 std::holds_alternative<Sequence>(module_.expr(bound.parameters[index].front()).node);
                         lift_inputs.push_back(input);
                     }
+                    if (input) {
+                        has_temporal_input = true;
+                        std::unordered_set<std::uint32_t> visiting;
+                        if (!concrete_property_type(parameter.type) || !admitted_delta_shape(parameter.type, visiting)) {
+                            type_error(expression.range, "eval input '" + module_.symbol(parameter.symbol).name +
+                                "' requires an exact concrete shape admitted by the publication profile");
+                        }
+                    }
                     const TypeId expected = input ? make_type(TypeKind::HarnessSequence, {parameter.type}) : parameter.type;
                     if (bound.parameters[index].empty()) { continue; }
                     Expr &value = check_expr(bound.parameters[index].front(), expected);
                     require_assignable(expected, value, "eval input");
+                }
+                if (!has_temporal_input) {
+                    type_error(expression.range, "eval requires at least one temporal sequence input");
+                }
+                if (type(canonical(fn->signature.result)).kind != TypeKind::Void) {
+                    std::unordered_set<std::uint32_t> visiting;
+                    if (!concrete_property_type(fn->signature.result) || !admitted_delta_shape(fn->signature.result, visiting)) {
+                        type_error(expression.range, "eval output requires an exact concrete shape admitted by the publication profile");
+                    }
                 }
                 expression.type       = make_type(TypeKind::HarnessSequence, {fn->signature.result});
                 expression.phase      = Phase::Constant;
@@ -3429,13 +3619,14 @@ namespace hgl::ir
                         type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
                         continue;
                     }
-                    Expr &value = check_expr(argument.value, *expected);
+                    const TypeId payload = delta ? make_type(TypeKind::Delta, {*expected}) : *expected;
+                    Expr &value = check_expr(argument.value, payload);
                     if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                         if (!delta && !field->optional) {
                             type_error(value.range, "null is only valid for an optional field or sparse delta");
                         }
                     } else {
-                        require_assignable(*expected, value, "constructor field");
+                        require_assignable(payload, value, "constructor field");
                     }
                     expression.effects |= value.effects;
                 }
@@ -3499,13 +3690,14 @@ namespace hgl::ir
                         type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
                         continue;
                     }
-                    Expr &value = check_expr(argument.value, *expected);
+                    const TypeId payload = delta ? make_type(TypeKind::Delta, {*expected}) : *expected;
+                    Expr &value = check_expr(argument.value, payload);
                     if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                         if (!delta && !field->optional) {
                             type_error(value.range, "null is only valid for an optional field or sparse delta");
                         }
                     } else {
-                        require_assignable(*expected, value, "constructor field");
+                        require_assignable(payload, value, "constructor field");
                     }
                     expression.effects |= value.effects;
                 }
@@ -3532,11 +3724,112 @@ namespace hgl::ir
                                                  .identity = module_.path + "." + module_.symbol(target).name};
             }
 
+            bool admitted_delta_shape(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type shape = type(id);
+                if (shape.kind == TypeKind::Scalar) { return shape.scalar <= ScalarType::Duration; }
+                if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
+                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                if (!visiting.insert(id.value).second) { return false; }
+                bool admitted = false;
+                if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
+                    const Type child = type(canonical(shape.children[0]));
+                    admitted = child.kind == TypeKind::Scalar && (child.scalar == ScalarType::Bool || child.scalar == ScalarType::I64);
+                } else if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::Map || shape.kind == TypeKind::List) {
+                    admitted = shape.kind != TypeKind::List || (shape.size.valid() && !shape.unbounded);
+                    if (shape.kind == TypeKind::Map) {
+                        admitted = shape.children.size() == 2U && same(shape.children[0], scalar(ScalarType::I64));
+                    }
+                    for (TypeId child : shape.children) { admitted = admitted && admitted_delta_shape(child, visiting); }
+                } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
+                    const auto &symbol = module_.symbol(shape.symbol);
+                    const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(shape.symbol);
+                    if (structure || imported) {
+                        admitted = true;
+                        const auto fields = structure ? structure->fields : imported->fields;
+                        for (const auto &field : fields) {
+                            const auto field_type = constraint_solver_.field_type({}, id, field.name);
+                            admitted = admitted && field_type && admitted_delta_shape(*field_type, visiting);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return admitted;
+            }
+
+            void check_collection_delta(Expr &expression, const Construct &node, TypeId origin) {
+                const Type shape = type(origin);
+                std::unordered_set<std::string> names;
+                std::unordered_set<std::string> members;
+                for (const Argument &argument : node.arguments) {
+                    if (!names.insert(argument.name).second) { type_error(argument.range, "duplicate delta argument"); }
+                    const bool sparse = argument.name == "items" || argument.name == "upsert";
+                    const bool admitted = shape.kind == TypeKind::Set ? argument.name == "added" || argument.name == "removed"
+                        : shape.kind == TypeKind::Map ? argument.name == "upsert" || argument.name == "remove"
+                        : argument.name == "items";
+                    if (!admitted || argument.name.empty()) { type_error(argument.range, "unknown delta argument"); }
+                    Expr &entries = module_.exprs[argument.value.value];
+                    const auto *sequence = std::get_if<Sequence>(&entries.node);
+                    if (!sequence) { type_error(entries.range, "collection delta requires a literal entry list"); continue; }
+                    TypeId item_type = shape.kind == TypeKind::Set ? shape.children[0] : scalar(ScalarType::I64);
+                    for (const auto &entry : sequence->elements) {
+                        ExprId key_id = sparse ? entry.key : entry.value;
+                        if (!key_id.valid() || (!sparse && entry.key.valid())) {
+                            type_error(entries.range, "delta entry has the wrong sparse form"); continue;
+                        }
+                        Expr &key = check_expr(key_id, item_type);
+                        require_assignable(item_type, key, "delta member or index");
+                        if (!key.constant) { type_error(key.range, "delta members, keys and indices must be constants"); }
+                        std::string identity;
+                        if (key.constant) {
+                            if (const auto *integer = std::get_if<std::int64_t>(&*key.constant)) { identity = std::to_string(*integer); }
+                            if (const auto *boolean = std::get_if<bool>(&*key.constant)) { identity = *boolean ? "true" : "false"; }
+                            if (!members.insert(identity).second) { type_error(key.range, "duplicate or overlapping delta member, key or index"); }
+                        }
+                        if (sparse) {
+                            TypeId child;
+                            if (shape.kind == TypeKind::Map) { child = shape.children[1]; }
+                            else {
+                                const auto *index = key.constant ? std::get_if<std::int64_t>(&*key.constant) : nullptr;
+                                std::int64_t count = static_cast<std::int64_t>(shape.children.size());
+                                if (shape.kind == TypeKind::List && shape.size.valid()) {
+                                    const Expr &size = module_.expr(shape.size);
+                                    const auto *n = size.constant ? std::get_if<std::int64_t>(&*size.constant) : nullptr;
+                                    if (n) { count = *n; }
+                                }
+                                if (!index || *index < 0 || *index >= count) { type_error(key.range, "delta index is outside its fixed shape"); }
+                                else { child = shape.children[shape.kind == TypeKind::List ? 0U : static_cast<std::size_t>(*index)]; }
+                            }
+                            if (child.valid()) {
+                                const TypeId payload = make_type(TypeKind::Delta, {child});
+                                Expr &value = check_expr(entry.value, payload);
+                                require_assignable(payload, value, "delta child");
+                                entries.effects |= value.effects;
+                                entries.phase = join_phase(entries.phase, value.phase);
+                            }
+                        }
+                    }
+                    // The sparse literal is constructor data, not an ordinary list/map conversion.
+                    entries.type = make_type(TypeKind::List, {item_type});
+                    if (entries.phase == Phase::Unknown) { entries.phase = Phase::Constant; }
+                    entries.value_kind = value_kind_for_phase(entries.phase);
+                    expr_state_[argument.value.value] = 2;
+                    expression.effects |= entries.effects;
+                }
+            }
+
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
                 if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
-                applied          = check_constructor_arguments(expression, applied, node.arguments, node.delta);
-                expression.type  = applied;
+                if (node.delta && type(applied).kind != TypeKind::Symbol) {
+                    const TypeKind kind = type(applied).kind;
+                    if (kind == TypeKind::Map || kind == TypeKind::Set || kind == TypeKind::List || kind == TypeKind::Tuple) {
+                        check_collection_delta(expression, node, applied);
+                    } else { type_error(expression.range, "delta constructors require an admitted structural shape"); }
+                } else { applied = check_constructor_arguments(expression, applied, node.arguments, node.delta); }
+                expression.type  = node.delta ? make_type(TypeKind::Delta, {applied}) : applied;
                 expression.phase = Phase::Constant;
                 for (const Argument &argument : node.arguments) {
                     expression.phase = join_phase(expression.phase, module_.expr(argument.value).phase);
@@ -3700,7 +3993,7 @@ namespace hgl::ir
             void check_intrinsic_call(Expr &expression, const Call &call, SymbolId target, TypeId expected) {
                 const std::string &name = module_.symbol(target).external_name;
                 if (active_value_function_ &&
-                    (name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" || name == "delta" ||
+                    (name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" || name == "delta_value" ||
                      name == "key_set" || name == "schemas" || name == "added" || name == "removed" || name == "time_at" ||
                      name == "removed_value")) {
                     type_error(expression.range, "'" + name + "' requires a temporal endpoint, not a const fn value");
@@ -3709,7 +4002,63 @@ namespace hgl::ir
                 }
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
-                if (name == "valid" || name == "modified" || name == "all_valid") {
+                if (name == "str") {
+                    if (args.size() != 1U || !call.arguments.front().name.empty()) {
+                        type_error(expression.range, "str takes one positional scalar value");
+                    }
+                    for (ExprId argument : args) {
+                        Expr &value = check_expr(argument);
+                        const TypeId id = canonical(value.type);
+                        if (!id.valid() || type(id).kind != TypeKind::Scalar) {
+                            type_error(value.range, "str requires a readable scalar value");
+                        }
+                    }
+                    expression.type = scalar(ScalarType::Str);
+                    finish_call_semantics(expression, args, true);
+                    expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = "str"};
+                    return;
+                }
+                bool ordinary_push = false;
+                if ((name == "len" || name == "push") && !args.empty() && !injected_output(args.front())) {
+                    Expr &receiver = check_expr(args.front());
+                    const TypeId list_id = canonical(receiver.type);
+                    const Type list = list_id.valid() ? type(list_id) : Type{};
+                    if ((list.kind == TypeKind::List || (name == "len" && list.kind == TypeKind::HarnessSequence)) && list.children.size() == 1U) {
+                        const std::size_t arity = name == "push" ? 2U : 1U;
+                        if (args.size() != arity) { type_error(expression.range, name + " has an incorrect argument count"); }
+                        if (name == "push") {
+                            ordinary_push = true;
+                            const SymbolId root = place_root(args.front());
+                            if (!root.valid() || module_.symbol(root).kind != SymbolKind::LocalVar ||
+                                has_effect(receiver.effects, Effect::ReadRuntimeInput)) {
+                                type_error(receiver.range, "ordinary push requires writable owner or global-entry access");
+                            }
+                            if (list.size.valid() && !list.unbounded) { type_error(receiver.range, "push cannot grow a fixed list"); }
+                            if (args.size() > 1U) {
+                                Expr &item = check_expr(args[1], list.children.front());
+                                require_assignable(list.children.front(), item, "pushed list item");
+                            }
+                            expression.type = void_type_;
+                            expression.effects |= Effect::WriteLocal;
+                        } else { expression.type = scalar(ScalarType::I64); }
+                        finish_call_semantics(expression, args, true);
+                        expression.operation = Operation{.kind = OperationKind::Intrinsic, .target = target, .identity = name};
+                        if (ordinary_push) { expression.effects |= Effect::WriteLocal; }
+                        return;
+                    }
+                }
+                if (name == "delta_value") {
+                    if (args.size() != 1U) { type_error(expression.range, "delta_value takes exactly one temporal endpoint"); }
+                    Expr &input = check_expr(args.empty() ? ExprId{} : args.front());
+                    const SymbolId root = args.empty() ? SymbolId{} : place_root(args.front());
+                    if (!root.valid() || module_.symbol(root).kind != SymbolKind::SignalParameter) {
+                        type_error(input.range, "delta_value requires a temporal input endpoint");
+                    }
+                    if (!runtime_owner(expression.owner) || active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop) {
+                        type_error(expression.range, "delta_value is only available during runtime evaluation");
+                    }
+                    if (input.type.valid()) { expression.type = make_type(TypeKind::Delta, {input.type}); }
+                } else if (name == "valid" || name == "modified" || name == "all_valid") {
                     if (args.empty() && name == "all_valid") {
                         type_error(expression.range, "'all_valid' takes at least one argument");
                     } else if (args.empty() && (!runtime_owner(expression.owner) || !active_when_condition_)) {
@@ -3925,6 +4274,101 @@ namespace hgl::ir
                 contextualize(expression, expected);
             }
 
+            struct GlobalBorrow { std::string key; bool writable; ExprId expression{}; };
+            void require_distinct_global_keys(DeclarationId owner, ExprId first, ExprId second) {
+                const auto &left = module_.expr(first);
+                const auto &right = module_.expr(second);
+                if (left.constant && right.constant) { return; }
+                if (auto *fn = function(owner)) { fn->global_key_distinct.push_back(GlobalKeyDistinct{first, second}); }
+            }
+            [[nodiscard]] std::string global_key(ExprId id, DeclarationId owner) const {
+                const Expr &key = module_.expr(id);
+                const std::string prefix = std::to_string(owner.value) + ":";
+                if (key.constant && std::holds_alternative<std::string>(*key.constant)) {
+                    return prefix + "literal:" + std::get<std::string>(*key.constant);
+                }
+                const SymbolId root = place_root(id);
+                return root.valid() ? prefix + "binding:" + std::to_string(root.value)
+                                    : prefix + "expression:" + std::to_string(id.value);
+            }
+            [[nodiscard]] bool aggregate(TypeId id) const {
+                id = canonical(id);
+                return id.valid() && type(id).kind != TypeKind::Scalar;
+            }
+
+            void check_receiver_capability_call(Expr &expression, const Call &call, const std::string &name,
+                                                SymbolId receiver, TypeId expected) {
+                const std::string capability = module_.symbol(receiver).name;
+                const std::string identity = capability + "." + name;
+                std::vector<ExprId> args;
+                (void)check_expr(call.arguments.front().value);
+                for (std::size_t i = 1; i < call.arguments.size(); ++i) { args.push_back(call.arguments[i].value); }
+                expression.type = void_type_;
+                expression.phase = Phase::Runtime;
+                expression.value_kind = ValueKind::Void;
+                expression.effects = Effect::UseCapability;
+                expression.operation = Operation{.kind = OperationKind::Capability, .target = receiver, .identity = identity};
+                if (capability == "global_state" && (name == "get" || name == "set")) {
+                    if (args.size() != (name == "get" ? 1U : 2U)) {
+                        type_error(expression.range, "global_state " + name + " has an incorrect argument count");
+                        return;
+                    }
+                    Expr &key = check_expr(args[0], scalar(ScalarType::Str));
+                    require_assignable(scalar(ScalarType::Str), key, "global_state key");
+                    const SymbolId key_root = place_root(args[0]);
+                    if (key.phase != Phase::Constant || (key_root.valid() && module_.symbol(key_root).kind == SymbolKind::LocalVar)) {
+                        type_error(key.range, "global_state key must be a const string expression");
+                    }
+                    const std::string key_identity = global_key(args[0], expression.owner);
+                    for (const auto &[binding, borrow] : global_borrows_) {
+                        (void)binding;
+                        if (name == "set" || borrow.writable) {
+                            if (borrow.key == key_identity) {
+                                type_error(expression.range, "global_state access conflicts with a live lexical borrow");
+                            } else { require_distinct_global_keys(expression.owner, borrow.expression, args[0]); }
+                        }
+                    }
+                    TypeId entry;
+                    if (name == "get") {
+                        entry = canonical(expected);
+                        if (!entry.valid()) { type_error(expression.range, "global_state get requires an expected ordinary type"); }
+                        expression.type = entry;
+                    } else {
+                        Expr &value = check_expr(args[1]);
+                        entry = canonical(value.type);
+                        expression.effects |= value.effects;
+                    }
+                    if (entry.valid()) {
+                        if (auto *fn = function(expression.owner)) { fn->global_entries.push_back(GlobalEntryRequirement{args[0], entry}); }
+                        const TypeKind kind = type(entry).kind;
+                        if (kind == TypeKind::Capability || kind == TypeKind::Reference || kind == TypeKind::Signal ||
+                            kind == TypeKind::Rolling || kind == TypeKind::Void) {
+                            type_error(expression.range, "global_state entries require an ordinary value type");
+                        }
+                        if (key.constant && std::holds_alternative<std::string>(*key.constant)) {
+                            const std::string identity_key = std::to_string(expression.owner.value) + ":" + std::get<std::string>(*key.constant);
+                            auto [found, inserted] = global_entry_types_.emplace(identity_key, entry);
+                            if (!inserted && !same(found->second, entry) && concrete_property_type(found->second) && concrete_property_type(entry)) {
+                                type_error(expression.range, "global_state key has conflicting exact value types");
+                            }
+                        }
+                    }
+                    if (active_value_function_ || !runtime_owner(expression.owner)) {
+                        type_error(expression.range, "global_state operations require a runtime lifecycle hook");
+                    }
+                } else if ((capability == "scheduler" || capability == "alarm") &&
+                           (name == "schedule" || name == "schedule_at" || name == "is_scheduled" || name == "next_scheduled_time")) {
+                    for (ExprId argument : args) { (void)check_expr(argument); }
+                    check_lifecycle_capability_call(expression, call, identity, args);
+                } else if (capability == "logger" && name == "info") {
+                    if (args.size() != 1U) { type_error(expression.range, "info takes a logger and one value"); }
+                    for (ExprId argument : args) { (void)check_expr(argument); }
+                } else {
+                    type_error(expression.range, "unapproved capability function '" + identity + "'");
+                }
+                if (expression.type.valid() && expression.type != void_type_) { expression.value_kind = ValueKind::RuntimeValue; }
+            }
+
             void check_capability_call(Expr &expression, const Call &call, const Field &field) {
                 Expr               &member    = module_.exprs[call.callee.value];
                 const auto         *reference = std::get_if<SymbolRef>(&module_.expr(field.target).node);
@@ -4026,11 +4470,48 @@ namespace hgl::ir
                         if constexpr (std::is_same_v<T, LocalDecl>) {
                             Symbol &symbol = module_.symbols[node.symbol.value];
                             if (node.init.valid()) {
-                                Expr &init = check_expr(node.init, node.type);
+                                const bool inferred_let = !node.type.valid() && symbol.kind == SymbolKind::LocalLet;
+                                Expr &init = check_expr(node.init, node.type, inferred_let);
+                                if (nullable(init)) {
+                                    if (!inferred_let) { type_error(init.range, "a nullable value requires an inferred immutable let binding"); }
+                                    nullable_bindings_.insert(node.symbol.value);
+                                }
                                 if (!node.type.valid()) { node.type = init.type; }
                                 require_assignable(node.type, init, "local initializer");
+                                if (capability_value(init.type)) { type_error(init.range, "an injected capability cannot be retained in a local"); }
                                 if (borrowed_schema(init.type)) {
                                     type_error(init.range, "borrowed schema metadata cannot be stored in a local variable");
+                                }
+                                if (aggregate(init.type)) {
+                                    const SymbolId source_root = place_root(node.init);
+                                    const bool observation = init.operation.identity == "delta_value" ||
+                                        (source_root.valid() && delta_observations_.contains(source_root.value));
+                                    if (observation) {
+                                        if (symbol.kind == SymbolKind::LocalVar) {
+                                            type_error(init.range, "a structural delta observation requires an immutable evaluation-local binding");
+                                        }
+                                        delta_observations_.insert(node.symbol.value);
+                                    }
+                                    if (const auto *call = std::get_if<Call>(&init.node);
+                                        call && init.operation.identity == "global_state.get" && call->arguments.size() == 2U) {
+                                        const bool writable = symbol.kind == SymbolKind::LocalVar;
+                                        const std::string key = global_key(call->arguments[1].value, statement.owner);
+                                        for (const auto &[binding, borrow] : global_borrows_) {
+                                            (void)binding;
+                                            if (writable || borrow.writable) {
+                                                if (borrow.key == key) {
+                                                    type_error(init.range, "global_state binding conflicts with a live lexical borrow");
+                                                } else { require_distinct_global_keys(statement.owner, borrow.expression, call->arguments[1].value); }
+                                            }
+                                        }
+                                        global_borrows_[node.symbol.value] = GlobalBorrow{key, writable, call->arguments[1].value};
+                                    } else if (const SymbolId root = place_root(node.init); root.valid()) {
+                                        if (const auto found = global_borrows_.find(root.value); found != global_borrows_.end()) {
+                                            if (found->second.writable || symbol.kind == SymbolKind::LocalVar) {
+                                                type_error(init.range, "a borrowed aggregate cannot create a writable or exclusive alias");
+                                            } else { global_borrows_[node.symbol.value] = found->second; }
+                                        }
+                                    }
                                 }
                                 symbol.type                      = node.type;
                                 symbol_phase_[node.symbol.value] = init.phase;
@@ -4050,6 +4531,7 @@ namespace hgl::ir
                             active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
                             require_assignable(node.type, init, node.cache ? "cache initializer" : "state initializer");
+                            if (capability_value(init.type)) { type_error(init.range, "an injected capability cannot be stored"); }
                             if (borrowed_schema(init.type)) {
                                 type_error(init.range, node.cache ? "borrowed schema metadata cannot be stored in a cache"
                                                                   : "borrowed schema metadata cannot be stored in state");
@@ -4079,11 +4561,11 @@ namespace hgl::ir
                                     symbol.type = fn ? fn->signature.result : void_type_;
                                 } else {
                                     if (symbol.name != "logger" && symbol.name != "clock" && symbol.name != "scheduler" &&
-                                        symbol.name != "alarm") {
+                                        symbol.name != "alarm" && symbol.name != "global_state") {
                                         diagnostics_.report(syntax::Category::Injectable, symbol.range,
                                                             "'" + symbol.name +
                                                                 "' is not an approved runtime capability; the "
-                                                                "injectables are out, logger, clock, scheduler, and alarm");
+                                                                "injectables are out, logger, clock, scheduler, alarm, and global_state");
                                     }
                                     symbol.type = make_type(TypeKind::Capability, {}, symbol_id);
                                 }
@@ -4154,7 +4636,7 @@ namespace hgl::ir
                             const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
                             Expr        &value  = check_expr(node.value, result);
                             if (result.valid() && !same(result, void_type_)) {
-                                require_assignable(result, value, "yield value");
+                                require_publication(result, value, "yield value");
                             }
                             if (fn != nullptr) { fn->is_generator = true; }
                             if (!statement_level_yields_.contains(id.value)) {
@@ -4166,9 +4648,15 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, AssignStmt>) {
                             Expr &place = check_expr(node.place);
                             Expr &value = check_expr(node.value, place.type);
-                            require_assignable(place.type, value, "assignment");
-                            statement.effects   = place.effects | value.effects;
                             const SymbolId root = place_root(node.place);
+                            if (root.valid() && module_.symbol(root).kind == SymbolKind::InjectedCapability && module_.symbol(root).name == "out") {
+                                require_publication(place.type, value, "assignment");
+                            } else { require_assignable(place.type, value, "assignment"); }
+                            statement.effects   = place.effects | value.effects;
+                            if (std::holds_alternative<Index>(place.node) && root.valid() &&
+                                module_.symbol(root).kind == SymbolKind::LocalVar) {
+                                type_error(place.range, "ordinary list indexed replacement is not an admitted operation");
+                            }
                             if (root.valid()) {
                                 const Symbol &symbol = module_.symbol(root);
                                 if (symbol.kind == SymbolKind::LocalVar) {
@@ -4195,7 +4683,10 @@ namespace hgl::ir
                                 return;
                             }
                             Expr &value = check_expr(node.value, expected_return);
-                            require_assignable(expected_return, value, "return value");
+                            if (runtime_owner(statement.owner) && !active_value_function_) {
+                                require_publication(expected_return, value, "return value");
+                            } else { require_assignable(expected_return, value, "return value"); }
+                            if (capability_value(value.type)) { type_error(value.range, "an injected capability cannot be returned"); }
                             if (borrowed_schema(value.type)) {
                                 type_error(value.range, "borrowed schema metadata cannot be returned");
                             }
@@ -4223,13 +4714,17 @@ namespace hgl::ir
                 return {};
             }
 
-            void check_block(BlockId id, TypeId expected_return) { check_block(id, expected_return, expected_return); }
+            void check_block(BlockId id, TypeId expected_return) {
+                const auto *owner = id.valid() ? function(module_.block(id).owner) : nullptr;
+                check_block(id, expected_return, owner && owner->is_generator ? TypeId{} : expected_return);
+            }
 
             void check_block(BlockId id, TypeId expected_return, TypeId expected_tail) {
                 if (!id.valid()) { return; }
                 Block &block = module_.blocks[id.value];
                 if (checked_blocks_.contains(id.value)) { return; }
                 checked_blocks_.emplace(id.value, true);
+                const auto outer_borrows = global_borrows_;
                 block.effects = Effect::None;
                 for (StmtId statement : block.statements) {
                     const auto *expression_statement = std::get_if<ExprStmt>(&module_.stmt(statement).node);
@@ -4241,9 +4736,20 @@ namespace hgl::ir
                     Expr &tail = check_expr(block.tail, expected_tail);
                     block.effects |= tail.effects;
                 }
+                global_borrows_ = outer_borrows;
             }
 
             void validate_completion() {
+                const std::size_t type_count = module_.types.size();
+                for (std::size_t i = 0; i < type_count; ++i) {
+                    const Type shape = module_.types[i];
+                    if (shape.kind == TypeKind::Delta && shape.children.size() == 1U) {
+                        std::unordered_set<std::uint32_t> visiting;
+                        if (!admitted_delta_shape(shape.children[0], visiting)) {
+                            type_error(shape.range, "delta<T> requires a finite admitted publication shape");
+                        }
+                    }
+                }
                 for (const Expr &expression : module_.exprs) {
                     if (expression.value_kind == ValueKind::Unknown || expression.phase == Phase::Unknown) {
                         diagnostics_.report(syntax::Category::Type, expression.range,
@@ -4278,6 +4784,13 @@ namespace hgl::ir
             std::unordered_map<std::uint32_t, Phase> symbol_phase_{};
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};
             std::unordered_set<std::uint64_t>        checked_type_applications_{};
+            std::unordered_set<std::uint32_t> delta_observations_{};
+            std::unordered_set<const Expr *> nullable_expressions_{};
+            PresenceFacts nullable_bindings_{};
+            PresenceFacts present_bindings_{};
+            PresenceFacts nullable_capture_forbidden_{};
+            std::unordered_map<std::uint32_t, GlobalBorrow> global_borrows_{};
+            std::unordered_map<std::string, TypeId> global_entry_types_{};
             TypeId                                   void_type_{};
             NativePhase                              active_native_phase_{NativePhase::Wiring};
             bool                                     active_value_function_{false};

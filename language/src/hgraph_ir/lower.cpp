@@ -1260,6 +1260,12 @@ namespace hgl::hgraph_ir
                     Callable &target    = result_.callables[callable(declaration.symbol).value];
                     target.concise_body = lower_value(source->concise_body);
                     target.block_body   = lower_block(source->block_body);
+                    for (const auto &entry : source->global_entries) {
+                        target.global_entries.push_back(GlobalEntryRequirement{lower_value(entry.key), lower_type(entry.type)});
+                    }
+                    for (const auto &pair : source->global_key_distinct) {
+                        target.global_key_distinct.push_back(GlobalKeyDistinct{lower_value(pair.first), lower_value(pair.second)});
+                    }
                 }
             }
 

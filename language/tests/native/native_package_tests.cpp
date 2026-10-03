@@ -273,3 +273,16 @@ TEST_CASE("native package authoring preserves explicit execution roles", "[nativ
     CHECK(temporal.find("\"execution_role\": \"temporal\"") != std::string::npos);
     CHECK(value != temporal);
 }
+
+TEST_CASE("native package delta patterns canonicalize admitted scalar origins") {
+    using namespace hgl::native;
+    CHECK(ValueType::delta(ValueType::canonical(ScalarType::I64)) == ValueType::canonical(ScalarType::I64));
+    const auto structural = ValueType::delta(ValueType::set(ValueType::canonical(ScalarType::I64)));
+    CHECK(structural.category == ValueTypeCategory::Delta);
+    REQUIRE(structural.children.size() == 1U);
+    CHECK(structural.children.front().category == ValueTypeCategory::Set);
+
+    Package source = package();
+    source.declarations[1].parameters[1].type = structural;
+    CHECK_THROWS_WITH(descriptor_json(source), Catch::Matchers::ContainsSubstring("outside the scalar"));
+}

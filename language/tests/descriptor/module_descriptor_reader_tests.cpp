@@ -1902,3 +1902,37 @@ TEST_CASE("documentation descriptor extension round trips without changing provi
     CHECK(read.value->documentation == descriptor.documentation);
     CHECK(descriptor::to_json(*read.value) == descriptor::to_json(descriptor));
 }
+
+TEST_CASE("publication delta descriptors retain their originating shape", "[descriptor][reader][delta]") {
+    auto source = minimal_descriptor();
+    source.types = {
+        {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        {.category = descriptor::TypeCategory::Set, .children = {0U}},
+        {.category = descriptor::TypeCategory::Delta, .children = {1U}},
+    };
+    descriptor::InterfaceDeclaration holder;
+    holder.category = descriptor::DeclarationCategory::Structure;
+    holder.identity = "checks.reader.Holder";
+    holder.fields = {{"change", 2U, descriptor::no_schema_id, "checks.reader.Holder", false, false}};
+    source.interface.push_back(std::move(holder));
+    const auto parsed = descriptor::read_json(descriptor::to_json(source));
+    REQUIRE(parsed);
+    CHECK(parsed.value->types == source.types);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(*parsed.value, catalog));
+    const auto *imported = catalog.find_struct("checks.reader", "Holder");
+    REQUIRE(imported);
+    REQUIRE(imported->support_error.empty());
+    REQUIRE(imported->fields.size() == 1U);
+    CHECK(imported->fields.front().type.kind == hgl::semantics::ImportedTypeKind::Delta);
+
+    const auto original = descriptor::fingerprint(source);
+    source.types[1].category = descriptor::TypeCategory::List;
+    CHECK(descriptor::fingerprint(source) != original);
+
+    source.types[2].children.clear();
+    const auto error = descriptor::validate(source);
+    REQUIRE(error);
+    CHECK(error->path == "$.schema.types[2].children");
+    CHECK(error->message == "type requires exactly 1 child");
+}

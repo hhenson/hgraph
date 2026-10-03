@@ -187,6 +187,12 @@ jobs:
           hgl_generated_tests hgl_stdlib_test_driver hgl_spec_stdlib_conformance
       - name: Run the language suites
         run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ runner.environment == 'self-hosted' && env.HGRAPH_TEST_PARALLELISM || matrix.parallel }}
+      - name: Validate compiler conformance gate
+        run: python -m unittest discover -s tools -p test_hgl_compiler_parity.py
+      - name: Run every shared HGL conformance test
+        run: >-
+          python tools/hgl_compiler_parity.py --backend cpp --build build-language
+          --output build-language/compiler-conformance
       - name: hgl smoke
         shell: bash
         run: |

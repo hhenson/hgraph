@@ -147,9 +147,16 @@ namespace hgl::driver
             return std::string{error.message, length};
         }
 
-#if !defined(_WIN32)
         std::filesystem::path executable_path() {
-    #if defined(__APPLE__)
+    #if defined(_WIN32)
+            std::vector<wchar_t> buffer(1024);
+            for (;;) {
+                const auto count = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+                if (count == 0) { return {}; }
+                if (count < buffer.size()) { return std::filesystem::path{std::wstring{buffer.data(), count}}; }
+                buffer.resize(buffer.size() * 2);
+            }
+    #elif defined(__APPLE__)
             std::uint32_t     size = 1024;
             std::vector<char> buffer(size);
             if (::_NSGetExecutablePath(buffer.data(), &size) != 0) {
@@ -167,6 +174,7 @@ namespace hgl::driver
     #endif
         }
 
+#if !defined(_WIN32)
         std::vector<void *> &resident_images() {
             // Deliberately process-lifetime: registry candidates hold code
             // pointers into every image registered here.
@@ -559,6 +567,17 @@ namespace hgl::driver
         }
 #endif
     }  // namespace
+
+    std::optional<std::filesystem::path> standard_library_source_directory() {
+        const auto installed = executable_path().parent_path() / std::filesystem::path{native_config::install_stdlib_from_bindir};
+        const auto source = std::filesystem::path{native_config::stdlib_source_directory};
+        for (const auto &candidate : {installed, source}) {
+            std::error_code error;
+            if (std::filesystem::is_regular_file(candidate / "replay_record.hgl", error) &&
+                std::filesystem::is_regular_file(candidate / "impl/replay_record.hgl", error)) { return candidate; }
+        }
+        return std::nullopt;
+    }
 
     bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,
                                     std::string_view expected_fingerprint, std::string &error) {

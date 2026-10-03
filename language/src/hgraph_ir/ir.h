@@ -597,6 +597,16 @@ namespace hgl::hgraph_ir
     /// deliberately a following pass; this first checkpoint proves that
     /// backends can consume stable canonical types and nominal identities
     /// without reaching back into the syntax AST.
+    struct GlobalEntryRequirement
+    {
+        ValueId key{};
+        TypeId type{};
+    };
+    struct GlobalKeyDistinct
+    {
+        ValueId first{};
+        ValueId second{};
+    };
     struct Callable
     {
         std::string                   identity{};
@@ -610,6 +620,8 @@ namespace hgl::hgraph_ir
         ConstraintId                  requirements{};
         ir::hir::Effect               effects{ir::hir::Effect::None};
         std::vector<Capability>       capabilities{};
+        std::vector<GlobalEntryRequirement> global_entries{};
+        std::vector<GlobalKeyDistinct> global_key_distinct{};
         ValueId                       concise_body{};
         BlockId                       block_body{};
         syntax::SourceRange           range{};
@@ -697,6 +709,7 @@ namespace hgl::hgraph_ir
         BindingId                                            out_binding{};
         BindingId                                            logger_binding{};
         BindingId                                            clock_binding{};
+        BindingId                                            global_state_binding{};
         BindingId                                            scheduler_binding{};
         /// `inject alarm`: the stateless one-shot scheduler (ADR 0015).
         BindingId                                            alarm_binding{};

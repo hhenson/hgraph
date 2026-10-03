@@ -1,4 +1,5 @@
 #include "wiring/type_bridge.h"
+#include <hgl/ordinary_values.h>
 
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/util/date_time.h>
@@ -150,7 +151,16 @@ namespace hgl::wiring
     }
 
     std::optional<std::int64_t> TypeBridge::integer(hgraph_ir::ConstExprId expression, syntax::SourceRange range,
-                                                    std::string_view role) {
+                                                    std::string_view role, const Bindings &bindings) {
+        std::unordered_set<std::uint32_t> visited;
+        while (expression.valid() && expression.value < module_.const_exprs.size()) {
+            if (!visited.insert(expression.value).second) { break; }
+            const auto &source = module_.const_exprs[expression.value];
+            if (source.kind != hgraph_ir::ConstExprKind::Parameter) { break; }
+            const auto found = bindings.values.find(source.parameter_binding.value);
+            if (found == bindings.values.end()) { break; }
+            expression = found->second;
+        }
         const std::optional<hgraph::Value> value = literal(expression);
         if (value && value->schema() == types_.int_type) {
             const std::int64_t result = value->view().checked_as<hgraph::Int>();
@@ -172,6 +182,23 @@ namespace hgl::wiring
         Specialization result{.contract = contract, .applied = std::move(*applied)};
         result.local_name = split_identity(contract->identity).second;
         if (!contract->generics.empty()) { result.local_name += '['; }
+        std::unordered_set<std::uint32_t> temporal_parameters;
+        std::unordered_set<std::uint64_t> visited_types;
+        std::vector<std::pair<hgraph_ir::TypeId, bool>> pending_types;
+        for (const auto &field : contract->fields) { pending_types.emplace_back(field.type, false); }
+        while (!pending_types.empty()) {
+            const auto [id, nested_delta] = pending_types.back();
+            pending_types.pop_back();
+            const auto &field_type = module_.types.at(id.value);
+            const bool delta = nested_delta || field_type.kind == hir::TypeKind::Delta;
+            const auto visit = (static_cast<std::uint64_t>(id.value) << 1U) | static_cast<std::uint64_t>(delta);
+            if (!visited_types.insert(visit).second) { continue; }
+            if (delta && field_type.binding.valid()) { temporal_parameters.insert(field_type.binding.value); }
+            for (const auto child : field_type.children) { pending_types.emplace_back(child, delta); }
+            for (const auto &argument : field_type.arguments) {
+                if (argument.type) { pending_types.emplace_back(*argument.type, delta); }
+            }
+        }
         for (std::size_t index = 0; index < contract->generics.size(); ++index) {
             // The static schema's spelling (`Pair[int, str]`), so both backends
             // register one specialization under one name.
@@ -181,7 +208,14 @@ namespace hgl::wiring
                 report(type.range, "const generic struct arguments require typed constant Bundle metadata in hgraph");
                 return std::nullopt;
             }
-            const hgraph::ValueTypeMetaData *argument = value(result.applied.types.at(generic.binding.value), result.applied);
+            const auto applied_type = result.applied.types.at(generic.binding.value);
+            const bool temporal = temporal_parameters.contains(generic.binding.value);
+            // Generic parameters occurring beneath delta denote temporal source
+            // shapes, exactly as the emitted Held<Shape> argument descriptor.
+            // In particular tuple shape metadata is an unnamed TSB value bundle.
+            const auto *temporal_type = temporal ? schema(applied_type, result.applied) : nullptr;
+            const hgraph::ValueTypeMetaData *argument = temporal ? (temporal_type ? temporal_type->value_schema : nullptr)
+                                                                : value(applied_type, result.applied);
             if (argument == nullptr) { return std::nullopt; }
             result.generic_types.push_back(argument);
             result.local_name += argument->name();
@@ -358,6 +392,9 @@ namespace hgl::wiring
             case hir::TypeKind::Set:
             case hir::TypeKind::Map:
             case hir::TypeKind::Atomic:
+                for (hgraph_ir::TypeId child : type.children) { value_edges(child, bindings, out, depth + 1U); }
+                return;
+            case hir::TypeKind::Delta:
                 for (hgraph_ir::TypeId child : type.children) { value_edges(child, bindings, out, depth + 1U); }
                 return;
             default: return;
@@ -827,7 +864,7 @@ namespace hgl::wiring
                     const hgraph::ValueTypeMetaData *element = value(type.children.front(), bindings);
                     if (element == nullptr) { return nullptr; }
                     if (!type.unbounded && type.size.valid()) {
-                        const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
+                        const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size", bindings);
                         if (!count) { return nullptr; }
                         return registry_.fixed_list(element, static_cast<std::size_t>(*count));
                     }
@@ -849,6 +886,13 @@ namespace hgl::wiring
                 return nullptr;
             case hir::TypeKind::Atomic:
                 if (!type.children.empty()) { return value(type.children.front(), bindings); }
+                return nullptr;
+            case hir::TypeKind::Delta:
+                if (type.children.size() == 1U) {
+                    if (const auto *origin = schema(type.children.front(), bindings)) {
+                        return ordinary::delta_schema(origin);
+                    }
+                }
                 return nullptr;
             case hir::TypeKind::Reference:
                 report(type.range, "'ref' has no value type; it is an opaque time-series reference");
@@ -904,8 +948,16 @@ namespace hgl::wiring
                 }
                 return nominal_schema(type, bindings);
             case hir::TypeKind::Tuple:
-                report(type.range, "a structural tuple has no time-series schema; use atomic<tuple<...>> for one value");
-                return nullptr;
+                {
+                    std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
+                    fields.reserve(type.children.size());
+                    for (std::size_t index = 0; index < type.children.size(); ++index) {
+                        const auto *child = schema(type.children[index], bindings);
+                        if (child == nullptr) { return nullptr; }
+                        fields.emplace_back(std::to_string(index), child);
+                    }
+                    return registry_.un_named_tsb(fields);
+                }
             case hir::TypeKind::List:
                 {
                     if (type.children.empty()) { break; }
@@ -913,7 +965,7 @@ namespace hgl::wiring
                     if (element == nullptr) { return nullptr; }
                     std::size_t size = hgraph::unbounded_tsl_size;
                     if (!type.unbounded && type.size.valid()) {
-                        const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
+                        const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size", bindings);
                         if (!count) { return nullptr; }
                         size = static_cast<std::size_t>(*count);
                     }
@@ -986,6 +1038,7 @@ namespace hgl::wiring
             case hir::TypeKind::Signal: return registry_.signal();
             case hir::TypeKind::Schema:
             case hir::TypeKind::SchemaView:
+            case hir::TypeKind::Delta:
             case hir::TypeKind::Void:
             case hir::TypeKind::Iterator:
             case hir::TypeKind::Callable:

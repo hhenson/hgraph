@@ -33,6 +33,7 @@ namespace hgl::syntax
         SetType,
         MapType,
         RollingType,
+        DeltaType,
         AtomicType,
         RefType,
         SignalType,

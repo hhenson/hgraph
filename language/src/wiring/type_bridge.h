@@ -31,7 +31,6 @@ namespace hgl::wiring
         [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(hgraph_ir::TypeId type);
         [[nodiscard]] std::optional<hgraph::Value>       literal(hgraph_ir::ConstExprId expression);
 
-      private:
         struct Bindings
         {
             std::unordered_map<std::uint32_t, hgraph_ir::TypeId>      types{};
@@ -39,6 +38,11 @@ namespace hgl::wiring
 
             [[nodiscard]] bool empty() const noexcept { return types.empty() && values.empty(); }
         };
+
+        [[nodiscard]] const hgraph::ValueTypeMetaData *value(hgraph_ir::TypeId type, const Bindings &bindings);
+        [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(hgraph_ir::TypeId type, const Bindings &bindings);
+
+      private:
 
         /// One applied struct: its contract, the generic bindings its fields see,
         /// its argument schemas, and the registry names they give it.
@@ -53,13 +57,11 @@ namespace hgl::wiring
             [[nodiscard]] std::string qualified() const { return module_name + "::" + local_name; }
         };
 
-        [[nodiscard]] const hgraph::ValueTypeMetaData   *value(hgraph_ir::TypeId type, const Bindings &bindings);
-        [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(hgraph_ir::TypeId type, const Bindings &bindings);
         [[nodiscard]] const hgraph_ir::StructContract   *structure(std::string_view identity) const noexcept;
         [[nodiscard]] std::optional<Bindings>          bind(const hgraph_ir::Type &type, const hgraph_ir::StructContract &structure,
                                                             const Bindings &outer);
         [[nodiscard]] std::optional<std::int64_t>      integer(hgraph_ir::ConstExprId expression, syntax::SourceRange range,
-                                                               std::string_view role);
+                                                               std::string_view role, const Bindings &bindings);
         [[nodiscard]] const hgraph::ValueTypeMetaData *nominal_value(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] std::optional<Specialization>      specialize(const hgraph_ir::Type &type, const Bindings &outer);
         [[nodiscard]] hgraph_ir::TypeId                  resolved(hgraph_ir::TypeId type, const Bindings &bindings) const;

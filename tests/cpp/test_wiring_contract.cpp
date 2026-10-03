@@ -34,7 +34,7 @@ namespace
         const TSValueTypeMetaData *bound{nullptr};
         const TSValueTypeMetaData *other{nullptr};
     };
-    Seen seen;
+    Seen captured_shape_snapshot;
 
     /** A generic node that publishes its input: its output type is what its
         variable bound (WIR-7). */
@@ -99,9 +99,9 @@ namespace
         static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Int>> a, Port<TS<Int>> b, Port<TS<Int>> c)
         {
             auto routed  = wire<stdlib::combine_tsd>(w, stdlib::make_list<Str>({Str{"a"}, Str{"b"}, Str{"c"}}), a, b, c);
-            seen.source  = routed.erased().schema;
+            captured_shape_snapshot.source  = routed.erased().schema;
             auto through = wire<Identity>(w, routed);
-            seen.bound   = through.erased().schema;
+            captured_shape_snapshot.bound   = through.erased().schema;
             return through.as<TSD<Str, TS<Int>>>();
         }
     };
@@ -114,9 +114,9 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
         {
             auto routed  = wire<ToRef>(w, value);
-            seen.source  = routed.erased().schema;
+            captured_shape_snapshot.source  = routed.erased().schema;
             auto through = wire<Identity>(w, routed);
-            seen.bound   = through.erased().schema;
+            captured_shape_snapshot.bound   = through.erased().schema;
             return through.as<TS<Int>>();
         }
     };
@@ -129,7 +129,7 @@ namespace
         static Port<TS<Bool>> compose(Wiring &w, Port<TS<Int>> a, Port<TS<Int>> b)
         {
             auto routed = wire<stdlib::combine_tsd>(w, stdlib::make_list<Str>({Str{"a"}, Str{"b"}}), a, b);
-            seen.bound  = wire<RefIdentity>(w, routed).erased().schema;
+            captured_shape_snapshot.bound  = wire<RefIdentity>(w, routed).erased().schema;
             return wire<HoldsReference>(w, a).as<TS<Bool>>();
         }
     };
@@ -141,9 +141,9 @@ namespace
 
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
         {
-            seen.source = wire<stdlib::nothing>(w, ts_type<TSD<Str, REF<TS<Int>>>>()).erased().schema;
-            seen.bound  = wire<stdlib::nothing>(w, ts_type<REF<TS<Int>>>()).erased().schema;
-            seen.other  = wire<stdlib::nothing>(w, ts_type<TSD<Str, TS<Int>>>()).erased().schema;
+            captured_shape_snapshot.source = wire<stdlib::nothing>(w, ts_type<TSD<Str, REF<TS<Int>>>>()).erased().schema;
+            captured_shape_snapshot.bound  = wire<stdlib::nothing>(w, ts_type<REF<TS<Int>>>()).erased().schema;
+            captured_shape_snapshot.other  = wire<stdlib::nothing>(w, ts_type<TSD<Str, TS<Int>>>()).erased().schema;
             return value;
         }
     };
@@ -157,9 +157,9 @@ namespace
         {
             auto fields = wire<MakeRefFields>(w, wire<ToRef>(w, value), value);
             auto by_key = wire<stdlib::getitem_>(w, fields, Str{"routed"});
-            seen.source = by_key.erased().schema;
-            seen.bound  = wire<stdlib::getattr_>(w, fields, Str{"routed"}).erased().schema;
-            seen.other  = wire<stdlib::getitem_>(w, fields, Str{"plain"}).erased().schema;
+            captured_shape_snapshot.source = by_key.erased().schema;
+            captured_shape_snapshot.bound  = wire<stdlib::getattr_>(w, fields, Str{"routed"}).erased().schema;
+            captured_shape_snapshot.other  = wire<stdlib::getitem_>(w, fields, Str{"plain"}).erased().schema;
             return wire<Identity>(w, by_key).as<TS<Int>>();
         }
     };
@@ -172,7 +172,7 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> condition, Port<TS<Int>> value)
         {
             auto field  = wire<stdlib::getitem_>(w, wire<stdlib::if_>(w, condition, value), Str{"true"});
-            seen.source = field.erased().schema;
+            captured_shape_snapshot.source = field.erased().schema;
             return wire<Identity>(w, field).as<TS<Int>>();
         }
     };
@@ -530,41 +530,41 @@ TEST_CASE("wiring contract: WIRE-GENERIC-DEPTH binds with every reference remove
     CHECK_OUTPUT((eval_node<GenericDepthGraph>(values<Int>(1, none), values<Int>(2, 30), values<Int>(3, none))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}}),
                                dict_delta<Str, TS<Int>>({{"b"s, 30}})));
-    CHECK(seen.source == ts_type<TSD<Str, REF<TS<Int>>>>());
-    CHECK(seen.bound == ts_type<TSD<Str, TS<Int>>>());
+    CHECK(captured_shape_snapshot.source == ts_type<TSD<Str, REF<TS<Int>>>>());
+    CHECK(captured_shape_snapshot.bound == ts_type<TSD<Str, TS<Int>>>());
 }
 
 TEST_CASE("wiring contract: WIRE-GENERIC-TOP follows a top-level reference (WIR-7, WIR-8)")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<GenericTopGraph>(values<Int>(1, 2)), values<Int>(1, 2));
-    CHECK(seen.source == ts_type<REF<TS<Int>>>());
-    CHECK(seen.bound == ts_type<TS<Int>>());
+    CHECK(captured_shape_snapshot.source == ts_type<REF<TS<Int>>>());
+    CHECK(captured_shape_snapshot.bound == ts_type<TS<Int>>());
 }
 
 TEST_CASE("wiring contract: WIRE-REF-PATTERN binds beneath a declared reference (WIR-10)")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<RefPatternGraph>(values<Int>(1), values<Int>(2)), values<Bool>(true));
-    CHECK(seen.bound == ts_type<REF<TSD<Str, TS<Int>>>>());
+    CHECK(captured_shape_snapshot.bound == ts_type<REF<TSD<Str, TS<Int>>>>());
 }
 
 TEST_CASE("wiring contract: WIRE-REQUESTED keeps a requested reference (WIR-12)")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<RequestedGraph>(values<Int>(1)), values<Int>(1));
-    CHECK(seen.source == ts_type<TSD<Str, REF<TS<Int>>>>());
-    CHECK(seen.bound == ts_type<REF<TS<Int>>>());
-    CHECK(seen.other == ts_type<TSD<Str, TS<Int>>>());
+    CHECK(captured_shape_snapshot.source == ts_type<TSD<Str, REF<TS<Int>>>>());
+    CHECK(captured_shape_snapshot.bound == ts_type<REF<TS<Int>>>());
+    CHECK(captured_shape_snapshot.other == ts_type<TSD<Str, TS<Int>>>());
 }
 
 TEST_CASE("wiring contract: WIRE-PROJECTION keeps a reference field (WIR-5, WIR-13)")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<ProjectionGraph>(values<Int>(1, 2)), values<Int>(1, 2));
-    CHECK(seen.source == ts_type<REF<TS<Int>>>());
-    CHECK(seen.bound == ts_type<REF<TS<Int>>>());
-    CHECK(seen.other == ts_type<TS<Int>>());
+    CHECK(captured_shape_snapshot.source == ts_type<REF<TS<Int>>>());
+    CHECK(captured_shape_snapshot.bound == ts_type<REF<TS<Int>>>());
+    CHECK(captured_shape_snapshot.other == ts_type<TS<Int>>());
 }
 
 TEST_CASE("wiring contract: WIRE-PROJECTION-THROUGH-REF publishes a reference to the field (WIR-5)")
@@ -572,7 +572,7 @@ TEST_CASE("wiring contract: WIRE-PROJECTION-THROUGH-REF publishes a reference to
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<ProjectionThroughRefGraph>(values<Bool>(true, false), values<Int>(1, 2)),
                  values<Int>(1, none));
-    CHECK(seen.source == ts_type<REF<TS<Int>>>());
+    CHECK(captured_shape_snapshot.source == ts_type<REF<TS<Int>>>());
 }
 
 TEST_CASE("wiring contract: WIRE-REPEATED binds a repeated variable once, dereferenced (WIR-7, WIR-17)")
