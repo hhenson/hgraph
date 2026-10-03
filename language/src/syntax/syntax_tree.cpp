@@ -25,6 +25,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::SetType, "set_type"},
             KindName{SyntaxKind::MapType, "map_type"},
             KindName{SyntaxKind::RollingType, "rolling_type"},
+            KindName{SyntaxKind::DeltaType, "delta_type"},
             KindName{SyntaxKind::AtomicType, "atomic_type"},
             KindName{SyntaxKind::RefType, "ref_type"},
             KindName{SyntaxKind::SignalType, "signal_type"},

@@ -203,7 +203,10 @@
 
 #include <native.h>
 
+#include <array>
 #include <hgl/constant_arithmetic.h>
+#include <hgl/global_key_preflight.h>
+#include <hgl/ordinary_patterns.h>
 #include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/manifest/schema_descriptor.h>
@@ -225,6 +228,16 @@
 
 namespace hgraph_::std_
 {
+    // replay_record.hgl:4
+    template <typename T> struct TimedValue
+    {
+        using value_type =
+            hgraph::NominalBundle<"hgraph.std", "TimedValue", false, hgraph::BundleParents<>,
+                                  hgraph::BundleArguments<hgl::ordinary::Held<T>>, hgraph::Field<"time", hgraph::DateTime>,
+                                  hgraph::Field<"value", hgl::ordinary::Delta<T>>>;
+    };
+
+    inline hgl::ordinary::PreparedValuePlan hgl_value_plan_0{};
     /// Operator contracts for the module's public callables.
     namespace operators
     {
@@ -247,7 +260,7 @@ namespace hgraph_::std_
         using null_sink = hgraph::Operator<"hgraph.std.null_sink", hgraph::In<"ts", hgraph::SIGNAL>>;
         // control.hgl:16
         using pass_through =
-            hgraph::Operator<"hgraph.std.pass_through", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
+            hgraph::Operator<"hgraph.std.pass_through", hgraph::In<"value", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>>;
         // control.hgl:44
         using const_ = hgraph::Operator<"hgraph.std.const", hgraph::Scalar<"value", hgraph::ScalarVar<"T">>,
                                         hgraph::Scalar<"delay", hgraph::TimeDelta>, hgraph::Out<hgraph::TsVar<"T">>>;
@@ -273,6 +286,14 @@ namespace hgraph_::std_
         // control.hgl:183
         using assert_ = hgraph::Operator<"hgraph.std.assert_", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
                                          hgraph::Scalar<"error_msg", hgraph::Str>>;
+        // replay_record.hgl:9
+        using replay =
+            hgraph::Operator<"hgraph.std.replay",
+                             hgraph::Scalar<"values", hgl::ordinary::List<typename TimedValue<hgraph::TsVar<"T">>::value_type>>,
+                             hgraph::Out<hgraph::TsVar<"T">>>;
+        // replay_record.hgl:11
+        using record =
+            hgraph::Operator<"hgraph.std.record", hgraph::In<"ts", hgraph::TsVar<"T">>, hgraph::Scalar<"key", hgraph::Str>>;
         // standard.hgl:4
         using len_ =
             hgraph::Operator<"hgraph.std.len_", hgraph::In<"value", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;

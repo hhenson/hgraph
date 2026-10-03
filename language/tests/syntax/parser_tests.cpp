@@ -334,9 +334,9 @@ TEST_CASE("struct inheritance requires named parent types", "[parser]") {
     REQUIRE(parsed.messages() == std::vector<std::string>{"a struct parent is a named type"});
 }
 
-TEST_CASE("delta construction requires a named target type", "[parser]") {
-    Parsed parsed{"module t\nfn f() => delta<tuple<f64, f64>>(1.0, 2.0)\n"};
-    REQUIRE(parsed.messages() == std::vector<std::string>{"a struct constructor takes a named struct type"});
+TEST_CASE("delta construction accepts structural collection target types", "[parser]") {
+    Parsed parsed{"module t\nconst fn f() => delta<tuple<f64, f64>>(items: [0: 1.0, 1: 2.0])\n"};
+    REQUIRE(parsed.messages().empty());
 }
 
 TEST_CASE("declaration ranges cover the whole declaration", "[parser]") {
@@ -1066,16 +1066,17 @@ TEST_CASE("inject declarations", "[parser]") {
 
 TEST_CASE("start and stop blocks", "[parser]") {
     REQUIRE(body_dump("    start {\n"
-                      "        logger.info(\"up\")\n"
+                      "        info(logger, \"up\")\n"
                       "    }\n"
                       "    stop {\n"
-                      "        logger.info(\"down\")\n"
+                      "        info(logger, \"down\")\n"
                       "    }") == "Block\n"
                                   "  Start\n"
                                   "    Block\n"
                                   "      ExprStmt tail\n"
                                   "        Call\n"
-                                  "          callee: Field info\n"
+                                  "          callee: NameRef info\n"
+                                  "          Argument\n"
                                   "            NameRef logger\n"
                                   "          Argument\n"
                                   "            StringLiteral \"up\"\n"
@@ -1083,7 +1084,8 @@ TEST_CASE("start and stop blocks", "[parser]") {
                                   "    Block\n"
                                   "      ExprStmt tail\n"
                                   "        Call\n"
-                                  "          callee: Field info\n"
+                                  "          callee: NameRef info\n"
+                                  "          Argument\n"
                                   "            NameRef logger\n"
                                   "          Argument\n"
                                   "            StringLiteral \"down\"\n");
@@ -1179,14 +1181,13 @@ TEST_CASE("while loops with and without a condition", "[parser][adr-0015]") {
 
 TEST_CASE("yield pairs a time with a value", "[parser][adr-0015]") {
     REQUIRE(body_dump("    yield 5m: value\n"
-                      "    yield clock.evaluation_time(): 1") == "Block\n"
+                      "    yield clock.evaluation_time: 1") == "Block\n"
                                                                  "  Yield\n"
                                                                  "    time: TemporalLiteral 5m\n"
                                                                  "    value: NameRef value\n"
                                                                  "  Yield\n"
-                                                                 "    time: Call\n"
-                                                                 "      callee: Field evaluation_time\n"
-                                                                 "        NameRef clock\n"
+                                                                 "    time: Field evaluation_time\n"
+                                                                 "      NameRef clock\n"
                                                                  "    value: IntLiteral 1\n");
     REQUIRE(Parsed{"module t\nfn f() {\n    yield 5m value\n}\n"}.messages() ==
             std::vector<std::string>{"expected ':' between the yield time and its value, found 'value'"});

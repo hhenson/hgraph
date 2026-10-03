@@ -183,3 +183,36 @@ logical shape apply ``reflection.dereference`` explicitly. This keeps the
 accessors faithful to the runtime rather than silently rewriting it. *(If a
 dereferenced-by-default variant proves more convenient in practice, it is added
 as a separate explicit accessor, not by changing this default.)*
+
+Ordinary source-shape patterns
+-----------------------------
+
+The shared wiring matcher distinguishes ``ScalarPattern::List`` from tuple
+patterns. A List pattern records either a dynamic extent or an exact fixed
+extent, including zero, and recursively matches its element metadata. Typed
+empty lists therefore carry the same inference information as populated lists;
+no element inspection is needed. Variadic tuple and shaped-array schemas do
+not satisfy an ordinary List pattern.
+
+``ScalarPattern::SchemaProjection`` represents a provider-defined relation
+between a scalar schema and an originating temporal schema. It retains an
+immutable nested ``TypePattern`` and two wiring-only conversion functions.
+Matching verifies the exact scalar round trip, then binds through the shared
+temporal matcher. Resolution, ranking, variable collection, substitution and
+coverage visit the nested temporal pattern. This is metadata work before root
+start, not a runtime value conversion or per-tick dispatch facility.
+
+HGL's ``ordinary_patterns.h`` supplies these projections for ``Held<T>`` and
+``Delta<T>`` in the finite ordinary delta domain. Held metadata preserves
+container kind, fixed extent, nominal identity and generic arguments. Structural
+delta metadata also stores the complete held source schema in its generic
+arguments; matching never infers source identity from a sparse payload schema.
+The source contracts are ``DELTA-INFER`` and ``DELTA-TYPE`` in
+``external/hgraph_spec/runtime/cases_ordinary_delta_types.md``.
+
+Generic nominal scalar resolvers resolve arguments and fields together before
+interning the complete specialization. Thus a replay scalar of type
+``List<TimedValue<T>>`` binds T from its declared element metadata, while a
+recorder resolves that same list schema from its temporal input binding.
+The generated ordinary List scalar selector borrows the prepared ``ValueView``;
+its marker is metadata rather than a native C++ container representation.

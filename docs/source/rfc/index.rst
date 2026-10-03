@@ -70,3 +70,5 @@ RFC catalogue
    rfc_0040_binary_codec_profiles
    rfc_0041_recursive_bundle_closures
    rfc_0042_types_as_values
+   rfc_0043_prepared_global_entries
+   rfc_0044_scalar_schema_projections

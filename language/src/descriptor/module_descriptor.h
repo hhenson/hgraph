@@ -39,6 +39,7 @@ namespace hgl::descriptor
         Map,
         Rolling,
         Atomic,
+        Delta,
         Reference,
         Signal,
         Schema,

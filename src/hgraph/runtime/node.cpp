@@ -62,6 +62,7 @@ namespace hgraph
             bool          started{false};
             bool          starting{false};
             bool          stopping{false};
+            bool          prepared{false};
         };
     }
 
@@ -687,6 +688,10 @@ namespace hgraph
             state.graph = graph;
             state.node_index = node_index;
             bind_endpoint_owners(runtime, memory, graph, node_index);
+            if (graph != nullptr && !state.prepared) {
+                if (runtime.callbacks.prepare) { runtime.callbacks.prepare(graph->view().node_at(node_index)); }
+                state.prepared = true;
+            }
         }
 
         GraphValue *graph_impl(const void *context, const void *memory) noexcept

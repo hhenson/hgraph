@@ -1,0 +1,220 @@
+#ifndef HGL_ORDINARY_VALUES_H
+#define HGL_ORDINARY_VALUES_H
+
+#include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/value_builder.h>
+
+#include <cstdint>
+#include <limits>
+#include <span>
+#include <utility>
+
+namespace hgl::ordinary
+{
+    template <typename Element, std::int64_t Size = -1> struct List {};
+    template <typename Shape> struct Delta {};
+    template <typename Shape> struct Held {};
+
+    inline void validate_delta_shape(const hgraph::TSValueTypeMetaData *root) {
+        const auto *boolean = hgraph::scalar_descriptor<hgraph::Bool>::value_meta();
+        const auto *integer = hgraph::scalar_descriptor<hgraph::Int>::value_meta();
+        const std::array leaves{boolean, integer, hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta()};
+        std::vector<const hgraph::TSValueTypeMetaData *> pending{root};
+        while (!pending.empty()) {
+            const auto *shape = pending.back();
+            pending.pop_back();
+            switch (shape->kind) {
+                case hgraph::TSTypeKind::TS:
+                    if (std::ranges::find(leaves, shape->value_schema) == leaves.end()) {
+                        throw std::invalid_argument("unsupported ordinary delta scalar shape");
+                    }
+                    break;
+                case hgraph::TSTypeKind::TSS:
+                    if (shape->value_schema->element_type != boolean && shape->value_schema->element_type != integer) {
+                        throw std::invalid_argument("ordinary set deltas require bool or i64 members");
+                    }
+                    break;
+                case hgraph::TSTypeKind::TSL:
+                    if (shape->is_unbounded_tsl()) { throw std::invalid_argument("ordinary deltas require a fixed list shape"); }
+                    pending.push_back(shape->element_ts());
+                    break;
+                case hgraph::TSTypeKind::TSD:
+                    if (shape->key_type() != integer) { throw std::invalid_argument("ordinary map deltas require i64 keys"); }
+                    pending.push_back(shape->element_ts());
+                    break;
+                case hgraph::TSTypeKind::TSB:
+                    for (std::size_t index = 0; index < shape->field_count(); ++index) { pending.push_back(shape->fields()[index].type); }
+                    break;
+                default: throw std::invalid_argument("unsupported ordinary delta shape");
+            }
+        }
+    }
+
+    // The enclosing identity preserves the originating temporal shape even
+    // when two native delta payloads happen to have identical storage schemas.
+    inline const hgraph::ValueTypeMetaData *delta_schema(const hgraph::TSValueTypeMetaData *shape) {
+        validate_delta_shape(shape);
+        if (shape->kind == hgraph::TSTypeKind::TS) { return shape->delta_value_schema; }
+        return hgraph::TypeRegistry::instance().bundle(
+            "hgl.delta", std::string{shape->name()}, {{"payload", shape->delta_value_schema}},
+            {}, false, "__type__", {shape->value_schema});
+    }
+
+    // Called only while preparing a concrete node, never from a hook.
+    inline hgraph::ValueTypeRef storage_binding(const hgraph::ValueTypeMetaData *schema) {
+        auto &factory = hgraph::ValuePlanFactory::instance();
+        const auto kind = schema->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::List) {
+            const auto element = storage_binding(schema->element_type);
+            if (schema->is_fixed_size()) { return factory.realized_fixed_list_type_for(schema, element); }
+            return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
+        }
+        if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
+            std::vector<hgraph::ValueTypeRef> fields;
+            fields.reserve(schema->field_count);
+            for (std::size_t i = 0; i < schema->field_count; ++i) { fields.push_back(storage_binding(schema->fields[i].type)); }
+            return factory.realized_composite_type_for(schema, fields);
+        }
+        return factory.type_for(schema);
+    }
+
+    class PreparedValuePlan
+    {
+      public:
+        PreparedValuePlan() = default;
+        explicit PreparedValuePlan(const hgraph::ValueTypeMetaData *schema) : PreparedValuePlan(storage_binding(schema)) {}
+        explicit PreparedValuePlan(hgraph::ValueTypeRef binding) : binding_{binding} {
+            const auto kind = binding.schema()->try_value_kind();
+            if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
+                indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");
+            }
+            if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
+                list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
+            }
+            if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
+                fields_.reserve(binding.schema()->field_count);
+                for (std::size_t index = 0; index < binding.schema()->field_count; ++index) {
+                    fields_.emplace_back(indexed_->element_binding(indexed_->context, nullptr, index));
+                }
+            }
+            if (binding.schema()->element_type != nullptr) { element_ = storage_binding(binding.schema()->element_type); }
+            if (binding.schema()->key_type != nullptr) { key_ = storage_binding(binding.schema()->key_type); }
+        }
+        [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
+        [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return fields_.at(index).binding(); }
+        [[nodiscard]] const PreparedValuePlan &field_plan(std::size_t index) const { return fields_.at(index); }
+        [[nodiscard]] hgraph::ValueTypeRef element_binding() const noexcept { return element_; }
+        [[nodiscard]] hgraph::ValueTypeRef key_binding() const noexcept { return key_; }
+        [[nodiscard]] hgraph::Value retain(const hgraph::ValueView &value) const { return hgraph::Value{binding_, value}; }
+        [[nodiscard]] hgraph::Value empty_list() const { return hgraph::Value{binding_}; }
+        [[nodiscard]] hgraph::Value bundle(std::span<const std::pair<std::size_t, hgraph::ValueView>> fields) const {
+            hgraph::BundleBuilder result{binding_};
+            for (const auto &[index, value] : fields) { result.set(index, value); }
+            return result.build();
+        }
+        [[nodiscard]] std::int64_t len(const hgraph::ValueView &value) const {
+            const auto size = indexed_->size(indexed_->context, value.data());
+            if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
+                throw std::overflow_error("ordinary list length is not representable as i64");
+            }
+            return static_cast<std::int64_t>(size);
+        }
+        [[nodiscard]] hgraph::ValueView index(const hgraph::ValueView &value, std::int64_t index) const {
+            if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
+            const auto offset = static_cast<std::size_t>(index);
+            if (indexed_->element_valid != nullptr && !indexed_->element_valid(indexed_->context, value.data(), offset)) {
+                return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset), nullptr};
+            }
+            return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
+                                     indexed_->element_at(indexed_->context, value.data(), offset)};
+        }
+        [[nodiscard]] hgraph::ValueView index_mutable(const hgraph::ValueView &value, std::int64_t index) const {
+            if (index < 0 || index >= len(value)) { throw std::out_of_range("ordinary value index out of bounds"); }
+            const auto offset = static_cast<std::size_t>(index);
+            auto writable = value.begin_mutation();
+            // IndexedValueOps permits dense representations to use the read
+            // accessor for writable storage obtained through begin_mutation.
+            auto *element = indexed_->mutable_element_at != nullptr
+                ? indexed_->mutable_element_at(indexed_->context, writable.mutable_data(), offset)
+                : const_cast<void *>(indexed_->element_at(indexed_->context, writable.mutable_data(), offset));
+            return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
+                                     element};
+        }
+        void push(const hgraph::ValueView &list, const hgraph::ValueView &element) const {
+            auto retained = hgraph::Value{element_, element};
+            auto writable = list.begin_mutation();
+            list_->push_back(list_->context, writable.mutable_data(), retained.view().binding(), retained.view().data());
+        }
+      private:
+        hgraph::ValueTypeRef binding_{};
+        const hgraph::IndexedValueOps *indexed_{};
+        const hgraph::MutableListValueOps *list_{};
+        std::vector<PreparedValuePlan> fields_{};
+        hgraph::ValueTypeRef element_{};
+        hgraph::ValueTypeRef key_{};
+    };
+
+    class PreparedDeltaPlan
+    {
+      public:
+        PreparedDeltaPlan() = default;
+        explicit PreparedDeltaPlan(const hgraph::TSValueTypeMetaData *shape)
+            : value_{delta_schema(shape)}, native_{hgraph::ValuePlanFactory::instance().type_for(shape->delta_value_schema)} {
+            if (shape->kind == hgraph::TSTypeKind::TS) {
+                capture_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) { return plan.retain(delta); };
+                payload_ = [](const PreparedValuePlan &, const hgraph::ValueView &delta) { return hgraph::ValueView{delta.binding(), delta.data()}; };
+            } else {
+                capture_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) {
+                    hgraph::BundleBuilder result{plan.binding()};
+                    result.set(0, delta);
+                    return result.build();
+                };
+                payload_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) { return plan.index(delta, 0); };
+            }
+        }
+        [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return value_.binding(); }
+        [[nodiscard]] hgraph::ValueTypeRef native_binding() const noexcept { return native_.binding(); }
+        [[nodiscard]] const PreparedValuePlan &native_plan() const noexcept { return native_; }
+        [[nodiscard]] hgraph::Value capture(const hgraph::ValueView &delta) const { return capture_(value_, delta); }
+        [[nodiscard]] hgraph::ValueView payload(const hgraph::ValueView &delta) const { return payload_(value_, delta); }
+      private:
+        PreparedValuePlan value_{};
+        PreparedValuePlan native_{};
+        hgraph::Value (*capture_)(const PreparedValuePlan &, const hgraph::ValueView &){
+            [](const PreparedValuePlan &, const hgraph::ValueView &) -> hgraph::Value { throw std::logic_error("unprepared delta plan"); }};
+        hgraph::ValueView (*payload_)(const PreparedValuePlan &, const hgraph::ValueView &){
+            [](const PreparedValuePlan &, const hgraph::ValueView &) -> hgraph::ValueView { throw std::logic_error("unprepared delta plan"); }};
+    };
+}
+
+namespace hgraph
+{
+    template <typename Shape> struct scalar_descriptor<hgl::ordinary::Held<Shape>> {
+        static constexpr bool is_concrete() noexcept { return schema_descriptor<Shape>::is_concrete(); }
+        static const ValueTypeMetaData *value_meta() {
+            if constexpr (is_concrete()) { return schema_descriptor<Shape>::ts_meta()->value_schema; }
+            else { return nullptr; }
+        }
+    };
+    template <typename Element, std::int64_t Size> struct scalar_descriptor<hgl::ordinary::List<Element, Size>> {
+        static constexpr bool is_concrete() noexcept { return scalar_descriptor<Element>::is_concrete(); }
+        static const ValueTypeMetaData *value_meta() {
+            if constexpr (!is_concrete()) { return nullptr; }
+            const auto *element = scalar_descriptor<Element>::value_meta();
+            if constexpr (Size < 0) { return TypeRegistry::instance().list(element); }
+            else { return TypeRegistry::instance().fixed_list(element, static_cast<std::size_t>(Size)); }
+        }
+    };
+    template <typename Shape> struct scalar_descriptor<hgl::ordinary::Delta<Shape>> {
+        static constexpr bool is_concrete() noexcept { return schema_descriptor<Shape>::is_concrete(); }
+        static const ValueTypeMetaData *value_meta() {
+            if constexpr (is_concrete()) { return hgl::ordinary::delta_schema(schema_descriptor<Shape>::ts_meta()); }
+            else { return nullptr; }
+        }
+    };
+}
+#endif

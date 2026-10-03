@@ -297,9 +297,10 @@ set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES 
 add_executable(hgl_wiring_tests
     wiring/backend_tests.cpp
     wiring/backend_coverage_tests.cpp
+    wiring/standard_library_fixture.cpp
 )
 target_compile_features(hgl_wiring_tests PRIVATE cxx_std_23)
-target_link_libraries(hgl_wiring_tests PRIVATE hgl::wiring Catch2::Catch2WithMain)
+target_link_libraries(hgl_wiring_tests PRIVATE hgl::wiring hgl::standard_library Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_wiring_tests)
 hgl_apply_warnings(hgl_wiring_tests)
 
@@ -307,7 +308,8 @@ add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
 
 # Runtime metadata materialization is isolated from the evaluator so type
 # coverage remains cheap to compile and failures stay at the IR/runtime seam.
-add_executable(hgl_wiring_type_tests wiring/type_bridge_tests.cpp)
+add_executable(hgl_wiring_type_tests wiring/type_bridge_tests.cpp wiring/ordinary_values_tests.cpp wiring/ordinary_patterns_tests.cpp)
+target_include_directories(hgl_wiring_type_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 target_compile_features(hgl_wiring_type_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_wiring_type_tests PRIVATE hgl::wiring_types Catch2::Catch2WithMain)
 hgl_apply_warnings(hgl_wiring_type_tests)
@@ -746,6 +748,8 @@ if(UNIX)
             --part ${HGRAPH_STD}/impl/control.hgl
             --part ${HGRAPH_STD}/impl/stream.hgl
             --part ${HGRAPH_STD}/impl/temporal.hgl
+            --part ${HGRAPH_STD}/replay_record.hgl
+            --part ${HGRAPH_STD}/impl/replay_record.hgl
             --part ${HGRAPH_STD}/tests/standard.hgl
             --part ${HGRAPH_STD}/tests/control.hgl
             --part ${HGRAPH_STD}/tests/stream.hgl
@@ -783,7 +787,7 @@ if(UNIX)
         PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "7 tests, 0 failed"
+        PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
     )
 
     add_test(
@@ -940,3 +944,12 @@ add_test(NAME hgraph_language_format
         -DHGL=$<TARGET_FILE:hgl>
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/format-cli
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/format.cmake)
+
+# Composition eval uses the compiled shared HGL replay/record provider, not
+# a scripted compiler. Keep this gate active on every platform.
+add_test(NAME hgraph_language_eval_without_scripted_compiler
+    COMMAND $<TARGET_FILE:hgl> test
+        ${HGRAPH_SHARED_ROOT}/hgraph_spec/language/examples/conditional-early-return.hgl)
+set_tests_properties(hgraph_language_eval_without_scripted_compiler PROPERTIES
+    PASS_REGULAR_EXPRESSION "8 tests?, 0 failed"
+    ENVIRONMENT "HGL_CXX=hgl-scripted-compiler-must-not-run;HGL_DISABLE_CACHE=1")

@@ -86,3 +86,14 @@ def test_inventory_reads_shared_contracts_and_implementations_once(tmp_path):
     entries = catalogue.hgl_inventory(tmp_path)
     assert sorted(entry["kind"] for entry in entries) == ["contract", "implementation"]
     assert all(entry["source"].startswith("external/hgraph_std/") for entry in entries)
+
+
+def test_generator_implementation_inventory_is_runtime(tmp_path):
+    folder = tmp_path / "external/hgraph_std/hgl/hgraph"
+    folder.mkdir(parents=True)
+    (folder / "replay.hgl").write_text(
+        "module example\nimpl fn source(const value: i64) -> i64 { yield 0us: value }\n")
+    entries = catalogue.hgl_inventory(tmp_path)
+    assert len(entries) == 1
+    assert entries[0]["kind"] == "implementation"
+    assert entries[0]["form"] == "hgl-runtime"

@@ -94,6 +94,7 @@ namespace hgl::descriptor
                     result.nominal_identity = source.nominal_identity;
                     break;
                 case TypeCategory::List: result.kind = ImportedTypeKind::List; break;
+                case TypeCategory::Delta: result.kind = ImportedTypeKind::Delta; break;
                 case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
                 case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;

@@ -1026,12 +1026,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:9
+        struct add__impl_36__i64__i64__i64__m0_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::add__impl_36__i64__i64__i64__m0_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.add_#36@instantiate:0.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct add__impl_36__i64__i64__i64__m0
         {
+            using hgl_cache_fields     = add__impl_36__i64__i64__i64__m0_cache_fields;
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:0";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add(lhs.value(), rhs.value()));
                     return;
@@ -1040,12 +1056,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:9
+        struct add__impl_36__i64__f64__f64__m1_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::add__impl_36__i64__f64__f64__m1_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.add_#36@instantiate:1.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct add__impl_36__i64__f64__f64__m1
         {
+            using hgl_cache_fields     = add__impl_36__i64__f64__f64__m1_cache_fields;
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:1";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1054,12 +1086,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:9
+        struct add__impl_36__f64__i64__f64__m2_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::add__impl_36__f64__i64__f64__m2_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.add_#36@instantiate:2.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct add__impl_36__f64__i64__f64__m2
         {
+            using hgl_cache_fields     = add__impl_36__f64__i64__f64__m2_cache_fields;
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:2";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1068,12 +1116,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:9
+        struct add__impl_36__f64__f64__f64__m3_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::add__impl_36__f64__f64__f64__m3_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.add_#36@instantiate:3.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct add__impl_36__f64__f64__f64__m3
         {
+            using hgl_cache_fields     = add__impl_36__f64__f64__f64__m3_cache_fields;
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:3";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1082,12 +1146,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:16
+        struct sub__impl_37__i64__i64__i64__m4_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::sub__impl_37__i64__i64__i64__m4_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.sub_#37@instantiate:4.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct sub__impl_37__i64__i64__i64__m4
         {
+            using hgl_cache_fields     = sub__impl_37__i64__i64__i64__m4_cache_fields;
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:4";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub(lhs.value(), rhs.value()));
                     return;
@@ -1096,12 +1176,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:16
+        struct sub__impl_37__i64__f64__f64__m5_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::sub__impl_37__i64__f64__f64__m5_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.sub_#37@instantiate:5.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct sub__impl_37__i64__f64__f64__m5
         {
+            using hgl_cache_fields     = sub__impl_37__i64__f64__f64__m5_cache_fields;
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:5";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1110,12 +1206,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:16
+        struct sub__impl_37__f64__i64__f64__m6_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::sub__impl_37__f64__i64__f64__m6_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.sub_#37@instantiate:6.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct sub__impl_37__f64__i64__f64__m6
         {
+            using hgl_cache_fields     = sub__impl_37__f64__i64__f64__m6_cache_fields;
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:6";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1124,12 +1236,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:16
+        struct sub__impl_37__f64__f64__f64__m7_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::sub__impl_37__f64__f64__f64__m7_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.sub_#37@instantiate:7.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct sub__impl_37__f64__f64__f64__m7
         {
+            using hgl_cache_fields     = sub__impl_37__f64__f64__f64__m7_cache_fields;
             static constexpr auto name = "hgraph.operators.sub_#37@instantiate:7";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::sub__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1138,12 +1266,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:23
+        struct mul__impl_38__i64__i64__i64__m8_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mul__impl_38__i64__i64__i64__m8_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mul_#38@instantiate:8.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mul__impl_38__i64__i64__i64__m8
         {
+            using hgl_cache_fields     = mul__impl_38__i64__i64__i64__m8_cache_fields;
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:8";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul(lhs.value(), rhs.value()));
                     return;
@@ -1152,12 +1296,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:23
+        struct mul__impl_38__i64__f64__f64__m9_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mul__impl_38__i64__f64__f64__m9_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mul_#38@instantiate:9.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mul__impl_38__i64__f64__f64__m9
         {
+            using hgl_cache_fields     = mul__impl_38__i64__f64__f64__m9_cache_fields;
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:9";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1166,12 +1326,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:23
+        struct mul__impl_38__f64__i64__f64__m10_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mul__impl_38__f64__i64__f64__m10_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mul_#38@instantiate:10.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mul__impl_38__f64__i64__f64__m10
         {
+            using hgl_cache_fields     = mul__impl_38__f64__i64__f64__m10_cache_fields;
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:10";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1180,12 +1356,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:23
+        struct mul__impl_38__f64__f64__f64__m11_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mul__impl_38__f64__f64__f64__m11_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mul_#38@instantiate:11.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mul__impl_38__f64__f64__f64__m11
         {
+            using hgl_cache_fields     = mul__impl_38__f64__f64__f64__m11_cache_fields;
             static constexpr auto name = "hgraph.operators.mul_#38@instantiate:11";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mul__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1194,12 +1386,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:30
+        struct div__impl_39__i64__i64__f64__m12_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::div__impl_39__i64__i64__f64__m12_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.div_#39@instantiate:12.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct div__impl_39__i64__i64__f64__m12
         {
+            using hgl_cache_fields     = div__impl_39__i64__i64__f64__m12_cache_fields;
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:12";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                       hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div(lhs.value(), rhs.value()));
                     return;
@@ -1208,12 +1416,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:30
+        struct div__impl_39__i64__f64__f64__m13_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::div__impl_39__i64__f64__f64__m13_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.div_#39@instantiate:13.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct div__impl_39__i64__f64__f64__m13
         {
+            using hgl_cache_fields     = div__impl_39__i64__f64__f64__m13_cache_fields;
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:13";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1222,12 +1446,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:30
+        struct div__impl_39__f64__i64__f64__m14_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::div__impl_39__f64__i64__f64__m14_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.div_#39@instantiate:14.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct div__impl_39__f64__i64__f64__m14
         {
+            using hgl_cache_fields     = div__impl_39__f64__i64__f64__m14_cache_fields;
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:14";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1236,12 +1476,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:30
+        struct div__impl_39__f64__f64__f64__m15_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::div__impl_39__f64__f64__f64__m15_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.div_#39@instantiate:15.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct div__impl_39__f64__f64__f64__m15
         {
+            using hgl_cache_fields     = div__impl_39__f64__f64__f64__m15_cache_fields;
             static constexpr auto name = "hgraph.operators.div_#39@instantiate:15";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::div__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1250,12 +1506,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:37
+        struct floordiv__impl_40__i64__i64__i64__m16_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::floordiv__impl_40__i64__i64__i64__m16_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.floordiv_#40@instantiate:16.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct floordiv__impl_40__i64__i64__i64__m16
         {
+            using hgl_cache_fields     = floordiv__impl_40__i64__i64__i64__m16_cache_fields;
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:16";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv(lhs.value(), rhs.value()));
                     return;
@@ -1264,12 +1536,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:37
+        struct floordiv__impl_40__i64__f64__f64__m17_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::floordiv__impl_40__i64__f64__f64__m17_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.floordiv_#40@instantiate:17.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct floordiv__impl_40__i64__f64__f64__m17
         {
+            using hgl_cache_fields     = floordiv__impl_40__i64__f64__f64__m17_cache_fields;
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:17";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1278,12 +1566,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:37
+        struct floordiv__impl_40__f64__i64__f64__m18_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::floordiv__impl_40__f64__i64__f64__m18_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.floordiv_#40@instantiate:18.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct floordiv__impl_40__f64__i64__f64__m18
         {
+            using hgl_cache_fields     = floordiv__impl_40__f64__i64__f64__m18_cache_fields;
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:18";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1292,12 +1596,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:37
+        struct floordiv__impl_40__f64__f64__f64__m19_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::floordiv__impl_40__f64__f64__f64__m19_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.floordiv_#40@instantiate:19.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct floordiv__impl_40__f64__f64__f64__m19
         {
+            using hgl_cache_fields     = floordiv__impl_40__f64__f64__f64__m19_cache_fields;
             static constexpr auto name = "hgraph.operators.floordiv_#40@instantiate:19";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::floordiv__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1306,12 +1626,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:44
+        struct mod__impl_41__i64__i64__i64__m20_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mod__impl_41__i64__i64__i64__m20_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mod_#41@instantiate:20.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mod__impl_41__i64__i64__i64__m20
         {
+            using hgl_cache_fields     = mod__impl_41__i64__i64__i64__m20_cache_fields;
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:20";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod(lhs.value(), rhs.value()));
                     return;
@@ -1320,12 +1656,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:44
+        struct mod__impl_41__i64__f64__f64__m21_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mod__impl_41__i64__f64__f64__m21_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mod_#41@instantiate:21.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mod__impl_41__i64__f64__f64__m21
         {
+            using hgl_cache_fields     = mod__impl_41__i64__f64__f64__m21_cache_fields;
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:21";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1334,12 +1686,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:44
+        struct mod__impl_41__f64__i64__f64__m22_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mod__impl_41__f64__i64__f64__m22_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mod_#41@instantiate:22.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mod__impl_41__f64__i64__f64__m22
         {
+            using hgl_cache_fields     = mod__impl_41__f64__i64__f64__m22_cache_fields;
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:22";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1348,12 +1716,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:44
+        struct mod__impl_41__f64__f64__f64__m23_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::mod__impl_41__f64__f64__f64__m23_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.mod_#41@instantiate:23.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct mod__impl_41__f64__f64__f64__m23
         {
+            using hgl_cache_fields     = mod__impl_41__f64__f64__f64__m23_cache_fields;
             static constexpr auto name = "hgraph.operators.mod_#41@instantiate:23";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::mod__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1362,12 +1746,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__i64__i64__m24_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__i64__i64__m24_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:24.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__i64__i64__m24
         {
+            using hgl_cache_fields     = eq__impl_42__i64__i64__m24_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:24";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq(lhs.value(), rhs.value()));
                     return;
@@ -1376,12 +1776,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__str__str__m25_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__str__str__m25_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:25.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__str__str__m25
         {
+            using hgl_cache_fields     = eq__impl_42__str__str__m25_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:25";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1390,12 +1806,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__bool__bool__m26_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__bool__bool__m26_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:26.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__bool__bool__m26
         {
+            using hgl_cache_fields     = eq__impl_42__bool__bool__m26_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:26";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1404,12 +1836,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__i64__i64__m27_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__i64__i64__m27_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:27.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__i64__i64__m27
         {
+            using hgl_cache_fields     = ne__impl_43__i64__i64__m27_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:27";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne(lhs.value(), rhs.value()));
                     return;
@@ -1418,12 +1866,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__f64__f64__m28_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__f64__f64__m28_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:28.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__f64__f64__m28
         {
+            using hgl_cache_fields     = ne__impl_43__f64__f64__m28_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:28";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1432,12 +1896,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__i64__f64__m29_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__i64__f64__m29_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:29.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__i64__f64__m29
         {
+            using hgl_cache_fields     = ne__impl_43__i64__f64__m29_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:29";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1446,12 +1926,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__f64__i64__m30_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__f64__i64__m30_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:30.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__f64__i64__m30
         {
+            using hgl_cache_fields     = ne__impl_43__f64__i64__m30_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:30";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1460,12 +1956,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__str__str__m31_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__str__str__m31_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:31.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__str__str__m31
         {
+            using hgl_cache_fields     = ne__impl_43__str__str__m31_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:31";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1474,12 +1986,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__bool__bool__m32_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__bool__bool__m32_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:32.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__bool__bool__m32
         {
+            using hgl_cache_fields     = ne__impl_43__bool__bool__m32_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:32";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Bool>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -1488,12 +2016,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__i64__i64__m33_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__i64__i64__m33_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:33.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__i64__i64__m33
         {
+            using hgl_cache_fields     = lt__impl_44__i64__i64__m33_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:33";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt(lhs.value(), rhs.value()));
                     return;
@@ -1502,12 +2046,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__f64__f64__m34_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__f64__f64__m34_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:34.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__f64__f64__m34
         {
+            using hgl_cache_fields     = lt__impl_44__f64__f64__m34_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:34";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1516,12 +2076,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__i64__f64__m35_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__i64__f64__m35_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:35.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__i64__f64__m35
         {
+            using hgl_cache_fields     = lt__impl_44__i64__f64__m35_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:35";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1530,12 +2106,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__f64__i64__m36_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__f64__i64__m36_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:36.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__f64__i64__m36
         {
+            using hgl_cache_fields     = lt__impl_44__f64__i64__m36_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:36";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1544,12 +2136,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__str__str__m37_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__str__str__m37_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:37.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__str__str__m37
         {
+            using hgl_cache_fields     = lt__impl_44__str__str__m37_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:37";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1558,12 +2166,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__i64__i64__m38_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__i64__i64__m38_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:38.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__i64__i64__m38
         {
+            using hgl_cache_fields     = le__impl_45__i64__i64__m38_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:38";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le(lhs.value(), rhs.value()));
                     return;
@@ -1572,12 +2196,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__f64__f64__m39_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__f64__f64__m39_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:39.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__f64__f64__m39
         {
+            using hgl_cache_fields     = le__impl_45__f64__f64__m39_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:39";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1586,12 +2226,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__i64__f64__m40_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__i64__f64__m40_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:40.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__i64__f64__m40
         {
+            using hgl_cache_fields     = le__impl_45__i64__f64__m40_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:40";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1600,12 +2256,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__f64__i64__m41_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__f64__i64__m41_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:41.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__f64__i64__m41
         {
+            using hgl_cache_fields     = le__impl_45__f64__i64__m41_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:41";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1614,12 +2286,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__str__str__m42_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__str__str__m42_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:42.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__str__str__m42
         {
+            using hgl_cache_fields     = le__impl_45__str__str__m42_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:42";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1628,12 +2316,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__i64__i64__m43_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__i64__i64__m43_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:43.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__i64__i64__m43
         {
+            using hgl_cache_fields     = gt__impl_46__i64__i64__m43_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:43";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt(lhs.value(), rhs.value()));
                     return;
@@ -1642,12 +2346,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__f64__f64__m44_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__f64__f64__m44_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:44.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__f64__f64__m44
         {
+            using hgl_cache_fields     = gt__impl_46__f64__f64__m44_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:44";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1656,12 +2376,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__i64__f64__m45_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__i64__f64__m45_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:45.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__i64__f64__m45
         {
+            using hgl_cache_fields     = gt__impl_46__i64__f64__m45_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:45";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1670,12 +2406,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__f64__i64__m46_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__f64__i64__m46_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:46.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__f64__i64__m46
         {
+            using hgl_cache_fields     = gt__impl_46__f64__i64__m46_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:46";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1684,12 +2436,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__str__str__m47_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__str__str__m47_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:47.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__str__str__m47
         {
+            using hgl_cache_fields     = gt__impl_46__str__str__m47_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:47";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1698,12 +2466,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__i64__i64__m48_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__i64__i64__m48_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:48.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__i64__i64__m48
         {
+            using hgl_cache_fields     = ge__impl_47__i64__i64__m48_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:48";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge(lhs.value(), rhs.value()));
                     return;
@@ -1712,12 +2496,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__f64__f64__m49_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__f64__f64__m49_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:49.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__f64__f64__m49
         {
+            using hgl_cache_fields     = ge__impl_47__f64__f64__m49_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:49";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_2(lhs.value(), rhs.value()));
                     return;
@@ -1726,12 +2526,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__i64__f64__m50_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__i64__f64__m50_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:50.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__i64__f64__m50
         {
+            using hgl_cache_fields     = ge__impl_47__i64__f64__m50_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:50";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_3(lhs.value(), rhs.value()));
                     return;
@@ -1740,12 +2556,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__f64__i64__m51_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__f64__i64__m51_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:51.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__f64__i64__m51
         {
+            using hgl_cache_fields     = ge__impl_47__f64__i64__m51_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:51";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked>   rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                          hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1754,12 +2586,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__str__str__m52_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__str__str__m52_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:52.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__str__str__m52
         {
+            using hgl_cache_fields     = ge__impl_47__str__str__m52_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:52";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1768,11 +2616,27 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:93
+        struct neg__impl_48__i64__i64__m53_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::neg__impl_48__i64__i64__m53_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.neg_#48@instantiate:53.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct neg__impl_48__i64__i64__m53
         {
+            using hgl_cache_fields     = neg__impl_48__i64__i64__m53_cache_fields;
             static constexpr auto name = "hgraph.operators.neg_#48@instantiate:53";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::Out<hgraph::TS<hgraph::Int>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
                     hgl_output.set(hgraph_::native::native::neg(ts.value()));
                     return;
@@ -1781,11 +2645,27 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:93
+        struct neg__impl_48__f64__f64__m54_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::neg__impl_48__f64__f64__m54_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.neg_#48@instantiate:54.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct neg__impl_48__f64__f64__m54
         {
+            using hgl_cache_fields     = neg__impl_48__f64__f64__m54_cache_fields;
             static constexpr auto name = "hgraph.operators.neg_#48@instantiate:54";
             static void           eval(hgraph::In<"ts", hgraph::TS<hgraph::Float>, hgraph::InputValidity::Unchecked> ts,
-                                       hgraph::Out<hgraph::TS<hgraph::Float>>                                        hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Float>> hgl_output) {
                 if ((ts.modified()) && (ts.valid())) {
                     hgl_output.set(hgraph_::native::native::neg__candidate_2(ts.value()));
                     return;
@@ -1794,12 +2674,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:9
+        struct add__impl_36__str__str__str__m55_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::add__impl_36__str__str__str__m55_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.add_#36@instantiate:55.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct add__impl_36__str__str__str__m55
         {
+            using hgl_cache_fields     = add__impl_36__str__str__str__m55_cache_fields;
             static constexpr auto name = "hgraph.operators.add_#36@instantiate:55";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Str>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Str>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::add__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1808,12 +2704,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__date__date__m56_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__date__date__m56_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:56.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__date__date__m56
         {
+            using hgl_cache_fields     = eq__impl_42__date__date__m56_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:56";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_4(lhs.value(), rhs.value()));
                     return;
@@ -1822,12 +2734,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__datetime__datetime__m57_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__datetime__datetime__m57_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:57.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__datetime__datetime__m57
         {
+            using hgl_cache_fields     = eq__impl_42__datetime__datetime__m57_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:57";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_5(lhs.value(), rhs.value()));
                     return;
@@ -1836,12 +2764,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__duration__duration__m58_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__duration__duration__m58_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:58.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__duration__duration__m58
         {
+            using hgl_cache_fields     = eq__impl_42__duration__duration__m58_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:58";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -1850,12 +2794,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__date__date__m59_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__date__date__m59_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:59.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__date__date__m59
         {
+            using hgl_cache_fields     = ne__impl_43__date__date__m59_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:59";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -1864,12 +2824,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__datetime__datetime__m60_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__datetime__datetime__m60_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:60.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__datetime__datetime__m60
         {
+            using hgl_cache_fields     = ne__impl_43__datetime__datetime__m60_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:60";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_8(lhs.value(), rhs.value()));
                     return;
@@ -1878,12 +2854,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__duration__duration__m61_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__duration__duration__m61_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:61.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__duration__duration__m61
         {
+            using hgl_cache_fields     = ne__impl_43__duration__duration__m61_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:61";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_9(lhs.value(), rhs.value()));
                     return;
@@ -1892,12 +2884,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__date__date__m62_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__date__date__m62_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:62.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__date__date__m62
         {
+            using hgl_cache_fields     = lt__impl_44__date__date__m62_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:62";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -1906,12 +2914,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__datetime__datetime__m63_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__datetime__datetime__m63_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:63.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__datetime__datetime__m63
         {
+            using hgl_cache_fields     = lt__impl_44__datetime__datetime__m63_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:63";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -1920,12 +2944,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:65
+        struct lt__impl_44__duration__duration__m64_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::lt__impl_44__duration__duration__m64_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.lt_#44@instantiate:64.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct lt__impl_44__duration__duration__m64
         {
+            using hgl_cache_fields     = lt__impl_44__duration__duration__m64_cache_fields;
             static constexpr auto name = "hgraph.operators.lt_#44@instantiate:64";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::lt__candidate_8(lhs.value(), rhs.value()));
                     return;
@@ -1934,12 +2974,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__date__date__m65_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__date__date__m65_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:65.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__date__date__m65
         {
+            using hgl_cache_fields     = le__impl_45__date__date__m65_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:65";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -1948,12 +3004,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__datetime__datetime__m66_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__datetime__datetime__m66_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:66.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__datetime__datetime__m66
         {
+            using hgl_cache_fields     = le__impl_45__datetime__datetime__m66_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:66";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -1962,12 +3034,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:72
+        struct le__impl_45__duration__duration__m67_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::le__impl_45__duration__duration__m67_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.le_#45@instantiate:67.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct le__impl_45__duration__duration__m67
         {
+            using hgl_cache_fields     = le__impl_45__duration__duration__m67_cache_fields;
             static constexpr auto name = "hgraph.operators.le_#45@instantiate:67";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::le__candidate_8(lhs.value(), rhs.value()));
                     return;
@@ -1976,12 +3064,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__date__date__m68_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__date__date__m68_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:68.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__date__date__m68
         {
+            using hgl_cache_fields     = gt__impl_46__date__date__m68_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:68";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -1990,12 +3094,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__datetime__datetime__m69_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__datetime__datetime__m69_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:69.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__datetime__datetime__m69
         {
+            using hgl_cache_fields     = gt__impl_46__datetime__datetime__m69_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:69";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -2004,12 +3124,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
+        struct gt__impl_46__duration__duration__m70_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::gt__impl_46__duration__duration__m70_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.gt_#46@instantiate:70.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct gt__impl_46__duration__duration__m70
         {
+            using hgl_cache_fields     = gt__impl_46__duration__duration__m70_cache_fields;
             static constexpr auto name = "hgraph.operators.gt_#46@instantiate:70";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::gt__candidate_8(lhs.value(), rhs.value()));
                     return;
@@ -2018,12 +3154,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__date__date__m71_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__date__date__m71_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:71.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__date__date__m71
         {
+            using hgl_cache_fields     = ge__impl_47__date__date__m71_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:71";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Date>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_6(lhs.value(), rhs.value()));
                     return;
@@ -2032,12 +3184,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__datetime__datetime__m72_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__datetime__datetime__m72_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:72.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__datetime__datetime__m72
         {
+            using hgl_cache_fields     = ge__impl_47__datetime__datetime__m72_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:72";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::DateTime>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                             hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -2046,12 +3214,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:86
+        struct ge__impl_47__duration__duration__m73_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ge__impl_47__duration__duration__m73_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ge_#47@instantiate:73.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ge__impl_47__duration__duration__m73
         {
+            using hgl_cache_fields     = ge__impl_47__duration__duration__m73_cache_fields;
             static constexpr auto name = "hgraph.operators.ge_#47@instantiate:73";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::TimeDelta>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                              hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ge__candidate_8(lhs.value(), rhs.value()));
                     return;
@@ -2060,12 +3244,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:51
+        struct eq__impl_42__time__time__m74_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::eq__impl_42__time__time__m74_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.eq_#42@instantiate:74.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct eq__impl_42__time__time__m74
         {
+            using hgl_cache_fields     = eq__impl_42__time__time__m74_cache_fields;
             static constexpr auto name = "hgraph.operators.eq_#42@instantiate:74";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::eq__candidate_7(lhs.value(), rhs.value()));
                     return;
@@ -2074,12 +3274,28 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:58
+        struct ne__impl_43__time__time__m75_cache_fields
+        {};
+    }  // namespace hgl_detail
+}  // namespace hgraph_::operators_
+namespace hgraph::static_schema_detail
+{
+    template <> struct scalar_name<::hgraph_::operators_::hgl_detail::ne__impl_43__time__time__m75_cache_fields>
+    {
+        static constexpr std::string_view value = "hgraph.operators.ne_#43@instantiate:75.cache";
+    };
+}  // namespace hgraph::static_schema_detail
+namespace hgraph_::operators_
+{
+    namespace hgl_detail
+    {
         struct ne__impl_43__time__time__m75
         {
+            using hgl_cache_fields     = ne__impl_43__time__time__m75_cache_fields;
             static constexpr auto name = "hgraph.operators.ne_#43@instantiate:75";
             static void           eval(hgraph::In<"lhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> lhs,
                                        hgraph::In<"rhs", hgraph::TS<hgraph::Time>, hgraph::InputValidity::Unchecked> rhs,
-                                       hgraph::Out<hgraph::TS<hgraph::Bool>>                                         hgl_output) {
+                                       hgraph::State<hgl_cache_fields>, hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((lhs.modified() || rhs.modified()) && (lhs.valid() && rhs.valid())) {
                     hgl_output.set(hgraph_::native::native::ne__candidate_10(lhs.value(), rhs.value()));
                     return;

@@ -93,6 +93,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
                 case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
+                case semantics::ImportedTypeKind::Delta: return hir::TypeKind::Delta;
                 case semantics::ImportedTypeKind::Atomic: return hir::TypeKind::Atomic;
             }
             std::unreachable();
@@ -108,6 +109,7 @@ namespace hgl::ir
                 case TypeKind::Set: return hir::TypeKind::Set;
                 case TypeKind::Map: return hir::TypeKind::Map;
                 case TypeKind::Rolling: return hir::TypeKind::Rolling;
+                case TypeKind::Delta: return hir::TypeKind::Delta;
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
                 case TypeKind::Reference: return hir::TypeKind::Reference;
                 case TypeKind::Signal: return hir::TypeKind::Signal;
@@ -828,14 +830,14 @@ namespace hgl::ir
                     case K::NativeScalar:
                         {
                             hir::SymbolId native{};
-                            for (std::size_t index = 0; index < resolved_.imported_functions.size(); ++index) {
-                                const auto &function = resolved_.imported_functions[index];
+                            for (std::size_t function_index = 0; function_index < resolved_.imported_functions.size(); ++function_index) {
+                                const auto &function = resolved_.imported_functions[function_index];
                                 if (function.identity != source.identity) { continue; }
                                 semantics::Binding binding;
                                 binding.kind  = semantics::BindingKind::ImportedFunction;
-                                binding.index = static_cast<std::uint32_t>(index);
-                                while (index + binding.count < resolved_.imported_functions.size() &&
-                                       resolved_.imported_functions[index + binding.count].identity == source.identity) {
+                                binding.index = static_cast<std::uint32_t>(function_index);
+                                while (function_index + binding.count < resolved_.imported_functions.size() &&
+                                       resolved_.imported_functions[function_index + binding.count].identity == source.identity) {
                                     ++binding.count;
                                 }
                                 native = imported_function(binding, range, function.name);

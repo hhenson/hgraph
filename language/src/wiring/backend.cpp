@@ -1,5 +1,7 @@
 #include "wiring/backend.h"
+#include "wiring/delta_trace.h"
 #include <hgl/constant_arithmetic.h>
+#include <hgl/ordinary_values.h>
 
 #include "hgraph_ir/control_flow.h"
 #include "syntax/temporal.h"
@@ -127,9 +129,11 @@ namespace hgl::wiring
             std::string                                                name{};
             gir::ValueId                                               expression{};
             bool                                                       resolved{false};
+            bool                                                       complete_constructor{false};
             std::vector<std::optional<hgraph::Value>>                  elements{};
             std::vector<std::pair<std::string, hgraph::WiringPortRef>> pack_ports{};
             const hgraph::ValueTypeMetaData                           *element_meta{nullptr};
+            const hgraph::TSValueTypeMetaData                         *delta_origin{nullptr};
             SourceRange                                                range{};
 
             [[nodiscard]] bool                             is_const() const noexcept { return kind == Kind::Const; }
@@ -163,6 +167,7 @@ namespace hgl::wiring
         struct Frame
         {
             gir::CallableId                         callable{};
+            TypeBridge::Bindings                    generic_bindings{};
             std::unordered_map<std::uint32_t, Slot> bindings{};
             std::optional<Slot>                     returned{};
             bool                                    in_test{false};
@@ -268,6 +273,7 @@ namespace hgl::wiring
 
           private:
             std::vector<gir::CallableId> invocations_{};
+            const TypeBridge::Bindings *active_bindings_{nullptr};
             [[noreturn]] void fail(Category category, SourceRange range, std::string message) {
                 diagnostics_.report(category, range, std::move(message));
                 throw Abort{};
@@ -314,13 +320,13 @@ namespace hgl::wiring
             }
 
             [[nodiscard]] const hgraph::ValueTypeMetaData *value_meta(gir::TypeId type) {
-                const auto *result = bridge_.value(type);
+                const auto *result = active_bindings_ ? bridge_.value(type, *active_bindings_) : bridge_.value(type);
                 if (result == nullptr) { throw Abort{}; }
                 return result;
             }
 
             [[nodiscard]] const hgraph::TSValueTypeMetaData *schema(gir::TypeId type) {
-                const auto *result = bridge_.schema(type);
+                const auto *result = active_bindings_ ? bridge_.schema(type, *active_bindings_) : bridge_.schema(type);
                 if (result == nullptr) { throw Abort{}; }
                 return result;
             }
@@ -358,6 +364,7 @@ namespace hgl::wiring
                 std::optional<gir::ConditionalContinuationPlan> continuation = std::nullopt, bool *returns_from_callable = nullptr);
             [[nodiscard]] Slot eval_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
+            [[nodiscard]] hgraph::ValueView ordinary_place(gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                               Frame &frame);
             [[nodiscard]] Slot eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &frame);
@@ -369,8 +376,11 @@ namespace hgl::wiring
                                                   SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
                                               SourceRange range, Frame &frame);
+            [[nodiscard]] Slot eval_delta_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments,
+                                                    SourceRange range, Frame &frame);
+            [[nodiscard]] hgraph::Value eval_delta_literal(const hgraph::TSValueTypeMetaData *shape, gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot call_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                             Frame &frame);
+                                             Frame &frame, const std::vector<gir::Substitution> &substitutions);
             [[nodiscard]] Slot wire_function(gir::CallableId id, Frame &frame, SourceRange range);
             [[nodiscard]] Slot invoke(gir::CallableId id, Frame &frame);
             [[nodiscard]] Slot exec_block(gir::BlockId id, Frame &frame,
@@ -864,6 +874,14 @@ namespace hgl::wiring
                     fail(Category::Test, value(entry.key).range,
                          "timed sequences are not supported by the first pass; write one value per cycle");
                 }
+                if (slot.delta_origin != nullptr && !std::holds_alternative<gir::Reference>(value(entry.value).node)) {
+                    const auto &node = value(entry.value).node;
+                    const auto *literal_value = std::get_if<gir::Literal>(&node);
+                    if (literal_value == nullptr || !std::holds_alternative<hir::PlaceholderValue>(literal_value->value)) {
+                        slot.elements.emplace_back(eval_delta_literal(slot.delta_origin, entry.value, frame));
+                        continue;
+                    }
+                }
                 Slot item = eval_value(entry.value, frame);
                 if (item.kind == Slot::Kind::Placeholder) {
                     slot.elements.emplace_back(std::nullopt);
@@ -899,6 +917,8 @@ namespace hgl::wiring
         Slot Compiler::compare_sequences(const Slot &lhs, const Slot &rhs, bool negate, SourceRange range, Frame &frame) {
             Slot left  = lhs;
             Slot right = rhs;
+            if (left.delta_origin == nullptr) { left.delta_origin = right.delta_origin; }
+            if (right.delta_origin == nullptr) { right.delta_origin = left.delta_origin; }
             if (!left.resolved && !right.resolved) {
                 backend(range, "comparing two literal sequences is not supported; one side comes from eval");
             }
@@ -967,7 +987,29 @@ namespace hgl::wiring
         Slot Compiler::convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
             if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
             if (slot.port.schema == target) { return slot; }
+            // A signal parameter observes ticks from any temporal shape;
+            // native input binding erases payload access without a converter.
+            if (target != nullptr && target->kind == hgraph::TSTypeKind::SIGNAL) { return slot; }
             if (same_through_storage(slot.port.schema, target)) { return slot; }
+            // Complete constructors retain the same atomic alternative as the
+            // generated backend: absent optional fields do not gate publication.
+            // A general TSB expression is not a complete construction.
+            if (slot.complete_constructor && slot.port.is_structural_source() && target != nullptr &&
+                target->kind == hgraph::TSTypeKind::TS && slot.port.schema->kind == hgraph::TSTypeKind::TSB &&
+                hgraph::value_schema_without_storage(target->value_schema) == slot.port.schema->value_schema) {
+                std::vector<hgraph::WiringPortRef> children;
+                std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
+                const auto &source_children = slot.port.structural_children();
+                for (std::size_t index = 0; index < source_children.size(); ++index) {
+                    if (source_children[index].is_null_source()) { continue; }
+                    fields.emplace_back(slot.port.schema->fields()[index].name, source_children[index].schema);
+                    children.push_back(source_children[index]);
+                }
+                const auto *atomic_target = registry_.ts(hgraph::value_schema_without_storage(target->value_schema));
+                const Slot present = make_port(hgraph::WiringPortRef::structural_source(
+                    registry_.un_named_tsb(fields), std::move(children)), slot.range);
+                return wire("combine_cs", {argument_of(present, "ts")}, slot.range, true, atomic_target);
+            }
             // A reference to a target-shaped series (or the value of a target
             // reference) needs no conversion node: binding installs the REF
             // adaptation (RFC 0036). A switch_ whose branch passes a series
@@ -1056,7 +1098,7 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_sequence(gir::ValueId id, const gir::Sequence &sequence, SourceRange range, Frame &frame) {
-            if (frame.in_test) {
+            if (value(id).type.valid() && module_.types[value(id).type.value].kind == hir::TypeKind::HarnessSequence) {
                 Slot result;
                 result.kind       = Slot::Kind::Sequence;
                 result.expression = id;
@@ -1072,10 +1114,18 @@ namespace hgl::wiring
                 if (!item.is_const()) { backend(item.range, "a list of time-series values is not supported by the first pass"); }
                 values.push_back(std::move(item.value));
             }
-            if (values.empty()) { fail(Category::Type, range, "an empty list has no element type"); }
             const auto *meta = value_meta(value(id).type);
             if (meta->try_value_kind() != hgraph::ValueTypeKind::List) {
                 backend(range, "a list expression has non-list metadata");
+            }
+            if (!meta->is_fixed_size()) {
+                const ordinary::PreparedValuePlan plan{meta};
+                auto output = plan.empty_list();
+                for (const hgraph::Value &item : values) {
+                    auto element = convert(item, meta->element_type, range, "a list element");
+                    plan.push(output.view(), element.view());
+                }
+                return make_const(std::move(output), range);
             }
             hgraph::ListBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta->element_type), *meta};
             for (const hgraph::Value &item : values) {
@@ -1158,18 +1208,26 @@ namespace hgl::wiring
                     }
                     if (atomic) { present.emplace_back(contract.fields[index].name, field_schema); }
                     if (effective[index]->is_const()) {
-                        Slot converted = make_const(convert(effective[index]->value, meta->fields[index].type,
+                        // Recursive ownership belongs to the destination field.
+                        // A constant source publishes the underlying semantic value.
+                        const auto *constant_schema = field_schema->kind == hgraph::TSTypeKind::TS
+                            ? registry_.ts(hgraph::value_schema_without_storage(field_schema->value_schema)) : field_schema;
+                        Slot converted = make_const(convert(effective[index]->value, constant_schema->value_schema,
                                                             effective[index]->range, "field '" + contract.fields[index].name + "'"),
                                                     effective[index]->range);
-                        children.push_back(wire_constant(converted, field_schema).port);
-                    } else if (effective[index]->is_port() && same_through_storage(effective[index]->port.schema, field_schema)) {
-                        children.push_back(effective[index]->port);
+                        children.push_back(wire_constant(converted, constant_schema).port);
+                    } else if (effective[index]->is_port()) {
+                        children.push_back(convert_port(*effective[index], field_schema).port);
                     } else {
                         fail(Category::Type, effective[index]->range,
                              "field '" + contract.fields[index].name + "' expects " + std::string{field_schema->name()});
                     }
                 }
-                if (!atomic) { return make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range); }
+                if (!atomic) {
+                    Slot result = make_port(hgraph::WiringPortRef::structural_source(shape, std::move(children)), range);
+                    result.complete_constructor = true;
+                    return result;
+                }
                 // Only the fields that have a value take part, so the value
                 // publishes once each of them is valid; an absent optional field
                 // stays unset instead of holding the value back.
@@ -1196,12 +1254,112 @@ namespace hgl::wiring
 
         Slot Compiler::eval_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta, SourceRange range,
                                       Frame &frame) {
+            if (delta) { return eval_delta_construct(type, arguments, range, frame); }
             std::vector<std::pair<std::string, Slot>> supplied;
             supplied.reserve(arguments.size());
             for (const gir::Argument &argument : arguments) {
                 supplied.emplace_back(argument.name, eval_value(argument.value, frame));
             }
             return assemble_construct(type, std::move(supplied), delta, range, frame);
+        }
+
+        hgraph::Value Compiler::eval_delta_literal(const hgraph::TSValueTypeMetaData *shape, gir::ValueId id, Frame &frame) {
+            if (const auto *tuple = std::get_if<gir::Tuple>(&value(id).node); tuple != nullptr && shape->kind == hgraph::TSTypeKind::TSB) {
+                hgraph::BundleBuilder payload{hgraph::ValuePlanFactory::instance().type_for(shape->delta_value_schema)};
+                for (std::size_t index = 0; index < tuple->elements.size(); ++index) {
+                    const auto *literal = std::get_if<gir::Literal>(&value(tuple->elements[index]).node);
+                    if (literal != nullptr && std::holds_alternative<hir::PlaceholderValue>(literal->value)) { continue; }
+                    const auto *child_shape = shape->fields()[index].type;
+                    auto retained = eval_delta_literal(child_shape, tuple->elements[index], frame);
+                    ordinary::PreparedDeltaPlan child_plan{child_shape};
+                    payload.set(index, child_plan.payload(retained.view()));
+                }
+                auto built = payload.build();
+                return ordinary::PreparedDeltaPlan{shape}.capture(built.view());
+            }
+            Slot supplied = eval_value(id, frame);
+            if (!supplied.is_const()) { fail(Category::Type, value(id).range, "a delta payload must be an ordinary value"); }
+            return convert(supplied.value, ordinary::delta_schema(shape), value(id).range, "publication delta");
+        }
+
+        Slot Compiler::eval_delta_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments,
+                                             SourceRange range, Frame &frame) {
+            if (module_.types[type.value].kind == hir::TypeKind::Delta) { type = module_.types[type.value].children.front(); }
+            const auto *shape = schema(type);
+            auto &factory = hgraph::ValuePlanFactory::instance();
+            const auto *payload_schema = shape->delta_value_schema;
+            const auto sequence = [&](gir::ValueId id) -> const gir::Sequence & {
+                const auto *entries = std::get_if<gir::Sequence>(&value(id).node);
+                if (entries == nullptr) { backend(value(id).range, "delta entries require a checked sequence"); }
+                return *entries;
+            };
+            const auto make_set = [&](gir::ValueId id, const hgraph::ValueTypeMetaData *element) {
+                hgraph::SetBuilder set{factory.type_for(element)};
+                if (id.valid()) {
+                    for (const auto &entry : sequence(id).elements) {
+                        Slot item = eval_value(entry.value, frame);
+                        set.insert(convert(item.value, element, item.range, "delta member").view());
+                    }
+                }
+                return set.build();
+            };
+            const auto make_map = [&](gir::ValueId id, const hgraph::ValueTypeMetaData *key_type,
+                                      const hgraph::TSValueTypeMetaData *child_shape) {
+                hgraph::MapBuilder map{factory.type_for(key_type), factory.type_for(child_shape->delta_value_schema)};
+                ordinary::PreparedDeltaPlan child_plan{child_shape};
+                if (id.valid()) {
+                    for (const auto &entry : sequence(id).elements) {
+                        Slot key = eval_value(entry.key, frame);
+                        auto item = eval_delta_literal(child_shape, entry.value, frame);
+                        map.set_item(convert(key.value, key_type, key.range, "delta key").view(), child_plan.payload(item.view()));
+                    }
+                }
+                return map.build();
+            };
+            hgraph::Value payload;
+            if (shape->kind == hgraph::TSTypeKind::TSL) {
+                payload = make_map(arguments.empty() ? gir::ValueId{} : arguments.front().value,
+                                   standard_types().int_type, shape->element_ts());
+            } else if (shape->kind == hgraph::TSTypeKind::TSS || shape->kind == hgraph::TSTypeKind::TSD) {
+                hgraph::BundleBuilder result{factory.type_for(payload_schema)};
+                std::vector<bool> supplied(payload_schema->field_count, false);
+                for (const auto &argument : arguments) {
+                    const std::size_t field = shape->kind == hgraph::TSTypeKind::TSS
+                        ? (argument.name == "added" ? 0 : 1) : (argument.name == "remove" ? 0 : 1);
+                    auto data = shape->kind == hgraph::TSTypeKind::TSD && field == 1
+                        ? make_map(argument.value, shape->key_type(), shape->element_ts())
+                        : make_set(argument.value, payload_schema->fields[field].type->element_type);
+                    result.set(field, data.view());
+                    supplied[field] = true;
+                }
+                for (std::size_t field = 0; field < supplied.size(); ++field) {
+                    if (supplied[field]) { continue; }
+                    auto data = shape->kind == hgraph::TSTypeKind::TSD && field == 1
+                        ? make_map({}, shape->key_type(), shape->element_ts())
+                        : make_set({}, payload_schema->fields[field].type->element_type);
+                    result.set(field, data.view());
+                }
+                payload = result.build();
+            } else if (shape->kind == hgraph::TSTypeKind::TSB) {
+                hgraph::BundleBuilder result{factory.type_for(payload_schema)};
+                std::unordered_map<std::string_view, std::size_t> fields;
+                for (std::size_t index = 0; index < shape->field_count(); ++index) { fields.emplace(shape->fields()[index].name, index); }
+                const auto retain = [&](std::size_t index, gir::ValueId id) {
+                    const auto *child_shape = shape->fields()[index].type;
+                    auto child = eval_delta_literal(child_shape, id, frame);
+                    result.set(index, ordinary::PreparedDeltaPlan{child_shape}.payload(child.view()));
+                };
+                for (const auto &argument : arguments) {
+                    if (module_.types[type.value].kind == hir::TypeKind::Tuple) {
+                        for (const auto &entry : sequence(argument.value).elements) {
+                            const auto key = eval_value(entry.key, frame);
+                            retain(static_cast<std::size_t>(key.value.view().checked_as<hgraph::Int>()), entry.value);
+                        }
+                    } else { retain(fields.at(argument.name), argument.value); }
+                }
+                payload = result.build();
+            } else { backend(range, "delta constructor requires a structural publication shape"); }
+            return make_const(ordinary::PreparedDeltaPlan{shape}.capture(payload.view()), range);
         }
 
         std::vector<std::optional<gir::ValueId>>
@@ -1239,6 +1397,9 @@ namespace hgl::wiring
         }
 
         Slot Compiler::bind_parameter(const gir::Parameter &parameter, const Slot &argument, Frame &frame, SourceRange range) {
+            const auto *previous_bindings = active_bindings_;
+            active_bindings_ = &frame.generic_bindings;
+            auto restore_bindings = hgraph::make_scope_exit([&]() noexcept { active_bindings_ = previous_bindings; });
             if (parameter.is_const || callable(frame.callable).kind == gir::CallableKind::ValueFunction) {
                 Slot result  = constant_of(argument, value_meta(parameter.type), frame, "parameter '" + parameter.name + "'");
                 result.range = range;
@@ -1269,6 +1430,9 @@ namespace hgl::wiring
         }
 
         Slot Compiler::invoke(gir::CallableId id, Frame &frame) {
+            const auto *previous_bindings = active_bindings_;
+            active_bindings_ = &frame.generic_bindings;
+            auto restore_bindings = hgraph::make_scope_exit([&]() noexcept { active_bindings_ = previous_bindings; });
             if (std::ranges::find(invocations_, id) != invocations_.end() || invocations_.size() >= 512) {
                 backend(callable(id).range, "recursive or excessively deep wiring invocation");
             }
@@ -1293,16 +1457,60 @@ namespace hgl::wiring
         }
 
         Slot Compiler::call_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
-                                     Frame &caller) {
+                                     Frame &caller, const std::vector<gir::Substitution> &substitutions) {
             const gir::Callable &target = callable(id);
             if (target.visibility == gir::CallableVisibility::Implementation) {
                 backend(range, "an impl fn is reached through its operator, not called directly");
             }
-            if (!target.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
+            TypeBridge::Bindings generic_bindings = caller.generic_bindings;
+            for (const auto &substitution : substitutions) {
+                if (substitution.retained) { backend(range, "a direct call requires concrete generic bindings"); }
+                if (substitution.type.valid()) {
+                    auto type = substitution.type;
+                    for (std::size_t depth = 0; depth <= generic_bindings.types.size(); ++depth) {
+                        const auto &candidate = module_.types.at(type.value);
+                        if (candidate.kind != hir::TypeKind::Symbol || !candidate.binding.valid()) { break; }
+                        const auto found = generic_bindings.types.find(candidate.binding.value);
+                        if (found == generic_bindings.types.end() || found->second == type) { break; }
+                        type = found->second;
+                    }
+                    generic_bindings.types[substitution.parameter.value] = type;
+                } else if (substitution.value.valid()) {
+                    auto expression = substitution.value;
+                    for (std::size_t depth = 0; depth <= generic_bindings.values.size(); ++depth) {
+                        const auto &candidate = module_.const_exprs.at(expression.value);
+                        if (candidate.kind != gir::ConstExprKind::Parameter || !candidate.parameter_binding.valid()) { break; }
+                        const auto found = generic_bindings.values.find(candidate.parameter_binding.value);
+                        if (found == generic_bindings.values.end() || found->second == expression) { break; }
+                        expression = found->second;
+                    }
+                    generic_bindings.values[substitution.parameter.value] = expression;
+                }
+            }
+            for (const auto &generic : target.generics) {
+                if (generic.is_const ? !generic_bindings.values.contains(generic.binding.value)
+                                     : !generic_bindings.types.contains(generic.binding.value)) {
+                    backend(range, "a direct call has no checked binding for generic '" + generic.name + "'");
+                }
+            }
+            const auto initialize_generics = [&](Frame &callee) {
+                callee.generic_bindings = generic_bindings;
+                for (const auto &generic : target.generics) {
+                    if (!generic.is_const) { continue; }
+                    callee.bindings[generic.binding.value] = eval_const_expr(generic_bindings.values.at(generic.binding.value), caller);
+                }
+            };
+            const auto default_argument = [&](gir::ConstExprId expression, Frame &callee) {
+                const auto *previous_bindings = active_bindings_;
+                active_bindings_ = &callee.generic_bindings;
+                auto restore_bindings = hgraph::make_scope_exit([&]() noexcept { active_bindings_ = previous_bindings; });
+                return eval_const_expr(expression, callee);
+            };
             if (std::ranges::any_of(target.parameters,
                                     [](const gir::Parameter &parameter) { return parameter.pack != gir::ParameterPack::None; })) {
                 Frame callee;
                 callee.callable       = id;
+                initialize_generics(callee);
                 std::size_t next      = 0U;
                 bool        saw_named = false;
                 const auto positional = std::ranges::find(target.parameters, gir::ParameterPack::Positional, &gir::Parameter::pack);
@@ -1371,7 +1579,7 @@ namespace hgl::wiring
                     if (!parameter.default_value.valid()) {
                         fail(Category::Type, range, "missing argument '" + parameter.name + "'");
                     }
-                    Slot value                               = eval_const_expr(parameter.default_value, callee);
+                    Slot value                               = default_argument(parameter.default_value, callee);
                     callee.bindings[parameter.binding.value] = bind_parameter(parameter, value, callee, value.range);
                 }
                 Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(id, callee, range) : invoke(id, callee);
@@ -1381,12 +1589,13 @@ namespace hgl::wiring
             const auto bound = bind_arguments(target, arguments, range);
             Frame      callee;
             callee.callable = id;
+            initialize_generics(callee);
             for (std::size_t pass = 0; pass < 2; ++pass) {
                 for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                     const gir::Parameter &parameter = target.parameters[index];
                     if (parameter.is_const != (pass == 0)) { continue; }
                     Slot argument =
-                        bound[index] ? eval_value(*bound[index], caller) : eval_const_expr(parameter.default_value, callee);
+                        bound[index] ? eval_value(*bound[index], caller) : default_argument(parameter.default_value, callee);
                     callee.bindings[parameter.binding.value] = bind_parameter(parameter, argument, callee, argument.range);
                 }
             }
@@ -1395,8 +1604,68 @@ namespace hgl::wiring
             return result;
         }
 
+        hgraph::ValueView Compiler::ordinary_place(gir::ValueId id, Frame &frame) {
+            const auto &expression = value(id);
+            if (const auto *reference = std::get_if<gir::Reference>(&expression.node)) {
+                if (reference->kind != gir::ReferenceKind::Binding || binding(reference->binding).kind != gir::BindingKind::LocalVar) {
+                    backend(expression.range, "ordinary mutation requires a mutable local value");
+                }
+                auto found = frame.bindings.find(reference->binding.value);
+                if (found == frame.bindings.end() || !found->second.is_const()) {
+                    backend(expression.range, "ordinary mutation requires a local value");
+                }
+                auto &owner = found->second.value;
+                const ordinary::PreparedValuePlan plan{owner.schema()};
+                if (owner.binding() != plan.binding()) { owner = plan.retain(owner.view()); }
+                return owner.view();
+            }
+            if (const auto *index = std::get_if<gir::Index>(&expression.node)) {
+                const Slot position = eval_value(index->index, frame);
+                auto target = ordinary_place(index->target, frame);
+                return ordinary::PreparedValuePlan{target.binding()}.index_mutable(
+                    target, position.value.view().checked_as<hgraph::Int>());
+            }
+            if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
+                auto target = ordinary_place(field->target, frame);
+                const auto *meta = target.schema();
+                for (std::size_t i = 0; i < meta->field_count; ++i) {
+                    if (meta->fields[i].name == field->name) {
+                        return ordinary::PreparedValuePlan{target.binding()}.index_mutable(target, static_cast<std::int64_t>(i));
+                    }
+                }
+            }
+            backend(expression.range, "ordinary mutation has no writable local place");
+        }
+
         Slot Compiler::eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                       Frame &frame) {
+            if (name == "len") {
+                Slot item = eval_value(arguments.front().value, frame);
+                if (item.kind == Slot::Kind::Sequence) {
+                    if (!item.resolved) { resolve_sequence(item, item.element_meta, frame); }
+                    if (item.elements.size() > static_cast<std::size_t>(std::numeric_limits<hgraph::Int>::max())) {
+                        backend(range, "harness sequence length is not representable as i64");
+                    }
+                    return make_const(hgraph::Value{static_cast<hgraph::Int>(item.elements.size())}, range);
+                }
+                if (!item.is_const() || !item.value.view().is_list()) { backend(range, "len requires an ordinary list"); }
+                const ordinary::PreparedValuePlan plan{item.value.binding()};
+                return make_const(hgraph::Value{static_cast<hgraph::Int>(plan.len(item.value.view()))}, range);
+            }
+            if (name == "push") {
+                Slot item = eval_value(arguments.at(1).value, frame);
+                if (!item.is_const()) { backend(range, "push requires an ordinary value"); }
+                auto target = ordinary_place(arguments.front().value, frame);
+                ordinary::PreparedValuePlan{target.binding()}.push(target, item.value.view());
+                return make_marker(Slot::Kind::Void, range);
+            }
+            if (name == "str") {
+                Slot item = eval_value(arguments.front().value, frame);
+                if (item.is_port()) { return wire("str_", {time_series_arg(item.port)}, range); }
+                if (!item.is_const()) { fail(Category::Type, range, "str requires a scalar value"); }
+                if (item.meta() == standard_types().str_type) { return item; }
+                return make_const(hgraph::Value{item.value.to_string()}, range);
+            }
             if (name == "valid" || name == "modified" || name == "all_valid") {
                 if (arguments.empty()) {
                     fail(Category::Type, range, "'" + std::string{name} + "' takes at least one time-series argument");
@@ -1456,7 +1725,7 @@ namespace hgl::wiring
             }
             Slot callee = eval_value(call.callee, frame);
             switch (callee.kind) {
-                case Slot::Kind::Function: return call_function(callee.callable, call.arguments, expression.range, frame);
+                case Slot::Kind::Function: return call_function(callee.callable, call.arguments, expression.range, frame, expression.operation.substitutions);
                 case Slot::Kind::NativeFunction:
                     backend(expression.range,
                             "native scalar function '" + callee.name +
@@ -1888,7 +2157,19 @@ namespace hgl::wiring
                         return wire(name, {argument_of(operand, {})}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {
                         Slot lhs = eval_value(node.lhs, frame);
+                        if (lhs.is_const() && lhs.meta() == types_.bool_type &&
+                            ((node.op == hir::BinaryOp::And && !lhs.value.view().checked_as<hgraph::Bool>()) ||
+                             (node.op == hir::BinaryOp::Or && lhs.value.view().checked_as<hgraph::Bool>()))) {
+                            return lhs;
+                        }
                         Slot rhs = eval_value(node.rhs, frame);
+                        if (lhs.kind == Slot::Kind::Null || rhs.kind == Slot::Kind::Null) {
+                            if (node.op != hir::BinaryOp::Equal && node.op != hir::BinaryOp::NotEqual) {
+                                fail(Category::Type, expression.range, "null supports only presence comparisons");
+                            }
+                            const bool same_presence = lhs.kind == rhs.kind;
+                            return make_const(hgraph::Value{hgraph::Bool{node.op == hir::BinaryOp::Equal ? same_presence : !same_presence}}, expression.range);
+                        }
                         if (lhs.kind == Slot::Kind::Sequence || rhs.kind == Slot::Kind::Sequence) {
                             if ((node.op != hir::BinaryOp::Equal && node.op != hir::BinaryOp::NotEqual) || lhs.kind != rhs.kind) {
                                 fail(Category::Type, expression.range, "a harness sequence only compares with '==' or '!='");
@@ -1902,6 +2183,16 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
                         Slot target = eval_value(node.target, frame);
                         Slot index  = eval_value(node.index, frame);
+                        if (target.kind == Slot::Kind::Sequence && index.is_const() && index.meta() == types_.int_type) {
+                            if (!target.resolved) { resolve_sequence(target, target.element_meta, frame); }
+                            const auto position = index.value.view().checked_as<hgraph::Int>();
+                            if (position < 0 || static_cast<std::size_t>(position) >= target.elements.size()) {
+                                fail(Category::Type, expression.range, "harness sequence index out of range");
+                            }
+                            const auto &item = target.elements[static_cast<std::size_t>(position)];
+                            return item ? make_const(hgraph::Value{*item}, expression.range)
+                                        : make_marker(Slot::Kind::Null, expression.range);
+                        }
                         if (target.is_port()) {
                             const std::string name =
                                 expression.operation.registry_name.empty() ? "getitem_" : expression.operation.registry_name;
@@ -2076,7 +2367,20 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::Assignment>) {
                         const gir::Value &place     = value(node.place);
                         const auto       *reference = std::get_if<gir::Reference>(&place.node);
-                        if (reference == nullptr || reference->kind != gir::ReferenceKind::Binding) {
+                        if (reference == nullptr) {
+                            Slot next = eval_value(node.value, frame);
+                            auto target = ordinary_place(node.place, frame);
+                            if (node.op != gir::AssignOp::Assign) {
+                                const hir::BinaryOp op = node.op == gir::AssignOp::Add ? hir::BinaryOp::Add
+                                    : node.op == gir::AssignOp::Sub ? hir::BinaryOp::Sub
+                                    : node.op == gir::AssignOp::Mul ? hir::BinaryOp::Mul : hir::BinaryOp::Div;
+                                next = fold_binary(op, make_const(hgraph::Value{target.binding(), target}, place.range), next, statement.range);
+                            }
+                            next = constant_of(next, target.schema(), frame, "ordinary member assignment");
+                            target.begin_mutation().copy_from(next.value.view());
+                            return;
+                        }
+                        if (reference->kind != gir::ReferenceKind::Binding) {
                             backend(place.range, "hgraph IR assignment place is not a binding");
                         }
                         const gir::Binding &target = binding(reference->binding);
@@ -2387,10 +2691,8 @@ namespace hgl::wiring
             if (!target.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
             const auto bound = bind_arguments(target, eval.arguments, range);
 
-            hgraph::Wiring local_wiring;
-            hgraph::record_replay::set_config(
-                local_wiring.global_state(),
-                hgraph::record_replay::RecordReplayConfig{.backend = std::string{hgraph::record_replay::TESTING}});
+            hgraph::GlobalState run_seed;
+            hgraph::Wiring local_wiring{run_seed};
             hgraph::Wiring *previous = wiring_;
             wiring_                  = &local_wiring;
             auto restore_wiring      = hgraph::make_scope_exit([&]() noexcept { wiring_ = previous; });
@@ -2398,8 +2700,14 @@ namespace hgl::wiring
             Frame callee;
             callee.callable = callee_slot.callable;
             std::vector<std::vector<std::optional<hgraph::Value>>> inputs;
-            std::vector<std::string>                               keys;
             std::size_t                                            cycles = 0;
+            std::size_t                                            temporal_inputs = 0;
+            const auto timed_type = [&](const hgraph::TSValueTypeMetaData *shape) {
+                const auto *origin = shape->value_schema;
+                return registry_.bundle("hgraph.std", "TimedValue[" + std::string{origin->name()} + "]",
+                    {{"time", standard_types().datetime_type}, {"value", ordinary::delta_schema(shape)}},
+                    {}, false, "__type__", {origin});
+            };
             for (std::size_t pass = 0; pass < 2; ++pass) {
                 for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                     const gir::Parameter &parameter = target.parameters[index];
@@ -2411,19 +2719,14 @@ namespace hgl::wiring
                         continue;
                     }
                     const auto *parameter_schema = schema(parameter.type);
-                    if (parameter_schema->kind != hgraph::TSTypeKind::TS && parameter_schema->kind != hgraph::TSTypeKind::SIGNAL) {
-                        backend(binding(parameter.binding).range, "eval drives ts parameters in the first pass; '" +
-                                                                      parameter.name + "' is " +
-                                                                      std::string{parameter_schema->name()});
-                    }
-                    const std::string key = "hgl::in::" + parameter.name;
+                    ++temporal_inputs;
                     if (bound[index]) {
                         Slot sequence = eval_value(*bound[index], caller);
                         if (sequence.kind != Slot::Kind::Sequence) {
                             fail(Category::Type, sequence.range, "eval drives '" + parameter.name + "' with a harness sequence");
                         }
-                        resolve_sequence(sequence, parameter_schema->value_schema, caller,
-                                         parameter_schema->kind == hgraph::TSTypeKind::SIGNAL);
+                        sequence.delta_origin = parameter_schema;
+                        resolve_sequence(sequence, ordinary::delta_schema(parameter_schema), caller);
                         inputs.push_back(std::move(sequence.elements));
                     } else {
                         Slot item = eval_const_expr(parameter.default_value, callee);
@@ -2431,28 +2734,62 @@ namespace hgl::wiring
                         inputs.push_back({convert(item.value, parameter_schema->value_schema, item.range,
                                                   "parameter '" + parameter.name + "'")});
                     }
+                    DeltaTrace admission;
+                    const ordinary::PreparedDeltaPlan input_plan{parameter_schema};
+                    for (std::size_t position = 0; position < inputs.back().size(); ++position) {
+                        if (!inputs.back()[position]) { continue; }
+                        try { admission.accept(parameter_schema, input_plan.payload(inputs.back()[position]->view())); }
+                        catch (const std::exception &error) {
+                            fail(Category::Type, range, "eval: input delta outside publication profile for '" + parameter.name +
+                                 "' at position " + std::to_string(position) + ": " + error.what());
+                        }
+                    }
                     cycles = std::max(cycles, inputs.back().size());
-                    keys.push_back(key);
+                    const auto *sample_schema = timed_type(parameter_schema);
+                    ordinary::PreparedValuePlan sample_plan{sample_schema};
+                    ordinary::PreparedValuePlan list_plan{registry_.list(sample_schema)};
+                    auto samples = list_plan.empty_list();
+                    for (std::size_t slot = 0; slot < inputs.back().size(); ++slot) {
+                        if (!inputs.back()[slot]) { continue; }
+                        if (slot > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
+                            backend(range, "eval harness is too long to schedule safely");
+                        }
+                        const hgraph::Value time{hgraph::checked_add(hgraph::MIN_ST, hgraph::TimeDelta{static_cast<std::int64_t>(slot)})};
+                        hgraph::BundleBuilder sample{sample_plan.binding()};
+                        sample.set(0, time.view()).set(1, inputs.back()[slot]->view());
+                        auto retained = sample.build();
+                        list_plan.push(samples.view(), retained.view());
+                    }
                     callee.bindings[parameter.binding.value] =
-                        wire("replay", {scalar_arg(hgraph::Value{key}, "key")}, range, true, parameter_schema);
+                        wire("hgraph.std.replay", {scalar_arg(std::move(samples), "values")}, range, true, parameter_schema);
                 }
             }
-            if (cycles == 0) { backend(range, "eval requires at least one time-series harness input to bound execution"); }
-            hgraph::DateTime harness_end;
+            if (temporal_inputs == 0) { backend(range, "eval requires a temporal harness input"); }
             try {
                 if (cycles > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
                     throw std::overflow_error{"harness cycle count"};
                 }
-                harness_end = hgraph::checked_add(hgraph::MIN_ST, hgraph::TimeDelta{static_cast<std::int64_t>(cycles)});
+                static_cast<void>(hgraph::checked_add(hgraph::MIN_ST, hgraph::TimeDelta{static_cast<std::int64_t>(cycles)}));
             } catch (const std::overflow_error &) { backend(range, "eval harness is too long to schedule safely"); }
 
             Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(callee_slot.callable, callee, range)
                                                                         : invoke(callee_slot.callable, callee);
             if (result.is_const()) { result = wire_constant(result, registry_.ts(result.meta())); }
             const hgraph::TSValueTypeMetaData *output_schema = nullptr;
+            std::string recording_key = "hgl::out";
+            std::unordered_set<std::string> excluded_keys;
+            for (const auto &constant : module_.const_exprs) {
+                if (constant.literal) {
+                    if (const auto *text = std::get_if<std::string>(&*constant.literal)) { excluded_keys.insert(*text); }
+                }
+            }
+            for (std::size_t suffix = 0; excluded_keys.contains(recording_key) || local_wiring.global_state().contains(recording_key) ||
+                 local_wiring.has_global_entry(recording_key); ++suffix) {
+                recording_key = "hgl::out::" + std::to_string(suffix);
+            }
             if (result.is_port()) {
                 output_schema = result.port.schema;
-                (void)wire("record", {time_series_arg(result.port), scalar_arg(hgraph::Value{std::string{"hgl::out"}}, "key")},
+                (void)wire("hgraph.std.record", {time_series_arg(result.port), scalar_arg(hgraph::Value{recording_key}, "key")},
                            range, false);
             } else if (result.kind != Slot::Kind::Void) {
                 backend(range, "'" + local_name(target.identity) + "' does not produce a time-series value");
@@ -2461,16 +2798,26 @@ namespace hgl::wiring
             std::vector<std::optional<hgraph::Value>> observed;
             try {
                 hgraph::GraphBuilder graph = std::move(local_wiring).finish();
-                for (std::size_t index = 0; index < keys.size(); ++index) {
-                    hgraph::testing::set_replay_deltas(graph.global_state(), keys[index], inputs[index]);
-                }
                 hgraph::GraphExecutorBuilder builder;
-                builder.graph_builder(std::move(graph)).start_time(hgraph::MIN_ST).end_time(harness_end);
+                builder.graph_builder(std::move(graph)).start_time(hgraph::MIN_ST).end_time(hgraph::MAX_ET);
                 hgraph::GraphExecutorValue executor = builder.make_executor();
                 auto                       view     = executor.view();
                 view.run();
                 if (output_schema != nullptr) {
-                    observed = hgraph::testing::get_recorded_deltas(view.graph().global_state(), "hgl::out");
+                    const auto recording = view.graph().global_state().get(recording_key);
+                    if (!recording.has_value()) { throw std::runtime_error("missing eval recording"); }
+                    ordinary::PreparedValuePlan recording_plan{recording.binding()};
+                    for (std::int64_t index = 0; index < recording_plan.len(recording); ++index) {
+                        const auto sample = recording_plan.index(recording, index);
+                        ordinary::PreparedValuePlan sample_plan{sample.binding()};
+                        const auto time = sample_plan.index(sample, 0).checked_as<hgraph::DateTime>();
+                        const auto offset = (time - hgraph::MIN_ST).count();
+                        if (offset < 0 || static_cast<std::uint64_t>(offset) >= observed.max_size()) {
+                            throw std::overflow_error("recorded eval time is outside the dense result");
+                        }
+                        observed.resize(std::max(observed.size(), static_cast<std::size_t>(offset) + 1));
+                        observed[static_cast<std::size_t>(offset)] = hgraph::Value{sample_plan.index(sample, 1)};
+                    }
                 }
             } catch (const std::exception &error) {
                 throw TestFailure{"eval of '" + local_name(target.identity) + "' failed: " + error.what()};
@@ -2480,7 +2827,8 @@ namespace hgl::wiring
             sequence.kind         = Slot::Kind::Sequence;
             sequence.resolved     = true;
             sequence.elements     = std::move(observed);
-            sequence.element_meta = output_schema != nullptr ? output_schema->delta_value_schema : nullptr;
+            sequence.element_meta = output_schema != nullptr ? ordinary::delta_schema(output_schema) : nullptr;
+            sequence.delta_origin = output_schema;
             sequence.range        = range;
             return sequence;
         }
@@ -2572,7 +2920,8 @@ namespace hgl::wiring
                     }
                 }
 
-                hgraph::Wiring graph_wiring;
+                hgraph::GlobalState run_seed;
+                hgraph::Wiring graph_wiring{run_seed};
                 wiring_            = &graph_wiring;
                 auto  clear_wiring = hgraph::make_scope_exit([&]() noexcept { wiring_ = nullptr; });
                 Frame frame;

@@ -60,7 +60,10 @@
 #include <hgraph/types/time_series/ts_input/set_view.h>
 #include <hgraph/types/time_series/ts_input/window_view.h>
 
+#include <array>
 #include <hgl/constant_arithmetic.h>
+#include <hgl/global_key_preflight.h>
+#include <hgl/ordinary_patterns.h>
 #include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/manifest/schema_descriptor.h>

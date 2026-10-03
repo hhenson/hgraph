@@ -1359,6 +1359,13 @@ struct Wiring::Impl {
   bool building_services{false};
   std::string service_materialization_path{};
   GlobalState global_state{};  // stateless-wiring fallback (no seed bound)
+  struct GlobalEntryDeclarations {
+    PreparedGlobalTypes entries{};
+    bool closed{false};
+  };
+  // Wiring-only shared declarations, never a shared runtime/seed store. Each
+  // independent root gets a fresh plan; its statically known children join it.
+  std::shared_ptr<GlobalEntryDeclarations> global_entries{std::make_shared<GlobalEntryDeclarations>()};
   GlobalSeed seed{};            // the shared, detachable binding to the live seed, if any
   bool owns_seed{false};        // an explicit seed: this wiring detaches it on release
   bool live_seeded{false};
@@ -1481,6 +1488,7 @@ Wiring Wiring::child_wiring() const {
   // owner's detach reaches it too; it never copies the raw pointer out.
   child.impl_->seed = impl_->seed;
   child.impl_->owns_seed = false;
+  child.impl_->global_entries = impl_->global_entries;
   // The boundary scope is for the runtime's own nodes. What one of them
   // contains -- the child template of a worker's map_ -- is the user's.
   child.impl_->checkpoint_component = impl_->checkpoint_component == worker_boundary_checkpoint_scope
@@ -3092,6 +3100,33 @@ GlobalStateView Wiring::operator_state() noexcept {
   return global_state();
 }
 
+void Wiring::prepare_global_entry(std::string_view key, ValueTypeRef binding) {
+  if (!binding) {
+    throw std::invalid_argument("global-state declaration requires a concrete binding");
+  }
+  const std::string name{key};
+  auto &declarations = *impl_->global_entries;
+  const auto found = declarations.entries.find(name);
+  if (found != declarations.entries.end() && found->second.schema() != binding.schema()) {
+    throw std::invalid_argument("global-state type conflict for '" + name + "'");
+  }
+  if (found != declarations.entries.end() && found->second != binding) {
+    throw std::invalid_argument("global-state storage binding conflict for '" + name + "'");
+  }
+  if (found == declarations.entries.end() && declarations.closed) {
+    throw std::logic_error("global-state declarations are closed for this run");
+  }
+  const auto seed = operator_state().get(key);
+  if (seed.has_value() && seed.schema() != binding.schema()) {
+    throw std::invalid_argument("global-state seed type conflict for '" + name + "'");
+  }
+  declarations.entries.try_emplace(name, binding);
+}
+
+bool Wiring::has_global_entry(std::string_view key) const {
+  return impl_->global_entries->entries.contains(std::string{key});
+}
+
 LoggerView Wiring::logger() const { return LoggerView{&log::logger()}; }
 
 void Wiring::apply_service_rank_dependencies() {
@@ -3171,6 +3206,13 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
       live != nullptr    ? GlobalState{*live}
       : consume_state    ? std::move(impl_->global_state)
                          : GlobalState{impl_->global_state});
+  // The final seed can have changed since declaration. Validate every entry
+  // on the isolation copy and reserve stable cells there, never in the live
+  // owner state that receives copy-out after execution.
+  for (const auto &[key, binding] : impl_->global_entries->entries) {
+    (void)build.graph_builder.global_state().prepare(key, binding);
+  }
+  if (consume_state) { impl_->global_entries->closed = true; }
   build.graph_builder.type_realization(realization);
   if (!impl_->graph_label.empty()) {
     build.graph_builder.label(impl_->graph_label);

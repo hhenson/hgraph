@@ -114,6 +114,7 @@ namespace hgl::ir::hir
         Set,
         Map,
         Rolling,
+        Delta,
         Atomic,
         Reference,
         Signal,
@@ -710,6 +711,16 @@ namespace hgl::ir::hir
     };
     struct InstantiateDecl
     { std::vector<Instantiation> entries{}; };
+    struct GlobalEntryRequirement
+    {
+        ExprId key{};
+        TypeId type{};
+    };
+    struct GlobalKeyDistinct
+    {
+        ExprId first{};
+        ExprId second{};
+    };
     struct FunctionDecl
     {
         bool         is_const{false};
@@ -727,6 +738,8 @@ namespace hgl::ir::hir
         BlockId                       block_body{};
         Effect                        effects{Effect::None};
         std::vector<SymbolId>         capabilities{};
+        std::vector<GlobalEntryRequirement> global_entries{};
+        std::vector<GlobalKeyDistinct> global_key_distinct{};
     };
     struct NativeSourceDecl
     {};

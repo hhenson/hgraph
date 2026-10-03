@@ -40,6 +40,7 @@ namespace hgl::descriptor
                 case TypeKind::Map: return TypeCategory::Map;
                 case TypeKind::Rolling: return TypeCategory::Rolling;
                 case TypeKind::Atomic: return TypeCategory::Atomic;
+                case TypeKind::Delta: return TypeCategory::Delta;
                 case TypeKind::Reference: return TypeCategory::Reference;
                 case TypeKind::Signal: return TypeCategory::Signal;
                 case TypeKind::Schema: return TypeCategory::Schema;

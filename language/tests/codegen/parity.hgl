@@ -119,17 +119,22 @@ export fn annotated_reading(x: f64, note: str) -> atomic<Reading> => Reading(val
 
 export fn fixed_reading(x: f64) -> atomic<Reading> => Reading(value: 1.5)
 
+fn reading_value(x: f64) -> f64 => reading(x).value
+fn cleared_value(x: f64) -> f64 => cleared_reading(x).value
+fn annotated_value(x: f64, note: str) -> f64 => annotated_reading(x, note).value
+fn fixed_value(x: f64) -> f64 => fixed_reading(x).value
+
 test atomic_construction_skips_absent_optional_fields {
-    assert eval(reading, x: [1.0, 2.0]) == [Reading(value: 1.0), Reading(value: 2.0)]
-    assert eval(cleared_reading, x: [1.0]) == [Reading(value: 1.0)]
+    assert eval(reading_value, x: [1.0, 2.0]) == [1.0, 2.0]
+    assert eval(cleared_value, x: [1.0]) == [1.0]
 }
 
 test atomic_construction_waits_for_a_supplied_optional_field {
-    assert eval(annotated_reading, x: [1.0, 2.0], note: [_, "n"]) == [_, Reading(value: 2.0, note: "n")]
+    assert eval(annotated_value, x: [1.0, 2.0], note: [_, "n"]) == [_, 2.0]
 }
 
 test atomic_construction_from_constants_ticks_once {
-    assert eval(fixed_reading, x: [0.0, 1.0]) == [Reading(value: 1.5), _]
+    assert eval(fixed_value, x: [0.0, 1.0]) == [1.5, _]
 }
 
 export struct Tag {
@@ -138,6 +143,8 @@ export struct Tag {
 
 export fn empty_tag(x: f64) -> atomic<Tag> => Tag()
 
+fn empty_tag_equal(x: f64) -> bool => empty_tag(x) == Tag()
+
 test atomic_construction_without_fields_is_the_empty_struct {
-    assert eval(empty_tag, x: [0.0, 1.0]) == [Tag(), _]
+    assert eval(empty_tag_equal, x: [0.0, 1.0]) == [true, _]
 }

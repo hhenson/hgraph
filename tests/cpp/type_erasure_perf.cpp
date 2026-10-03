@@ -620,6 +620,25 @@ int main()
 #endif
               << " architecture=" << architecture << '\n';
 
+    for (const std::size_t count : {1024U, 2048U, 4096U, 8192U}) {
+        const std::string name = "prepared_global_entry_" + std::to_string(count) + "_keys";
+        if (!benchmark_selected(name)) { continue; }
+        GlobalState state;
+        const Value payload{Int{17}};
+        auto entry = state.view().prepare("selected", payload.binding());
+        for (std::size_t i = 0; i < count; ++i) {
+            state.view().set("unrelated_" + std::to_string(i), payload.view());
+        }
+        run_benchmark(name, 100000, samples, warmup,
+            [&] {
+                entry.set(payload.view());
+                return static_cast<std::uint64_t>(entry.get().checked_as<Int>());
+            },
+            [](std::uint64_t value) {
+                if (value != 17) { throw std::runtime_error("prepared global entry checksum failed"); }
+            });
+    }
+
     if (benchmark_selected("polymorphic_union_external_copy_hash") ||
         benchmark_selected("polymorphic_union_pooled_copy_hash"))
     {

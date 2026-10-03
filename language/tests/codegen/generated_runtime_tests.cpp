@@ -1,4 +1,9 @@
 #include <runtime.h>
+#include <sources.h>
+#include <hgraph/runtime/logger.h>
+#include <hgraph/util/scope.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <sstream>
 
 #include "wiring/backend.h"
 
@@ -333,4 +338,84 @@ TEST_CASE("a generated mixed node re-initializes both storages on a fresh run", 
         CHECK_OUTPUT(eval_node<runtime::operators::mixed_total>(values<Int>(1, 2)), values<Int>(11, 32));
         CHECK_OUTPUT(eval_node<runtime::operators::mixed_bundle>(values<Int>(1, 2)), values<Int>(5, 12));
     }
+}
+
+
+TEST_CASE("generated yields admit strictly increasing targets across skips and resumptions", "[codegen][runtime][adr-0015]") {
+    namespace source = hgl::codegen::sources;
+    using Catch::Matchers::ContainsSubstring;
+    CHECK_OUTPUT(eval_node<source::ordered_targets>(MIN_ST - MIN_TD, MIN_ST), values<Int>(2));
+    CHECK_OUTPUT(eval_node<source::increasing_past_targets>(), values<Int>(3));
+    CHECK_OUTPUT(eval_node<source::ordered_targets>(MIN_ST + MIN_TD, MIN_ST + MIN_TD * 2),
+                 values<Int>(none, -1, 2));
+    // Every invocation starts without a predecessor, even before the epoch.
+    CHECK_OUTPUT(eval_node<source::increasing_past_targets>(), values<Int>(3));
+    for (const auto first : {MIN_ST - MIN_TD, MIN_ST, MIN_ST + MIN_TD * 2}) {
+        CHECK_THROWS_WITH(eval_node<source::ordered_targets>(first, first), ContainsSubstring("non-increasing time"));
+        CHECK_THROWS_WITH(eval_node<source::ordered_targets>(first, first - MIN_TD), ContainsSubstring("non-increasing time"));
+    }
+    CHECK_THROWS_WITH(eval_node<source::relative_targets>(MIN_TD, TimeDelta::zero()),
+                      ContainsSubstring("non-increasing time"));
+}
+
+TEST_CASE("generated relative yields reject negative durations before checked target addition", "[codegen][runtime][adr-0015]") {
+    namespace source = hgl::codegen::sources;
+    using Catch::Matchers::ContainsSubstring;
+    CHECK_OUTPUT(eval_node<source::relative_targets>(TimeDelta::zero(), MIN_TD), values<Int>(-1, 2));
+    CHECK_THROWS_WITH(eval_node<source::relative_targets>(-MIN_TD, MIN_TD), ContainsSubstring("negative duration"));
+    CHECK_THROWS_WITH(eval_node<source::relative_targets>(MIN_TD, -MIN_TD), ContainsSubstring("negative duration"));
+    CHECK_THROWS_WITH(eval_node<source::relative_targets>(TimeDelta::min(), MIN_TD), ContainsSubstring("negative duration"));
+    CHECK_THROWS(eval_node<source::relative_targets>(TimeDelta::max(), MIN_TD));
+}
+
+
+TEST_CASE("generated yield operands run once in order, including skipped and rejected yields", "[codegen][runtime][adr-0015]") {
+    namespace source = hgl::codegen::sources;
+    std::ostringstream captured;
+    const auto captured_lines = [&] {
+        auto text = captured.str();
+        for (auto pos = text.find("\r\n"); pos != std::string::npos; pos = text.find("\r\n", pos)) {
+            text.erase(pos, 1);
+        }
+        return text;
+    };
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
+    auto logger = std::make_shared<spdlog::logger>("generator-operands-test", sink);
+    logger->set_pattern("%v");
+    log::set_logger(logger);
+    const auto restore = make_scope_exit([]() noexcept { log::set_logger(nullptr); });
+    SECTION("future operands are not reevaluated on resumption") {
+        CHECK_OUTPUT(eval_node<source::observed_relative>(MIN_TD * 2), values<Int>(none, none, 7));
+        CHECK(captured_lines() == "time\npayload\nafter\n");
+    }
+    SECTION("negative admission follows both operands and prevents continuation") {
+        CHECK_THROWS_WITH(eval_node<source::observed_relative>(-MIN_TD),
+                          Catch::Matchers::ContainsSubstring("negative duration"));
+        CHECK(captured_lines() == "time\npayload\n");
+    }
+    SECTION("implicit overflow follows both operands and prevents continuation") {
+        CHECK_THROWS(eval_node<source::observed_relative>(TimeDelta::max()));
+        CHECK(captured_lines() == "time\npayload\n");
+    }
+    SECTION("past absolute targets evaluate their payload") {
+        CHECK_OUTPUT(eval_node<source::observed_past>(), values<Int>(2));
+        CHECK(captured_lines() == "payload\nafter\n");
+    }
+}
+
+TEST_CASE("generated ordinary storage preserves nested owners and yielded temporaries", "[codegen][runtime][ordinary][adr-0015]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::ordinary_literal_result>(values<Int>(1)), values<Int>(14));
+    CHECK_OUTPUT(eval_node<runtime::operators::ordinary_nested_result>(values<Int>(1)), values<Bool>(true));
+    CHECK_OUTPUT(eval_node<runtime::operators::ordinary_owned_delta_result>(values<Int>(1, 1)), values<Int>(10, 11));
+}
+
+TEST_CASE("generated const ordinary aggregates normalize configured storage before hooks", "[codegen][runtime][ordinary]") {
+    session();
+    ListBuilder builder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta())};
+    builder.push_back(Int{10});
+    builder.push_back(Int{20});
+    auto configured = builder.build();
+    CHECK_OUTPUT(eval_node<runtime::operators::ordinary_configured_lengths>(values<Int>(1), configured), values<Int>(23));
+    CHECK(configured.as_list().size() == 2);
 }

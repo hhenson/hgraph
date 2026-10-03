@@ -120,6 +120,7 @@ namespace hgl::descriptor
                 case TypeCategory::Map: return "map";
                 case TypeCategory::Rolling: return "rolling";
                 case TypeCategory::Atomic: return "atomic";
+                case TypeCategory::Delta: return "delta";
                 case TypeCategory::Reference: return "ref";
                 case TypeCategory::Signal: return "signal";
                 case TypeCategory::Schema: return "schema";

@@ -54,6 +54,7 @@ namespace hgl::semantics
         /// `atomic<T>`. An imported struct's recursive edge is one (ADR 0012),
         /// so a layout can carry it even though no signature does.
         Atomic,
+        Delta,
     };
 
     enum class ImportedConstantKind : std::uint8_t {

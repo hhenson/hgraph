@@ -31,8 +31,9 @@
 # the include directory, so a consumer can `#include <prices.h>` and
 # `wire<examples::prices::smooth>(w, ...)` directly.
 #
-# The `hgl` compiler is the `hgl` target when the language is part of the
-# build, else the installed `hgl` program (set HGL_EXECUTABLE to override).
+# In-tree generation uses `hgl_bootstrap` when available, avoiding a cycle
+# with the CLI's compiled HGL eval provider; otherwise it uses the `hgl`
+# target or installed program (set HGL_EXECUTABLE to override the latter).
 
 # Script mode. `hgl_add_module` runs this file with `cmake -P` at build time
 # to write a package's Python bootstrap from the descriptors `emit-cpp`
@@ -99,6 +100,10 @@ if(TARGET hgl::standard_library)
 endif()
 
 function(_hgl_resolve_compiler out_var)
+    if(TARGET hgl_bootstrap)
+        set(${out_var} "$<TARGET_FILE:hgl_bootstrap>" PARENT_SCOPE)
+        return()
+    endif()
     if(TARGET hgl)
         set(${out_var} "$<TARGET_FILE:hgl>" PARENT_SCOPE)
         return()
@@ -187,7 +192,9 @@ function(hgl_add_module target)
 
     _hgl_resolve_compiler(_hgl_compiler)
     set(_hgl_compiler_dependency)
-    if(TARGET hgl)
+    if(TARGET hgl_bootstrap)
+        set(_hgl_compiler_dependency hgl_bootstrap)
+    elseif(TARGET hgl)
         set(_hgl_compiler_dependency hgl)
     else()
         # Installed consumers have no CMake target for the compiler. Its path

@@ -106,7 +106,7 @@ namespace hgl::syntax
             token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> / token<TokenKind::KwTrue> /
             token<TokenKind::KwFalse> / token<TokenKind::KwNull> / token<TokenKind::Minus> / token<TokenKind::Bang> /
             token<TokenKind::LParen> / token<TokenKind::LBracket> / token<TokenKind::KwFn> / token<TokenKind::KwIf> /
-            token<TokenKind::KwEval> / token<TokenKind::KwConst> / token<TokenKind::LBrace>;
+            token<TokenKind::KwEval> / token<TokenKind::KwConst> / token<TokenKind::KwStr> / token<TokenKind::LBrace>;
 
         struct size_expression;
         struct generic_argument;
@@ -166,6 +166,13 @@ namespace hgl::syntax
                                              token<TokenKind::Greater>;
         };
 
+        struct delta_type
+        {
+            static constexpr auto rule = dsl::peek(contextual<ContextToken::Delta> + token<TokenKind::Less>) >>
+                                         contextual<ContextToken::Delta> + token<TokenKind::Less> + dsl::p<newlines> +
+                                             dsl::recurse<type> + dsl::p<newlines> + token<TokenKind::Greater>;
+        };
+
         struct atomic_type
         {
             static constexpr auto rule = dsl::peek(contextual<ContextToken::Atomic> + token<TokenKind::Less>) >>
@@ -189,14 +196,14 @@ namespace hgl::syntax
         struct type
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
-                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
+                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
                                          dsl::p<signal_type> | dsl::p<schema_type> | dsl::p<named_type>;
         };
 
         struct generic_argument
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
-                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
+                                         dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
                                          dsl::p<signal_type> | dsl::p<schema_type> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
@@ -353,10 +360,8 @@ namespace hgl::syntax
 
         struct sequence_element
         {
-            static constexpr auto timed =
-                dsl::peek(token<TokenKind::TemporalLiteral> + token<TokenKind::Colon>) >>
-                token<TokenKind::TemporalLiteral> + token<TokenKind::Colon> + dsl::p<newlines> + dsl::recurse<expression>;
-            static constexpr auto rule = timed | dsl::peek(expression_start) >> dsl::recurse<expression>;
+            static constexpr auto rule = dsl::peek(expression_start) >> dsl::recurse<expression> +
+                dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::recurse<expression>);
         };
 
         struct sequence_literal
@@ -615,7 +620,7 @@ namespace hgl::syntax
                                                 token<TokenKind::KwTrue> / token<TokenKind::KwFalse> / token<TokenKind::KwNull> /
                                                 token<TokenKind::Minus>;
             static constexpr auto rule = dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> |
-                                         dsl::p<set_type> | dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> |
+                                         dsl::p<set_type> | dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<delta_type> | dsl::p<atomic_type> |
                                          dsl::p<ref_type> | dsl::p<signal_type> | dsl::p<constraint_call> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |

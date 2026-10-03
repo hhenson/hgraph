@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -48,6 +49,8 @@ namespace hgraph
      * ``TS<ScalarVar<"T">>`` lowers to ``TS(ScalarVar("T"))``).
      */
 
+    struct TypePattern;
+
     /** Scalar-layer pattern: a scalar variable, an interned scalar, or a recursive scalar container shape. */
     struct ScalarPattern
     {
@@ -57,6 +60,8 @@ namespace hgraph
             Concrete,
             UnknownTuple,
             HomogeneousTuple,
+            List,
+            SchemaProjection,
             FixedTuple,
             Set,
             Map,
@@ -75,6 +80,13 @@ namespace hgraph
         std::vector<DimensionPattern> dimensions{}; ///< ``Array`` dimensions, outermost first.
         bool                       schema_var{false}; ///< ``Bundle``: true when ``name`` is a schema variable.
         std::string                bundle_origin{}; ///< ``Bundle``: qualified generic origin, when constrained.
+        // A wiring-only projection between an ordinary schema and its source
+        // temporal schema. The provider owns formation rules; the core retains
+        // the nested pattern and applies the shared type-variable machinery.
+        std::shared_ptr<const TypePattern> projected{};
+        const TSValueTypeMetaData *(*project_source)(const ValueTypeMetaData *){nullptr};
+        const ValueTypeMetaData *(*project_value)(const TSValueTypeMetaData *){nullptr};
+        std::optional<std::size_t> list_size{}; ///< absent: dynamic list, present: exact extent (including zero).
         bool                       optional_metadata{false}; ///< ``Frame``: the metadata (``children[1]``) may be absent.
 
         [[nodiscard]] static ScalarPattern var(std::string name,
@@ -113,6 +125,14 @@ namespace hgraph
             ScalarPattern p;
             p.kind = Kind::HomogeneousTuple;
             p.children.push_back(std::move(element));
+            return p;
+        }
+        [[nodiscard]] static ScalarPattern list(ScalarPattern element, std::optional<std::size_t> size = std::nullopt)
+        {
+            ScalarPattern p;
+            p.kind = Kind::List;
+            p.children.push_back(std::move(element));
+            p.list_size = size;
             return p;
         }
         [[nodiscard]] static ScalarPattern fixed_tuple(std::vector<ScalarPattern> elements)
@@ -883,6 +903,8 @@ namespace hgraph
      * item such as ``my_node[TS[int]]`` onto a variable. It is never called on the
      * per-tick evaluation path.
      */
+    inline void collect_pattern_variables(const TypePattern &pattern, std::vector<std::string> &out);
+
     inline void collect_pattern_variables(const ScalarPattern &pattern, std::vector<std::string> &out)
     {
         if (pattern.kind == ScalarPattern::Kind::Var
@@ -890,6 +912,7 @@ namespace hgraph
         {
             type_pattern_detail::push_unique(out, pattern.name);
         }
+        if (pattern.projected) { collect_pattern_variables(*pattern.projected, out); }
         for (const auto &child : pattern.children) { collect_pattern_variables(child, out); }
         for (const auto &dimension : pattern.dimensions)
         {

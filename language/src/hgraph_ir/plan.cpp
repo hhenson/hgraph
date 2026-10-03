@@ -324,6 +324,16 @@ namespace hgl::hgraph_ir
                             reference == nullptr || reference->kind != gir::ReferenceKind::Intrinsic ? std::string_view{}
                             : reference->registry_name.empty() ? local_identity(reference->identity)
                                                                : std::string_view{reference->registry_name};
+                        if (name == "delta_value") {
+                            for (const gir::Argument &argument : node.arguments) {
+                                const auto key = runtime_selector_key(argument.value, decl);
+                                if (!key || !valid.contains(*key) || !valid.contains("modified:" + *key)) {
+                                    fail(Category::Type, expression.range, "delta_value requires a valid and modified temporal endpoint");
+                                }
+                                check_runtime_selector(argument.value, decl, valid);
+                            }
+                            return;
+                        }
                         if (name == "valid" || name == "all_valid" || name == "modified" || name == "last_modified" ||
                             name == "last_modified_time" || name == "schemas" || name == "passivate" || name == "activate") {
                             // Metadata intrinsics inspect endpoint selectors; they do not read
@@ -365,6 +375,11 @@ namespace hgl::hgraph_ir
                         }
                         for (const gir::Argument &argument : node.arguments) { check_runtime_expr(argument.value, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
+                        if (!runtime_root_parameter(id, decl)) {
+                            check_runtime_expr(node.target, decl, valid);
+                            check_runtime_expr(node.index, decl, valid);
+                            return;
+                        }
                         check_runtime_selector(id, decl, valid);
                         const std::optional<std::string> key = runtime_selector_key(id, decl);
                         if (!key || !valid.contains(*key)) {
@@ -476,6 +491,19 @@ namespace hgl::hgraph_ir
                                                        ? std::string_view{}
                                                    : reference->registry_name.empty() ? local_identity(reference->identity)
                                                                                       : std::string_view{reference->registry_name};
+                if (name == "modified" && call->arguments.empty()) {
+                    std::optional<std::size_t> sole_input;
+                    std::size_t count = 0;
+                    for (std::size_t i = 0; i < callable(decl).parameters.size(); ++i) {
+                        if (!callable(decl).parameters[i].is_const) { sole_input = i; ++count; }
+                    }
+                    if (count == 1) { result.insert("modified:parameter:" + std::to_string(*sole_input)); }
+                }
+                if (name == "modified" && call->arguments.size() == 1U) {
+                    if (const auto key = runtime_selector_key(call->arguments.front().value, decl)) {
+                        result.insert("modified:" + *key);
+                    }
+                }
                 if (name == "valid" || name == "all_valid") {
                     if (call->arguments.empty()) { return add_all_runtime_valid(decl, std::move(result)); }
                     for (const gir::Argument &argument : call->arguments) {
@@ -527,6 +555,16 @@ namespace hgl::hgraph_ir
                             node.condition.valid() && (runtime_top_level_selector_present(node.condition, decl, "valid") ||
                                                        runtime_top_level_selector_present(node.condition, decl, "all_valid"));
                         RuntimeValidSet body_valid = has_valid ? valid : add_all_runtime_valid(decl, valid);
+                        if (!node.condition.valid() ||
+                            (!runtime_top_level_selector_present(node.condition, decl, "modified") &&
+                             !runtime_top_level_selector_present(node.condition, decl, "scheduled"))) {
+                            std::optional<std::size_t> sole_input;
+                            std::size_t count = 0;
+                            for (std::size_t i = 0; i < callable(decl).parameters.size(); ++i) {
+                                if (!callable(decl).parameters[i].is_const) { sole_input = i; ++count; }
+                            }
+                            if (count == 1) { body_valid.insert("modified:parameter:" + std::to_string(*sole_input)); }
+                        }
                         if (node.condition.valid()) {
                             check_runtime_expr(node.condition, decl, body_valid);
                             body_valid = runtime_true_valid(node.condition, decl, body_valid);
@@ -571,11 +609,11 @@ namespace hgl::hgraph_ir
             }
             if (graph_type(planned.result, planned.range).kind != hir::TypeKind::Void) {
                 const gir::Type result = graph_type(planned.result, planned.range);
-                if (result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Symbol &&
+                if (result.kind != hir::TypeKind::Scalar && result.kind != hir::TypeKind::Atomic && result.kind != hir::TypeKind::Symbol &&
                     result.kind != hir::TypeKind::Map && result.kind != hir::TypeKind::Set && result.kind != hir::TypeKind::List &&
                     result.kind != hir::TypeKind::Reference) {
                     backend(graph_type(planned.result, planned.range).range,
-                            "the runtime-node slice supports scalar, struct, collection, and ref outputs");
+                            "the runtime-node slice supports scalar, atomic, struct, collection, and ref outputs");
                 }
             }
 
@@ -658,6 +696,9 @@ namespace hgl::hgraph_ir
                                         backend(binding.range, "runtime function injects 'scheduler' more than once");
                                     }
                                     info.scheduler_binding = binding_id;
+                                } else if (binding.name == "global_state") {
+                                    if (info.global_state_binding.valid()) { backend(binding.range, "duplicate global_state injection"); }
+                                    info.global_state_binding = binding_id;
                                 } else if (binding.name == "alarm") {
                                     if (info.alarm_binding.valid()) {
                                         backend(binding.range, "runtime function injects 'alarm' more than once");
@@ -725,7 +766,7 @@ namespace hgl::hgraph_ir
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
             }
             info.checkpoint_source = temporal_count == 0 && info.scheduler_binding.valid() &&
-                                     info.caches.empty() && !info.clock_binding.valid() && !info.logger_binding.valid();
+                                     info.caches.empty() && !info.clock_binding.valid() && !info.logger_binding.valid() && !info.global_state_binding.valid();
             if (!info.has_when) { add_all_runtime_parameters(decl, info); }
             RuntimeValidSet valid;
             if (!info.has_when) {

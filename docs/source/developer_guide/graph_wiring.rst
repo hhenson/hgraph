@@ -539,3 +539,19 @@ Deferred: multiple outputs (``TSB`` ports, optionally returned as an array as su
 **graph-level** generic resolution (``TsVar`` / ``ScalarVar`` in a *graph*
 ``compose`` signature — node-level resolution above is done); higher-order operators
 and feedback; dead-node pruning; and the Python bridge that drives the core.
+
+Run-local ordinary entry declarations
+------------------------------------
+
+``Wiring::prepare_global_entry`` records an exact ordinary entry type in a
+cold declaration plan shared with ``child_wiring()``. It checks visible seed
+values without reserving cells in the live owner seed. ``has_global_entry``
+lets recorder-key selection exclude declared source keys, including keys used
+only by known nested graphs. Independent root wirings have independent plans.
+
+At root finish the final seed is copied, then every declaration is validated
+and prepared on the builder-owned store before runtime node preparation.
+Consequently owner copy-out remains valid, absent declarations do not become
+seed values, and a subsequent independent run can select a different type.
+A consuming finish closes new declarations. ``snapshot()`` prepares a separate
+store while leaving the wiring open for subsequent snapshots.

@@ -324,6 +324,15 @@ if(HGL_ENABLE_LINE_EDITING)
 endif()
 hgl_apply_warnings(hgl_driver)
 
+# The compiler used to generate the CLI's own HGL eval provider has no
+# dependency on that provider, avoiding a build-time generation cycle.
+add_executable(hgl_bootstrap src/main.cpp)
+target_compile_features(hgl_bootstrap PRIVATE cxx_std_23)
+target_link_libraries(hgl_bootstrap PRIVATE hgl::driver hgraph::core)
+hgl_link_runtime_executable(hgl_bootstrap)
+hgl_apply_warnings(hgl_bootstrap)
+hgl_stage_runtime_dlls(hgl_bootstrap)
+
 add_executable(hgl src/main.cpp)
 target_compile_features(hgl PRIVATE cxx_std_23)
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
@@ -343,6 +352,9 @@ find_program(HGL_CLANG_FORMAT_EXECUTABLE
 file(RELATIVE_PATH _hgl_install_include_from_bindir
     "${CMAKE_INSTALL_FULL_BINDIR}/"
     "${CMAKE_INSTALL_FULL_INCLUDEDIR}/")
+file(RELATIVE_PATH _hgl_install_stdlib_from_bindir
+    "${CMAKE_INSTALL_FULL_BINDIR}/"
+    "${CMAKE_INSTALL_FULL_DATADIR}/hgl/stdlib/hgraph/")
 set(_hgl_native_definitions "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>")
 set(_hgl_native_include_directories "$<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>")
 set(_hgl_native_compile_options "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>")
@@ -357,7 +369,7 @@ if(WIN32)
     set(_hgl_native_link_options "")
 endif()
 set(_hgl_native_config_content
-    "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl(${_hgl_native_definitions})hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl(${_hgl_native_include_directories})hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl(${_hgl_native_compile_options})hgl\";\n    inline constexpr std::string_view link_options = R\"hgl(${_hgl_native_link_options})hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n")
+    "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view stdlib_source_directory = R\"hgl(${HGRAPH_STD})hgl\";\n    inline constexpr std::string_view install_stdlib_from_bindir = R\"hgl(${_hgl_install_stdlib_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl(${_hgl_native_definitions})hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl(${_hgl_native_include_directories})hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl(${_hgl_native_compile_options})hgl\";\n    inline constexpr std::string_view link_options = R\"hgl(${_hgl_native_link_options})hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n")
 if(WIN32)
     file(GENERATE
         OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
@@ -455,6 +467,21 @@ set_property(TARGET hgl_core_native PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 )
 hgl_apply_warnings(hgl_core_native)
 
+# Eval always executes the same HGL replay/record implementation. Compile
+# its bounded provider into the CLI so composition-only eval also works on
+# hosts that do not support scripted native modules.
+hgl_add_module(hgl_eval_library STATIC
+    HGL ${HGRAPH_STD}/replay_record.hgl
+    PARTS ${HGRAPH_STD}/impl/replay_record.hgl
+    INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_eval_library/include
+    SRC_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_eval_library/src
+)
+set_target_properties(hgl_eval_library PROPERTIES
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+hgl_apply_warnings(hgl_eval_library)
+target_link_libraries(hgl PRIVATE hgl_eval_library)
+target_compile_definitions(hgl PRIVATE HGL_COMPILED_EVAL_LIBRARY=1)
+
 # The first HGL-authored standard-library module. It consumes the native
 # collection-view substrate above, but owns operator contracts, candidate
 # materialization, activation, and output policy in readable HGL source.
@@ -464,9 +491,9 @@ set(_hgl_stdlib_source_parts 8)
 hgl_add_module(hgl_standard_library STATIC
     SOURCE_PARTS ${_hgl_stdlib_source_parts}
     HGL ${HGRAPH_SHARED_ROOT}/hgraph_std/hgl/hgraph/standard.hgl
-    PARTS ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl
+    PARTS ${HGRAPH_STD}/control.hgl ${HGRAPH_STD}/stream.hgl ${HGRAPH_STD}/temporal.hgl ${HGRAPH_STD}/replay_record.hgl
           ${HGRAPH_STD}/impl/standard.hgl ${HGRAPH_STD}/impl/control.hgl
-          ${HGRAPH_STD}/impl/stream.hgl ${HGRAPH_STD}/impl/temporal.hgl
+          ${HGRAPH_STD}/impl/stream.hgl ${HGRAPH_STD}/impl/temporal.hgl ${HGRAPH_STD}/impl/replay_record.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native

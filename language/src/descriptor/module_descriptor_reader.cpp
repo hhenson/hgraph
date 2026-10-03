@@ -647,6 +647,7 @@ namespace hgl::descriptor
                                      {"map", TypeCategory::Map},
                                      {"rolling", TypeCategory::Rolling},
                                      {"atomic", TypeCategory::Atomic},
+                                     {"delta", TypeCategory::Delta},
                                      {"ref", TypeCategory::Reference},
                                      {"signal", TypeCategory::Signal},
                                      {"schema", TypeCategory::Schema},
@@ -1864,6 +1865,7 @@ namespace hgl::descriptor
                     case TypeCategory::Set:
                     case TypeCategory::Rolling:
                     case TypeCategory::Atomic:
+                    case TypeCategory::Delta:
                     case TypeCategory::Reference:
                     case TypeCategory::HarnessSequence: required_children = 1U; break;
                     case TypeCategory::Map: required_children = 2U; break;
