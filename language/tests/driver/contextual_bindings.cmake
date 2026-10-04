@@ -22,8 +22,10 @@ foreach(index RANGE ${last})
         endif()
         string(JSON run_test ERROR_VARIABLE missing GET "${manifest}" ${index} test)
         # Runtime node execution uses the existing Unix-only scripted native
-        # loader. The compiled contextual-binding fixture covers nodes on Windows.
-        if(NOT missing AND run_test AND (UNIX OR NOT name STREQUAL "node_scalar_local"))
+        # loader. The compiled contextual-binding fixture covers both node cases,
+        # including ordinary numeric initialization and reassignment, on Windows.
+        if(NOT missing AND run_test AND
+           (UNIX OR NOT name MATCHES "^(node_scalar_local|ordinary_widening)$"))
             execute_process(COMMAND "${HGL}" test "${CASES}/${source}"
                 RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
             if(NOT result EQUAL 0)

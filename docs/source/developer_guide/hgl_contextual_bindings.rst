@@ -34,4 +34,7 @@ Shared specification fixtures exercise checking and C++ emission on every
 platform. Direct execution of runtime-node fixtures requires the existing
 Unix-only scripted native loader; it is omitted on Windows. The separately
 compiled native contextual-binding fixture covers those node behaviors on all
-platforms, alongside graph rebinding and temporal branch-result construction.
+platforms, including integer-to-floating initialization and reassignment,
+alongside graph rebinding and temporal branch-result construction. Windows
+therefore checks and emits the shared ``node_scalar_local`` and
+``ordinary_widening`` cases, then executes their compiled native equivalents.

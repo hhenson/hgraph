@@ -19,6 +19,7 @@ TEST_CASE("generated locals preserve category and earlier connections", "[codege
     CHECK_OUTPUT(eval_node<locals::ordinary>(values<Int>(1, 2), Bool{false}), values<Int>(5, 6));
     CHECK_OUTPUT(eval_node<locals::branch_result>(values<Bool>(true, false), values<Int>(10, 20)), values<Int>(5, 20));
     CHECK_OUTPUT(eval_node<locals::operators::node_local>(values<Int>(-1, 2)), values<Int>(1, 5));
+    CHECK_OUTPUT(eval_node<locals::operators::ordinary_widening>(values<Float>(1.0, 2.0)), values<Float>(3.0, 4.0));
     const auto pair = [](Int first, Int second) {
         Value value{ValuePlanFactory::instance().type_for(scalar_descriptor<Tuple<Int, Int>>::value_meta())};
         auto fields = value.as_tuple().begin_mutation();

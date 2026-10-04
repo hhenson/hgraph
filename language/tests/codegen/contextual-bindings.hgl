@@ -43,6 +43,14 @@ export fn node_local(value: i64) -> i64 {
     }
 }
 
+export fn ordinary_widening(value: f64) -> f64 {
+    when {
+        var local: f64 = 1
+        local = 2
+        return value + local
+    }
+}
+
 export fn atomic_input(value: atomic<tuple<i64, i64>>) -> atomic<tuple<i64, i64>> {
     when {
         var local: tuple<i64, i64> = value
@@ -60,6 +68,7 @@ test contextual_graphs {
     assert eval(ordinary, value: [1, 2], choose: false) == [5, 6]
     assert eval(branch_result, condition: [true, false], value: [10, 20]) == [5, 20]
     assert eval(node_local, value: [-1, 2]) == [1, 5]
+    assert eval(ordinary_widening, value: [1.0, 2.0]) == [3.0, 4.0]
     let observed = eval(atomic_input, value: [(1, 2), (3, 4)])
     assert observed == [(1, 2), (3, 4)]
 }
