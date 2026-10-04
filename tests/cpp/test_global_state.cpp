@@ -431,6 +431,35 @@ TEST_CASE("prepared global entries separate absent values from present empty val
     CHECK(owner.view().get_as<std::string>("text").empty());
 }
 
+TEST_CASE("prepared global entries reject absent writes and keep the absent count exact", "[global-state][prepared]")
+{
+    using namespace hgraph;
+    GlobalState owner;
+    Value       seed{std::int64_t{1}};
+    const Value null  = Value::typed_null(seed.binding());
+    const auto  entry = owner.view().prepare("counter", seed.binding());
+    CHECK(owner.view().size() == 0U);
+
+    // A typed null has no payload to retain: rejected, cell unchanged, count intact.
+    CHECK_THROWS_AS(entry.set(null.view()), std::invalid_argument);
+    CHECK_THROWS_AS(entry.set(null.view()), std::invalid_argument);
+    CHECK_FALSE(owner.view().contains("counter"));
+    CHECK(owner.view().size() == 0U);
+    CHECK_THROWS(entry.get());
+
+    entry.set(seed.view());
+    CHECK(owner.view().contains("counter"));
+    CHECK(owner.view().size() == 1U);
+    CHECK(entry.get().checked_as<std::int64_t>() == 1);
+
+    // The keyed write path reaches the same handle and the same rule.
+    CHECK_THROWS_AS(owner.view().set("counter", null.view()), std::invalid_argument);
+    CHECK_THROWS_AS(entry.set(ValueView{}), std::invalid_argument);
+    CHECK(owner.view().contains("counter"));
+    CHECK(owner.view().size() == 1U);
+    CHECK(entry.get().checked_as<std::int64_t>() == 1);
+}
+
 TEST_CASE("prepared global entries reconcile exact types before use", "[global-state][prepared]")
 {
     using namespace hgraph;

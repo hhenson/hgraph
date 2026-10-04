@@ -185,7 +185,7 @@ dereferenced-by-default variant proves more convenient in practice, it is added
 as a separate explicit accessor, not by changing this default.)*
 
 Ordinary source-shape patterns
------------------------------
+------------------------------
 
 The shared wiring matcher distinguishes ``ScalarPattern::List`` from tuple
 patterns. A List pattern records either a dynamic extent or an exact fixed

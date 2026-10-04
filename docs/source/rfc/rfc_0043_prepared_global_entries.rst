@@ -27,7 +27,9 @@ metadata is separate from value presence and does not change the value schema.
 The prepared handle reads the cell or replaces it with an independently
 retained value. Callers supply values of the already checked schema. Access
 does not look up keys or dispatch on a value's type. Reads of absent cells
-throw; failed retention leaves the old cell unchanged. Handles cannot outlive
+throw; failed retention leaves the old cell unchanged. Writing an absent
+(typed-null) view is rejected rather than retained as a default-constructed
+value, so the store's size and membership stay exact. Handles cannot outlive
 their store. Moving an owning ``GlobalState``, replacing it by copy/move assignment,
 or destroying it invalidates all handles borrowed from that owner, as with
 other value views. Such replacement is permitted only outside an active run;
@@ -59,7 +61,7 @@ allocated zero bytes. Repeat using ``hgraph_type_erasure_perf`` with
 cost as the store grows; it does not claim aggregate copies have constant cost.
 
 Wiring declarations and seed ownership
--------------------------------------
+--------------------------------------
 
 ``Wiring::prepare_global_entry(key, binding)`` declares the exact type for
 one run without changing the live owner seed. Repeated declarations require

@@ -2070,7 +2070,14 @@ compiler, preprocessor definitions, and evaluated include paths. It does not
 retain the build machine's compiler launcher. An installed executable also
 resolves the SDK include directory relative to its configured
 `CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
-the default `bin` and `include` names.
+the default `bin` and `include` names, and adds the vendored header-only
+dependencies the SDK installs below `include/third_party`, the second include
+directory `hgraphConfig.cmake` exports to CMake consumers. The configured
+compiler is the build machine's: when `HGL_CXX` is unset and that compiler does
+not answer `--version` (absent on the installing host, or a package manager's
+build shim that refuses to run outside its build, as Homebrew's does), `hgl`
+tries `CXX`, then `clang++` on macOS, then `c++` on `PATH`, and keeps the
+configured name in the diagnostic when none answers.
 `HGL_CXX` overrides the compiler for diagnostics/testing,
 `HGL_CLANG_FORMAT` overrides the required generated-code formatter, and
 `HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
