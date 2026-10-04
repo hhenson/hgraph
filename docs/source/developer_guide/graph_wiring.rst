@@ -541,7 +541,7 @@ Deferred: multiple outputs (``TSB`` ports, optionally returned as an array as su
 and feedback; dead-node pruning; and the Python bridge that drives the core.
 
 Run-local ordinary entry declarations
-------------------------------------
+-------------------------------------
 
 ``Wiring::prepare_global_entry`` records an exact ordinary entry type in a
 cold declaration plan shared with ``child_wiring()``. It checks visible seed

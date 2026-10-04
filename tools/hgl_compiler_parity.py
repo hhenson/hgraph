@@ -17,7 +17,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = re.compile(r'^\s*module\s+([A-Za-z_][\w.]*)\b', re.M)
 TEST = re.compile(r'^\s*test\s+([A-Za-z_]\w*)\s*\{', re.M)
-TOKEN = re.compile(r'#[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[{}()\[\]]|\S')
+TOKEN = re.compile(r'#[^\n]*|"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|\S')
 RESULT = re.compile(r'^([\w.:]+) \.\.\. (.+)$', re.M)
 
 

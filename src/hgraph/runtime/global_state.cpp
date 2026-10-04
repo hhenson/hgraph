@@ -114,9 +114,15 @@ namespace hgraph
     void PreparedGlobalEntry::set(const ValueView &value) const
     {
         if (value_ == nullptr) { throw std::logic_error("unprepared global-state entry"); }
-        Value retained{binding_, value};
+        // An absent view carries no payload: retaining it would publish a
+        // default-constructed value under the entry's key. Reject it and leave
+        // the cell, and the absence count, unchanged.
+        if (!value.has_value()) {
+            throw std::invalid_argument("absent value for prepared global-state entry '" + key_ + "'");
+        }
+        Value      retained{binding_, value};
         const bool was_absent = !value_->has_value();
-        *value_ = std::move(retained);
+        *value_               = std::move(retained);
         if (was_absent) { --*absent_; }
     }
 
