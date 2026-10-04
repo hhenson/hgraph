@@ -390,6 +390,7 @@ namespace hgl::ir::hir
         SymbolId symbol{};
         TypeId   type{};
         ExprId   init{};
+        Phase    phase{Phase::Unknown};  ///< fixed local category, including first assignment
     };
     /// `state`, or with `cache` a reconstructible node-local cache that is
     /// outside record/replay and re-initialized on every start (ADR 0011).
@@ -433,6 +434,7 @@ namespace hgl::ir::hir
         AssignOp op{AssignOp::Assign};
         ExprId   place{};
         ExprId   value{};
+        bool     lift_branch_output{false};
     };
     struct ReturnStmt
     { ExprId value{}; };

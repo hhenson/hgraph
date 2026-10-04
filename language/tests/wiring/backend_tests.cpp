@@ -267,9 +267,8 @@ test narrowing {
     assert y == 2
 }
 )"};
-        const TestResult result = only(unit.tests());
-        CHECK_FALSE(result.passed);
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
     SECTION("i64 widens into an f64 var") {
         Unit             unit{R"(

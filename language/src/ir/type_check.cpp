@@ -3348,6 +3348,8 @@ namespace hgl::ir
                 require_assignable(scalar(ScalarType::Bool), condition, "if condition");
                 TypeId expected_return = expected;
                 if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                const bool temporal = condition.phase == Phase::Wiring && !runtime_owner(expression.owner);
+                if (temporal) { temporal_branches_.push_back(++temporal_branch_id_); }
                 const auto incoming_presence = present_bindings_;
                 present_bindings_ = presence_after(node.condition, true, incoming_presence);
                 check_block(node.then_block, expected_return, expected);
@@ -3382,6 +3384,7 @@ namespace hgl::ir
                 present_bindings_ = then_terminates ? else_presence : else_terminates ? then_presence
                     : intersect_presence(then_presence, else_presence);
                 expression.value_kind = expression.type == void_type_ ? ValueKind::Void : value_kind_for_phase(expression.phase);
+                if (temporal) { temporal_branches_.pop_back(); }
             }
 
             void check_block_expr(Expr &expression, const BlockExpr &node, TypeId expected) {
@@ -4550,6 +4553,7 @@ namespace hgl::ir
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, LocalDecl>) {
                             Symbol &symbol = module_.symbols[node.symbol.value];
+                            local_contexts_[node.symbol.value] = LocalContext{id, temporal_branches_.size(), 0};
                             if (node.init.valid()) {
                                 const bool inferred_let = !node.type.valid() && symbol.kind == SymbolKind::LocalLet;
                                 Expr &init = check_expr(node.init, node.type, inferred_let);
@@ -4557,7 +4561,9 @@ namespace hgl::ir
                                     if (!inferred_let) { type_error(init.range, "a nullable value requires an inferred immutable let binding"); }
                                     nullable_bindings_.insert(node.symbol.value);
                                 }
-                                if (!node.type.valid()) { node.type = init.type; }
+                                if (!node.type.valid()) {
+                                    node.type = runtime_owner(statement.owner) ? unwrap_atomic(init.type) : init.type;
+                                }
                                 require_assignable(node.type, init, "local initializer");
                                 if (capability_value(init.type)) { type_error(init.range, "an injected capability cannot be retained in a local"); }
                                 if (borrowed_schema(init.type)) {
@@ -4594,16 +4600,17 @@ namespace hgl::ir
                                         }
                                     }
                                 }
-                                symbol.type                      = node.type;
-                                symbol_phase_[node.symbol.value] = init.phase;
-                                statement.effects                = init.effects;
+                                symbol.type = canonical(node.type);
+                                fix_local_phase(node.symbol, runtime_owner(statement.owner) && symbol.kind == SymbolKind::LocalVar
+                                    ? Phase::Runtime : init.phase);
+                                statement.effects = init.effects;
                             } else {
                                 if (!node.type.valid()) {
                                     type_error(statement.range, "an uninitialized 'var' requires an explicit type");
                                 }
-                                symbol.type                      = canonical(node.type);
-                                symbol_phase_[node.symbol.value] = runtime_owner(statement.owner) ? Phase::Runtime : Phase::Wiring;
-                                statement.effects                = Effect::None;
+                                symbol.type = canonical(node.type);
+                                if (runtime_owner(statement.owner)) { fix_local_phase(node.symbol, Phase::Runtime); }
+                                statement.effects = Effect::None;
                             }
                         } else if constexpr (std::is_same_v<T, StateDecl>) {
                             const NativePhase previous_phase = active_native_phase_;
@@ -4727,13 +4734,55 @@ namespace hgl::ir
                             }
                             statement.effects = time.effects | value.effects | Effect::WriteOutput;
                         } else if constexpr (std::is_same_v<T, AssignStmt>) {
+                            const SymbolId root = place_root(node.place);
+                            const auto found_local = local_contexts_.find(root.value);
+                            LocalContext *local = found_local == local_contexts_.end() ? nullptr : &found_local->second;
+                            if (local != nullptr && !symbol_phase_.contains(root.value) &&
+                                temporal_branches_.size() > local->temporal_depth) {
+                                // An enclosing uninitialized slot is a temporal result
+                                // before either its RHS or subsequent branch reads are checked.
+                                local->result_context = temporal_branches_[local->temporal_depth];
+                                fix_local_phase(root, Phase::Wiring);
+                            }
                             Expr &place = check_expr(node.place);
                             Expr &value = check_expr(node.value, place.type);
-                            const SymbolId root = place_root(node.place);
+                            Expr computed;
+                            const Expr *result = &value;
+                            if (node.op != AssignOp::Assign) {
+                                computed.owner = statement.owner;
+                                computed.range = statement.range;
+                                const BinaryOp op = node.op == AssignOp::Add ? BinaryOp::Add
+                                    : node.op == AssignOp::Sub ? BinaryOp::Sub
+                                    : node.op == AssignOp::Mul ? BinaryOp::Mul : BinaryOp::Div;
+                                check_binary(computed, Binary{op, node.place, node.value}, {});
+                                result = &computed;
+                            }
                             if (root.valid() && module_.symbol(root).kind == SymbolKind::InjectedCapability && module_.symbol(root).name == "out") {
-                                require_publication(place.type, value, "assignment");
-                            } else { require_assignable(place.type, value, "assignment"); }
-                            statement.effects   = place.effects | value.effects;
+                                require_publication(place.type, *result, "assignment");
+                            } else { require_assignable(place.type, *result, "assignment"); }
+                            if (local != nullptr) {
+                                if (!symbol_phase_.contains(root.value)) {
+                                    fix_local_phase(root, result->phase);
+                                    place.phase = result->phase;
+                                    place.value_kind = value_kind_for_phase(place.phase);
+                                }
+                                const Phase phase = symbol_phase_.at(root.value);
+                                if (phase == Phase::Wiring && !std::holds_alternative<SymbolRef>(place.node)) {
+                                    type_error(place.range, "a temporal local permits connection rebinding, not mutation through a projection");
+                                }
+                                const bool in_child = temporal_branches_.size() > local->temporal_depth;
+                                const bool constructing = in_child && local->result_context != 0 &&
+                                    temporal_branches_[local->temporal_depth] == local->result_context;
+                                node.lift_branch_output = constructing && phase == Phase::Wiring &&
+                                    result->phase == Phase::Constant;
+                                if (in_child && phase != Phase::Wiring) {
+                                    type_error(place.range, "a temporal branch cannot write an enclosing ordinary local");
+                                } else if ((phase == Phase::Wiring) != (result->phase == Phase::Wiring) &&
+                                           !node.lift_branch_output) {
+                                    type_error(value.range, "assignment changes the local's fixed ordinary or temporal category");
+                                }
+                            }
+                            statement.effects = place.effects | result->effects;
                             if (std::holds_alternative<Index>(place.node) && root.valid() &&
                                 module_.symbol(root).kind == SymbolKind::LocalVar) {
                                 type_error(place.range, "ordinary list indexed replacement is not an admitted operation");
@@ -4784,6 +4833,19 @@ namespace hgl::ir
                         }
                     },
                     statement.node);
+            }
+
+            void fix_local_phase(SymbolId symbol, Phase phase) {
+                symbol_phase_[symbol.value] = phase;
+                auto &declaration = std::get<LocalDecl>(module_.stmts[local_contexts_.at(symbol.value).declaration.value].node);
+                declaration.phase = phase;
+                const TypeId local_type = canonical(declaration.type);
+                // A harness sequence retains its temporal origin as a type
+                // argument; retaining it does not declare a local endpoint.
+                const bool harness = local_type.valid() && type(local_type).kind == TypeKind::HarnessSequence;
+                if (phase != Phase::Wiring && !harness && !ordinary_argument(local_type)) {
+                    type_error(module_.symbol(symbol).range, "an ordinary local requires an ordinary value type; atomic composite annotations describe temporal endpoints");
+                }
             }
 
             [[nodiscard]] SymbolId place_root(ExprId id) const noexcept {
@@ -5047,6 +5109,14 @@ namespace hgl::ir
             std::vector<std::vector<std::uint32_t>>  types_by_owner_{};
             std::size_t                              indexed_types_{0};
             std::vector<std::uint8_t>                expr_state_{};
+            struct LocalContext {
+                StmtId declaration{};
+                std::size_t temporal_depth{};
+                std::uint64_t result_context{};
+            };
+            std::unordered_map<std::uint32_t, LocalContext> local_contexts_{};
+            std::vector<std::uint64_t> temporal_branches_{};
+            std::uint64_t temporal_branch_id_{};
             std::unordered_map<std::uint32_t, Phase> symbol_phase_{};
             std::unordered_map<std::uint32_t, bool>  checked_blocks_{};
             std::unordered_set<std::uint64_t>        checked_type_applications_{};

@@ -2390,7 +2390,11 @@ namespace hgl::codegen
             if (!value.is_const() && !value.is_runtime()) {
                 fail(Category::Type, range, what + " needs an evaluation-time scalar value");
             }
-            if (same_type(value.type, target)) { return value.code; }
+            if (same_type(value.type, target) ||
+                (value.type.kind == HType::Kind::Atomic && same_type(value.type.children.front(), target)) ||
+                (target.kind == HType::Kind::Atomic && same_type(value.type, target.children.front()))) {
+                return value.code;
+            }
             if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
@@ -4663,8 +4667,11 @@ namespace hgl::codegen
                             if (binding.kind != gir::BindingKind::LocalVar) {
                                 backend(binding.range, "only a 'var' may omit its initializer");
                             }
-                            out.line("hgraph::Port<" + schema(declared, binding.range) + "> " + local + ";");
-                            Value value = make_port(local, declared, binding.range);
+                            const bool temporal = node.phase == hir::Phase::Wiring;
+                            out.line((temporal ? "hgraph::Port<" + schema(declared, binding.range) + ">"
+                                               : value_type(declared, binding.range)) + " " + local + ";");
+                            Value value = temporal ? make_port(local, declared, binding.range)
+                                                   : make_const(local, declared, binding.range);
                             if (!frame.planned_bindings.emplace(node.binding.value, std::move(value)).second) {
                                 backend(binding.range, "hgraph IR block repeats a local binding");
                             }
@@ -4715,7 +4722,7 @@ namespace hgl::codegen
                             value = current.is_const() && value.is_const() ? fold_binary(op, current, value, statement.range)
                                                                            : wire_binary(op, current, value, statement.range);
                         }
-                        const bool promotes_constant_to_port = current.is_port() && value.is_const();
+                        const bool promotes_constant_to_port = node.lift_branch_output && current.is_port() && value.is_const();
                         if (current.kind != value.kind && !promotes_constant_to_port) {
                             fail(Category::Type, statement.range, "assignment to '" + binding.name + "' changes its inferred type");
                         }
@@ -5787,6 +5794,14 @@ namespace hgl::codegen
                 } else {
                     frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
                                                              : make_runtime(name + ".value()", type, binding.range, name);
+                    if (!parameter.is_const && type.kind == HType::Kind::Atomic &&
+                        ordinary_aggregate(type.children.front())) {
+                        // Atomic composite payloads use the existing erased value
+                        // view, not checked_as on the static schema marker.
+                        frame.params[index].code = name + ".base().value()";
+                        frame.params[index].ordinary_value = true;
+                        frame.params[index].borrowed_value = true;
+                    }
                     if (parameter.is_const && ordinary_aggregate(type)) {
                         frame.params[index].ordinary_value = true;
                         frame.params[index].borrowed_value = true;

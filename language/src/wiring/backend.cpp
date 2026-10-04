@@ -2420,6 +2420,10 @@ namespace hgl::wiring
                         }
                         const auto current_it = frame.bindings.find(reference->binding.value);
                         Slot       next       = eval_value(node.value, frame);
+                        if (node.lift_branch_output && next.is_const()) {
+                            next = wire_constant(constant_of(next, value_meta(target.type), frame, "conditional branch output"),
+                                                 schema(target.type));
+                        }
                         if (current_it == frame.bindings.end()) {
                             if (node.op != gir::AssignOp::Assign) {
                                 backend(statement.range,

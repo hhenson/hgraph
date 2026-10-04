@@ -28,6 +28,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    real_time_adaptors
    operators
    hgl_temporal_publications
+   hgl_contextual_bindings
    writing_nodes
    parity_matrix
    parity_testing

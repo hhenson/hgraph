@@ -1577,7 +1577,7 @@ export fn choose(condition: bool, value: i64) -> i64 {
     CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::switch_>"));
 }
 
-TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
+TEST_CASE("emit-cpp keeps the first ordinary assignment to a typed composition var ordinary", "[codegen][locals][control-flow]") {
     Unit unit{R"(
 module planned_constant_assignment
 
@@ -1596,10 +1596,10 @@ export fn selected(const condition: bool) -> i64 {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
-    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{1});"));
-    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{2});"));
-    CHECK(contains(emitted->source, "return result;"));
+    CHECK(contains(emitted->source, "hgraph::Int result;"));
+    CHECK(contains(emitted->source, "result = hgraph::Int{1};"));
+    CHECK(contains(emitted->source, "result = hgraph::Int{2};"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, result);"));
 }
 
 TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
@@ -1940,7 +1940,7 @@ export fn f(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
     SECTION("i64 still widens into an f64 var") {
         Unit       unit{R"(

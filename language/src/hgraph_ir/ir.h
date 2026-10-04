@@ -499,6 +499,7 @@ namespace hgl::hgraph_ir
         BindingId binding{};
         TypeId    type{};
         ValueId   init{};
+        ir::hir::Phase phase{ir::hir::Phase::Unknown};
     };
     /// `state`, or with `cache` a node-local cache outside record/replay
     /// that is re-initialized on every start (ADR 0011).
@@ -555,6 +556,7 @@ namespace hgl::hgraph_ir
         AssignOp op{AssignOp::Assign};
         ValueId  place{};
         ValueId  value{};
+        bool     lift_branch_output{false};
     };
     struct Return
     { ValueId value{}; };

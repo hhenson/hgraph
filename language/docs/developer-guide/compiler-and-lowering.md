@@ -927,6 +927,23 @@ terminated by `return`. Reading the binding before every reaching path assigns
 it is a type error. The declaration itself creates neither a scalar default nor
 a time-series endpoint.
 
+The pinned contextual-local-binding contract fixes ordinary versus temporal
+category independently of the canonical value type. HIR local declarations
+retain the resolved phase, including the first assignment to a typed declaration
+without an initializer; hgraph IR carries it to storage emission. The checker
+compares the computed result of compound assignment and rejects category changes
+before either backend runs. Runtime locals always use ordinary storage; composite
+`atomic` annotations cannot create local temporal endpoints.
+
+An uninitialized enclosing variable assigned by a temporal conditional is a
+connection result slot. Assignments constructing that slot carry an explicit
+branch-output lift flag through both IRs, so scalar results become connections
+before subsequent branch reads. The flag does not authorize assignments after
+the conditional, or assignments to already initialized connection locals.
+Temporal branches cannot write enclosing ordinary bindings, including unused
+ones. Direct wiring and generated C++ consume these checked categories and lift
+flags instead of inferring permission from their current storage representation.
+
 ## Composition lowering
 
 The classifier identifies this ordinary expression body as wiring

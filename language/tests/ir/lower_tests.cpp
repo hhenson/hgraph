@@ -3768,3 +3768,43 @@ TEST_CASE("generic delta equality checks its concrete publication origin", "[ir]
         CHECK(result == (origin != "list<i64, 2>"));
     }
 }
+
+TEST_CASE("typed locals fix ordinary and temporal categories", "[ir][typed][locals][category]") {
+    const std::vector<std::string> rejected{
+        "fn f(x:i64)->i64 {var r:i64=1\n r=x\n return x}",
+        "fn f(x:i64)->i64 {var r:i64=x\n r=1\n return x}",
+        "fn f(x:i64)->i64 {var r=1\n if true {r=x}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r=1\n if c {r=2}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r=x\n if c {r=2}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n r=2\n return r}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n r+=1\n r=2\n return r}",
+        "fn f(const c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n return r}",
+        "fn f(x:i64)->i64 {var r:i64\n r=1\n r=x\n return r}",
+        "fn f(x:i64)->i64 {when {let r:atomic<tuple<i64,i64>> = (1,2)\n return x}}",
+        "struct Pair { x:i64 }\n fn f(x:Pair)->Pair {var r=x\n r.x=1\n return r}",
+    };
+    for (const auto &source : rejected) {
+        INFO(source);
+        Lowered lowered{"module categories\n" + source};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.has_errors());
+    }
+    const std::vector<std::string> accepted{
+        "fn f(x:i64)->i64 {var r:i64=x\n r+=1\n return r}",
+        "fn f(x:i64)->i64 {var r:i64\n r=1\n r=2\n return x+r}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1\n r=2\n r+=1}else{r=x}\n return r}",
+        "fn f(c:bool,x:i64)->i64 {if c {var r=1\n r=2\n x+r}else{x}}",
+        "fn f(const c:bool,x:i64)->i64 {var r=1\n if c {r=2}\n return x+r}",
+        "fn f(x:atomic<tuple<i64,i64>>)->i64 {when {let r=x\n return r[0]}}",
+        "fn f(x:i64)->i64 {when {var r=1\n r=x\n return r}}",
+    };
+    for (const auto &source : accepted) {
+        INFO(source);
+        Lowered lowered{"module categories\n" + source};
+        require_clean(lowered);
+        CHECK(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK_FALSE(lowered.diagnostics.has_errors());
+    }
+}
