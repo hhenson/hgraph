@@ -421,7 +421,9 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> a, hgraph::Port<hgraph::TS<hgraph::Float>> b)"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b).as<hgraph::TS<hgraph::Float>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::gt_>(w, x, threshold.value()).as<hgraph::TS<hgraph::Bool>>()"));
-    CHECK(contains(emitted->source, "hgraph::wire<scale>(w, hgraph::wire<plus>(w, a, b), k.value())"));
+    CHECK(contains(emitted->source, "hgraph::wire<plus>(w, hgl_call_arg_0, hgl_call_arg_1)"));
+    CHECK(contains(emitted->source, "auto hgl_call_arg_1 = k.value();"));
+    CHECK(contains(emitted->source, "hgraph::wire<scale>(w, hgl_call_arg_0, hgl_call_arg_1)"));
     CHECK(contains(emitted->source, "if (enabled.value())"));
     CHECK(contains(
         emitted->source,
@@ -705,10 +707,10 @@ export fn all_values(values: ...bool) -> bool => all_inputs(values)
     REQUIRE(emitted);
     CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>>"));
     CHECK(contains(emitted->source, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>> values"));
-    CHECK(contains(emitted->source, "hgraph::VarIn<\"inputs\", hgraph::TS<hgraph::Bool>>{values.ports}"));
+    CHECK(contains(emitted->source, "hgraph::VarIn<\"inputs\", hgraph::TS<hgraph::Bool>>{hgl_call_arg_0.ports}"));
     CHECK_FALSE(contains(emitted->source, "wire<all_inputs>(w, values)"));
     CHECK_FALSE(contains(emitted->header, "_0"));
-    CHECK_FALSE(contains(emitted->source, "_0"));
+    CHECK_FALSE(contains(emitted->source, "\"_0\""));
 }
 
 TEST_CASE("emit-cpp traverses heterogeneous packs through tuple and bundle views", "[codegen][parameter-pack]") {
@@ -741,7 +743,7 @@ export fn keyword<...Fields>(values: ...{Fields}) {
     CHECK(contains(emitted->source, "hgraph::Port<void>{w, values[hgl_pack_first_"));
     CHECK(contains(emitted->source, "for (const auto &[hgl_pack_first_"));
     CHECK(contains(emitted->source, "hgraph::Str{hgl_pack_first_"));
-    CHECK_FALSE(contains(emitted->source, "_0"));
+    CHECK_FALSE(contains(emitted->source, "\"_0\""));
 }
 
 TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {
@@ -1641,7 +1643,7 @@ export fn result(value: f64) -> f64 => scaled(value)
     const auto emitted = unit.emit();
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::arg<\"factor\">(static_cast<hgraph::Float>(hgraph::Int{7}))"));
-    CHECK(contains(emitted->source, "hgraph::wire<scaled>(w, value, static_cast<hgraph::Float>(hgraph::Int{7}))"));
+    CHECK(contains(emitted->source, "hgraph::wire<scaled>(w, hgl_call_arg_0, static_cast<hgraph::Float>(hgl_call_arg_1))"));
     CHECK_FALSE(contains(emitted->source, "hgraph::Float{2.0}"));
 }
 
@@ -1996,12 +1998,13 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(contains(emitted->header, "#include <hgraph/analytics/operators.h>"));
     CHECK(contains(emitted->header, "hgraph::Port<hgraph::TS<hgraph::Tuple<hgraph::Float, hgraph::Float>>>"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getitem_>(w, tob, hgraph::Int{0})"));
-    CHECK(contains(emitted->source, "hgraph::wire<hgraph::analytics::rolling_mean>(w, hgraph::wire<midpoint>(w, tob), "
-                                    "hgraph::arg<\"period\">(window.value()))"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::analytics::rolling_mean>(w,"));
+    CHECK(contains(emitted->source, "hgraph::wire<midpoint>(w, hgl_call_arg_0)"));
+    CHECK(contains(emitted->source, "hgraph::arg<\"period\">(window.value()))"));
     // A constant at a temporal parameter is wired through `const` at the
     // parameter's schema, converting int to float as the direct backend does.
     CHECK(contains(emitted->source, "hgraph::wire<plus_one>(w, hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Float>>(w, "
-                                    "static_cast<hgraph::Float>(hgraph::Int{1})))"));
+                                    "static_cast<hgraph::Float>(hgl_call_arg_0)))"));
     // Helpers are defined before the functions that wire them.
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
@@ -2446,7 +2449,7 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "namespace operator_contracts"));
     CHECK(contains(emitted->source, "using private_total = hgraph::Operator<"));
     CHECK(contains(emitted->source, "hgraph::register_overload<operator_contracts::private_total, private_total>()"));
-    CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
+    CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, hgl_call_arg_0)"));
 }
 
 TEST_CASE("emit-cpp lowers functional collection output mutations", "[codegen][runtime][collection]") {
@@ -4234,4 +4237,164 @@ fn direct() -> atomic<list<i64>> {
     CHECK(contains(emitted->source, ".payload(hgl_payload_1.view())"));
     CHECK(contains(emitted->source, ".payload(hgl_cache.ref().hgl_value.view())"));
     CHECK_FALSE(contains(emitted->source, "hgraph::apply_delta(hgl_output.base(),"));
+}
+
+TEST_CASE("temporal contextual defaults are selected by HGL before native registration", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.temporal_defaults
+export fn identity(value: timezone, const fallback: timezone = @[Missing/UnusedDefault]) -> timezone {
+    when { return value }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::ZoneId"));
+    CHECK_FALSE(contains(emitted->header + emitted->source, "Missing/UnusedDefault"));
+}
+
+TEST_CASE("generated hooks reject provider construction instead of resolving names per tick", "[codegen][temporal]") {
+    for (const std::string body : {
+        "export fn f(tick: bool) -> timezone { when { return @[UTC] } }",
+        "struct Box<T> { value: T\nzone: timezone = @[UTC] }\nconst fn make<T>(value: T) -> Box<T> { return Box<T>(value: value) }\nfn node(tick: bool) -> timezone { when { return make(tick).zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
+        "struct Box { zone: timezone = @[UTC] }\nstruct Outer { inner: atomic<Box> = Box() }\nconst fn make() -> Outer { return Outer() }\nfn node(tick: bool) -> timezone { when { return make().inner.zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
+        "struct Box { zone: timezone = @[UTC] }\nconst fn make() -> Box { return Box() }\nfn node(tick: bool) -> timezone { when { return make().zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
+        "const fn inner() -> timezone { return @[UTC] }\nconst fn helper() -> timezone { return inner() }\nexport fn f(tick: bool) -> timezone { when { return helper() } }"}) {
+        Unit unit{"module tests.temporal_hooks\n" + body + "\n"};
+        INFO(body);
+        CHECK_FALSE(unit.emit());
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.render(unit.file).find("provider-dependent literal construction") != std::string::npos);
+    }
+}
+
+TEST_CASE("generic retained observer plans project const argument schemas before start", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.retained_observer
+struct Publication<T> { value: delta<T> }
+fn observe<T>(trigger: i64, const expected: list<Publication<T>>) -> bool {
+    inject global_state
+    when {
+        let captured: list<Publication<T>> = get(global_state, "observed")
+        return captured[0].value == expected[0].value
+    }
+}
+export fn check(trigger: i64, const expected: list<Publication<timezone>>) -> bool => observe(trigger, expected)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header + emitted->source, "view.scalars().as_bundle().at(0).binding().schema()"));
+}
+
+TEST_CASE("cold helper calls retain supplied arguments before selected defaults", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.temporal_call_order
+const fn choose(first: timezone, second: timezone, fallback: timezone = @[Missing/Default]) -> timezone {
+    return first
+}
+export fn caller() -> timezone => choose(second: @[Missing/First], first: @[Missing/Second])
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto &source = emitted->source;
+    const auto first = source.find("auto hgl_call_arg_0 = hgl::temporal::zone(\"Missing/First\")");
+    const auto second = source.find("auto hgl_call_arg_1 = hgl::temporal::zone(\"Missing/Second\")");
+    const auto fallback = source.find("auto hgl_call_arg_2 = hgl::temporal::zone(\"Missing/Default\")");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    REQUIRE(fallback != std::string::npos);
+    CHECK(first < second);
+    CHECK(second < fallback);
+    CHECK(contains(source, "choose_hgl_value(hgl_call_arg_1, hgl_call_arg_0, hgl_call_arg_2)"));
+    CHECK(source.find("hgl::temporal::zone(\"Missing/First\")", first + 1) ==
+          first + std::string{"auto hgl_call_arg_0 = "}.size());
+    CHECK(source.find("hgl::temporal::zone(\"Missing/First\")", second) == std::string::npos);
+}
+
+TEST_CASE("cold native calls materialize named arguments in written order", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.temporal_native_order
+native const fn choose(first: timezone, second: timezone) -> timezone
+native const fn choose(first: timezone, second: timezone) -> timezone {}
+const fn caller() -> timezone => choose(second: @[Missing/First], first: @[Missing/Second])
+)"};
+    const auto emitted = unit.emit(EmitOptions{.native_provider_header = "provider.h", .native_provider = "example::native"});
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    const auto first = source.find("auto hgl_native_arg_0 = hgl::temporal::zone(\"Missing/First\")");
+    const auto second = source.find("auto hgl_native_arg_1 = hgl::temporal::zone(\"Missing/Second\")");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    CHECK(first < second);
+    CHECK(contains(source, "(hgl_native_arg_1, hgl_native_arg_0)"));
+    CHECK(source.find("hgl::temporal::zone(\"Missing/First\")", second) == std::string::npos);
+}
+
+TEST_CASE("repeated source references remain separate call argument occurrences", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.repeated_call_arguments
+const fn choose(first: timezone, second: timezone) -> timezone => first
+export fn caller(const zone: timezone) -> timezone => choose(second: zone, first: zone)
+)"};
+    bool found_call = false;
+    for (const auto &value : unit.graph.values) {
+        if (const auto *call = std::get_if<hgl::hgraph_ir::Call>(&value.node); call && call->arguments.size() == 2U) {
+            found_call = true;
+            CHECK(call->arguments[0].value != call->arguments[1].value);
+        }
+    }
+    REQUIRE(found_call);
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "auto hgl_call_arg_0 = zone.value();"));
+    CHECK(contains(emitted->source, "auto hgl_call_arg_1 = zone.value();"));
+    CHECK(contains(emitted->source, "choose_hgl_value(hgl_call_arg_1, hgl_call_arg_0)"));
+}
+
+TEST_CASE("const-only generic plans admit deep finite aggregate projections", "[codegen][temporal]") {
+    for (const std::string wrapper : {"list", "tuple", "Box"}) {
+        std::string shape = "Publication<T>";
+        std::string concrete = "Publication<timezone>";
+        for (unsigned depth = 0; depth < 16; ++depth) {
+            shape = wrapper + "<" + shape + ">";
+            concrete = wrapper + "<" + concrete + ">";
+        }
+        shape = "list<" + shape + ">";
+        concrete = "list<" + concrete + ">";
+        Unit unit{"module tests.deep_retained_observer\n"
+            "struct Publication<T> { value: delta<T> }\n"
+            "struct Box<T> { item: T }\n"
+            "fn observe<T>(trigger: bool, const expected: " + shape + ") -> bool {\n"
+            "inject global_state\nwhen {\nlet captured: Publication<T> = get(global_state, \"observed\")\n"
+            "return captured.value == captured.value\n}\n}\n"
+            "export fn check(trigger: bool, const expected: " + concrete + ") -> bool => observe(trigger, expected)\n"};
+        INFO(wrapper);
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+    }
+}
+
+TEST_CASE("ordinary schema projection skips nominal cycle backedges", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.recursive_retained_projection
+struct Publication<T> { value: delta<T> }
+struct Recursive<T> { again: atomic<Recursive<T>> = null
+    publication: Publication<T> }
+fn observe<T>(trigger: bool, const expected: list<Recursive<T>>) -> bool {
+    inject global_state
+    when {
+        let captured: Publication<T> = get(global_state, "observed")
+        return captured.value == expected[0].publication.value
+    }
+}
+export fn check(trigger: bool, const expected: list<Recursive<timezone>>) -> bool => observe(trigger, expected)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
 }

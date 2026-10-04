@@ -488,6 +488,12 @@ TEST_CASE("date tz provider covers non-hour transitions, skipped days, history, 
     const ZoneId link{"US/Eastern"};
     const ZoneId canonical{"America/New_York"};
     REQUIRE(provider->contains(link));
+    REQUIRE(provider->contains(ZoneId{"UTC"}));
+    REQUIRE(provider->contains(ZoneId{"Etc/UTC"}));
+    for (const auto name : {"utc", "america/new_york", "Etc/Unknown", "Missing/Zone"}) {
+        CHECK_FALSE(provider->contains(ZoneId{name}));
+        CHECK_THROWS(at_zone(instant(date(2026, 1, 15)), ZoneId{name}, *provider));
+    }
     const Instant sample =
         instant(date(2025, 7, 1), time_of_day(12, 0));
     const auto linked = at_zone(sample, link, *provider);

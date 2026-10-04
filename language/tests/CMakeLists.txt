@@ -754,6 +754,11 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/control.hgl
             --part ${HGRAPH_STD}/tests/stream.hgl
             --part ${HGRAPH_STD}/tests/temporal.hgl
+            --part ${HGRAPH_STD}/tests/temporal_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
+            --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
+            --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl
+            --part ${HGRAPH_STD}/tests/record_observation_values.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     add_test(NAME hgraph_language_test_operator_bodies
         COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/operators.hgl

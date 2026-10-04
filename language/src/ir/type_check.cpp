@@ -1707,6 +1707,14 @@ namespace hgl::ir
                 if (!lhs.constant || !rhs.constant) { return; }
                 const Constant &a         = *lhs.constant;
                 const Constant &b         = *rhs.constant;
+                // Provider-dependent recipes must be validated when materialized,
+                // even when their comparison could otherwise be folded.
+                const auto provider_dependent = [](const Constant &value) {
+                    const auto *temporal = std::get_if<syntax::TemporalValue>(&value);
+                    return temporal && (temporal->kind == syntax::TemporalKind::TimeZone ||
+                                        temporal->kind == syntax::TemporalKind::ZonedDateTime);
+                };
+                if (provider_dependent(a) || provider_dependent(b)) { return; }
                 const auto      as_double = [](const Constant &value) -> std::optional<double> {
                     if (const auto *integer = std::get_if<std::int64_t>(&value)) { return static_cast<double>(*integer); }
                     if (const auto *floating = std::get_if<double>(&value)) { return *floating; }
@@ -1777,8 +1785,7 @@ namespace hgl::ir
                     } else if (const auto *left_time = std::get_if<syntax::TemporalValue>(&a)) {
                         const auto *right_time = std::get_if<syntax::TemporalValue>(&b);
                         if (right_time && left_time->kind == right_time->kind &&
-                            (left_time->kind == syntax::TemporalKind::DateTime ||
-                             left_time->kind == syntax::TemporalKind::ZonedDateTime)) {
+                            left_time->kind == syntax::TemporalKind::DateTime) {
                             // Datetimes denote instants. Their source offset and
                             // zone metadata do not participate in equality.
                             equal = left_time->micros == right_time->micros;
@@ -1891,6 +1898,20 @@ namespace hgl::ir
                 }
             }
 
+            [[nodiscard]] bool structural_delta_operand(TypeId id) {
+                if (!id.valid()) { return false; }
+                const Type shape = type(canonical(id));
+                if (shape.kind != TypeKind::Delta) { return false; }
+                // delta<T> may normalize to a scalar after substitution. A
+                // known structural origin remains invalid even with generic children.
+                if (shape.children.size() == 1U) {
+                    const Type origin = type(canonical(shape.children.front()));
+                    if (origin.kind == TypeKind::Symbol && origin.symbol.valid() &&
+                        module_.symbol(origin.symbol).kind == SymbolKind::TypeParameter) { return false; }
+                }
+                return true;
+            }
+
             void check_binary(Expr &expression, const Binary &node, TypeId expected) {
                 const bool presence_test = (node.op == BinaryOp::Equal || node.op == BinaryOp::NotEqual) &&
                     (is_null(module_.expr(node.lhs)) || is_null(module_.expr(node.rhs)));
@@ -1914,8 +1935,7 @@ namespace hgl::ir
                     expression.operation = Operation{.kind = OperationKind::Intrinsic, .identity = "presence"};
                     return;
                 }
-                if ((lhs.type.valid() && type(canonical(lhs.type)).kind == TypeKind::Delta) ||
-                    (rhs.type.valid() && type(canonical(rhs.type)).kind == TypeKind::Delta)) {
+                if (structural_delta_operand(lhs.type) || structural_delta_operand(rhs.type)) {
                     type_error(expression.range, "structural delta values do not support ordinary operators");
                 }
                 if (runtime_owner(expression.owner) && (reference(lhs.type) || reference(rhs.type))) {
@@ -3748,7 +3768,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return shape.scalar <= ScalarType::Duration; }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
@@ -3781,7 +3801,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return shape.scalar <= ScalarType::Duration; }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }
@@ -4889,7 +4909,19 @@ namespace hgl::ir
             void validate_instantiated_deltas() {
                 index_owned_types();
                 std::vector<std::vector<const Expr *>> calls(module_.declarations.size());
+                std::vector<std::vector<const Expr *>> delta_operators(module_.declarations.size());
                 for (const Expr &expression : module_.exprs) {
+                    if (expression.owner.valid()) {
+                        if (const auto *binary = std::get_if<Binary>(&expression.node)) {
+                            const auto is_delta = [&](ExprId operand) {
+                                const auto id = module_.expr(operand).type;
+                                return id.valid() && type(canonical(id)).kind == TypeKind::Delta;
+                            };
+                            if (is_delta(binary->lhs) || is_delta(binary->rhs)) {
+                                delta_operators[expression.owner.value].push_back(&expression);
+                            }
+                        }
+                    }
                     if (expression.owner.valid() && std::holds_alternative<Call>(expression.node)) {
                         calls[expression.owner.value].push_back(&expression);
                     }
@@ -4916,6 +4948,13 @@ namespace hgl::ir
                     }
                     if (!checked.insert(key).second) { return; }
                     active.insert(owner.value);
+                    for (const Expr *operation : delta_operators[owner.value]) {
+                        const auto &binary = std::get<Binary>(operation->node);
+                        if (structural_delta_operand(bindings.apply(module_.expr(binary.lhs).type)) ||
+                            structural_delta_operand(bindings.apply(module_.expr(binary.rhs).type))) {
+                            type_error(call.range, "structural delta values do not support ordinary operators");
+                        }
+                    }
                     // The owner index includes nested source types too. Visit
                     // each node once even when several roots share a child.
                     std::unordered_set<std::uint32_t> checked_types;

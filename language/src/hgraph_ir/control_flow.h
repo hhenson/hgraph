@@ -30,12 +30,11 @@ namespace hgl::hgraph_ir
     };
 
     /// Rules only an execution backend can decide because they depend on the
-    /// values it has to materialize (a zoned literal folded into a constant
-    /// comparison never reaches one). The wording still has a single owner.
+    /// values it has to materialize. The wording still has a single owner.
     namespace first_pass
     {
         inline constexpr std::string_view unsupported_temporal_literal =
-            "zoned and civil literals are not supported by the first pass";
+            "zoned_time literals are not supported by the first pass";
     }  // namespace first_pass
 
     /// An outer lexical binding read by a nested conditional branch. The

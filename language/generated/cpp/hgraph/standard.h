@@ -207,6 +207,7 @@
 #include <hgl/constant_arithmetic.h>
 #include <hgl/global_key_preflight.h>
 #include <hgl/ordinary_patterns.h>
+#include <hgl/temporal_literals.h>
 #include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/operators.h>
 #include <hgraph/manifest/schema_descriptor.h>

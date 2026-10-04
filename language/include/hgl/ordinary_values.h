@@ -2,6 +2,7 @@
 #define HGL_ORDINARY_VALUES_H
 
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/value/mutable_container_ops.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -24,7 +25,10 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
             hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
             hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta()};
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
         if (std::ranges::find(leaves, schema) != leaves.end()) { return; }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
@@ -61,7 +65,10 @@ namespace hgl::ordinary
         const std::array leaves{boolean, integer, hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
             hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
             hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta()};
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
         std::vector<const hgraph::TSValueTypeMetaData *> pending{root};
         while (!pending.empty()) {
             const auto *shape = pending.back();

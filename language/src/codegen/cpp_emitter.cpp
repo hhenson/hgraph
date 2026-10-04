@@ -118,6 +118,26 @@ namespace hgl::codegen
             return true;
         }
 
+        struct HTypeHash {
+            [[nodiscard]] std::size_t operator()(const HType &type) const noexcept {
+                std::size_t result = 0;
+                const auto combine = [&](std::size_t value) {
+                    result ^= value + std::size_t{0x9e3779b9U} + (result << 6U) + (result >> 2U);
+                };
+                combine(static_cast<std::size_t>(type.kind));
+                if (type.kind == HType::Kind::Scalar) { combine(static_cast<std::size_t>(type.scalar)); }
+                for (const auto *text : {&type.nominal_identity, &type.cpp_type, &type.source_generic, &type.size, &type.min_size}) {
+                    combine(std::hash<std::string>{}(*text));
+                }
+                combine(type.duration_window);
+                combine(type.schema_view_named);
+                combine(type.schema_generic);
+                combine(type.children.size());
+                for (const auto &child : type.children) { combine((*this)(child)); }
+                return result;
+            }
+        };
+
         // ----------------------------------------------------------- values
 
         /// An emit-time value: a C++ expression plus what the direct backend
@@ -754,6 +774,43 @@ namespace hgl::codegen
             std::vector<std::pair<std::string, std::string>> delta_plans_{};
             std::vector<std::pair<HType, std::string>> delta_node_plans_{};
             gir::CallableId ordinary_callable_{};
+            [[nodiscard]] bool provider_dependent_constants(std::vector<gir::ConstExprId> pending, SourceRange range) {
+                std::unordered_set<std::uint32_t> visited;
+                bool provider_dependent = false;
+                while (!pending.empty() && !provider_dependent) {
+                    const auto id = pending.back();
+                    pending.pop_back();
+                    if (!id.valid() || !visited.insert(id.value).second) { continue; }
+                    const auto &expression = graph_constant(id, range);
+                    const auto *temporal = expression.literal ? std::get_if<syntax::TemporalValue>(&*expression.literal) : nullptr;
+                    if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime)) {
+                        provider_dependent = true;
+                        continue;
+                    }
+                    pending.push_back(expression.lhs);
+                    pending.push_back(expression.rhs);
+                    pending.insert(pending.end(), expression.items.begin(), expression.items.end());
+                    for (const auto &element : expression.elements) {
+                        pending.push_back(element.key);
+                        pending.push_back(element.value);
+                    }
+                    for (const auto &argument : expression.arguments) { pending.push_back(argument.value); }
+                    if (expression.kind == gir::ConstExprKind::Construct && !expression.delta) {
+                        auto type = planned_type(expression.constructed_type, expression.range);
+                        if (type.kind == HType::Kind::Atomic) { type = HType{type.children.front()}; }
+                        if (type.kind == HType::Kind::Struct) {
+                            std::unordered_set<std::string_view> supplied;
+                            for (const auto &argument : expression.arguments) { supplied.insert(argument.name); }
+                            for (const auto &field : planned_structure(type.nominal_identity, expression.range).fields) {
+                                if (!supplied.contains(field.name)) { pending.push_back(field.default_value); }
+                            }
+                        }
+                    }
+                }
+                return provider_dependent;
+            }
+            gir::CallableId literal_callable_{};
+            std::unordered_set<std::size_t> provider_literal_helpers_{};
             bool ordinary_preflight_schema_{false};
             bool ordinary_key_expression_{false};
             struct OrdinaryEntry { std::string key; HType type; std::string name; };
@@ -1346,6 +1403,13 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, std::string>) {
                         return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(hir::ScalarType::Str), range);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                        if (literal_callable_.valid() &&
+                            (item.kind == syntax::TemporalKind::TimeZone || item.kind == syntax::TemporalKind::ZonedDateTime)) {
+                            if (callable(literal_callable_).kind == gir::CallableKind::RuntimeNode) {
+                                backend(range, "provider-dependent literal construction in a node hook is not supported; supply a constructed scalar argument");
+                            }
+                            provider_literal_helpers_.insert(callable(literal_callable_).range.begin);
+                        }
                         if (std::optional<Value> value = temporal_constant(item, range)) { return std::move(*value); }
                         backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                     }
@@ -1844,10 +1908,10 @@ namespace hgl::codegen
                         case hir::ScalarType::Time: return "hgraph::Time";
                         case hir::ScalarType::DateTime: return "hgraph::DateTime";
                         case hir::ScalarType::Duration: return "hgraph::TimeDelta";
-                        case hir::ScalarType::CivilDateTime:
-                        case hir::ScalarType::ZonedDateTime:
-                        case hir::ScalarType::ZonedTime:
-                        case hir::ScalarType::TimeZone: break;
+                        case hir::ScalarType::CivilDateTime: return "hgraph::CivilDateTime";
+                        case hir::ScalarType::ZonedDateTime: return "hgraph::ZonedDateTime";
+                        case hir::ScalarType::TimeZone: return "hgraph::ZoneId";
+                        case hir::ScalarType::ZonedTime: break;
                     }
                     backend(range, std::string{"'"} + std::string{hir::scalar_type_name(type.scalar)} +
                                        "' is not supported by the first pass (datetime and duration are)");
@@ -1945,9 +2009,16 @@ namespace hgl::codegen
                 case syntax::TemporalKind::Duration:
                     return make_const("hgraph::TimeDelta{" + micros + "}", scalar_type(hir::ScalarType::Duration), range);
                 case syntax::TemporalKind::CivilDateTime:
+                    return make_const("hgraph::CivilDateTime::from_epoch_microseconds(" + micros + ")",
+                                      scalar_type(hir::ScalarType::CivilDateTime), range);
+                case syntax::TemporalKind::TimeZone:
+                    return make_const("hgl::temporal::zone(" + quote(literal.zone) + ")",
+                                      scalar_type(hir::ScalarType::TimeZone), range);
                 case syntax::TemporalKind::ZonedDateTime:
-                case syntax::TemporalKind::ZonedTime:
-                case syntax::TemporalKind::TimeZone: return std::nullopt;
+                    return make_const("hgl::temporal::zoned(" + micros + ", " + quote(literal.zone) + ", " +
+                                      std::to_string(literal.offset_seconds) + ")",
+                                      scalar_type(hir::ScalarType::ZonedDateTime), range);
+                case syntax::TemporalKind::ZonedTime: return std::nullopt;
             }
             return std::nullopt;
         }
@@ -2044,6 +2115,7 @@ namespace hgl::codegen
         std::string Emitter::argument_code(const Value &value) {
             switch (value.kind) {
                 case Value::Kind::Const:
+                    return value.ordinary_value && value.borrowed_value ? "hgraph::Value{" + value.code + "}" : value.code;
                 case Value::Kind::Port:
                 case Value::Kind::Pack: return value.code;
                 case Value::Kind::Runtime: backend(value.range, "an evaluation-time value cannot be passed while wiring");
@@ -2208,6 +2280,52 @@ namespace hgl::codegen
 
         std::string Emitter::ordinary_schema(const HType &type, SourceRange range) {
             if (!symbolic(type)) { return "hgraph::scalar_descriptor<" + value_type(type, range) + ">::value_meta()"; }
+            // A generic ordinary value can be bound entirely by a retained
+            // const argument, without a matching temporal input or output.
+            // Project its concrete metadata once during prepare/preflight.
+            if (ordinary_callable_.valid()) {
+                std::unordered_set<HType, HTypeHash, decltype(&same_type)> visited{0, HTypeHash{}, &same_type};
+                const auto project = [&](auto &&self, const HType &candidate,
+                                         const std::string &root) -> std::optional<std::string> {
+                    if (same_type(candidate, type)) { return root; }
+                    if (candidate.kind == HType::Kind::Atomic) {
+                        return self(self, candidate.children.front(), root);
+                    }
+                    if (candidate.kind == HType::Kind::List) {
+                        return self(self, candidate.children.front(), "(" + root + ")->element_type");
+                    }
+                    if (candidate.kind == HType::Kind::Tuple) {
+                        for (std::size_t index = 0; index < candidate.children.size(); ++index) {
+                            if (auto found = self(self, candidate.children[index], "(" + root + ")->fields[" +
+                                                  std::to_string(index) + "].type")) { return found; }
+                        }
+                    }
+                    if (candidate.kind == HType::Kind::Struct) {
+                        // Structural children are finite source type trees. Only
+                        // expanding nominal fields can revisit a type. Visit
+                        // each complete application once per metadata query,
+                        // bounding cycles and shared DAGs while keeping finite
+                        // Box<Box<T>> applications distinct.
+                        if (!visited.insert(candidate).second) { return std::nullopt; }
+                        const auto &contract = planned_structure(candidate.nominal_identity, range);
+                        const auto bindings = planned_struct_bindings(contract, candidate, range);
+                        for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                            if (auto found = self(self, planned_type(contract.fields[index].type, range, &bindings),
+                                                  "(" + root + ")->fields[" + std::to_string(index) + "].type")) {
+                                return found;
+                            }
+                        }
+                    }
+                    return std::nullopt;
+                };
+                std::size_t scalar_index = 0;
+                for (const auto &parameter : callable(ordinary_callable_, range).parameters) {
+                    if (!parameter.is_const) { continue; }
+                    const std::string root = std::string{ordinary_preflight_schema_ ? "scalars" : "view.scalars()"} +
+                        ".as_bundle().at(" + std::to_string(scalar_index++) + ").binding().schema()";
+                    if (auto found = project(project, planned_type(parameter.type, range), root)) { return *found; }
+                }
+            }
             if (type.kind == HType::Kind::Generic) { return temporal_schema(type, range) + "->value_schema"; }
             if (type.kind == HType::Kind::Atomic) { return ordinary_schema(type.children.front(), range); }
             if (type.kind == HType::Kind::Delta) {
@@ -2283,7 +2401,12 @@ namespace hgl::codegen
         /// same conversions the direct backend's `convert` allows.
         std::string Emitter::as_const(const Value &value, const HType &target, SourceRange range, const std::string &what) {
             if (!value.is_const()) { fail(Category::Type, range, what + " is const; a constant is required"); }
-            if (same_type(value.type, target)) { return value.code; }
+            if (same_type(value.type, target) ||
+                (symbolic(target) && ordinary_aggregate(target) && ordinary_aggregate(value.type))) {
+                // HIR proved generic compatibility; native scalar binding
+                // infers the exact concrete aggregate metadata from this value.
+                return argument_code(value);
+            }
             if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
@@ -3284,6 +3407,44 @@ namespace hgl::codegen
             const gir::Callable &target = callable(id, range);
             check_supported(id);
             const auto               bound = bind_planned_arguments(id, arguments, range);
+            const bool sequence = !frame.runtime ||
+                (frame.fn.valid() && callable(frame.fn).kind == gir::CallableKind::ValueFunction);
+            std::string preparation;
+            std::size_t temporary = 0;
+            std::unordered_map<std::uint32_t, std::size_t> parameter_for;
+            for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
+                for (const auto &argument : bound.parameters[index]) { parameter_for.emplace(argument.value.value, index); }
+            }
+            std::unordered_map<std::uint32_t, Value> supplied;
+            const auto retain = [&](Value value) {
+                if (!sequence) { return value; }
+                const std::string local = "hgl_call_arg_" + std::to_string(temporary++);
+                // Keep independent aggregate ownership through the invocation,
+                // including when a helper receives a borrowed ValueView.
+                preparation += "auto " + local + " = " +
+                    (value.raw_delta ? ordinary_retain(value)
+                                         : value.ordinary_value ? "hgraph::Value{" + ordinary_view(value) + "}" : value.code) + "; ";
+                value.code = local;
+                value.borrowed_value = false;
+                value.raw_delta = false;
+                return value;
+            };
+            if (sequence) {
+                for (const auto &argument : arguments) {
+                    Value value = eval_planned_expr(argument.value, frame);
+                    if (value.is_port() && !value.atomic_code.empty()) {
+                        const auto &parameter = target.parameters[parameter_for.at(argument.value.value)];
+                        const HType expected = planned_type(parameter.type, target.range);
+                        value.code = as_port(value, expected, value.range);
+                        value.type = expected;
+                        value.atomic_code.clear();
+                    }
+                    supplied.emplace(argument.value.value, retain(std::move(value)));
+                }
+            }
+            const auto supplied_value = [&](const gir::Argument &argument) {
+                return sequence ? supplied.at(argument.value.value) : eval_planned_expr(argument.value, frame);
+            };
             std::vector<std::string> args(target.parameters.size());
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                 const gir::Parameter &parameter = target.parameters[index];
@@ -3294,7 +3455,7 @@ namespace hgl::codegen
                             ? "hgraph::VarKwIn<" + quote(parameter.name) + ">"
                             : "hgraph::VarIn<" + quote(parameter.name) + ", " + schema(type, target.range) + ">";
                     if (bound.parameters[index].size() == 1U) {
-                        Value forwarded = eval_planned_expr(bound.parameters[index].front().value, frame);
+                        Value forwarded = supplied_value(bound.parameters[index].front());
                         if (forwarded.is_pack()) {
                             // VarIn and VarKwIn carry the selector name in their
                             // type. Rewrap the entries so a forwarded pack has
@@ -3306,7 +3467,7 @@ namespace hgl::codegen
                     }
                     std::vector<std::string> entries;
                     for (const gir::Argument &source : bound.parameters[index]) {
-                        Value             value = eval_planned_expr(source.value, frame);
+                        Value             value = supplied_value(source);
                         // A heterogeneous pack retains each endpoint's concrete
                         // schema. Its TsVar is a contract pattern, not a schema
                         // to which Port::as can narrow an individual element.
@@ -3321,8 +3482,8 @@ namespace hgl::codegen
                     args[index] = wrapper + "{{" + join(entries, ", ") + "}}";
                     continue;
                 }
-                Value argument = bound.parameters[index].empty() ? planned_constant(parameter.default_value, target.range)
-                                                                 : eval_planned_expr(bound.parameters[index].front().value, frame);
+                Value argument = bound.parameters[index].empty() ? retain(planned_constant(parameter.default_value, target.range))
+                                                                 : supplied_value(bound.parameters[index].front());
                 if (target.kind == gir::CallableKind::ValueFunction) {
                     args[index] = argument.ordinary_value ? ordinary_view(argument)
                                                          : as_runtime(argument, type, argument.range, "parameter '" + parameter.name + "'");
@@ -3331,16 +3492,25 @@ namespace hgl::codegen
                 args[index] = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
                                                  : as_port(argument, type, argument.range);
             }
+            const auto prepared_call = [&](std::string code) {
+                return preparation.empty() ? code : "[&]() { " + preparation + "return " + code + "; }()";
+            };
             HType result;
             if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
             if (target.kind == gir::CallableKind::ValueFunction) {
+                if (literal_callable_.valid() && provider_literal_helpers_.contains(target.range.begin)) {
+                    if (callable(literal_callable_).kind == gir::CallableKind::RuntimeNode) {
+                        backend(range, "provider-dependent literal construction in a node helper is not supported; supply a constructed scalar argument");
+                    }
+                    provider_literal_helpers_.insert(callable(literal_callable_).range.begin);
+                }
                 for (const auto &capability : target.capabilities) {
                     if (!frame.runtime) { fail(Category::Phase, range, "value helper requires a runtime capability context"); }
                     const std::string name = capability_argument(capability.name);
                     use(name);
                     args.push_back(name);
                 }
-                const std::string code = callable_cpp_name(id) + "(" + join(args, ", ") + ")";
+                const std::string code = prepared_call(callable_cpp_name(id) + "(" + join(args, ", ") + ")");
                 if (!has_planned_result(target.result, target.range)) {
                     Value value;
                     value.kind  = Value::Kind::Void;
@@ -3358,6 +3528,7 @@ namespace hgl::codegen
                 value = make_port("hgl::ordinary::preflight_wire<" + callable_cpp_name(id) + ">(w" +
                                   (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
             } else { value = wire(callable_cpp_name(id), args, range, result); }
+            value.code = prepared_call(std::move(value.code));
             if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
             return value;
         }
@@ -3395,6 +3566,29 @@ namespace hgl::codegen
                 bound[index] = argument.value;
             }
 
+            const bool sequence = !frame.runtime ||
+                (frame.fn.valid() && callable(frame.fn).kind == gir::CallableKind::ValueFunction);
+            std::string preparation;
+            std::unordered_map<std::uint32_t, std::size_t> parameter_for;
+            for (std::size_t index = 0; index < bound.size(); ++index) {
+                if (bound[index]) { parameter_for.emplace(bound[index]->value, index); }
+            }
+            std::unordered_map<std::uint32_t, Value> supplied;
+            if (sequence) {
+                for (const auto &source : arguments) {
+                    Value argument = eval_planned_expr(source.value, frame);
+                    if (target.parameters[parameter_for.at(source.value.value)].access == hir::NativeParameterAccess::Value) {
+                        const std::string local = "hgl_native_arg_" + std::to_string(supplied.size());
+                        preparation += "auto " + local + " = " +
+                            (argument.raw_delta ? ordinary_retain(argument)
+                                                : argument.ordinary_value ? "hgraph::Value{" + ordinary_view(argument) + "}" : argument.code) + "; ";
+                        argument.code = local;
+                        argument.borrowed_value = false;
+                        argument.raw_delta = false;
+                    }
+                    supplied.emplace(source.value.value, std::move(argument));
+                }
+            }
             std::vector<std::string> args;
             args.reserve(target.parameters.size());
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
@@ -3403,7 +3597,7 @@ namespace hgl::codegen
                     fail(Category::Type, range,
                          "native function '" + target.identity + "' needs an argument for '" + parameter.name + "'");
                 }
-                const Value argument = eval_planned_expr(*bound[index], frame);
+                const Value argument = sequence ? supplied.at(bound[index]->value) : eval_planned_expr(*bound[index], frame);
                 if (parameter.access == hir::NativeParameterAccess::InputView) {
                     if (!frame.runtime || !argument.is_runtime() || argument.selector.empty()) {
                         fail(Category::Type, argument.range,
@@ -3440,7 +3634,9 @@ namespace hgl::codegen
                 use(name);
                 args.push_back(name);
             }
-            const std::string code = symbol + "(" + join(args, ", ") + ")";
+            const std::string invocation = symbol + "(" + join(args, ", ") + ")";
+            const std::string code = preparation.empty() ? invocation
+                : "[&]() { " + preparation + "return " + invocation + "; }()";
             if (graph_type(target.result, range).kind == hir::TypeKind::Void) {
                 Value result;
                 result.kind  = Value::Kind::Void;
@@ -4348,6 +4544,7 @@ namespace hgl::codegen
                         const auto saved_identity = materialized_identity_;
                         const auto saved_counts = local_counts_;
                         const auto saved_names = local_names_;
+                        const auto saved_literal_callable = literal_callable_;
                         Uses *saved_uses = active_uses_;
                         for (auto &[binding, type] : selected_types) { materialized_types_.insert_or_assign(binding, std::move(type)); }
                         for (const auto &[binding, value] : selected_values) { materialized_values_.insert_or_assign(binding, value); }
@@ -4366,6 +4563,7 @@ namespace hgl::codegen
                         }
                         materialized_cpp_name_ = specialized_value_helpers_.at(identity);
                         active_uses_ = saved_uses;
+                        literal_callable_ = saved_literal_callable;
                         const Value result = call_planned_function(callee.callable, call.arguments, expression.range, frame);
                         materialized_types_ = saved_types;
                         materialized_values_ = saved_values;
@@ -4376,6 +4574,7 @@ namespace hgl::codegen
                         local_counts_ = saved_counts;
                         local_names_ = saved_names;
                         active_uses_ = saved_uses;
+                        literal_callable_ = saved_literal_callable;
                         return result;
                     }
                     if (expression.operation.kind != gir::OperationKind::ExactFunction || !expression.operation.callable.valid()) {
@@ -5672,6 +5871,10 @@ namespace hgl::codegen
             std::vector<std::string> defaults;
             for (const gir::Parameter &param : planned.parameters) {
                 if (!param.is_const || !param.default_value.valid()) { continue; }
+                // HGL call sites select and materialize defaults before wiring.
+                // A provider-dependent recipe must not enter native defaults()
+                // metadata, which registration evaluates even when overridden.
+                if (provider_dependent_constants({param.default_value}, planned.range)) { continue; }
                 const Value value = planned_constant(param.default_value, planned.range);
                 const HType type  = planned_type(param.type, planned.range);
                 defaults.push_back("hgraph::arg<" + quote(param.name) + ">(" +
@@ -5800,6 +6003,7 @@ namespace hgl::codegen
             out.line("static constexpr bool schedule_on_start = true;");
             emit_defaults(planned, out);
 
+            literal_callable_ = decl;
             Frame frame;
             frame.fn        = decl;
             frame.runtime   = true;
@@ -5876,6 +6080,7 @@ namespace hgl::codegen
             out.replace_first(dispatch, cases);
             finish_hook(eval_placeholder, true, true);
             active_uses_ = nullptr;
+            literal_callable_ = {};
             emit_ordinary_prepare(decl, out, ordinary_fields);
             out.close(";");
             out.line();
@@ -6030,6 +6235,7 @@ namespace hgl::codegen
             if (info.caches.size() > 1 || ordinary_cache(planned, info)) { out.line("using hgl_cache_fields = " + callable_cpp_name(decl) + "_cache_fields;"); }
             out.line("static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
+            literal_callable_ = decl;
             if (info.checkpoint_source) {
                 out.open("static const hgraph::NodeCheckpointOps &checkpoint_ops() noexcept");
                 out.line("static const hgraph::NodeCheckpointOps ops{");
@@ -6165,6 +6371,7 @@ namespace hgl::codegen
                 finish_hook(placeholder, false, false);
             }
             active_uses_ = nullptr;
+            literal_callable_ = {};
             if (ordinary_cache(planned, info)) { emit_ordinary_prepare(decl, out, ordinary_fields); }
             else if (info.caches.size() > 1) { out.replace_first(ordinary_fields, ""); }
             out.close(";");
@@ -6399,6 +6606,7 @@ namespace hgl::codegen
             check_supported(decl);
             if (callable(decl).kind == gir::CallableKind::ValueFunction) {
                 const gir::Callable &planned = callable(decl);
+                literal_callable_ = decl;
                 Frame                frame;
                 frame.fn               = decl;
                 frame.runtime          = true;
@@ -6460,6 +6668,7 @@ namespace hgl::codegen
                 }
                 out.close();
                 out.close("  // namespace hgl_values");
+                literal_callable_ = {};
                 out.line();
                 return;
             }
@@ -6523,6 +6732,8 @@ namespace hgl::codegen
                         backend(binding.range, "hgraph IR const parameter has the wrong binding kind");
                     }
                     frame.params[i] = make_const(parameter_name + ".value()", type, binding.range);
+                    frame.params[i].ordinary_value = ordinary_aggregate(type);
+                    frame.params[i].borrowed_value = frame.params[i].ordinary_value;
                 } else {
                     if (binding.kind != gir::BindingKind::SignalParameter) {
                         backend(binding.range, "hgraph IR temporal parameter has the wrong binding kind");
@@ -6598,6 +6809,73 @@ namespace hgl::codegen
             }
             const bool split = options_.source_parts > 1;
             bind_hgraph_declarations();
+            // Compute helper reachability once, before emission order separates
+            // helper definitions from node hooks. Index source intervals and
+            // propagate through reverse call edges in linear graph time.
+            std::vector<SourceRange> callable_ranges;
+            for (const auto &fn : graph_.callables) { callable_ranges.push_back(fn.range); }
+            std::ranges::sort(callable_ranges, {}, &SourceRange::begin);
+            callable_ranges.erase(std::unique(callable_ranges.begin(), callable_ranges.end(),
+                [](const auto &a, const auto &b) { return a.begin == b.begin; }), callable_ranges.end());
+            std::unordered_map<std::size_t, std::vector<std::size_t>> callers;
+            for (const auto &expression : graph_.values) {
+                auto owner = std::upper_bound(callable_ranges.begin(), callable_ranges.end(), expression.range.begin,
+                    [](auto start, const auto &range) { return start < range.begin; });
+                if (owner == callable_ranges.begin()) { continue; }
+                --owner;
+                if (expression.range.end > owner->end) { continue; }
+                const hir::Constant *literal = expression.constant ? &*expression.constant : nullptr;
+                if (const auto *source = std::get_if<gir::Literal>(&expression.node)) { literal = &source->value; }
+                const auto *temporal = literal ? std::get_if<syntax::TemporalValue>(literal) : nullptr;
+                if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime)) {
+                    provider_literal_helpers_.insert(owner->begin);
+                }
+                std::vector<gir::ConstExprId> defaults;
+                gir::TypeId constructed_type;
+                const std::vector<gir::Argument> *constructed_arguments = nullptr;
+                if (const auto *construct = std::get_if<gir::Construct>(&expression.node); construct && !construct->delta) {
+                    constructed_type = construct->type;
+                    constructed_arguments = &construct->arguments;
+                } else if (const auto *call = std::get_if<gir::Call>(&expression.node);
+                           call && expression.operation.kind == gir::OperationKind::Constructor) {
+                    constructed_type = expression.type;
+                    constructed_arguments = &call->arguments;
+                }
+                if (constructed_arguments) {
+                    auto type = planned_type(constructed_type, expression.range);
+                    if (type.kind == HType::Kind::Atomic) { type = HType{type.children.front()}; }
+                    if (type.kind == HType::Kind::Struct) {
+                        std::unordered_set<std::string_view> supplied;
+                        for (const auto &argument : *constructed_arguments) { supplied.insert(argument.name); }
+                        for (const auto &field : planned_structure(type.nominal_identity, expression.range).fields) {
+                            if (!supplied.contains(field.name)) { defaults.push_back(field.default_value); }
+                        }
+                    }
+                }
+                if (expression.operation.callable.valid()) {
+                    const auto &target = callable(expression.operation.callable);
+                    callers[target.range.begin].push_back(owner->begin);
+                    if (const auto *call = std::get_if<gir::Call>(&expression.node)) {
+                        const auto bound = bind_planned_arguments(expression.operation.callable, call->arguments, expression.range);
+                        for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                            if (bound.parameters[index].empty()) { defaults.push_back(target.parameters[index].default_value); }
+                        }
+                    }
+                }
+                if (provider_dependent_constants(std::move(defaults), expression.range)) {
+                    provider_literal_helpers_.insert(owner->begin);
+                }
+            }
+            std::vector<std::size_t> pending(provider_literal_helpers_.begin(), provider_literal_helpers_.end());
+            while (!pending.empty()) {
+                const auto callee = pending.back();
+                pending.pop_back();
+                const auto found = callers.find(callee);
+                if (found == callers.end()) { continue; }
+                for (const auto caller : found->second) {
+                    if (provider_literal_helpers_.insert(caller).second) { pending.push_back(caller); }
+                }
+            }
             EmittedModule result;
             result.module_name = graph_.path;
             if (result.module_name.empty()) { fail(Category::Module, SourceRange{0, 0}, "emit-cpp needs a module declaration"); }
@@ -6898,6 +7176,7 @@ namespace hgl::codegen
             emit_include("<hgraph/lib/std/lifted_kernels.h>");
             emit_include("<hgl/constant_arithmetic.h>");
             emit_include("<hgl/ordinary_patterns.h>");
+            emit_include("<hgl/temporal_literals.h>");
             emit_include("<hgl/global_key_preflight.h>");
             emit_include("<array>");
             if (uses_analytics_) { emit_include("<hgraph/analytics/operators.h>"); }

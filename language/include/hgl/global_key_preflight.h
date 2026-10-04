@@ -13,8 +13,11 @@ namespace hgl::ordinary
         (erased.push_back(hgraph::operator_dispatch_detail::make_wiring_arg(arguments)), ...);
         [[maybe_unused]] auto result = hgraph::wire_operator(wiring, Impl::name, erased, Signature::has_output());
         if constexpr (Signature::has_output()) {
-            if constexpr (Signature::is_generic()) { return result.output; }
-            else { return result.output.template as<typename Signature::output_schema_type>(); }
+            using Output = typename Signature::output_schema_type;
+            // Generic inputs do not erase an independently concrete result.
+            if constexpr (hgraph::schema_descriptor<Output>::is_concrete()) {
+                return result.output.template as<Output>();
+            } else { return result.output; }
         }
     }
 

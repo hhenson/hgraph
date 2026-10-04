@@ -3737,3 +3737,34 @@ TEST_CASE("recursive generic occurrence validation does not retain provisional s
         }
     }
 }
+
+TEST_CASE("the temporal publication profile admits three leaves recursively", "[ir][typed][temporal]") {
+    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime"}) {
+        for (const std::string &shape : {leaf, "atomic<" + leaf + ">", "list<" + leaf + ", 2>",
+                                        "atomic<list<" + leaf + ">>", "map<i64, " + leaf + ">"}) {
+            Lowered unit{"module checks.temporal_profile\nfn identity(value: " + shape + ") -> " + shape +
+                         " => value\ntest admitted { eval(identity, []) }\n"};
+            REQUIRE_FALSE(unit.diagnostics.has_errors());
+            const bool result = complete(unit);
+            INFO(unit.diagnostics.render(unit.file));
+            CHECK(result);
+        }
+    }
+    Lowered rejected{"module checks.temporal_profile\nfn identity(value: zoned_time) -> zoned_time => value\ntest rejected { eval(identity, []) }\n"};
+    REQUIRE_FALSE(rejected.diagnostics.has_errors());
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("publication profile") != std::string::npos);
+}
+
+TEST_CASE("generic delta equality checks its concrete publication origin", "[ir][typed][temporal]") {
+    for (const std::string origin : {"i64", "timezone", "list<i64, 2>"}) {
+        Lowered unit{"module checks.delta_equality\n"
+            "struct Publication<T> { value: delta<T> }\n"
+            "const fn equal<T>(a: Publication<T>, b: Publication<T>) -> bool => a.value == b.value\n"
+            "const fn check(a: Publication<" + origin + ">, b: Publication<" + origin + ">) -> bool => equal(a, b)\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result == (origin != "list<i64, 2>"));
+    }
+}
