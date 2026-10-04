@@ -1206,6 +1206,12 @@ namespace hgraph
         [[nodiscard]] GlobalStateView global_state() noexcept;
         /** State visible to operator resolution; a child wiring reads the root's seed. */
         [[nodiscard]] GlobalStateView operator_state() noexcept;
+        /** Declare a run-local exact entry storage binding without preparing
+            or changing the owner seed. Repeated declarations require the same
+            binding, not just the same schema. Root and child wirings share declarations. Finish
+            validates the final seed and prepares the builder-owned store. */
+        void prepare_global_entry(std::string_view key, ValueTypeRef binding);
+        [[nodiscard]] bool has_global_entry(std::string_view key) const;
         /** The bound live seed, or null for a stateless wiring (and after a
             C++ context exited or ``release_seed``). */
         [[nodiscard]] GlobalState *seed_state() const noexcept;

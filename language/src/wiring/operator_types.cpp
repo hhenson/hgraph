@@ -1,4 +1,5 @@
 #include "wiring/operator_types.h"
+#include <hgl/ordinary_values.h>
 
 #include "wiring/backend.h"
 
@@ -190,6 +191,11 @@ namespace hgl::wiring
                     case hir::TypeKind::Atomic:
                         if (!type.children.empty()) { result = value(type.children.front()); }
                         break;
+                    case hir::TypeKind::Delta:
+                        if (type.children.size() == 1U) {
+                            if (const auto *origin = schema(type.children.front())) { result = ordinary::delta_schema(origin); }
+                        }
+                        break;
                     case hir::TypeKind::Reference: break;
                     case hir::TypeKind::Signal: break;
                     case hir::TypeKind::Schema:
@@ -280,6 +286,7 @@ namespace hgl::wiring
                     case hir::TypeKind::Symbol:
                     case hir::TypeKind::Tuple:
                     case hir::TypeKind::Void:
+                    case hir::TypeKind::Delta:
                     case hir::TypeKind::Iterator:
                     case hir::TypeKind::Callable:
                     case hir::TypeKind::Capability:

@@ -437,6 +437,45 @@ int main(int argc, char **argv)
     if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
     check_spawn_consumer();
     using namespace hgraph;
+    {
+        GlobalState store;
+        const Value payload{Int{42}};
+        const auto entry = store.view().prepare("consumer", payload.binding());
+        if (!store.view().is_prepared("consumer") || store.view().contains("consumer")) {
+            throw std::runtime_error("installed prepared entry changed value presence");
+        }
+        entry.set(payload.view());
+        if (entry.get().checked_as<Int>() != 42 || store.view().size() != 1) {
+            throw std::runtime_error("installed prepared entry is unusable");
+        }
+        GlobalState seed;
+        Wiring wiring{seed};
+        wiring.prepare_global_entry("consumer", payload.binding());
+        auto builder = std::move(wiring).finish();
+        if (seed.view().is_prepared("consumer") || !builder.global_state().is_prepared("consumer")) {
+            throw std::runtime_error("installed wiring declarations did not isolate runtime storage");
+        }
+        ResolutionMap bindings;
+        const auto *integer = scalar_descriptor<Int>::value_meta();
+        const auto pattern = ScalarPattern::list(ScalarPattern::concrete(integer));
+        if (!scalar_pattern_match(pattern, TypeRegistry::instance().list(integer), bindings)) {
+            throw std::runtime_error("installed ordinary list pattern is unusable");
+        }
+        ScalarPattern projection;
+        projection.kind = ScalarPattern::Kind::SchemaProjection;
+        projection.projected = std::make_shared<const TypePattern>(TypePattern::var("Origin"));
+        projection.project_source = [](const ValueTypeMetaData *schema) {
+            return TypeRegistry::instance().ts(schema);
+        };
+        projection.project_value = [](const TSValueTypeMetaData *schema) -> const ValueTypeMetaData * {
+            return schema->kind == TSTypeKind::TS ? schema->value_schema : nullptr;
+        };
+        if (!scalar_pattern_match(projection, integer, bindings) ||
+            bindings.find_ts("Origin") != TypeRegistry::instance().ts(integer)) {
+            throw std::runtime_error("installed schema projection did not bind its temporal variable");
+        }
+    }
+
 
     static_assert(std::is_standard_layout_v<SchemaHeader>);
     static_assert(std::is_trivially_copyable_v<SchemaHeader>);

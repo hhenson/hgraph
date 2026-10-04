@@ -41,10 +41,11 @@ namespace hgl::semantics
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
         constexpr std::string_view intrinsics[] = {
-            "const",  "valid",    "modified",   "all_valid", "last_modified", "delta",  "key_set", "keys",
+            "const",  "valid",    "modified",   "all_valid", "last_modified", "delta_value",  "key_set", "keys",
             "values", "elements", "items",      "added",     "removed",       "insert", "update",  "upsert",
             "remove", "discard",  "invalidate", "clear",     "push",          "pop",    "schemas", "contains",
             "at",     "time_at",  "front",      "back",      "removed_value", "scheduled", "passivate", "activate",
+            "str", "len", "schedule", "schedule_at", "is_scheduled", "next_scheduled_time", "info", "get", "set",
         };
 
         /// Tarjan's strongly connected components over an adjacency list,
@@ -699,11 +700,11 @@ namespace hgl::semantics
                     report(Category::FunctionKind, fn.name.range,
                            "const fn is currently module-internal; const/export/impl combinations require a separate contract");
                 }
-                if (fn.is_const && (!fn.generics.empty() || std::ranges::any_of(fn.signature.parameters, [](const auto &p) {
+                if (fn.is_const && std::ranges::any_of(fn.signature.parameters, [](const auto &p) {
                         return p.pack != ast::ParameterPack::None;
-                    }))) {
+                    })) {
                     report(Category::FunctionKind, fn.name.range,
-                           "generic and parameter-pack const fn lowering is not supported yet");
+                           "parameter-pack const fn lowering is not supported yet");
                 }
                 if (fn.is_const && result_.kinds[id] == FunctionKind::Runtime) {
                     report(Category::FunctionKind, fn.name.range,
@@ -1203,7 +1204,10 @@ namespace hgl::semantics
                             // (ADR 0013), and refusing it here would leave the
                             // applied spelling working only when the expected
                             // type happened to supply the arguments.
-                            if (target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
+                            const auto shape = module_.type(node.type).kind;
+                            const bool collection_delta = node.delta && (shape == ast::TypeKind::Set || shape == ast::TypeKind::Map ||
+                                shape == ast::TypeKind::List || shape == ast::TypeKind::Tuple);
+                            if (!collection_delta && target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
                                 report(Category::Type, module_.type(node.type).range,
                                        "a struct constructor target is a concrete struct type");
                             }

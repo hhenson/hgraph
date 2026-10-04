@@ -66,11 +66,75 @@ namespace hgraph
 
     GlobalState::GlobalState() : map_{global_state_binding()} {}
 
-    std::size_t GlobalStateView::size() const { return map_->as_map().size(); }
+    PreparedGlobalEntry GlobalStateView::prepare(std::string_view key, ValueTypeRef binding) const
+    {
+        if (prepared_ == nullptr || absent_ == nullptr || !binding) {
+            throw std::logic_error("global-state preparation requires an owning store and a concrete binding");
+        }
+        const std::string name{key};
+        const auto found = prepared_->find(name);
+        if (found != prepared_->end() && found->second.schema() != binding.schema()) {
+            throw std::invalid_argument("global-state type conflict for '" + name + "'");
+        }
+        if (found != prepared_->end() && found->second != binding) {
+            throw std::invalid_argument("global-state storage binding conflict for '" + name + "'");
+        }
+        const auto seed = get(key);
+        if (seed.has_value() && seed.schema() != binding.schema()) {
+            throw std::invalid_argument("global-state seed type conflict for '" + name + "'");
+        }
+        // The map's ValueSlotStore gives Any cells non-moving storage. The Any
+        // representation is one Value owner; retaining its cell avoids both
+        // keyed lookup and type dispatch during node hooks.
+        const Value key_value{name};
+        auto box = map_->as_map().begin_mutation().value(key_value.view()).as_mutable_any();
+        auto *cell = static_cast<Value *>(box.mutable_data());
+        if (found == prepared_->end()) {
+            Value retained = seed.has_value() ? Value{binding, seed} : Value::typed_null(binding);
+            prepared_->emplace(name, binding);
+            *cell = std::move(retained);
+            if (!cell->has_value()) { ++*absent_; }
+        }
+        return PreparedGlobalEntry{*cell, binding, name, *absent_};
+    }
+
+    bool GlobalStateView::is_prepared(std::string_view key) const
+    {
+        return prepared_ != nullptr && prepared_->contains(std::string{key});
+    }
+
+    ValueView PreparedGlobalEntry::get() const
+    {
+        if (value_ == nullptr || !value_->has_value()) {
+            throw std::runtime_error("missing global-state value for '" + key_ + "'");
+        }
+        return value_->view();
+    }
+
+    void PreparedGlobalEntry::set(const ValueView &value) const
+    {
+        if (value_ == nullptr) { throw std::logic_error("unprepared global-state entry"); }
+        // An absent view carries no payload: retaining it would publish a
+        // default-constructed value under the entry's key. Reject it and leave
+        // the cell, and the absence count, unchanged.
+        if (!value.has_value()) {
+            throw std::invalid_argument("absent value for prepared global-state entry '" + key_ + "'");
+        }
+        Value      retained{binding_, value};
+        const bool was_absent = !value_->has_value();
+        *value_               = std::move(retained);
+        if (was_absent) { --*absent_; }
+    }
+
+    std::size_t GlobalStateView::size() const
+    {
+        return map_->as_map().size() - (absent_ != nullptr ? *absent_ : 0);
+    }
 
     bool GlobalStateView::contains(std::string_view key) const
     {
         const Value key_value{std::string{key}};
+        if (prepared_ != nullptr && prepared_->contains(std::string{key})) { return get(key).has_value(); }
         return map_->as_map().contains(key_value.view());
     }
 
@@ -89,6 +153,16 @@ namespace hgraph
 
     void GlobalStateView::set(std::string_view key, const ValueView &value) const
     {
+        if (prepared_ != nullptr) {
+            const auto bound = prepared_->find(std::string{key});
+            if (bound != prepared_->end()) {
+                if (bound->second.schema() != value.schema()) {
+                    throw std::invalid_argument("global-state type conflict for '" + std::string{key} + "'");
+                }
+                prepare(key, bound->second).set(value);
+                return;
+            }
+        }
         const Value key_value{std::string{key}};
         // Get (creating an empty Any if needed) the value slot and assign the
         // boxed value in place — a single copy of ``value``, no temporary Any.
@@ -99,19 +173,40 @@ namespace hgraph
 
     void GlobalStateView::set(std::string_view key, Value &&value) const
     {
+        if (prepared_ != nullptr && prepared_->contains(std::string{key})) {
+            set(key, value.view());
+            return;
+        }
         const Value key_value{std::string{key}};
         map_->as_map().begin_mutation().value(key_value.view()).as_mutable_any().set(std::move(value));
     }
 
     bool GlobalStateView::erase(std::string_view key) const
     {
+        if (prepared_ != nullptr && prepared_->contains(std::string{key})) {
+            throw std::logic_error("cannot erase prepared global-state entry '" + std::string{key} + "'");
+        }
         const Value key_value{std::string{key}};
         return map_->as_map().begin_mutation().remove(key_value.view());
     }
 
     void GlobalStateView::copy_from(const GlobalStateView &other) const
     {
-        *map_ = other.as_value();
+        if (prepared_ != nullptr && !prepared_->empty()) {
+            throw std::logic_error("cannot replace prepared global-state storage");
+        }
+        Value copied{other.as_value()};
+        if (other.prepared_ != nullptr) {
+            for (const auto &[key, binding] : *other.prepared_) {
+                static_cast<void>(binding);
+                if (!other.get(key).has_value()) {
+                    const Value key_value{key};
+                    copied.as_map().begin_mutation().remove(key_value.view());
+                }
+            }
+        }
+        *map_ = std::move(copied);
+        if (absent_ != nullptr) { *absent_ = 0; }
     }
 
     GlobalContext::GlobalContext()

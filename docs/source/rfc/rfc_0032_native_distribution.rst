@@ -249,10 +249,14 @@ reads instead:
   CMake configure of a stub project against ``find_package(hgraph)`` and
   caches the answer under ``HGL_ARTIFACT_DIR``.
 * ``hgl`` resolves the compiler in this order: ``HGL_CXX``; the context's
-  ``compiler`` on ``PATH``; ``CXX``; ``xcrun --find clang++`` on macOS;
-  ``c++`` on ``PATH``. The first that exists wins; none found is a
-  diagnostic that names the program's runtime functions and what to
-  install.
+  ``compiler`` on ``PATH``; ``CXX``; ``clang++`` on macOS; ``c++`` on
+  ``PATH``. The first that runs (answers ``--version``) wins, so a recorded
+  compiler that exists but refuses to run outside its build environment,
+  such as Homebrew's superenv shim, is skipped; none found is a diagnostic
+  that names the program's runtime functions and what to install. The
+  current build-tree constants already follow this order, with the
+  configured compiler in the context's place; the installed SDK's
+  ``include/third_party`` directory is added beside ``include``.
 * The build-tree constants remain the fallback when the executable runs
   from the build directory (no ``native-context.json`` beside it), so
   developer flows are unchanged.

@@ -164,6 +164,7 @@ export fn count_ticks(pulse: signal) -> i64 {
 }
 
 export fn count_float_ticks(value: f64) -> i64 => count_ticks(value)
+fn count_bool_ticks(value: bool) -> i64 => count_ticks(value)
 
 export fn combined_total(a: f64, b: f64) -> f64 {
     state total: f64 = 0.0
@@ -324,8 +325,8 @@ test scripted_private_runtime_node {
 }
 
 test scripted_signal_input {
-    assert eval(count_ticks, pulse: [true, false, true]) == [1, 2, 3]
-    assert eval(count_ticks, pulse: [1.0, 2.0, 3.0]) == [1, 2, 3]
+    assert eval(count_bool_ticks, value: [true, false, true]) == [1, 2, 3]
+    assert eval(count_float_ticks, value: [1.0, 2.0, 3.0]) == [1, 2, 3]
 }
 
 export fn cache_bundle(value: i64) -> f64 {
@@ -346,7 +347,7 @@ export fn first_scalar(values: list<i64, 2>) -> i64 {
 export fn cached_source() -> i64 {
     cache count: i64 = 0
     inject scheduler
-    start { scheduler.schedule(0s) }
+    start { schedule(scheduler, 0s) }
     when scheduled() {
         count += 1
         return count
@@ -355,7 +356,7 @@ export fn cached_source() -> i64 {
 
 export fn clock_source() -> i64 {
     inject scheduler, clock
-    start { scheduler.schedule(0s) }
+    start { schedule(scheduler, 0s) }
     when scheduled() { return 1 }
 }
 
@@ -421,7 +422,7 @@ test {
 operator const<T>(const value: T, const delay: duration = 0s) -> T
 impl fn const<T>(const value: T, const delay: duration = 0s) -> T {
     inject scheduler
-    start { scheduler.schedule(delay) }
+    start { schedule(scheduler, delay) }
     when scheduled() { return value }
 }
 instantiate const<i64>, const<str>
@@ -444,4 +445,67 @@ test const_by_its_own_name {
     assert eval(const_forty_two, tick: [1, 1]) == [42, _]
     assert eval(const_text, tick: [1, 1]) == [_, "hgl"]
     assert eval(const_selected, value: [1.0, 2.0]) == [3.0, 6.0]
+}
+
+const fn ordinary_unbounded_literal() -> i64 {
+    var values: list<i64> = [1, 2, 3]
+    push(values, values[0])
+    return values[3] + len(values)
+}
+const fn ordinary_fixed_literal() -> i64 {
+    let values: list<i64, 2> = [4, 5]
+    return values[0] + values[1]
+}
+export fn ordinary_literal_result(trigger: i64) -> i64 {
+    when { return ordinary_unbounded_literal() + ordinary_fixed_literal() }
+}
+fn ordinary_bool_text(value: bool) -> str { when { return str(value) } }
+fn ordinary_int_text(value: i64) -> str { when { return str(value) } }
+fn ordinary_float_text(value: f64) -> str { when { return str(value) } }
+fn ordinary_str_text(value: str) -> str { when { return str(value) } }
+fn ordinary_date_text(value: date) -> str { when { return str(value) } }
+fn ordinary_time_text(value: time) -> str { when { return str(value) } }
+fn ordinary_datetime_text(value: datetime) -> str { when { return str(value) } }
+fn ordinary_duration_text(value: duration) -> str { when { return str(value) } }
+test ordinary_literals_and_scalar_text {
+    assert eval(ordinary_owned_delta_result, trigger: [1, 1]) == [10, 11]
+    assert eval(ordinary_nested_result, trigger: [1]) == [true]
+    assert eval(ordinary_literal_result, trigger:[1]) == [14]
+    assert eval(ordinary_bool_text, value:[true]) == ["True"]
+    assert eval(ordinary_int_text, value:[12]) == ["12"]
+    assert eval(ordinary_float_text, value:[1.5]) == ["1.5"]
+    assert eval(ordinary_str_text, value:["unchanged"]) == ["unchanged"]
+    assert eval(ordinary_date_text, value:[@2024-02-29]) == ["2024-02-29"]
+    assert eval(ordinary_time_text, value:[@12:34:56]) == ["12:34:56"]
+    assert eval(ordinary_datetime_text, value:[@2024-02-29T12:34:56Z]) == ["2024-02-29 12:34:56"]
+    assert eval(ordinary_duration_text, value:[1s]) == ["0:00:01"]
+}
+
+const fn ordinary_nested_mutation() -> bool {
+    var child: list<i64> = [1]
+    var outer: list<list<i64>> = [child]
+    push(outer, outer[0])
+    push(outer[0], 2)
+    return len(outer) == 2 && len(outer[0]) == 2 && outer[0][1] == 2 && len(outer[1]) == 1 && outer[1][0] == 1
+}
+export fn ordinary_nested_result(trigger: i64) -> bool {
+    when { return ordinary_nested_mutation() }
+}
+
+fn ordinary_owned_delta_source() -> map<i64, i64> {
+    yield 0s: delta<map<i64, i64>>(upsert: [1: 10])
+    yield 1us: delta<map<i64, i64>>(upsert: [1: 11])
+}
+
+export fn ordinary_owned_delta_result(trigger: i64) -> i64 {
+    const_sink(trigger)
+    ordinary_owned_delta_source()[1]
+}
+
+export fn ordinary_configured_lengths(trigger: i64, const values: list<i64>) -> i64 {
+    when {
+        var independent = values
+        push(independent, values[0])
+        return len(values) * 10 + len(independent)
+    }
 }

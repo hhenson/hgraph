@@ -172,6 +172,46 @@ namespace hgraph
         [[nodiscard]] static const ValueTypeMetaData *resolve(const ResolutionMap &m) { return m.scalar(Name.sv()); }
     };
 
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename... TParents,
+              typename... TArguments, typename... TFields>
+    struct scalar_resolver<NominalBundle<Namespace, LocalName, Abstract, BundleParents<TParents...>,
+                                         BundleArguments<TArguments...>, TFields...>>
+    {
+        [[nodiscard]] static const ValueTypeMetaData *resolve(const ResolutionMap &m)
+        {
+            using bundle = NominalBundle<Namespace, LocalName, Abstract, BundleParents<TParents...>,
+                                         BundleArguments<TArguments...>, TFields...>;
+            if constexpr (scalar_descriptor<bundle>::is_concrete())
+            {
+                return scalar_descriptor<bundle>::value_meta();
+            }
+            else
+            {
+            std::vector<const ValueTypeMetaData *> arguments{scalar_resolver<TArguments>::resolve(m)...};
+            std::string name{LocalName.sv()};
+            if (!arguments.empty())
+            {
+                name += '[';
+                bool first = true;
+                for (const auto *argument : arguments)
+                {
+                    if (!argument) { return nullptr; }
+                    if (!first) { name += ", "; }
+                    first = false;
+                    name += argument->name();
+                }
+                name += ']';
+            }
+            std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
+            (fields.emplace_back(value_field_descriptor<TFields>::field_name(),
+                                 scalar_resolver<typename value_field_descriptor<TFields>::schema>::resolve(m)), ...);
+            for (const auto &[field_name, type] : fields) { if (!type) { return nullptr; } }
+            return TypeRegistry::instance().bundle(Namespace.sv(), name, fields,
+                {scalar_resolver<TParents>::resolve(m)...}, Abstract, "__type__", arguments);
+            }
+        }
+    };
+
     template <typename... TElements>
     struct scalar_resolver<UnknownTuple<TElements...>>
     {
@@ -438,6 +478,29 @@ namespace hgraph
         static void unify(const ValueTypeMetaData *, ResolutionMap &) noexcept {}
     };
 
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents,
+              typename... TArguments, typename... TFields>
+    struct scalar_unifier<NominalBundle<Namespace, LocalName, Abstract, TParents,
+                                        BundleArguments<TArguments...>, TFields...>>
+    {
+        static void unify(const ValueTypeMetaData *concrete, ResolutionMap &m)
+        {
+            std::string origin{Namespace.sv()};
+            if (!origin.empty()) { origin += "::"; }
+            origin += LocalName.sv();
+            const auto name = concrete ? concrete->name() : std::string_view{};
+            if (!concrete || concrete->try_value_kind() != ValueTypeKind::Bundle ||
+                (sizeof...(TArguments) == 0 ? name != origin
+                 : !name.starts_with(origin) || name.size() <= origin.size() || name[origin.size()] != '[') ||
+                concrete->bundle_generic_arguments().size() != sizeof...(TArguments))
+            {
+                throw std::logic_error("nominal scalar does not match its generic origin");
+            }
+            [[maybe_unused]] std::size_t index = 0;
+            (scalar_unifier<TArguments>::unify(concrete->bundle_generic_arguments()[index++], m), ...);
+        }
+    };
+
     template <fixed_string Name, typename... C>
     struct scalar_unifier<ScalarVar<Name, C...>>
     {
@@ -683,7 +746,7 @@ namespace hgraph
                         fmt::format("type variable '{}' resolved outside its constraints", Name.sv()));
                 }
             }
-            if (const TSValueTypeMetaData *bound = m.find_ts(Name.sv()))
+            if (bound != nullptr)
             {
                 if (!time_series_value_equivalent(bound, concrete))
                 {

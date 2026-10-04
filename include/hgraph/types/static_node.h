@@ -3360,6 +3360,9 @@ namespace hgraph
             constexpr std::size_t slot_count =
                 StaticNodeSignature<TImplementation>::input_count();
             NodeCallbacks callbacks;
+            if constexpr (requires(const NodeView &view) { TImplementation::prepare(view); }) {
+                callbacks.prepare = [](const NodeView &view) { TImplementation::prepare(view); };
+            }
             if constexpr (slot_count == 0)
             {
                 callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {

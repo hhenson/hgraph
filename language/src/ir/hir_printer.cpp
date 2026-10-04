@@ -69,6 +69,7 @@ namespace hgl::ir
                 case TypeKind::Set: return "set";
                 case TypeKind::Map: return "map";
                 case TypeKind::Rolling: return "rolling";
+                case TypeKind::Delta: return "delta";
                 case TypeKind::Atomic: return "atomic";
                 case TypeKind::Reference: return "ref";
                 case TypeKind::Signal: return "signal";

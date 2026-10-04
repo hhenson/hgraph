@@ -147,9 +147,16 @@ namespace hgl::driver
             return std::string{error.message, length};
         }
 
-#if !defined(_WIN32)
         std::filesystem::path executable_path() {
-    #if defined(__APPLE__)
+    #if defined(_WIN32)
+            std::vector<wchar_t> buffer(1024);
+            for (;;) {
+                const auto count = ::GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+                if (count == 0) { return {}; }
+                if (count < buffer.size()) { return std::filesystem::path{std::wstring{buffer.data(), count}}; }
+                buffer.resize(buffer.size() * 2);
+            }
+    #elif defined(__APPLE__)
             std::uint32_t     size = 1024;
             std::vector<char> buffer(size);
             if (::_NSGetExecutablePath(buffer.data(), &size) != 0) {
@@ -167,6 +174,7 @@ namespace hgl::driver
     #endif
         }
 
+#if !defined(_WIN32)
         std::vector<void *> &resident_images() {
             // Deliberately process-lifetime: registry candidates hold code
             // pointers into every image registered here.
@@ -254,6 +262,46 @@ namespace hgl::driver
             return std::to_string(result.status) + "\n" + result.output;
         }
 
+        // The configured compiler is the build machine's (RFC 0032). An installed
+        // toolchain may record one that is absent on this host, or one that exists
+        // but refuses to run outside its build environment, as Homebrew's superenv
+        // shim does. HGL_CXX is authoritative when set; otherwise the configured
+        // compiler, CXX, and the platform's PATH compiler are tried in that order.
+        std::vector<std::string> compiler_candidates() {
+            if (const auto requested = hgraph::environment_variable("HGL_CXX"); requested && !requested->empty()) {
+                return {*requested};
+            }
+            std::vector<std::string> candidates{std::string{native_config::compiler}};
+            if (const auto cxx = hgraph::environment_variable("CXX"); cxx && !cxx->empty()) { candidates.push_back(*cxx); }
+    #if defined(__APPLE__)
+            candidates.emplace_back("clang++");
+    #endif
+            candidates.emplace_back("c++");
+            return candidates;
+        }
+
+        struct CompilerProbe
+        {
+            std::string compiler{};
+            std::string version{};
+        };
+
+        // The first candidate that answers --version is selected. When none does,
+        // the configured compiler is kept so the failure names what the build
+        // recorded.
+        CompilerProbe select_compiler() {
+            const std::vector<std::string> candidates = compiler_candidates();
+            CompilerProbe                  configured{};
+            for (const std::string &candidate : candidates) {
+                const std::vector<std::string> command{candidate, "--version"};
+                const ProcessResult            result = run_process(command);
+                CompilerProbe probe{candidate, std::to_string(result.status) + "\n" + result.output};
+                if (result.status == 0) { return probe; }
+                if (configured.compiler.empty()) { configured = std::move(probe); }
+            }
+            return configured;
+        }
+
         struct BuildContext
         {
             std::string              compiler{};
@@ -273,11 +321,10 @@ namespace hgl::driver
 
         BuildContext build_context() {
             BuildContext context;
-            const auto compiler_override = hgraph::environment_variable("HGL_CXX");
-            context.compiler  = compiler_override && !compiler_override->empty() ? *compiler_override
-                                                                               : std::string{native_config::compiler};
-            context.arguments = {context.compiler};
-            context.compiler_version = probe_compiler(context.arguments, "--version");
+            CompilerProbe selected   = select_compiler();
+            context.compiler         = std::move(selected.compiler);
+            context.compiler_version = std::move(selected.version);
+            context.arguments        = {context.compiler};
             context.compiler_target  = probe_compiler(context.arguments, "-dumpmachine");
             if (const std::optional<std::filesystem::path> compiler = resolve_executable(context.compiler)) {
                 context.compiler_executable = *compiler;
@@ -311,6 +358,14 @@ namespace hgl::driver
                 std::error_code include_error;
                 if (std::filesystem::is_directory(installed_include, include_error)) {
                     context.arguments.push_back("-I" + installed_include.string());
+                    // The SDK ships its vendored header-only dependencies below
+                    // include/third_party, the second include directory that
+                    // hgraphConfig.cmake exports; the build tree's copy is gone
+                    // once the install is used on its own.
+                    const std::filesystem::path vendored = installed_include / "third_party";
+                    if (std::filesystem::is_directory(vendored, include_error)) {
+                        context.arguments.push_back("-I" + vendored.string());
+                    }
                 }
             } else {
                 mark_cache_unavailable(context, "hosting hgl executable cannot be identified");
@@ -559,6 +614,17 @@ namespace hgl::driver
         }
 #endif
     }  // namespace
+
+    std::optional<std::filesystem::path> standard_library_source_directory() {
+        const auto installed = executable_path().parent_path() / std::filesystem::path{native_config::install_stdlib_from_bindir};
+        const auto source = std::filesystem::path{native_config::stdlib_source_directory};
+        for (const auto &candidate : {installed, source}) {
+            std::error_code error;
+            if (std::filesystem::is_regular_file(candidate / "replay_record.hgl", error) &&
+                std::filesystem::is_regular_file(candidate / "impl/replay_record.hgl", error)) { return candidate; }
+        }
+        return std::nullopt;
+    }
 
     bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,
                                     std::string_view expected_fingerprint, std::string &error) {

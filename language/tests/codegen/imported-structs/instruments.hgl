@@ -24,26 +24,33 @@ export fn equity_lot(equity: atomic<shapes::Equity>) -> i64 => equity.lot
 # item), and this module compiles, so the generated backend carries it too.
 export fn next_tenor(leg: atomic<shapes::Leg>) -> str => leg.next.tenor
 
+fn future_symbol_from_expiry(expiry: i64) -> str => future_symbol(Future(symbol: "fu", expiry: expiry))
+fn future_expiry_from_expiry(expiry: i64) -> i64 => future_expiry(Future(symbol: "fu", expiry: expiry))
+fn equity_lot_from_lot(lot: i64) -> i64 => equity_lot(Equity(symbol: "eq", lot: lot))
+fn built_lot(lot: i64) -> i64 => equity_lot(build(lot))
+fn qualified_lot(lot: i64) -> i64 => equity_lot(build_qualified(lot))
+fn nested_tenor(tenor: str) -> str => next_tenor(shapes::Leg(tenor: "1Y", next: shapes::Leg(tenor: tenor)))
+
 test {
     # A field a local child inherits from a struct ANOTHER module declares.
     test inherited_field {
-        assert eval(future_symbol, future: [Future(symbol: "fu", expiry: 3)]) == ["fu"]
+        assert eval(future_symbol_from_expiry, expiry: [3]) == ["fu"]
     }
     test own_field {
-        assert eval(future_expiry, future: [Future(symbol: "fu", expiry: 3)]) == [3]
+        assert eval(future_expiry_from_expiry, expiry: [3]) == [3]
     }
     # Constructed here, read back here: one schema, no conversion between.
     test construct_imported {
-        assert eval(equity_lot, equity: [Equity(symbol: "eq", lot: 7)]) == [7]
+        assert eval(equity_lot_from_lot, lot: [7]) == [7]
     }
     test round_trip_imported {
-        assert eval(build, lot: [5]) == [Equity(symbol: "eq", lot: 5)]
+        assert eval(built_lot, lot: [5]) == [5]
     }
     test imported_recursive_edge {
-        assert eval(next_tenor, leg: [shapes::Leg(tenor: "1Y", next: shapes::Leg(tenor: "2Y"))]) == ["2Y"]
+        assert eval(nested_tenor, tenor: ["2Y"]) == ["2Y"]
     }
     # The alias spelling and the `use` spelling share one binding.
     test round_trip_qualified {
-        assert eval(build_qualified, lot: [5]) == [shapes::Equity(symbol: "q", lot: 5)]
+        assert eval(qualified_lot, lot: [5]) == [5]
     }
 }

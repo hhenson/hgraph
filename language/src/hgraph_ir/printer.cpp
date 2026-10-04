@@ -23,6 +23,7 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Set: return "set";
                 case hir::TypeKind::Map: return "map";
                 case hir::TypeKind::Rolling: return "rolling";
+                case hir::TypeKind::Delta: return "delta";
                 case hir::TypeKind::Atomic: return "atomic";
                 case hir::TypeKind::Reference: return "ref";
                 case hir::TypeKind::Signal: return "signal";
@@ -708,6 +709,26 @@ namespace hgl::hgraph_ir
                     print_type_id(out, callable.capabilities[index].type);
                     out << '@';
                     print_binding_id(out, callable.capabilities[index].binding);
+                }
+                out << ']';
+            }
+            if (!callable.global_entries.empty()) {
+                out << " global-entries=[";
+                for (std::size_t i = 0; i < callable.global_entries.size(); ++i) {
+                    if (i != 0U) { out << ", "; }
+                    print_value_id(out, callable.global_entries[i].key);
+                    out << ':';
+                    print_type_id(out, callable.global_entries[i].type);
+                }
+                out << ']';
+            }
+            if (!callable.global_key_distinct.empty()) {
+                out << " distinct-global-keys=[";
+                for (std::size_t i = 0; i < callable.global_key_distinct.size(); ++i) {
+                    if (i != 0U) { out << ", "; }
+                    print_value_id(out, callable.global_key_distinct[i].first);
+                    out << "!=";
+                    print_value_id(out, callable.global_key_distinct[i].second);
                 }
                 out << ']';
             }

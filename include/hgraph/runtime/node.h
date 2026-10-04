@@ -254,6 +254,9 @@ namespace hgraph
             would build and resolve every slot view a second time per tick
             (access-path audit O4, 2026-08-16). */
         bool input_validity_in_evaluate{false};
+        /** Bind immutable plans and typed run entries before any start hook.
+            Called once on first graph attachment; failure aborts construction. */
+        std::function<void(const NodeView &)> prepare{};
     };
 
     struct HGRAPH_CLASS_EXPORT NodeStorageField

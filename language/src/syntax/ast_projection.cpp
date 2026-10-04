@@ -171,7 +171,10 @@ namespace hgl::syntax
                     const std::vector<SyntaxTokenId> tokens = child_tokens(name_node);
                     require(tokens.size() == 1, "name production does not contain exactly one token");
                     const Token &token = source_token(tokens.front());
-                    if (!role.empty() && is_keyword(token.kind) && !(token.kind == TokenKind::KwConst && admits_const(role))) {
+                    const bool time_member = token.kind == TokenKind::KwTime &&
+                        (role == "a field name" || role == "a named argument");
+                    if (!role.empty() && is_keyword(token.kind) && !time_member &&
+                        !(token.kind == TokenKind::KwConst && admits_const(role))) {
                         diagnostics_.report(Category::Parse, token.range,
                                             "'" + std::string{token.text} + "' is a reserved word and cannot be used as " +
                                                 std::string{role});
@@ -319,6 +322,10 @@ namespace hgl::syntax
                             if (sizes.size() == 2) { type.min_size = project_expression(sizes[1]); }
                             break;
                         }
+                    case SyntaxKind::DeltaType:
+                        type.kind = ast::TypeKind::Delta;
+                        type.children.push_back(project_type(only_child(id, SyntaxKind::Type), false));
+                        break;
                     case SyntaxKind::AtomicType:
                         type.kind = ast::TypeKind::Atomic;
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), true));
@@ -495,7 +502,13 @@ namespace hgl::syntax
                 // operator, and its aliased import `m::const` (MIG-009). A
                 // keyword qualifier cannot reach here: it is no expression start.
                 std::vector<ast::Name> names = direct_names(id);
-                if (names.empty() || names.back().text != "const") { names = direct_names(id, "a name"); }
+                bool string_call = false;
+                if (names.size() == 1U && names.front().text == "str") {
+                    const auto tokens = descendant_tokens(id);
+                    const std::size_t next = syntax_token(tokens.back()).source_token_index + 1U;
+                    string_call = next < lexed_.tokens.size() && lexed_.tokens[next].kind == TokenKind::LParen;
+                }
+                if (!string_call && (names.empty() || names.back().text != "const")) { names = direct_names(id, "a name"); }
                 require(names.size() == 1 || names.size() == 2, "reference has an invalid qualified name");
                 if (names.size() == 1) { return module_.add(ast::Expr{names[0].range, ast::NameRef{names[0]}}); }
                 return module_.add(ast::Expr{names[0].range.join(names[1].range), ast::QualifiedRef{names[0], names[1]}});
@@ -556,12 +569,10 @@ namespace hgl::syntax
                 ast::SequenceLiteral sequence;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::SequenceElement)) {
                     ast::SequenceElement             element;
-                    const std::vector<SyntaxTokenId> timed = child_tokens(child, TokenKind::TemporalLiteral);
-                    if (!timed.empty()) {
-                        require(timed.size() == 1, "sequence element has multiple time keys");
-                        element.key = project_literal(timed.front());
-                    }
-                    element.value = project_expression(only_child(child, SyntaxKind::Expression));
+                    const auto expressions = child_nodes(child, SyntaxKind::Expression);
+                    require(expressions.size() == 1U || expressions.size() == 2U, "sequence element has invalid entries");
+                    if (expressions.size() == 2U) { element.key = project_expression(expressions.front()); }
+                    element.value = project_expression(expressions.back());
                     sequence.elements.push_back(element);
                 }
                 return module_.add(ast::Expr{node(id).range, std::move(sequence)});
@@ -646,7 +657,7 @@ namespace hgl::syntax
                     }
                     result.type = module_.add(std::move(type));
                 }
-                if (module_.type(result.type).kind != ast::TypeKind::Named) {
+                if (!result.delta && module_.type(result.type).kind != ast::TypeKind::Named) {
                     diagnostics_.report(Category::Parse, module_.type(result.type).range,
                                         "a struct constructor takes a named struct type");
                 }
@@ -954,6 +965,7 @@ namespace hgl::syntax
                         case SyntaxKind::SetType:
                         case SyntaxKind::MapType:
                         case SyntaxKind::RollingType:
+                        case SyntaxKind::DeltaType:
                         case SyntaxKind::AtomicType:
                         case SyntaxKind::RefType:
                         case SyntaxKind::SignalType:

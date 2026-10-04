@@ -48,6 +48,7 @@ namespace hgl::native
         Rolling,
         Signal,
         Schema,
+        Delta,
     };
 
     /// One HGL value pattern in a native signature. Type parameters name a
@@ -95,6 +96,13 @@ namespace hgl::native
                              .children           = {std::move(element)},
                              .size_parameter     = std::move(size),
                              .min_size_parameter = std::move(min_size)};
+        }
+
+        /// An ordinary publication delta retaining its originating temporal shape.
+        /// Native ABI admission remains subject to the package safety envelope.
+        [[nodiscard]] static ValueType delta(ValueType shape) {
+            if (shape.category == ValueTypeCategory::Scalar && shape.scalar <= ScalarType::Duration) { return shape; }
+            return ValueType{.category = ValueTypeCategory::Delta, .children = {std::move(shape)}};
         }
 
         /// A payload-erased live hgraph input. This type is valid only for a

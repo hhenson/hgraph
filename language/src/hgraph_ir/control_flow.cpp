@@ -807,7 +807,7 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, Assignment>) {
                             const Value *place     = value_at(module_, node.place);
                             const auto  *reference = place != nullptr ? std::get_if<Reference>(&place->node) : nullptr;
-                            if (!runtime_ && place != nullptr &&
+                            if (!runtime_ && place != nullptr && place->phase != ir::hir::Phase::Constant &&
                                 (reference == nullptr || reference->kind != ReferenceKind::Binding)) {
                                 report(place->range, "assignment targets a local in the first pass");
                             }
@@ -886,7 +886,7 @@ namespace hgl::hgraph_ir
             }
 
             [[nodiscard]] static bool composition_intrinsic(std::string_view name) noexcept {
-                return name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
+                return name == "str" || name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
                        name == "last_modified_time" || name == "key_set" || name == "keys" || name == "values" ||
                        name == "elements" || name == "items";
             }

@@ -11,10 +11,10 @@ depend on it. The language combines temporal computations with value-level
 work and explicit state; transports, threads, callbacks, and arbitrary native
 extensions remain native responsibilities.
 
-Local scalar `const fn` functions, default temporal lifting, and scalar
-reconstructible caches are implemented. Generic value functions, non-scalar
-caches, mixed cache/state declarations, and portable native target mappings
-remain separate work. See the
+Local `const fn` functions include generic ordinary struct/list helpers and
+checked publication-delta retention. Default temporal lifting and scalar
+reconstructible caches are implemented. Value-function packs, broader cache
+contracts, and portable native target mappings remain separate work. See the
 [status matrix](docs/design/roadmap.md#feature-status-matrix-2026-09-07) and
 [ADR 0008](https://github.com/hhenson/hgraph_spec/blob/main/language/docs/design/decisions/0008-temporal-contracts-and-target-mappings.md).
 
@@ -122,3 +122,43 @@ first HGL-authored operator module, published as `hgl::standard_library`.
 Its `len_` and `is_empty` families are real generated and runtime-tested code,
 with the remaining production-identity and first-tick parity gaps recorded next
 to the source.
+
+The shared HGL library in `external/hgraph_std` supplies `replay`, `record`,
+and generic `pass_through`. `eval` composes those operators internally and
+returns independently retained `delta<T>` values. The same HGL tests exercise
+the supported scalar and structural publication types in both compilers.
+
+## Shared compiler conformance gate
+
+`tools/hgl_compiler_parity.py` discovers every shared library module, source
+part and named HGL test under `external/hgraph_std/hgl/hgraph`. Each compiler
+must execute the shared assertions and report every expected test. C++ reports
+once per test; Rust reports once per assertion or outputless eval, whose counts
+are inventoried from those same source files. Matching failures, empty output and silently omitted test parts fail the
+gate. No compiler's observed behavior supplies another compiler's expectations.
+
+After rebuilding `hgl_stdlib_test_driver`, run:
+
+```sh
+python tools/hgl_compiler_parity.py --backend cpp --build build-language \
+  --output build-language/compiler-conformance
+python tools/hgl_compiler_parity.py --backend both --build build-language \
+  --rust-root <rust-checkout> --output build-language/compiler-parity
+```
+
+Use a new output directory per run. `--list` prints the discovered test inventory.
+The Rust adapter uses that checkout's existing `tools/test_hgl.py` with the
+same explicit shared sources as C++, rather than the Rust checkout's own pins.
+The public language workflow requires the C++ gate on every change; local
+`--backend both` runs independently check Rust when its checkout is available.
+It never downloads or discloses that checkout. The gate does not rebuild either
+implementation; rebuild first and keep sources unchanged during the run.
+
+The JSON report records compiler/provider inputs, Git revisions and hashes of
+actual working files, including staged specification changes. It distinguishes
+source revision from binary identity; an already-built C++ binary is not proof
+that every local edit was compiled. Per-module logs remain local beside the
+report. Source changes during measurement invalidate the result. The existing
+shared audit tools in `external/hgraph_spec_audit/compiler/stdlib_eval` retain
+their separate clean-build evidence workflow and archived measurement scope;
+this gate neither rewrites that evidence nor claims runtime/Python parity.

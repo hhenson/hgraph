@@ -457,6 +457,44 @@ namespace hgl::driver
             return true;
         }
 
+        bool prepare_eval_library(Unit &unit, std::string_view language_version,
+                                  const semantics::ModuleCatalog &catalog, NativeModule &library, EvalLibraryProvider provider) {
+            if (!unit.hgraph || unit.hgraph->path == "hgraph.std") { return true; }
+            const bool uses_eval = std::ranges::any_of(unit.hgraph->values, [](const auto &value) {
+                return value.operation.kind == hgraph_ir::OperationKind::HarnessEval;
+            });
+            if (!uses_eval) { return true; }
+            wiring::ensure_session();
+            if (wiring::has_operator("hgraph.std.replay") && wiring::has_operator("hgraph.std.record")) { return true; }
+            if (provider) {
+                try { provider(); }
+                catch (const std::exception &error) {
+                    unit.diagnostics.report(syntax::Category::Module, {},
+                                            "cannot prepare HGL replay/record: " + std::string{error.what()});
+                    return false;
+                }
+                if (wiring::has_operator("hgraph.std.replay") && wiring::has_operator("hgraph.std.record")) { return true; }
+                unit.diagnostics.report(syntax::Category::Module, {}, "compiled HGL replay/record provider is incomplete");
+                return false;
+            }
+            const auto directory = standard_library_source_directory();
+            if (!directory) {
+                unit.diagnostics.report(syntax::Category::Module, {}, "eval requires the installed HGL replay/record source library");
+                return false;
+            }
+            auto standard = load({(*directory / "replay_record.hgl").string(), (*directory / "impl/replay_record.hgl").string()}, catalog);
+            if (!standard) {
+                unit.diagnostics.report(syntax::Category::Module, {}, "cannot read the HGL replay/record source library");
+                return false;
+            }
+            if (!standard->ok || !load_native_module(*standard, language_version, library)) {
+                unit.diagnostics.report(syntax::Category::Module, {},
+                                        "cannot prepare HGL replay/record: " + standard->diagnostics.render(standard->file));
+                return false;
+            }
+            return true;
+        }
+
         int check(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
@@ -549,7 +587,7 @@ namespace hgl::driver
         }
 
         int test(std::span<const std::string_view> arguments, std::string_view language_version,
-                 const semantics::ModuleCatalog &catalog) {
+                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider) {
             std::optional<std::string> path;
             std::vector<std::string>   parts;
             wiring::TestOptions        options;
@@ -589,8 +627,10 @@ namespace hgl::driver
                     });
                 if (!known) { return usage_error("no test named '" + name + "'"); }
             }
+            NativeModule eval_library;
             NativeModule native_module;
-            if (!load_native_module(*unit, language_version, native_module, true, binding)) {
+            if (!prepare_eval_library(*unit, language_version, catalog, eval_library, eval_provider) ||
+                !load_native_module(*unit, language_version, native_module, true, binding)) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
@@ -990,8 +1030,8 @@ namespace hgl::driver
         class Repl
         {
           public:
-            Repl(std::string_view language_version, const semantics::ModuleCatalog &catalog)
-                : language_version_(language_version), catalog_(catalog) {}
+            Repl(std::string_view language_version, const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider)
+                : language_version_(language_version), catalog_(catalog), eval_provider_(eval_provider) {}
 
             int loop() {
                 std::cout << "hgl repl " << hgraph::release_version_string << " (hgraph api " << hgraph::version_string
@@ -1152,6 +1192,7 @@ namespace hgl::driver
             }
 
             bool replace_native_module(Unit &unit) {
+                if (!prepare_eval_library(unit, language_version_, catalog_, eval_library_, eval_provider_)) { return false; }
                 if (!needs_native_module(unit, true)) { return true; }
                 const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version_, true);
                 if (!emitted) { return false; }
@@ -1167,20 +1208,22 @@ namespace hgl::driver
             std::vector<std::string>        bindings_;
             std::string                     language_version_;
             const semantics::ModuleCatalog &catalog_;
+            EvalLibraryProvider             eval_provider_{};
+            NativeModule                    eval_library_{};
             std::optional<NativeModule>     native_module_{};
             LineReader                      reader_{};
         };
 
         int repl(std::span<const std::string_view> arguments, std::string_view language_version,
-                 const semantics::ModuleCatalog &catalog) {
+                 const semantics::ModuleCatalog &catalog, EvalLibraryProvider eval_provider) {
             if (!arguments.empty()) { return usage_error("repl takes no arguments"); }
             wiring::ensure_session();
-            Repl session{language_version, catalog};
+            Repl session{language_version, catalog, eval_provider};
             return session.loop();
         }
     }  // namespace
 
-    int run(std::span<const std::string_view> arguments, std::string_view tool_version) {
+    int run(std::span<const std::string_view> arguments, std::string_view tool_version, EvalLibraryProvider eval_provider) {
         if (arguments.empty()) {
             print_help();
             return exit_ok;
@@ -1203,9 +1246,9 @@ namespace hgl::driver
         if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }
         const std::span<const std::string_view> filtered{command_arguments};
         if (command == "check") { return check(filtered, catalog); }
-        if (command == "test") { return test(filtered, tool_version, catalog); }
+        if (command == "test") { return test(filtered, tool_version, catalog, eval_provider); }
         if (command == "run") { return run_command(filtered, tool_version, catalog); }
-        if (command == "repl") { return repl(filtered, tool_version, catalog); }
+        if (command == "repl") { return repl(filtered, tool_version, catalog, eval_provider); }
         if (command == "emit-native-rust") { return emit_native_rust(filtered, catalog); }
         if (command == "emit-cpp") { return emit_cpp(filtered, tool_version, catalog); }
         if (command == "build") {

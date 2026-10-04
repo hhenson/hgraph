@@ -1597,18 +1597,18 @@ The backend owns exactly these steps:
 - calling an exact `fn` by walking its body with the caller's ports bound to
   its parameters, so exact functions inline at wiring time exactly as the
   generated C++ would;
-- the harness: an `eval` argument becomes a `replay` operator wired at the
-  parameter's expanded schema, the callee result becomes a `record`
-  operator, and the sequences seed and read the in-memory buffers through
-  the public `hgraph/lib/testing/record_replay.h` helpers.
+- the harness: an `eval` argument becomes the source-defined `hgraph.std.replay`
+  operator at the parameter's checked schema, and the callee result feeds
+  `hgraph.std.record`. Replay takes an ordinary typed list of timed deltas;
+  record retains its ordinary typed result in a prepared run-wide global entry.
 
-The harness uses the `"testing"` record/replay backend for dense sequences
-(`dense_record`; index i is evaluation cycle `MIN_ST + i*MIN_TD`, which is
-the alignment `eval` promises). Timed harness sequences remain staged. A test run is one
-`GraphExecutorBuilder` over the wired graph, evaluated in process; the
-observed sequence is read back with `get_recorded_deltas`, padded by the rule
-in the specification, and compared
-with `Value::equals` element by element.
+Index i denotes evaluation time `MIN_ST + i*MIN_TD`. Before graph start, the
+backend validates each input publication against the admitted delta profile.
+One `GraphExecutorBuilder` evaluates the graph in process. Result extraction
+reads the owned recording and fills silent cells through the later of the input
+horizon and the last output tick. Structural comparisons preserve sparse
+publication identity and omissions. Timed source syntax remains outside this
+profile.
 
 `hgl run` under this backend wires the entry function with its `--set`
 constants and parameter defaults as scalar arguments, applies the mode,
@@ -1624,8 +1624,8 @@ diagnostic. Imported modules whose descriptors have no loaded image remain an
 error.
 
 The backend depends only on public hgraph headers: `operator_dispatch.h`,
-`graph_wiring.h`, `executor.h`, `lib/testing/record_replay.h`, and the
-`stdlib` in-memory record/replay implementations for backend selection.
+`graph_wiring.h`, `executor.h`, and the public prepared value/global-entry
+contracts used by the compiled standard-library replay/record implementations.
 Anything it needs beyond those is an hgraph-side ask recorded in the roadmap,
 not a private include.
 
@@ -1655,8 +1655,8 @@ walk:
   scalar argument, which hgraph's resolver lifts;
 - `a[i]` wires `getitem_` and `a.b` wires `getattr_` when `a` is a port,
   and `a[i]` folds when `a` is a constant tuple or list;
-- a non-generic or explicitly type-applied struct constructor builds its
-  module-qualified native Bundle value when every supplied field is scalar;
+- a checked struct constructor builds its module-qualified native Bundle value
+  when its supplied fields are ordinary values;
   defaults are evaluated only for a complete value, optional `null` fields
   remain unset, field access folds, and `delta<S>` instead builds a sparse
   Bundle without defaults. A constructor containing ports produces a public
@@ -1664,8 +1664,8 @@ walk:
   lifting scalar fields and filling absent optional fields with typed null
   sources. Expected as `atomic<S>`, the fields that have a value form an
   un-named TSB that `combine_cs` aggregates into `TS[S]`. Type-only generic applications use hgraph's generic Bundle metadata;
-  constructor inference and typed `const` generic arguments are rejected
-  explicitly rather than encoded into an unstable name;
+  constructor inference uses checked field types. Unsupported typed `const`
+  generic nominal metadata is rejected rather than encoded into an unstable name;
 - calling a registry operator builds `WiringArg`s in the source order with
   the source names and calls `wire_operator` with no expected output;
   `OperatorResolutionError` is reported as an `operator` diagnostic carrying
@@ -1678,8 +1678,10 @@ walk:
   passed to a `const` parameter converts to the declared value type (`i64`
   to `f64`, elementwise through tuples and lists; anything else is a `type`
   diagnostic), and a sequence literal passed to a `const list<T>` parameter
-  inside a test is that list; an `impl fn` reached directly or a generic
-  function is a `backend` diagnostic naming it; a runtime function is wired by
+  inside a test is that list. Generic calls carry the checker's concrete
+  substitutions into the callee frame and all body metadata realization;
+  argument payloads are never used to infer those substitutions. An `impl fn`
+  reached directly is a `backend` diagnostic naming it; a runtime function is wired by
   its module-qualified identity after the driver loads its provider;
 - the prelude intrinsics take the meaning of "Interim kernel table";
 - `if` selects a branch directly when its condition is a constant `bool`. For
@@ -2001,9 +2003,8 @@ deterministic (basenames, no timestamps).
 Unsupported forms fail closed before either generated file is written. These
 include calls to another temporal HGL function during runtime evaluation,
 non-scalar or opaque state/cache, lifecycle
-access to temporal inputs/output, optional-field clearing, generic constructor
-inference and typed `const` generic struct metadata, compound constant
-literals, runtime-node `if` used as a value, zoned/civil temporal literals, and
+access to temporal inputs/output, optional-field clearing, typed `const` generic
+struct metadata, runtime-node `if` used as a value, zoned/civil temporal literals, and
 wiring-time dereference. Imported operator implementations and scheduler-driven
 sources are supported within their documented type boundaries. The
 [status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07) owns the
@@ -2069,7 +2070,14 @@ compiler, preprocessor definitions, and evaluated include paths. It does not
 retain the build machine's compiler launcher. An installed executable also
 resolves the SDK include directory relative to its configured
 `CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
-the default `bin` and `include` names.
+the default `bin` and `include` names, and adds the vendored header-only
+dependencies the SDK installs below `include/third_party`, the second include
+directory `hgraphConfig.cmake` exports to CMake consumers. The configured
+compiler is the build machine's: when `HGL_CXX` is unset and that compiler does
+not answer `--version` (absent on the installing host, or a package manager's
+build shim that refuses to run outside its build, as Homebrew's does), `hgl`
+tries `CXX`, then `clang++` on macOS, then `c++` on `PATH`, and keeps the
+configured name in the diagnostic when none answers.
 `HGL_CXX` overrides the compiler for diagnostics/testing,
 `HGL_CLANG_FORMAT` overrides the required generated-code formatter, and
 `HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
@@ -2161,7 +2169,152 @@ Graph-IR planning owns runtime validity dominance, index bounds, activation
 policy, lifecycle/state capability admission and callable-cycle rejection.
 `check`, direct execution and C++ emission consume that same validated module.
 The emitter selects C++ spellings from typed extent facts; generated type text
-is not a source of semantic decisions. Retained generic list indexing remains
-unsupported and is diagnosed during planning. Wiring-time integer arithmetic
+is not a source of semantic decisions. Retained generic list indexing uses the
+concrete prepared ordinary value plan. Wiring-time integer arithmetic
 uses the shared `hgl/constant_arithmetic.h` contract in folding, direct execution
 and generated compositions; runtime node arithmetic remains a distinct phase.
+
+### Generator target admission (ADR 0015)
+
+C++ generation follows the normative generator operand cases in
+`external/hgraph_spec/compiler/cases_generator_operands.md`. Each reached yield
+binds its time expression and then its payload expression exactly once, in
+separate statements. Payload evaluation precedes negative-duration admission
+and checked relative target addition. A scoped payload reference avoids making
+an independent parked copy for a skipped past absolute target.
+
+The generator cache stores both a predecessor-present flag and the preceding
+resolved target. Admission requires a strictly increasing target, including
+skipped absolute targets and yields reached after suspension. The flag avoids
+using an epoch sentinel: the first target has no predecessor, including before
+the epoch. Start rebuilds the cache and resets this invocation history.
+
+Only an admitted future target copies its payload into owned parked storage,
+then records its resume point and schedules its alarm. Resumption publishes that
+retained value without evaluating either operand again. Operand, arithmetic,
+ordering and retention failures propagate before scheduling or continuation;
+previously completed effects and publications are preserved.
+
+### Ordinary publication values and capability operations
+
+The frontend represents structural `delta<T>` as a canonical ordinary type
+whose single child retains the exact originating temporal shape. Admitted
+scalar deltas canonicalize to the scalar itself; generic substitution preserves
+this relationship until its argument is bound. Sparse constructor checking
+validates constant member/key/index positions, duplicates and overlap before
+execution. Publication statements check an ordinary delta against its origin,
+without adding implicit conversion to complete held values.
+
+Clock properties lower as capability operations on a field expression.
+Receiver-first actions retain the explicit capability argument in their call
+and carry a qualified operation identity, such as `global_state.get`.
+Global reads obtain their exact type from context. The checker tracks lexical
+aggregate borrows and rejects same-key writes or exclusive aliases while a
+borrow is live. Runtime planning carries the injected global-state binding;
+entry preparation and owning retention belong to the execution backend.
+Ordinary list `push` has a local-write effect, distinct from output publication.
+The shared runtime validity plan requires both validity and modification for
+`delta_value`, including short-circuit guards and the implicit single-input
+handler selector.
+
+The direct interpreter realizes typed ordinary list literals, including empty
+lists, using the same prepared storage plans as generated code. `len` reads
+that plan and `push` mutates the checked writable local place, preserving owning
+copy semantics for retained list and struct values. Test harness sequences
+remain a distinct checked type and are not inferred from test-body location.
+
+### Ordinary value storage and prepared operations
+
+The normative ordinary-list, ordinary-delta, value-mutability and constructor
+order contracts live under `external/hgraph_spec/language/docs/design/`.
+The C++ backend separates source schema markers from their physical values:
+nominal bundles, ordinary lists and publication deltas describe exact types;
+`hgraph::Value` owns aggregate storage and `ValueView` borrows it. Ordinary
+parameters borrow recursively read-only views. Owning locals and retention
+boundaries copy through a prepared value plan. Primitive field and index reads
+produce native scalar values; aggregate projections preserve their borrow.
+Scalar reads keep their presence check, then use the const native access API
+whose type was established by the prepared plan; evaluation does not repeat
+schema-kind or scalar-ops selection.
+
+Complete ordinary struct construction evaluates supplied fields in written
+order, independently retains each result, and only then retains omitted
+constant defaults in schema order. Assembly uses field indices and never
+reevaluates expressions. List push retains the new element before changing the
+sequence. Nonempty constant list literals initialize elements in source order:
+unbounded lists use prepared append, while fixed lists initialize their checked
+positions without changing their extent. An ordinary global-entry local keeps
+its prepared entry borrow so list growth updates the stored entry directly.
+
+Concrete value plans are initialized by the generated operator installer.
+Configured aggregate constants are independently retained into prepared ordinary
+storage before hooks run. This normalizes their physical representation without
+changing their exact schema; generated list and field access never assumes that
+an incoming configured value already uses the compiler's mutable storage plan.
+A retained generic body prepares its concrete plans in the native node's
+`prepare` hook, from already matched input, output and scalar schemas. Retained
+origins nested inside a list, map, tuple or nominal input use the checked
+structural path to that child schema. Retained fixed extents are taken from the
+matched structural path during preparation and from the resolution map during
+wiring preflight; they do not become body-visible generic values. Generic runtime bodies have prepared
+cache storage even when only a local needs a concrete ordinary plan. The body
+does not discover source types or look up names during evaluation. Generic nominal
+parameters used under `delta<T>` carry the originating temporal schema;
+`Held<T>` supplies the corresponding ordinary generic-argument metadata.
+`PreparedDeltaPlan` selects scalar reduction or structural envelope handling
+before execution. Endpoint delta observations remain borrowed until an owning
+retention boundary captures them.
+
+Global-state access similarly binds a typed `PreparedGlobalEntry` during
+preparation. Start, evaluation and stop use its direct get/set operations.
+Prepared plans and handles share the generated cache with source cache fields;
+restarting a generator resets its invocation state without discarding prepared
+metadata. Source spelling and exact-type checks remain frontend concerns.
+
+### Contextual presence in eval result reads
+
+The checker keeps eval-sequence element presence separate from its payload
+schema. An indexed result may initialize an inferred immutable local or be
+compared directly with `null`; every payload consumer otherwise requires a
+presence fact for that exact binding. Facts follow `!`, short-circuit `&&` and
+`||`, and each conditional branch. Merging intersects continuing paths and
+excludes a branch that returns. An unrefined alias starts with its own absence
+possibility, while copying a proven-present binding yields an ordinary value.
+No general nullable source annotation or collection type is introduced.
+
+Global-entry requirements are attached to each checked callable as key
+expressions with exact value types. Potential lexical borrow conflicts between
+const keys add distinctness pairs. Generated candidate registration wraps the
+normal native wiring callback with preflight evaluation of those requirements;
+matching and node construction remain in the native operator registry.
+Preflight records run-owned typed entry declarations and rejects resolved alias
+conflicts before root start. The builder realizes those declarations in its owned
+global state, so preflight does not pin or mutate a caller-owned seed. Generated exact runtime calls with globals
+use their registered callable identity so they follow the same preparation.
+
+Eval input and non-void output types are checked against the finite publication
+profile before graph construction. Atomic boundaries, reference designation,
+recursive nominal values and unbounded collections remain usable under their
+ordinary language contracts, but cannot cross this eval boundary. Tests of
+those operations use admitted scalar inputs and outputs around the operation
+inside the graph. Positional tuple publications remain admitted.
+
+Direct ordinary assignment and `push` share a writable-place resolver. It walks
+field and index projections back to the mutable local owner, realizes writable
+storage there, and updates that same owner. It never mutates a detached result
+of ordinary field/index reads. The right-hand value is retained before mutation,
+including self-source append and compound field assignment.
+
+### CLI eval provider bootstrapping
+
+The installed CLI links a small provider compiled from the shared
+`replay_record.hgl` and implementation part. A driver callback registers that
+provider only when a checked unit uses eval and its operators are absent. Thus
+composition-only eval does not require a scripted C++ compiler, including on
+Windows. Runtime-bearing user modules still use the existing scripted loader
+where supported; custom driver hosts may retain scripted provider preparation.
+
+The build-only `hgl_bootstrap` executable generates the provider without linking
+it, breaking the otherwise circular dependency between HGL code generation and
+the final CLI. The compiled provider's generated symbols remain private so they
+do not replace a separately loaded HGL module's registration entry point.

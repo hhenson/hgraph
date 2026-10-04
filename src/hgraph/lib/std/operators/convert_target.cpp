@@ -396,6 +396,17 @@ namespace hgraph::stdlib
                     return input;
                 }
                 case ScalarPattern::Kind::Concrete: return registry.ts(scalar_pattern.meta);
+                case ScalarPattern::Kind::List:
+                case ScalarPattern::Kind::SchemaProjection:
+                {
+                    const auto *input = require_one_input(inputs, scalar_pattern_to_string(scalar_pattern));
+                    ResolutionMap map;
+                    if (input->kind == TSTypeKind::TS && scalar_pattern_match(scalar_pattern, input->value_schema, map)) {
+                        return input;
+                    }
+                    throw std::invalid_argument(fmt::format("cannot infer {} target from {}",
+                        scalar_pattern_to_string(scalar_pattern), schema_name(input)));
+                }
                 case ScalarPattern::Kind::UnknownTuple:
                 case ScalarPattern::Kind::HomogeneousTuple:
                 case ScalarPattern::Kind::FixedTuple: return registry.ts(infer_tuple_value_candidate(inputs));

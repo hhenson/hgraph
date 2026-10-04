@@ -1698,6 +1698,8 @@ namespace hgraph
             }
         };
 
+        inline void collect_ts_rank(const TypePattern &pattern, RankAccumulator &acc, int var_rank);
+
         inline void collect_scalar_rank(const ScalarPattern &pattern, RankAccumulator &acc, int var_rank)
         {
             switch (pattern.kind)
@@ -1710,6 +1712,10 @@ namespace hgraph
                     break;
                 case ScalarPattern::Kind::Concrete:
                     break;
+                case ScalarPattern::Kind::SchemaProjection:
+                    if (pattern.projected) { collect_ts_rank(*pattern.projected, acc, var_rank); }
+                    break;
+                case ScalarPattern::Kind::List:
                 case ScalarPattern::Kind::UnknownTuple:
                 case ScalarPattern::Kind::HomogeneousTuple:
                 case ScalarPattern::Kind::FixedTuple:
