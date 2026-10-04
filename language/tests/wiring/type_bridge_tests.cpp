@@ -6,6 +6,7 @@
 #include "syntax/parser.h"
 #include "wiring/type_bridge.h"
 
+#include <hgl/ordinary_values.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -14,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -1254,7 +1256,53 @@ fn accept(const value: TimedValue<tuple<i64, i64>>) -> i64 => 0
     auto &registry = hgraph::TypeRegistry::instance();
     const auto *integer = registry.ts(hgraph::scalar_descriptor<hgraph::Int>::value_meta());
     const auto *tuple = registry.un_named_tsb({{"0", integer}, {"1", integer}});
-    CHECK(arguments[0] == tuple->value_schema);
+    CHECK(arguments[0] == hgl::ordinary::origin_schema(tuple));
     REQUIRE(timed->field_count == 2);
     CHECK(timed->fields[1].type->bundle_generic_arguments() == arguments);
+}
+
+TEST_CASE("generic occurrence DAGs reuse completed declaration roles", "[wiring][types][generic][scaling]") {
+    for (const int depth : {12, 24}) {
+        std::string source = "module checks.bridge_occurrence_dag\nstruct Leaf<T> { value: T }\n";
+        std::string previous = "Leaf";
+        for (int i = 0; i < depth; ++i) {
+            const std::string name = "Layer" + std::to_string(i);
+            source += "struct " + name + "<T> { a: " + previous + "<T>\nb: " + previous + "<T> }\n";
+            previous = name;
+        }
+        source += "fn accept(const value: " + previous + "<i64>) -> i64 => 0\n";
+        Unit unit{std::move(source)};
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+        const auto *schema = bridge.value(unit.parameter("accept", "value"));
+        REQUIRE(schema != nullptr);
+        CHECK(schema->field_count == 2);
+        CHECK(schema->fields[0].type == schema->fields[1].type);
+    }
+}
+
+TEST_CASE("recursive shape roles survive both declaration and query orders", "[wiring][types][generic][atomic]") {
+    const std::string a = "struct A<T> { b: atomic<B<T>> = null\npublication: delta<T> }\n";
+    const std::string b = "struct B<U> { a: atomic<A<U>> = null }\n";
+    for (const bool reverse_declarations : {false, true}) {
+        for (const bool reverse_queries : {false, true}) {
+            Unit unit{"module checks.bridge_role_cycle\n" + (reverse_declarations ? b + a : a + b) +
+                "fn accept(const a: A<atomic<list<i64>>>, const b: B<atomic<list<i64>>>) -> i64 => 0\n"};
+            INFO(unit.diagnostics.render(unit.file));
+            REQUIRE_FALSE(unit.diagnostics.has_errors());
+            hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+            for (const auto name : (reverse_queries ? std::array{"b", "a"} : std::array{"a", "b"})) {
+                const auto *value = bridge.value(unit.parameter("accept", name));
+                INFO(unit.diagnostics.render(unit.file));
+                REQUIRE(value != nullptr);
+                const auto &arguments = value->bundle_generic_arguments();
+                REQUIRE(arguments.size() == 1);
+                const auto *origin = hgl::ordinary::origin_source(arguments.front());
+                REQUIRE(origin != nullptr);
+                CHECK(origin == hgraph::TypeRegistry::instance().ts(
+                    hgraph::TypeRegistry::instance().list(hgraph::scalar_descriptor<hgraph::Int>::value_meta())));
+            }
+        }
+    }
 }

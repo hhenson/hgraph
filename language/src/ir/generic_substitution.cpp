@@ -154,6 +154,10 @@ namespace hgl::ir::detail
             if (const auto bound = type_binding(parameter); bound && types_.same(*bound, actual)) { return true; }
             return bind_type(parameter, types_.without_references(actual));
         }
+        // A known originating shape can reduce delta<atomic<V>> to V. Do not
+        // infer an atomic boundary from an otherwise unconstrained V.
+        const TypeId applied = apply(pattern);
+        if (applied != pattern) { return unify_as(applied, actual, inference); }
         const Type &lhs = module_.type(pattern);
         const Type &rhs = module_.type(actual);
         if (lhs.kind == TypeKind::Delta && lhs.children.size() == 1U &&

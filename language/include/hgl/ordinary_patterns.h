@@ -7,9 +7,9 @@
 
 namespace hgl::ordinary
 {
-    // In the admitted ordinary delta domain the complete held schema determines
-    // the temporal shape. This is a wiring-only conversion of metadata, never a
-    // search by a runtime type name and never inference from a stored payload.
+    // Recover a structural temporal shape from held metadata. Atomic boundaries
+    // require exact Origin metadata or a previously bound source instead. This
+    // wiring-only conversion never inspects a stored payload.
     inline const hgraph::TSValueTypeMetaData *held_source(const hgraph::ValueTypeMetaData *value) {
         using namespace hgraph;
         if (!value) { return nullptr; }
@@ -64,9 +64,12 @@ namespace hgl::ordinary
         if (value->name().starts_with("hgl.delta::")) {
             const auto &arguments = value->bundle_generic_arguments();
             if (arguments.size() != 1) { return nullptr; }
-            const auto *source = held_source(arguments[0]);
+            const auto *source = origin_source(arguments[0]);
             return source && delta_schema(source) == value ? source : nullptr;
         }
+        // Composite payloads do not identify an atomic source. Only scalar
+        // leaves have an unambiguous inverse without an already bound shape.
+        if (value->try_value_kind() != hgraph::ValueTypeKind::Atomic) { return nullptr; }
         const auto *source = held_source(value);
         return source && source->kind == hgraph::TSTypeKind::TS ? source : nullptr;
     }
@@ -96,6 +99,22 @@ namespace hgl::ordinary
 
 namespace hgraph
 {
+    template <typename Shape> struct scalar_pattern_lower<hgl::ordinary::Origin<Shape>> {
+        static ScalarPattern lower() {
+            return hgl::ordinary::projection<Shape>("origin", hgl::ordinary::origin_source, hgl::ordinary::origin_schema);
+        }
+    };
+    template <typename Shape> struct scalar_resolver<hgl::ordinary::Origin<Shape>> {
+        static const ValueTypeMetaData *resolve(const ResolutionMap &map) {
+            const auto *shape = ts_resolver<Shape>::resolve(map);
+            return shape ? hgl::ordinary::origin_schema(shape) : nullptr;
+        }
+    };
+    template <typename Shape> struct scalar_unifier<hgl::ordinary::Origin<Shape>> {
+        static void unify(const ValueTypeMetaData *value, ResolutionMap &map) {
+            hgl::ordinary::unify<hgl::ordinary::Origin<Shape>>(value, map);
+        }
+    };
     template <typename Shape> struct scalar_pattern_lower<hgl::ordinary::Held<Shape>> {
         static ScalarPattern lower() {
             return hgl::ordinary::projection<Shape>("held", hgl::ordinary::held_source, hgl::ordinary::held_schema);

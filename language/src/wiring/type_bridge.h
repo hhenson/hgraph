@@ -119,6 +119,8 @@ namespace hgl::wiring
         /// valid module nothing re-enters one; a malformed one that did would
         /// otherwise recurse without end, so it fails by name instead.
         std::unordered_set<std::string> in_progress_{};
+        /// Fixed-point declaration roles, keyed by globally unique formal IDs.
+        std::optional<std::unordered_set<std::uint32_t>> shape_parameters_{};
     };
 }  // namespace hgl::wiring
 

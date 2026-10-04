@@ -1,4 +1,5 @@
 #include "wiring/type_bridge.h"
+#include "hgraph_ir/shape_parameters.h"
 #include <hgl/ordinary_values.h>
 
 #include <hgraph/lib/std/standard_types.h>
@@ -182,23 +183,7 @@ namespace hgl::wiring
         Specialization result{.contract = contract, .applied = std::move(*applied)};
         result.local_name = split_identity(contract->identity).second;
         if (!contract->generics.empty()) { result.local_name += '['; }
-        std::unordered_set<std::uint32_t> temporal_parameters;
-        std::unordered_set<std::uint64_t> visited_types;
-        std::vector<std::pair<hgraph_ir::TypeId, bool>> pending_types;
-        for (const auto &field : contract->fields) { pending_types.emplace_back(field.type, false); }
-        while (!pending_types.empty()) {
-            const auto [id, nested_delta] = pending_types.back();
-            pending_types.pop_back();
-            const auto &field_type = module_.types.at(id.value);
-            const bool delta = nested_delta || field_type.kind == hir::TypeKind::Delta;
-            const auto visit = (static_cast<std::uint64_t>(id.value) << 1U) | static_cast<std::uint64_t>(delta);
-            if (!visited_types.insert(visit).second) { continue; }
-            if (delta && field_type.binding.valid()) { temporal_parameters.insert(field_type.binding.value); }
-            for (const auto child : field_type.children) { pending_types.emplace_back(child, delta); }
-            for (const auto &argument : field_type.arguments) {
-                if (argument.type) { pending_types.emplace_back(*argument.type, delta); }
-            }
-        }
+        if (!shape_parameters_) { shape_parameters_ = hgraph_ir::temporal_struct_parameters(module_); }
         for (std::size_t index = 0; index < contract->generics.size(); ++index) {
             // The static schema's spelling (`Pair[int, str]`), so both backends
             // register one specialization under one name.
@@ -209,12 +194,12 @@ namespace hgl::wiring
                 return std::nullopt;
             }
             const auto applied_type = result.applied.types.at(generic.binding.value);
-            const bool temporal = temporal_parameters.contains(generic.binding.value);
+            const bool temporal = shape_parameters_->contains(generic.binding.value);
             // Generic parameters occurring beneath delta denote temporal source
-            // shapes, exactly as the emitted Held<Shape> argument descriptor.
+            // shapes, exactly as the emitted Origin<Shape> argument descriptor.
             // In particular tuple shape metadata is an unnamed TSB value bundle.
             const auto *temporal_type = temporal ? schema(applied_type, result.applied) : nullptr;
-            const hgraph::ValueTypeMetaData *argument = temporal ? (temporal_type ? temporal_type->value_schema : nullptr)
+            const hgraph::ValueTypeMetaData *argument = temporal ? (temporal_type ? ordinary::origin_schema(temporal_type) : nullptr)
                                                                 : value(applied_type, result.applied);
             if (argument == nullptr) { return std::nullopt; }
             result.generic_types.push_back(argument);

@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<i64>", "ref<i64>", "list<i64>", "map<str, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<i64>>", "ref<i64>", "list<i64>", "map<str, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3661,4 +3661,79 @@ TEST_CASE("eval checks publication profile boundaries before graph construction"
     const bool result = complete(accepted);
     INFO(accepted.diagnostics.render(accepted.file));
     CHECK(result);
+}
+
+TEST_CASE("atomic scalar spellings have one canonical identity", "[ir][typed][atomic]") {
+    for (const std::string scalar : {"bool", "i64", "f64", "str", "date", "time", "datetime", "duration",
+                                     "civil_datetime", "zoned_datetime", "zoned_time", "timezone"}) {
+        Lowered unit{"module checks.atomic_identity\nfn identity(value: atomic<" + scalar + ">) -> " + scalar + " => value\n"};
+        INFO(scalar);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(result);
+        for (const auto &declaration : unit.hir.declarations) {
+            if (const auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node)) {
+                CHECK(fn->signature.parameters.front().type == fn->signature.result);
+            }
+        }
+    }
+}
+
+TEST_CASE("finite atomic publications and generic shape arguments are checked", "[ir][typed][atomic]") {
+    const std::vector<std::string> accepted{
+        "const fn seed() -> atomic<i64> { return 1 }\n",
+        "struct Box<T> { value: T }\nfn value(x: Box<atomic<i64>>) -> Box<i64> => x\n",
+        "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { let value = Box(value: [1, 2])\nreturn value }\n",
+        "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { Box<i64>(value: []) }\n",
+        "struct Publication<T> { value: delta<T> }\nstruct Batch<T> { values: list<Publication<T>> }\nconst fn value(x: Batch<atomic<list<i64>>>) -> i64 => 1\n",
+        "struct Inner { x: i64 }\nstruct Outer { child: atomic<Inner>\nseq: i64 }\nfn identity(v: atomic<Outer>) -> atomic<Outer> => v\ntest nested { eval(identity, [Outer(child: Inner(x: 1), seq: 2)]) }\n",
+        "struct Empty {}\nfn identity(x: atomic<Empty>) -> atomic<Empty> => x\ntest empty { eval(identity, [Empty(), _, Empty()]) }\n",
+        "struct Pair { values: list<i64>\nlabel: str = \"default\" }\nfn identity(x: atomic<Pair>) -> atomic<Pair> => x\ntest values { eval(identity, [Pair(values: []), _, Pair(values: [1])]) }\n",
+        "const fn take<T>(x: T, value: delta<T>) -> T => x\n",
+        "struct TimedValue<T> { value: delta<T> }\nconst fn value() -> TimedValue<atomic<list<i64>>> { TimedValue(value: []) }\n"
+    };
+    for (const auto &source : accepted) {
+        Lowered unit{"module checks.atomic_admitted\n" + source};
+        INFO(source);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result);
+    }
+    const std::vector<std::string> rejected{
+        "fn value(const x: atomic<i64>) -> i64 => 1\n",
+        "fn value(const x: tuple<atomic<i64>, i64>) -> i64 => 1\n",
+        "const fn seed(value: atomic<i64>) -> i64 => 1\n",
+        "fn value(x: atomic<list<atomic<i64>>>) -> i64 => 1\n",
+        "struct Box<T> { value: T }\nfn value(x: Box<atomic<list<atomic<i64>>>>) -> i64 => 1\n",
+        "struct Box<T> { value: T }\nfn value(x: Box<atomic<list<i64>>>) -> i64 => 1\n",
+        "struct Mixed<T> { value: T\npublication: delta<T> }\nfn value(x: Mixed<atomic<list<i64>>>) -> i64 => 1\n",
+        "struct Unused<T> {}\nfn value(x: Unused<atomic<list<i64>>>) -> i64 => 1\n",
+        "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest bad { eval(value, []) }\n",
+        "const fn value(x: delta<atomic<set<i64>>>) -> i64 => 1\n",
+        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<i64>>) -> atomic<set<i64>> => pass(x)\n",
+        "struct Publication<T> { value: delta<T> }\nconst fn value() { let x = Publication(value: [1, 2]) }\n"
+    };
+    for (const auto &source : rejected) {
+        Lowered unit{"module checks.atomic_rejected\n" + source};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("recursive generic occurrence validation does not retain provisional successes", "[ir][typed][atomic]") {
+    for (const bool reverse : {false, true}) {
+        for (const bool ordinary_occurrence : {false, true}) {
+            const std::string a = "struct A<T> { b: atomic<B<T>> = null\npublication: delta<T>\n" +
+                std::string{ordinary_occurrence ? "ordinary: T\n" : ""} + "}\n";
+            const std::string b = "struct B<U> { a: atomic<A<U>> = null }\n";
+            Lowered unit{"module checks.recursive_occurrences\n" + (reverse ? b + a : a + b) +
+                "fn accept(const b: B<atomic<list<i64>>>) -> i64 => 0\n"};
+            const bool valid = !unit.diagnostics.has_errors() && complete(unit);
+            INFO(unit.diagnostics.render(unit.file));
+            CHECK(valid == !ordinary_occurrence);
+        }
+    }
 }

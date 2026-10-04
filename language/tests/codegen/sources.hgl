@@ -229,3 +229,11 @@ export fn observed_past() -> i64 {
     info(logger, "after")
     yield 0s: 2
 }
+
+# Owning ordinary list temporaries cross both immediate and parked publication
+# paths; the empty snapshot is a present tick after the second resumption.
+export fn atomic_owned_yields() -> atomic<list<i64>> {
+    yield 0s: [1, 2]
+    yield 2us: [3, 4]
+    yield 1us: []
+}

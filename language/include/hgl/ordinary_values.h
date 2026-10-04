@@ -9,12 +9,51 @@
 #include <limits>
 #include <span>
 #include <utility>
+#include <unordered_set>
 
 namespace hgl::ordinary
 {
     template <typename Element, std::int64_t Size = -1> struct List {};
     template <typename Shape> struct Delta {};
     template <typename Shape> struct Held {};
+    template <typename Shape> struct Origin {};
+
+    inline void validate_atomic_schema(const hgraph::ValueTypeMetaData *schema,
+                                       std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta()};
+        if (std::ranges::find(leaves, schema) != leaves.end()) { return; }
+        if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
+        const auto kind = schema->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
+            validate_atomic_schema(schema->element_type, visiting);
+        } else if ((kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) &&
+                   !schema->is_abstract_bundle()) {
+            for (std::size_t index = 0; index < schema->field_count; ++index) {
+                validate_atomic_schema(schema->fields[index].type, visiting);
+            }
+        } else { throw std::invalid_argument("unsupported atomic publication payload"); }
+        visiting.erase(schema);
+    }
+
+    inline void validate_complete_value(const hgraph::ValueView &value) {
+        if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
+        const auto kind = value.schema()->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
+            const auto count = ops->size(ops->context, value.data());
+            for (std::size_t index = 0; index < count; ++index) {
+                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index)) {
+                    throw std::invalid_argument("incomplete atomic publication payload");
+                }
+                validate_complete_value(hgraph::ValueView{ops->element_binding(ops->context, value.data(), index),
+                    ops->element_at(ops->context, value.data(), index)});
+            }
+        }
+    }
 
     inline void validate_delta_shape(const hgraph::TSValueTypeMetaData *root) {
         const auto *boolean = hgraph::scalar_descriptor<hgraph::Bool>::value_meta();
@@ -30,7 +69,8 @@ namespace hgl::ordinary
             switch (shape->kind) {
                 case hgraph::TSTypeKind::TS:
                     if (std::ranges::find(leaves, shape->value_schema) == leaves.end()) {
-                        throw std::invalid_argument("unsupported ordinary delta scalar shape");
+                        std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+                        validate_atomic_schema(shape->value_schema, visiting);
                     }
                     break;
                 case hgraph::TSTypeKind::TSS:
@@ -54,6 +94,65 @@ namespace hgl::ordinary
         }
     }
 
+    // A nominal generic argument records its exact temporal source, separately
+    // from the ordinary payload schema. These are interned build-time metadata;
+    // no marker value is stored in a publication or inspected during evaluation.
+    inline const hgraph::ValueTypeMetaData *origin_schema(const hgraph::TSValueTypeMetaData *shape) {
+        using namespace hgraph;
+        std::string kind;
+        std::vector<std::pair<std::string, const ValueTypeMetaData *>> children;
+        switch (shape->kind) {
+            case TSTypeKind::TS: kind = "TS"; break;
+            case TSTypeKind::TSS: kind = "TSS"; break;
+            case TSTypeKind::TSL:
+                kind = "TSL";
+                children.emplace_back("element", origin_schema(shape->element_ts()));
+                break;
+            case TSTypeKind::TSD:
+                kind = "TSD";
+                children.emplace_back("element", origin_schema(shape->element_ts()));
+                break;
+            case TSTypeKind::TSB:
+                kind = "TSB";
+                for (std::size_t i = 0; i < shape->field_count(); ++i) {
+                    children.emplace_back(shape->fields()[i].name, origin_schema(shape->fields()[i].type));
+                }
+                break;
+            default: throw std::invalid_argument("unsupported ordinary originating shape");
+        }
+        return TypeRegistry::instance().bundle("hgl.origin", kind + "[" + std::string{shape->name()} + "]",
+            children, {}, false, "__type__", {shape->value_schema});
+    }
+
+    inline const hgraph::TSValueTypeMetaData *origin_source(const hgraph::ValueTypeMetaData *value) {
+        using namespace hgraph;
+        if (!value || !value->is_named_bundle()) { return nullptr; }
+        const auto &arguments = value->bundle_generic_arguments();
+        if (arguments.size() != 1U) { return nullptr; }
+        const auto *held = arguments.front();
+        auto &registry = TypeRegistry::instance();
+        if (value->name().starts_with("hgl.origin::TS[")) { return registry.ts(held); }
+        if (value->name().starts_with("hgl.origin::TSS[")) { return registry.tss(held->element_type); }
+        if (value->name().starts_with("hgl.origin::TSL[")) {
+            const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;
+            return element ? registry.tsl(element, held->fixed_size) : nullptr;
+        }
+        if (value->name().starts_with("hgl.origin::TSD[")) {
+            const auto *element = value->field_count == 1U ? origin_source(value->fields[0].type) : nullptr;
+            return element ? registry.tsd(held->key_type, element) : nullptr;
+        }
+        if (value->name().starts_with("hgl.origin::TSB[")) {
+            std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+            for (std::size_t i = 0; i < value->field_count; ++i) {
+                const auto *child = origin_source(value->fields[i].type);
+                if (!child) { return nullptr; }
+                fields.emplace_back(value->fields[i].name, child);
+            }
+            return held->is_named_bundle() ? registry.tsb(held->name(), fields) : registry.un_named_tsb(fields);
+        }
+        return nullptr;
+    }
+
     // The enclosing identity preserves the originating temporal shape even
     // when two native delta payloads happen to have identical storage schemas.
     inline const hgraph::ValueTypeMetaData *delta_schema(const hgraph::TSValueTypeMetaData *shape) {
@@ -61,7 +160,7 @@ namespace hgl::ordinary
         if (shape->kind == hgraph::TSTypeKind::TS) { return shape->delta_value_schema; }
         return hgraph::TypeRegistry::instance().bundle(
             "hgl.delta", std::string{shape->name()}, {{"payload", shape->delta_value_schema}},
-            {}, false, "__type__", {shape->value_schema});
+            {}, false, "__type__", {origin_schema(shape)});
     }
 
     // Called only while preparing a concrete node, never from a hook.
@@ -193,6 +292,13 @@ namespace hgl::ordinary
 
 namespace hgraph
 {
+    template <typename Shape> struct scalar_descriptor<hgl::ordinary::Origin<Shape>> {
+        static constexpr bool is_concrete() noexcept { return schema_descriptor<Shape>::is_concrete(); }
+        static const ValueTypeMetaData *value_meta() {
+            if constexpr (is_concrete()) { return hgl::ordinary::origin_schema(schema_descriptor<Shape>::ts_meta()); }
+            else { return nullptr; }
+        }
+    };
     template <typename Shape> struct scalar_descriptor<hgl::ordinary::Held<Shape>> {
         static constexpr bool is_concrete() noexcept { return schema_descriptor<Shape>::is_concrete(); }
         static const ValueTypeMetaData *value_meta() {

@@ -2703,7 +2703,7 @@ namespace hgl::wiring
             std::size_t                                            cycles = 0;
             std::size_t                                            temporal_inputs = 0;
             const auto timed_type = [&](const hgraph::TSValueTypeMetaData *shape) {
-                const auto *origin = shape->value_schema;
+                const auto *origin = ordinary::origin_schema(shape);
                 return registry_.bundle("hgraph.std", "TimedValue[" + std::string{origin->name()} + "]",
                     {{"time", standard_types().datetime_type}, {"value", ordinary::delta_schema(shape)}},
                     {}, false, "__type__", {origin});

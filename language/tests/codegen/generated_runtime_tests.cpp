@@ -419,3 +419,24 @@ TEST_CASE("generated const ordinary aggregates normalize configured storage befo
     CHECK_OUTPUT(eval_node<runtime::operators::ordinary_configured_lengths>(values<Int>(1), configured), values<Int>(23));
     CHECK(configured.as_list().size() == 2);
 }
+
+TEST_CASE("generated atomic list temporaries publish immediately and survive resumptions", "[codegen][runtime][ordinary][atomic]") {
+    namespace source = hgl::codegen::sources;
+    hgl::wiring::ensure_session();
+    source::register_operators();
+    const auto recorded = eval_node<source::operators::atomic_owned_yields>();
+    const hgl::ordinary::PreparedValuePlan plan{scalar_descriptor<hgl::ordinary::List<Int>>::value_meta()};
+    const auto snapshot = [&](std::initializer_list<Int> items) {
+        auto value = plan.empty_list();
+        for (const auto item : items) { plan.push(value.view(), Value{item}.view()); }
+        return value;
+    };
+    REQUIRE(recorded.size() == 4);
+    REQUIRE(recorded[0]);
+    CHECK_FALSE(recorded[1]);
+    REQUIRE(recorded[2]);
+    REQUIRE(recorded[3]);
+    CHECK(recorded[0]->equals(snapshot({1, 2})));
+    CHECK(recorded[2]->equals(snapshot({3, 4})));
+    CHECK(recorded[3]->equals(snapshot({})));
+}

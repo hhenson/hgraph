@@ -25,5 +25,13 @@ int main() {
         return result.size() == 2U && result[0] && result[1] && result[0]->equals(Value{Int{3}}) &&
                result[1]->equals(Value{Int{5}});
     };
-    return correct(direct) && correct(composed) ? 0 : 1;
+    const hgl::ordinary::PreparedValuePlan list_plan{scalar_descriptor<hgl::ordinary::List<Int>>::value_meta()};
+    auto empty = list_plan.empty_list();
+    auto populated = list_plan.empty_list();
+    list_plan.push(populated.view(), Value{Int{7}}.view());
+    const std::vector<std::optional<Value>> snapshots{populated, empty, std::nullopt, empty};
+    const auto atomic = eval_node<checks::imported_consumer::operators::atomic_values, TS<hgl::ordinary::List<Int>>>(snapshots);
+    const bool atomic_correct = atomic.size() == 4U && atomic[0] && atomic[1] && !atomic[2] && atomic[3] &&
+        atomic[0]->equals(populated) && atomic[1]->equals(empty) && atomic[3]->equals(empty);
+    return correct(direct) && correct(composed) && atomic_correct ? 0 : 1;
 }

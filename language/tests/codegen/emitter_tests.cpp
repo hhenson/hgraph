@@ -4128,3 +4128,110 @@ fn length(trigger: i64, const items: list<i64>) -> i64 {
     CHECK(contains(emitted->source, ".binding().schema()}.retain("));
     CHECK(contains(emitted->source, "hgl_cache.ref().hgl_argument_1.view()"));
 }
+
+TEST_CASE("emit-cpp retains complete atomic delta payloads", "[codegen][ordinary][atomic]") {
+    Unit unit{R"(
+module checks.atomic_delta
+struct TimedValue<T> { time: datetime
+    value: delta<T> }
+struct Payload { values: list<i64>
+    label: str = "default" }
+fn forward(value: atomic<Payload>) -> atomic<Payload> {
+    when { return delta_value(value) }
+}
+const fn samples() -> list<TimedValue<atomic<Payload>>> {
+    var result: list<TimedValue<atomic<Payload>>> = []
+    push(result, TimedValue<atomic<Payload>>(time: @1970-01-01T00:00Z, value: Payload(values: [])))
+    return result
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::apply_delta("));
+    CHECK(contains(emitted->source, ".delta_value()"));
+    CHECK(contains(emitted->header, ".push("));
+    CHECK(contains(emitted->header, ".empty_list()"));
+}
+
+TEST_CASE("emit-cpp projects an atomic field inside an ordinary struct", "[codegen][ordinary][atomic]") {
+    Unit unit{R"(
+module checks.atomic_field_value
+struct Inner { value: i64 }
+struct Outer { child: atomic<Inner> }
+struct Box<T> { value: atomic<list<T>> }
+const fn box() -> Box<i64> {
+    let value = Box(value: [1, 2])
+    return value
+}
+const fn empty_box() -> Box<i64> => Box<i64>(value: [])
+const fn sample() -> Outer {
+    var value: Outer = Outer(child: Inner(value: 1))
+    value.child.value = 3
+    return value
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, ".index_mutable("));
+}
+
+TEST_CASE("emit-cpp memoizes repeated generic occurrence DAGs", "[codegen][generic][scaling]") {
+    for (const int depth : {12, 24}) {
+        std::string source = "module checks.occurrence_dag\nstruct Leaf<T> { value: T }\n";
+        std::string previous = "Leaf";
+        for (int i = 0; i < depth; ++i) {
+            const std::string name = "Layer" + std::to_string(i);
+            source += "struct " + name + "<T> { a: " + previous + "<T>\nb: " + previous + "<T> }\n";
+            previous = name;
+        }
+        Unit unit{std::move(source)};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, previous));
+    }
+}
+
+TEST_CASE("recursive generic shape roles do not depend on declaration order", "[codegen][generic][atomic]") {
+    const std::string a = "struct A<T> { b: atomic<B<T>> = null\npublication: delta<T> }\n";
+    const std::string b = "struct B<U> { a: atomic<A<U>> = null }\n";
+    for (const bool reverse : {false, true}) {
+        Unit unit{"module checks.role_cycle\n" + (reverse ? b + a : a + b)};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "BundleArguments<hgl::ordinary::Origin<T>>"));
+        CHECK(contains(emitted->header, "BundleArguments<hgl::ordinary::Origin<U>>"));
+    }
+}
+
+TEST_CASE("instantiated atomic generators retain ordinary publication payloads", "[codegen][generator][atomic]") {
+    Unit unit{R"(
+module checks.atomic_generator
+struct TimedValue<T> { time: datetime
+    value: delta<T> }
+operator replay<T>(const values: list<TimedValue<T>>) -> T
+impl fn replay<T>(const values: list<TimedValue<T>>) -> T {
+    var index: i64 = 0
+    while index < len(values) {
+        yield values[index].time: values[index].value
+        index += 1
+    }
+}
+instantiate replay<atomic<list<i64>>>
+fn direct() -> atomic<list<i64>> {
+    yield 1us: [1, 2]
+    yield 2us: []
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, ".payload(hgl_payload_1)"));
+    CHECK(contains(emitted->source, ".retain(hgl_payload_1)"));
+    CHECK(contains(emitted->source, ".payload(hgl_payload_1.view())"));
+    CHECK(contains(emitted->source, ".payload(hgl_cache.ref().hgl_value.view())"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::apply_delta(hgl_output.base(),"));
+}
