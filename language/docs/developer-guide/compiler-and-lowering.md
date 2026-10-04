@@ -1607,8 +1607,32 @@ backend validates each input publication against the admitted delta profile.
 One `GraphExecutorBuilder` evaluates the graph in process. Result extraction
 reads the owned recording and fills silent cells through the later of the input
 horizon and the last output tick. Structural comparisons preserve sparse
-publication identity and omissions. Timed source syntax remains outside this
-profile.
+publication identity and omissions. Atomic publications instead compare complete
+ordinary values, including empty lists, and retain nominal identity and fixed
+sizes. Timed source syntax remains outside this profile.
+
+Atomic scalar spellings canonicalize before interning and generic matching.
+For finite atomic composite publications, `delta<atomic<V>>` lowers to ordinary
+`V`; only a known temporal shape supplies the atomic boundary during inference.
+The checker validates the finite payload profile, and prepared ordinary plans
+retain lists, tuples, and nominal fields recursively. The harness checks every
+present atomic payload for completeness before graph start. Runtime observations
+borrow only within the guarded evaluation; constructors, list pushes, global
+entries, publications, and recording results own their retained values. Each
+shape argument carries an interned `hgl.origin` Bundle descriptor which records
+its exact temporal boundary and children separately from its held value schema.
+Both C++ backends and the harness use that descriptor for nominal arguments and
+structural delta origins. `Origin<Shape>` is only a C++ metadata marker;
+`Held<Shape>` remains the ordinary held value. The shared graph-IR analysis
+computes generic shape roles as a least fixed point: delta contexts activate
+type occurrences, and active declaration formals activate named type arguments.
+A worklist visits each dependency node and edge once, so recursive declarations
+and repeated generic children have stable roles independent of declaration or
+metadata query order. A known schema projection matches
+by forward projection before attempting its partial inverse, so complete
+composite payloads never guess an atomic boundary. These paths implement the
+specification's atomic scalar equivalence and finite atomic
+publication contracts without adding a second runtime representation.
 
 `hgl run` under this backend wires the entry function with its `--set`
 constants and parameter defaults as scalar arguments, applies the mode,
@@ -2260,7 +2284,7 @@ wiring preflight; they do not become body-visible generic values. Generic runtim
 cache storage even when only a local needs a concrete ordinary plan. The body
 does not discover source types or look up names during evaluation. Generic nominal
 parameters used under `delta<T>` carry the originating temporal schema;
-`Held<T>` supplies the corresponding ordinary generic-argument metadata.
+`Origin<T>` supplies the corresponding exact source metadata argument.
 `PreparedDeltaPlan` selects scalar reduction or structural envelope handling
 before execution. Endpoint delta observations remain borrowed until an owning
 retention boundary captures them.

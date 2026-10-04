@@ -216,7 +216,7 @@ TEST_CASE("value function signatures distinguish ordinary values from temporal s
         CHECK_FALSE(ordinary.diagnostics.has_errors());
         CHECK(ordinary.graph.has_value());
     }
-    Lowered scalar{"module example\nconst fn f(value: atomic<f64>) -> atomic<f64> => value\n"};
+    Lowered scalar{"module example\nconst fn f(value: f64) -> atomic<f64> => value\n"};
     INFO(scalar.diagnostics.render(scalar.file));
     CHECK_FALSE(scalar.diagnostics.has_errors());
 }

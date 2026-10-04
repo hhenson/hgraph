@@ -20,17 +20,20 @@ Contract
 
 ``ScalarPattern::SchemaProjection`` holds an immutable ``TypePattern`` and a
 pair of provider-owned metadata conversion functions: scalar schema to source
-temporal schema, and source temporal schema to scalar schema. A projection
-matches only when both conversions round-trip to the exact scalar schema.
-The ordinary shared matcher then resolves the nested temporal pattern in the
-output/type-carrier direction. Scalar substitutions and size substitutions copy
+temporal schema, and source temporal schema to scalar schema. When the nested
+source pattern already resolves, its forward projection must equal the exact
+scalar schema, and the source must satisfy that temporal pattern. The inverse
+need not exist: an ordinary composite payload cannot independently identify an
+atomic boundary. Otherwise the partial inverse must recover a source whose
+forward projection round-trips to the exact scalar schema, and the matcher
+binds that source in the output/type-carrier direction. Scalar substitutions and size substitutions copy
 the nested pattern; ranking, coverage and variable discovery visit it.
 
 A provider must reject schemas outside its formation domain, preserve exact
 identity, and keep all conversion work at wiring time. There is no persistent
 source-shape lookup table, runtime value inspection or per-tick callback. The
 core owns only the relation and matching protocol, not provider formation rules.
-HGL supplies the initial Held and Delta projections for its finite shape domain;
+HGL supplies Origin, Held and Delta projections for its finite shape domain;
 its former unresolved concrete-constraint workaround is removed rather than
 retained as a parallel matching path. The same public C++ pattern supports
 runtime-authored bridge candidates; no Python-specific value API is added.
@@ -47,7 +50,8 @@ Validation
 Native tests exercise empty replay inference, recording schema resolution,
 nominal and fixed-extent delta identity, incompatible repeated bindings,
 tuple/list separation, constrained variables, substitution and variable-use
-reporting. Generated HGL integration and installed SDK compilation exercise
+reporting. Bound-source tests cover a successful forward projection with no
+inverse, incompatible scalar schemas, and preserved atomic source identity. Generated HGL integration and installed SDK compilation exercise
 these public headers. The callbacks are reachable only through wiring patterns;
 prepared value plans are responsible for runtime access, so no runtime hot-path
 branch or additional lookup is introduced.

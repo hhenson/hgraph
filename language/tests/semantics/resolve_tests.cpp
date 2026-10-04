@@ -1088,14 +1088,14 @@ module t
 struct Box<T> { value: T }
 fn bad(x: Box<atomic<f64>>) => x
 )"};
-    CHECK(temporal_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
+    CHECK_FALSE(temporal_argument.diagnostics.has_errors());
 
     const Resolved reference_argument{R"(
 module t
 struct Box<T> { value: T }
 fn bad(x: Box<ref<f64>>) => x
 )"};
-    CHECK(reference_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
+    CHECK_FALSE(reference_argument.diagnostics.has_errors());
 }
 
 TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]") {

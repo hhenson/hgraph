@@ -6,3 +6,8 @@ fn imported_operators(imported_operators: i64) -> i64 => contracts::adjust(impor
 export fn integer(value: i64) -> i64 => imported_operators(value)
 export fn real(value: f64) -> f64 => contracts::adjust(value, 0.5)
 export fn forward(value: bool) -> bool => contracts::relay(value)
+
+# The installed compiler and SDK retain complete ordinary atomic payloads.
+export fn atomic_values(value: atomic<list<i64>>) -> atomic<list<i64>> {
+    when { return delta_value(value) }
+}

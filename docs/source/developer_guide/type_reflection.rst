@@ -202,11 +202,16 @@ temporal matcher. Resolution, ranking, variable collection, substitution and
 coverage visit the nested temporal pattern. This is metadata work before root
 start, not a runtime value conversion or per-tick dispatch facility.
 
-HGL's ``ordinary_patterns.h`` supplies these projections for ``Held<T>`` and
-``Delta<T>`` in the finite ordinary delta domain. Held metadata preserves
-container kind, fixed extent, nominal identity and generic arguments. Structural
-delta metadata also stores the complete held source schema in its generic
-arguments; matching never infers source identity from a sparse payload schema.
+A bound source is matched through the forward projection first. The matcher
+checks that the projected ordinary schema equals the argument and that the
+source satisfies the temporal pattern. Only an unresolved source invokes the
+provider's partial inverse. An ordinary composite payload alone therefore does
+not imply an atomic boundary.
+
+HGL's ``ordinary_patterns.h`` supplies these projections for ``Origin<T>``,
+``Held<T>`` and ``Delta<T>`` in the finite ordinary delta domain. Held metadata preserves
+container kind, fixed extent, nominal identity and generic arguments. ``Origin<T>`` records the exact temporal source, including atomic boundaries.
+Structural delta metadata stores that origin descriptor in its generic arguments; matching never infers source identity from a sparse payload schema.
 The source contracts are ``DELTA-INFER`` and ``DELTA-TYPE`` in
 ``external/hgraph_spec/runtime/cases_ordinary_delta_types.md``.
 

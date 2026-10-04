@@ -2932,13 +2932,13 @@ namespace hgraph_::std_
                     "hgraph.std", ([&]() {
                         std::string hgl_name{"TimedValue"};
                         hgl_name += '[';
-                        hgl_name += (view.output(hgraph::MIN_ST).schema()->value_schema)->name();
+                        hgl_name += (hgl::ordinary::origin_schema(view.output(hgraph::MIN_ST).schema()))->name();
                         hgl_name += ']';
                         return hgl_name;
                     }()),
                     {{"time", hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()},
                      {"value", hgl::ordinary::delta_schema(view.output(hgraph::MIN_ST).schema())}},
-                    {}, false, "__type__", {view.output(hgraph::MIN_ST).schema()->value_schema})};
+                    {}, false, "__type__", {hgl::ordinary::origin_schema(view.output(hgraph::MIN_ST).schema())})};
                 hgl_prepared.hgl_plan_2 =
                     hgl::ordinary::PreparedValuePlan{hgl::ordinary::delta_schema(view.output(hgraph::MIN_ST).schema())};
                 hgl_prepared.hgl_delta_plan_0 = hgl::ordinary::PreparedDeltaPlan{view.output(hgraph::MIN_ST).schema()};
@@ -3001,24 +3001,27 @@ namespace hgraph_::std_
                         "hgraph.std", ([&]() {
                             std::string hgl_name{"TimedValue"};
                             hgl_name += '[';
-                            hgl_name += (view.input(hgraph::MIN_ST).indexed_child_at(0).schema()->value_schema)->name();
+                            hgl_name +=
+                                (hgl::ordinary::origin_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema()))->name();
                             hgl_name += ']';
                             return hgl_name;
                         }()),
                         {{"time", hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()},
                          {"value", hgl::ordinary::delta_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())}},
-                        {}, false, "__type__", {view.input(hgraph::MIN_ST).indexed_child_at(0).schema()->value_schema}))};
+                        {}, false, "__type__",
+                        {hgl::ordinary::origin_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())}))};
                 hgl_prepared.hgl_plan_1 = hgl::ordinary::PreparedValuePlan{hgraph::TypeRegistry::instance().bundle(
                     "hgraph.std", ([&]() {
                         std::string hgl_name{"TimedValue"};
                         hgl_name += '[';
-                        hgl_name += (view.input(hgraph::MIN_ST).indexed_child_at(0).schema()->value_schema)->name();
+                        hgl_name += (hgl::ordinary::origin_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema()))->name();
                         hgl_name += ']';
                         return hgl_name;
                     }()),
                     {{"time", hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()},
                      {"value", hgl::ordinary::delta_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())}},
-                    {}, false, "__type__", {view.input(hgraph::MIN_ST).indexed_child_at(0).schema()->value_schema})};
+                    {}, false, "__type__",
+                    {hgl::ordinary::origin_schema(view.input(hgraph::MIN_ST).indexed_child_at(0).schema())})};
                 hgl_prepared.hgl_delta_plan_0 =
                     hgl::ordinary::PreparedDeltaPlan{view.input(hgraph::MIN_ST).indexed_child_at(0).schema()};
                 hgraph::Scalar<"key", hgraph::Str> key{view.scalars().as_bundle().at(0)};
@@ -3038,13 +3041,16 @@ namespace hgraph_::std_
                             "hgraph.std", ([&]() {
                                 std::string hgl_name{"TimedValue"};
                                 hgl_name += '[';
-                                hgl_name += (hgraph::ts_resolver<hgraph::TsVar<"T">>::resolve(resolutions)->value_schema)->name();
+                                hgl_name +=
+                                    (hgl::ordinary::origin_schema(hgraph::ts_resolver<hgraph::TsVar<"T">>::resolve(resolutions)))
+                                        ->name();
                                 hgl_name += ']';
                                 return hgl_name;
                             }()),
                             {{"time", hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()},
                              {"value", hgl::ordinary::delta_schema(hgraph::ts_resolver<hgraph::TsVar<"T">>::resolve(resolutions))}},
-                            {}, false, "__type__", {hgraph::ts_resolver<hgraph::TsVar<"T">>::resolve(resolutions)->value_schema}))}
+                            {}, false, "__type__",
+                            {hgl::ordinary::origin_schema(hgraph::ts_resolver<hgraph::TsVar<"T">>::resolve(resolutions))}))}
                         .binding());
             }
         };

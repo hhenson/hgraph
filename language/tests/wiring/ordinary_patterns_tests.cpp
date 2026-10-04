@@ -4,7 +4,7 @@
 namespace {
     template <typename Shape>
     using Timed = hgraph::NominalBundle<"ordinary.patterns", "Timed", false, hgraph::BundleParents<>,
-        hgraph::BundleArguments<hgl::ordinary::Held<Shape>>,
+        hgraph::BundleArguments<hgl::ordinary::Origin<Shape>>,
         hgraph::Field<"time", hgraph::TimeDelta>, hgraph::Field<"value", hgl::ordinary::Delta<Shape>>>;
 }
 
@@ -132,4 +132,31 @@ TEST_CASE("ordinary projection and structural candidate use the same concrete id
     ts_pattern_variable_uses(to_pattern<TsVar<"T">>(), TypePattern::concrete(compact), distinct);
     REQUIRE(distinct.size() == 2);
     CHECK(distinct[0].second != distinct[1].second);
+}
+
+TEST_CASE("atomic origins survive generic timed values and nested structural children", "[ordinary][patterns][atomic]") {
+    using namespace hgraph;
+    using Atomic = TS<hgl::ordinary::List<Int>>;
+    using Nested = TSD<Int, Atomic>;
+    using Pattern = hgl::ordinary::List<Timed<TsVar<"T">>>;
+    for (const auto *shape : {schema_descriptor<Atomic>::ts_meta(), schema_descriptor<Nested>::ts_meta()}) {
+        const auto *origin = hgl::ordinary::origin_schema(shape);
+        CHECK(hgl::ordinary::origin_source(origin) == shape);
+        const auto *sample = TypeRegistry::instance().bundle("ordinary.patterns", "Timed[" + std::string{origin->name()} + "]",
+            {{"time", scalar_descriptor<TimeDelta>::value_meta()}, {"value", hgl::ordinary::delta_schema(shape)}},
+            {}, false, "__type__", {origin});
+        ResolutionMap map;
+        CHECK(scalar_pattern_match(to_scalar_pattern<Pattern>(), TypeRegistry::instance().list(sample), map));
+        CHECK(map.ts("T") == shape);
+    }
+    using FixedAtomic = TS<hgl::ordinary::List<Int, 2>>;
+    using FixedStructural = TSL<TS<Int>, 2>;
+    REQUIRE(schema_descriptor<FixedAtomic>::ts_meta()->value_schema == schema_descriptor<FixedStructural>::ts_meta()->value_schema);
+    CHECK(scalar_descriptor<Timed<FixedAtomic>>::value_meta() != scalar_descriptor<Timed<FixedStructural>>::value_meta());
+    const auto delta = to_scalar_pattern<hgl::ordinary::Delta<TsVar<"T">>>();
+    ResolutionMap unresolved;
+    CHECK_FALSE(scalar_pattern_match(delta, scalar_descriptor<hgl::ordinary::List<Int>>::value_meta(), unresolved));
+    ResolutionMap known;
+    ts_unifier<TsVar<"T">>::unify(schema_descriptor<Atomic>::ts_meta(), known);
+    CHECK(scalar_pattern_match(delta, scalar_descriptor<hgl::ordinary::List<Int>>::value_meta(), known));
 }

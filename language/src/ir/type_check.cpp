@@ -3182,6 +3182,7 @@ namespace hgl::ir
             }
 
             void check_sequence(Expr &expression, const Sequence &node, TypeId expected) {
+                expected = unwrap_atomic(expected);
                 TypeId element_expected;
                 bool   use_expected_list = false;
                 if (expected.valid()) {
@@ -3213,7 +3214,9 @@ namespace hgl::ir
                             type_error(key.range, "sparse entries require a delta constructor; harness keys must be temporal");
                         }
                     }
-                    Expr &value = check_expr(element.value, element_type);
+                    const TypeId item_expected = element_type.valid() && type(canonical(element_type)).kind == TypeKind::Atomic
+                        ? type(canonical(element_type)).children.front() : element_type;
+                    Expr &value = check_expr(element.value, item_expected);
                     if (!element_type.valid() && value.type.valid()) {
                         element_type = value.type;
                     } else if (value.type.valid() && !assignable(element_type, value.type)) {
@@ -3238,6 +3241,7 @@ namespace hgl::ir
             }
 
             void check_tuple(Expr &expression, const Tuple &node, TypeId expected) {
+                expected = unwrap_atomic(expected);
                 std::vector<TypeId> children;
                 const Type         *expected_tuple = nullptr;
                 if (expected.valid() && type(canonical(expected)).kind == TypeKind::Tuple) {
@@ -3482,6 +3486,21 @@ namespace hgl::ir
                 return found == entry->second.end() ? nullptr : &structure.fields[found->second];
             }
 
+            // Ordinary constructor fields erase their declared temporal atomic
+            // boundaries. Nominal identities and their source arguments remain
+            // intact; a bare generic still binds the supplied type exactly.
+            [[nodiscard]] TypeId ordinary_field_pattern(TypeId id) {
+                id = canonical(id);
+                if (!id.valid()) { return id; }
+                Type projected = type(id);
+                if (projected.kind == TypeKind::Atomic && projected.children.size() == 1U) {
+                    return ordinary_field_pattern(projected.children.front());
+                }
+                if (projected.kind == TypeKind::Delta || projected.kind == TypeKind::Symbol) { return id; }
+                for (TypeId &child : projected.children) { child = ordinary_field_pattern(child); }
+                return intern(std::move(projected));
+            }
+
             /// Infer the generic arguments a constructor did not spell, from
             /// the types of the arguments it did. Local and imported structs
             /// differ only in where the generics and fields come from, and how
@@ -3515,7 +3534,8 @@ namespace hgl::ir
                         continue;
                     }
                     Expr &value = check_expr(argument.value);
-                    (void)bindings.infer_from_argument(*expected, value.type);
+                    const TypeId pattern = value.phase == Phase::Wiring ? *expected : ordinary_field_pattern(*expected);
+                    (void)bindings.infer_from_argument(pattern, value.type);
                 }
 
                 Type inferred = nominal;
@@ -3724,6 +3744,39 @@ namespace hgl::ir
                                                  .identity = module_.path + "." + module_.symbol(target).name};
             }
 
+            bool admitted_atomic_value(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type shape = type(id);
+                if (shape.kind == TypeKind::Scalar) { return shape.scalar <= ScalarType::Duration; }
+                if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
+                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
+                    return admitted_atomic_value(shape.children.front(), visiting);
+                }
+                if (!visiting.insert(id.value).second) { return false; }
+                bool admitted = false;
+                if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
+                    admitted = true;
+                    for (TypeId child : shape.children) { admitted = admitted && admitted_atomic_value(child, visiting); }
+                } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
+                    const auto &symbol = module_.symbol(shape.symbol);
+                    const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(shape.symbol);
+                    if (structure || imported) {
+                        admitted = !(structure ? structure->abstract : imported->abstract);
+                        const auto fields = structure ? structure->fields : imported->fields;
+                        for (const auto &field : fields) {
+                            const auto field_type = constraint_solver_.field_type({}, id, field.name);
+                            admitted = admitted && !field.optional && !field.recursive && field_type &&
+                                       admitted_atomic_value(*field_type, visiting);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return admitted;
+            }
+
             bool admitted_delta_shape(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
@@ -3733,7 +3786,9 @@ namespace hgl::ir
                     module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }
                 bool admitted = false;
-                if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
+                if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
+                    admitted = admitted_atomic_value(shape.children.front(), visiting);
+                } else if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
                     const Type child = type(canonical(shape.children[0]));
                     admitted = child.kind == TypeKind::Scalar && (child.scalar == ScalarType::Bool || child.scalar == ScalarType::I64);
                 } else if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::Map || shape.kind == TypeKind::List) {
@@ -4057,7 +4112,13 @@ namespace hgl::ir
                     if (!runtime_owner(expression.owner) || active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop) {
                         type_error(expression.range, "delta_value is only available during runtime evaluation");
                     }
-                    if (input.type.valid()) { expression.type = make_type(TypeKind::Delta, {input.type}); }
+                    if (input.type.valid()) {
+                        std::unordered_set<std::uint32_t> visiting;
+                        if (!admitted_delta_shape(input.type, visiting)) {
+                            type_error(expression.range, "delta<T> requires a finite admitted publication shape");
+                        }
+                        expression.type = make_type(TypeKind::Delta, {input.type});
+                    }
                 } else if (name == "valid" || name == "modified" || name == "all_valid") {
                     if (args.empty() && name == "all_valid") {
                         type_error(expression.range, "'all_valid' takes at least one argument");
@@ -4739,10 +4800,176 @@ namespace hgl::ir
                 global_borrows_ = outer_borrows;
             }
 
+            bool ordinary_argument(TypeId id) {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type shape = type(id);
+                if (shape.kind == TypeKind::Delta) { return true; }
+                if (shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Reference || shape.kind == TypeKind::Rolling ||
+                    shape.kind == TypeKind::Signal || shape.kind == TypeKind::Schema) { return false; }
+                for (TypeId child : shape.children) { if (!ordinary_argument(child)) { return false; } }
+                return true;
+            }
+
+            std::unordered_map<std::uint32_t, bool> checked_struct_occurrences_{};
+
+            bool check_struct_occurrences(TypeId id, std::unordered_set<std::uint32_t> &visiting,
+                                          std::unordered_map<std::uint32_t, bool> &local_results) {
+                id = canonical(id);
+                if (const auto found = checked_struct_occurrences_.find(id.value); found != checked_struct_occurrences_.end()) {
+                    return found->second;
+                }
+                if (const auto found = local_results.find(id.value); found != local_results.end()) { return found->second; }
+                if (!id.valid() || !visiting.insert(id.value).second) { return true; }
+                const Type application = type(id);
+                if (application.kind != TypeKind::Symbol || !application.symbol.valid()) { visiting.erase(id.value); return true; }
+                const auto &symbol = module_.symbol(application.symbol);
+                const auto *local = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                const auto *imported = imported_struct_decl(application.symbol);
+                if (!local && !imported) { visiting.erase(id.value); return true; }
+                const auto generics = local ? local->generics : imported->generics;
+                const auto fields = local ? local->fields : imported->fields;
+                const auto parents = local ? local->parents : imported->parents;
+                if (application.arguments.size() != generics.size()) { visiting.erase(id.value); return true; }
+                detail::GenericSubstitution bindings{module_, canonical_types_};
+                std::unordered_set<std::uint32_t> used;
+                for (std::size_t i = 0; i < generics.size(); ++i) {
+                    const auto &argument = application.arguments[i];
+                    if (argument.kind == TypeArgumentKind::Type) { (void)bindings.bind_type(generics[i].symbol, argument.type); }
+                    else { (void)bindings.bind_value(generics[i].symbol, argument.value); }
+                }
+                const auto check = [&](auto &&self, TypeId source) -> bool {
+                    const Type pattern = type(canonical(source));
+                    if (pattern.kind == TypeKind::Delta && pattern.children.size() == 1U) {
+                        const auto mark = [&](auto &&walk, TypeId current) -> void {
+                            const Type value = type(canonical(current));
+                            if (value.symbol.valid()) { used.insert(value.symbol.value); }
+                            for (TypeId child : value.children) { walk(walk, child); }
+                            for (const auto &argument : value.arguments) { if (argument.kind == TypeArgumentKind::Type) { walk(walk, argument.type); } }
+                        };
+                        mark(mark, pattern.children.front());
+                        std::unordered_set<std::uint32_t> active;
+                        return admitted_delta_shape(bindings.apply(pattern.children.front()), active);
+                    }
+                    if (pattern.kind == TypeKind::Symbol && pattern.symbol.valid() && bindings.has_type(pattern.symbol)) {
+                        used.insert(pattern.symbol.value);
+                        return ordinary_argument(bindings.apply(source));
+                    }
+                    if (pattern.kind == TypeKind::Symbol && !pattern.arguments.empty()) {
+                        // The nested declaration decides each argument's domain.
+                        for (const auto &argument : pattern.arguments) {
+                            if (argument.kind == TypeArgumentKind::Type) {
+                                const auto mark = [&](auto &&walk, TypeId current) -> void {
+                                    const Type value = type(canonical(current));
+                                    if (value.symbol.valid()) { used.insert(value.symbol.value); }
+                                    for (TypeId child : value.children) { walk(walk, child); }
+                                    for (const auto &nested : value.arguments) { if (nested.kind == TypeArgumentKind::Type) { walk(walk, nested.type); } }
+                                };
+                                mark(mark, argument.type);
+                            }
+                        }
+                        return check_struct_occurrences(bindings.apply(source), visiting, local_results);
+                    }
+                    for (TypeId child : pattern.children) { if (!self(self, child)) { return false; } }
+                    return true;
+                };
+                bool valid = true;
+                for (const auto &field : fields) { valid = check(check, field.type) && valid; }
+                for (TypeId parent : parents) { valid = check(check, parent) && valid; }
+                for (std::size_t i = 0; i < generics.size(); ++i) {
+                    if (!generics[i].is_const && !used.contains(generics[i].symbol.value)) {
+                        valid = ordinary_argument(application.arguments[i].type) && valid;
+                    }
+                }
+                visiting.erase(id.value);
+                local_results.emplace(id.value, valid);
+                return valid;
+            }
+
+            void validate_instantiated_deltas() {
+                index_owned_types();
+                std::vector<std::vector<const Expr *>> calls(module_.declarations.size());
+                for (const Expr &expression : module_.exprs) {
+                    if (expression.owner.valid() && std::holds_alternative<Call>(expression.node)) {
+                        calls[expression.owner.value].push_back(&expression);
+                    }
+                }
+                std::unordered_set<std::string> checked;
+                std::unordered_set<std::uint32_t> active;
+                const auto visit = [&](auto &&self, const Expr &call, detail::GenericSubstitution &outer) -> void {
+                    const auto target = call.operation.candidate.valid() ? call.operation.candidate : call.operation.target;
+                    if (!target.valid()) { return; }
+                    const auto owner = module_.symbol(target).owner;
+                    if (!owner.valid() || active.contains(owner.value)) { return; }
+                    detail::GenericSubstitution bindings{module_, canonical_types_};
+                    std::string key = std::to_string(owner.value);
+                    for (const auto &substitution : call.operation.substitutions) {
+                        if (substitution.type.valid()) {
+                            const auto applied = outer.apply(substitution.type);
+                            (void)bindings.bind_type(substitution.parameter, applied);
+                            key += ":" + std::to_string(substitution.parameter.value) + "=" + std::to_string(applied.value);
+                        } else if (substitution.value.valid()) {
+                            const auto applied = outer.apply_value(substitution.value);
+                            (void)bindings.bind_value(substitution.parameter, applied);
+                            key += ":v" + std::to_string(substitution.parameter.value) + "=" + std::to_string(applied.value);
+                        }
+                    }
+                    if (!checked.insert(key).second) { return; }
+                    active.insert(owner.value);
+                    // The owner index includes nested source types too. Visit
+                    // each node once even when several roots share a child.
+                    std::unordered_set<std::uint32_t> checked_types;
+                    const auto check_type = [&](auto &&walk, TypeId id) -> void {
+                        if (!checked_types.insert(id.value).second) { return; }
+                        const Type shape = type(id);
+                        if (shape.kind == TypeKind::Delta && shape.children.size() == 1U) {
+                            std::unordered_set<std::uint32_t> visiting;
+                            if (!admitted_delta_shape(bindings.apply(shape.children.front()), visiting)) {
+                                type_error(call.range, "generic application requires a finite admitted publication shape");
+                            }
+                        }
+                        for (TypeId child : shape.children) { walk(walk, child); }
+                        for (const auto &argument : shape.arguments) {
+                            if (argument.kind == TypeArgumentKind::Type) { walk(walk, argument.type); }
+                        }
+                    };
+                    if (owner.value < types_by_owner_.size()) {
+                        for (auto index : types_by_owner_[owner.value]) { check_type(check_type, TypeId{index}); }
+                    }
+                    for (const Expr *nested : calls[owner.value]) {
+                        if (nested->operation.identity == "delta_value") {
+                            const auto &arguments = std::get<Call>(nested->node).arguments;
+                            if (!arguments.empty()) {
+                                std::unordered_set<std::uint32_t> visiting;
+                                if (!admitted_delta_shape(bindings.apply(module_.expr(arguments.front().value).type), visiting)) {
+                                    type_error(call.range, "generic application requires a finite admitted publication shape");
+                                }
+                            }
+                        } else { self(self, *nested, bindings); }
+                    }
+                    active.erase(owner.value);
+                };
+                detail::GenericSubstitution empty{module_, canonical_types_};
+                for (const auto &body : calls) { for (const Expr *call : body) { visit(visit, *call, empty); } }
+            }
+
             void validate_completion() {
+                validate_instantiated_deltas();
                 const std::size_t type_count = module_.types.size();
                 for (std::size_t i = 0; i < type_count; ++i) {
                     const Type shape = module_.types[i];
+                    if (shape.kind == TypeKind::Symbol && !shape.arguments.empty()) {
+                        std::unordered_set<std::uint32_t> visiting;
+                        std::unordered_map<std::uint32_t, bool> local;
+                        const bool valid = check_struct_occurrences(TypeId{static_cast<std::uint32_t>(i)}, visiting, local);
+                        // Cycle backedges are provisional successes. If this
+                        // entire reachable walk succeeds they are proven; after
+                        // a failure only negative results are safe to retain.
+                        for (const auto &[id, accepted] : local) {
+                            if (valid || !accepted) { checked_struct_occurrences_.emplace(id, accepted); }
+                        }
+                        if (!valid) { type_error(shape.range, "generic struct arguments do not satisfy their value and delta occurrences"); }
+                    }
                     if (shape.kind == TypeKind::Delta && shape.children.size() == 1U) {
                         std::unordered_set<std::uint32_t> visiting;
                         if (!admitted_delta_shape(shape.children[0], visiting)) {

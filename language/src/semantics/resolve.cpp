@@ -727,7 +727,7 @@ namespace hgl::semantics
                 context.fn = id;
                 push_scope();
                 declare_generics(id, fn.generics, context);
-                resolve_signature(id, fn.signature, context);
+                resolve_signature(id, fn.signature, context, false, fn.is_const);
                 resolve_constraint(fn.requirements, context);
                 if (fn.concise_body != ast::no_node) { resolve_expr(fn.concise_body, context); }
                 if (fn.block_body != ast::no_node) { resolve_block(fn.block_body, context); }
@@ -833,7 +833,7 @@ namespace hgl::semantics
                     bindings.push_back(std::move(binding));
                     for (const ast::GenericArgument &argument : entry.arguments) {
                         if (argument.type != ast::no_node) {
-                            resolve_type(argument.type, context);
+                            resolve_type(argument.type, context, false, false, true);
                         } else if (argument.value != ast::no_node) {
                             resolve_expr(argument.value, context);
                         }
@@ -900,12 +900,29 @@ namespace hgl::semantics
                 return nullptr;
             }
 
-            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context, bool native = false) {
+            // Check the source grammar before scalar atomic canonicalization erases
+            // an otherwise forbidden temporal spelling. Named arguments and delta
+            // origins have their own shape grammar and are checked separately.
+            void check_ordinary_annotation(ast::TypeId id) {
+                const auto &type = module_.type(id);
+                if (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
+                    type.kind == ast::TypeKind::Reference || type.kind == ast::TypeKind::Signal ||
+                    type.kind == ast::TypeKind::Schema) {
+                    report(Category::Type, type.range, "const fn signature requires an ordinary value type");
+                    return;
+                }
+                if (type.kind == ast::TypeKind::Delta || type.kind == ast::TypeKind::Named) { return; }
+                for (const auto child : type.children) { check_ordinary_annotation(child); }
+            }
+
+            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context, bool native = false,
+                                   bool ordinary = false) {
                 bool seen_positional_pack = false;
                 bool seen_keyword_pack    = false;
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
                     if (parameter.type != ast::no_node) {
+                        if (ordinary) { check_ordinary_annotation(parameter.type); }
                         resolve_type(parameter.type, context, !parameter.is_const, native && !parameter.is_const);
                         if (module_.type(parameter.type).kind == ast::TypeKind::Signal && parameter.default_value != ast::no_node) {
                             report(Category::Type, module_.expr(parameter.default_value).range,
@@ -1307,17 +1324,10 @@ namespace hgl::semantics
             std::optional<Binding> resolve_generic_argument(const ast::GenericArgument  &argument,
                                                             const ast::GenericParameter &parameter, Context &context) {
                 if (argument.type != ast::no_node) {
-                    resolve_type(argument.type, context);
+                    resolve_type(argument.type, context, false, false, true);
                     if (parameter.is_const) {
                         report(Category::Type, argument.range,
                                "const generic '" + std::string{parameter.name.text} + "' takes a value argument");
-                    } else {
-                        const ast::TypeKind kind = module_.type(argument.type).kind;
-                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling || kind == ast::TypeKind::Reference) {
-                            report(Category::Type, argument.range,
-                                   "generic struct type arguments are canonical value types; put "
-                                   "the temporal shape in the field declaration");
-                        }
                     }
                     return std::nullopt;
                 }
@@ -1362,7 +1372,7 @@ namespace hgl::semantics
             void resolve_imported_generic_argument(const ast::GenericArgument &argument, const ImportedGeneric &parameter,
                                                    Context &context) {
                 if (argument.type != ast::no_node) {
-                    resolve_type(argument.type, context);
+                    resolve_type(argument.type, context, false, false, true);
                     if (parameter.is_const) {
                         report(Category::Type, argument.range,
                                "const generic '" + parameter.name + "' takes a value argument");
@@ -1475,7 +1485,7 @@ namespace hgl::semantics
                     if (paired) {
                         resolve_imported_generic_argument(argument, structure->generics[index], context);
                     } else if (argument.type != ast::no_node) {
-                        resolve_type(argument.type, context);
+                        resolve_type(argument.type, context, false, false, true);
                     } else if (argument.value != ast::no_node) {
                         resolve_expr(argument.value, context);
                     } else if (!argument.name.empty() && !lookup(argument.name.text)) {
@@ -1505,7 +1515,7 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false, bool shape_argument = false) {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Signal && !allow_signal) {
                     report(Category::Type, type.range,
@@ -1515,7 +1525,7 @@ namespace hgl::semantics
                     report(Category::Type, type.range,
                            "'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type");
                 }
-                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
+                if (type.value_position && !shape_argument && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
                                             type.kind == ast::TypeKind::Reference)) {
                     const std::string_view spelling = type.kind == ast::TypeKind::Atomic    ? "atomic"
                                                       : type.kind == ast::TypeKind::Rolling ? "rolling"
@@ -1580,7 +1590,7 @@ namespace hgl::semantics
                             for (std::size_t i = count; i < type.arguments.size(); ++i) {
                                 const ast::GenericArgument &argument = type.arguments[i];
                                 if (argument.type != ast::no_node) {
-                                    resolve_type(argument.type, context);
+                                    resolve_type(argument.type, context, false, false, true);
                                 } else if (argument.value != ast::no_node) {
                                     resolve_expr(argument.value, context);
                                 }
@@ -1589,7 +1599,7 @@ namespace hgl::semantics
                     }
                     }
                 }
-                for (const ast::TypeId child : type.children) { resolve_type(child, context); }
+                for (const ast::TypeId child : type.children) { resolve_type(child, context, false, false, shape_argument && type.kind != ast::TypeKind::Atomic); }
                 if (type.size != ast::no_node) { resolve_expr(type.size, context); }
                 if (type.min_size != ast::no_node) { resolve_expr(type.min_size, context); }
             }

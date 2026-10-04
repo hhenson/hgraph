@@ -233,7 +233,7 @@ namespace hgraph_::std_
     {
         using value_type =
             hgraph::NominalBundle<"hgraph.std", "TimedValue", false, hgraph::BundleParents<>,
-                                  hgraph::BundleArguments<hgl::ordinary::Held<T>>, hgraph::Field<"time", hgraph::DateTime>,
+                                  hgraph::BundleArguments<hgl::ordinary::Origin<T>>, hgraph::Field<"time", hgraph::DateTime>,
                                   hgraph::Field<"value", hgl::ordinary::Delta<T>>>;
     };
 

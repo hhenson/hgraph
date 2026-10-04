@@ -268,6 +268,13 @@ namespace hgraph
             case ScalarPattern::Kind::SchemaProjection:
             {
                 if (!pattern.projected || !pattern.project_source || !pattern.project_value) { return false; }
+                // A projection need not be invertible (an atomic payload can
+                // also be an ordinary composite). A bound source determines
+                // its value directly without inventing another source shape.
+                if (const auto *bound_source = ts_pattern_resolve(*pattern.projected, map)) {
+                    return pattern.project_value(bound_source) == concrete &&
+                           output_ts_pattern_match(*pattern.projected, bound_source, map);
+                }
                 const auto *source = pattern.project_source(concrete);
                 if (!source || pattern.project_value(source) != concrete) { return false; }
                 return output_ts_pattern_match(*pattern.projected, source, map);

@@ -2251,3 +2251,20 @@ TEST_CASE("operators: explicit collection output schema drives scalar auto-const
     REQUIRE(out[0].has_value());
     CHECK(out[0]->equals(set_delta<Int>({1, 2}, {})));
 }
+
+TEST_CASE("operators: a bound schema projection does not require an inverse")
+{
+    const auto *integer = scalar_type<Int>();
+    const auto *shape = ts_type<TS<Int>>();
+    ScalarPattern pattern;
+    pattern.kind = ScalarPattern::Kind::SchemaProjection;
+    pattern.projected = std::make_shared<const TypePattern>(to_pattern<TsVar<"ProjectionSource">>());
+    pattern.project_source = [](const ValueTypeMetaData *) -> const TSValueTypeMetaData * { return nullptr; };
+    pattern.project_value = [](const TSValueTypeMetaData *source) { return source->value_schema; };
+    ResolutionMap unresolved;
+    CHECK_FALSE(scalar_pattern_match(pattern, integer, unresolved));
+    ResolutionMap known;
+    REQUIRE(output_ts_pattern_match(*pattern.projected, shape, known));
+    CHECK(scalar_pattern_match(pattern, integer, known));
+    CHECK_FALSE(scalar_pattern_match(pattern, scalar_type<Str>(), known));
+}

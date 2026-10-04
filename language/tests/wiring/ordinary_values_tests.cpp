@@ -190,3 +190,21 @@ TEST_CASE("eval trace admission keeps membership across sparse nested updates", 
     update = map_delta(&second, false);
     CHECK_THROWS_WITH(trace.accept(shape, update.view()), "removal of an absent set member");
 }
+
+TEST_CASE("atomic publication schemas and values require complete finite payloads", "[ordinary][atomic]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *empty_schema = registry.bundle("ordinary", "AtomicEmpty", {});
+    const PreparedValuePlan empty_plan{empty_schema};
+    const auto empty = empty_plan.bundle({});
+    CHECK_NOTHROW(validate_complete_value(empty.view()));
+    CHECK(delta_schema(registry.ts(empty_schema)) == empty_schema);
+    const auto *record_schema = registry.bundle("ordinary", "AtomicRequired", {{"value", integer}});
+    const PreparedValuePlan record_plan{record_schema};
+    const auto missing = record_plan.bundle({});
+    CHECK_THROWS_AS(validate_complete_value(missing.view()), std::invalid_argument);
+    CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(integer))), std::invalid_argument);
+    CHECK_THROWS_AS(delta_schema(registry.ts(registry.list(integer, 0, true))), std::invalid_argument);
+}
