@@ -527,3 +527,10 @@ export fn enum_default_source(trigger: i64) -> RuntimeMode {
 export fn enum_value_forward(value: RuntimeMode) -> RuntimeMode {
     when { return value }
 }
+
+export fn scalar_float_set(value: set<f64>) -> set<f64> => enum_generic_forward(value)
+export fn scalar_float_map(value: map<f64, i64>) -> map<f64, i64> => enum_generic_forward(value)
+
+export fn scalar_string_recipe(trigger: i64) -> map<str, i64> {
+    when { return delta<map<str, i64>>(upsert: ["second": 2, "first": 1]) }
+}

@@ -3789,6 +3789,7 @@ namespace hgl::codegen
                 if (map || list) { code += "hgraph::MapBuilder hgl_updates{" + updates + ".key_binding(), " + updates + ".element_binding()}; "; }
                 else { code += "hgraph::SetBuilder hgl_updates{" + updates + ".element_binding()}; "; }
                 if (!list) { code += "hgraph::SetBuilder hgl_removed{" + removed + ".element_binding()}; "; }
+                code += "hgl::ordinary::ScalarKeySet hgl_keys{" + updates + (map || list ? ".key_binding()" : ".element_binding()") + "}; ";
                 std::size_t item_index = 0;
                 for (const auto &argument : arguments) {
                     const auto &expression = planned_value(argument.value, argument.range);
@@ -3796,14 +3797,19 @@ namespace hgl::codegen
                     if (sequence == nullptr) { backend(argument.range, "collection delta requires checked sparse entries"); }
                     const bool removing = argument.name == "remove" || argument.name == "removed";
                     for (const auto &entry : sequence->elements) {
-                        const Value value = eval_planned_expr(entry.value, frame);
                         if (removing || (!map && !list)) {
-                            code += std::string{removing ? "hgl_removed" : "hgl_updates"} + ".insert(" + ordinary_view(value) + "); ";
+                            const Value value = eval_planned_expr(entry.value, frame);
+                            const std::string key = "hgl_key_" + std::to_string(item_index++);
+                            code += "auto " + key + " = " + ordinary_retain(value) + "; hgl_keys.insert(" + key + ".view()); ";
+                            code += std::string{removing ? "hgl_removed" : "hgl_updates"} + ".insert(" + key + ".view()); ";
                         } else {
                             const Value key = eval_planned_expr(entry.key, frame);
+                            const Value value = eval_planned_expr(entry.value, frame);
                             const std::string local = "hgl_delta_item_" + std::to_string(item_index++);
+                            const std::string key_local = local + "_key";
+                            code += "auto " + key_local + " = " + ordinary_retain(key) + "; hgl_keys.insert(" + key_local + ".view()); ";
                             code += "hgraph::Value " + local + "{" + updates + ".element_binding(), " + native_delta_view(value) + "}; ";
-                            code += "hgl_updates.set_item(" + ordinary_view(key) + ", " + local + ".view()); ";
+                            code += "hgl_updates.set_item(" + key_local + ".view(), " + local + ".view()); ";
                         }
                     }
                 }

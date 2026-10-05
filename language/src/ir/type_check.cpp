@@ -9,6 +9,7 @@
 #include "syntax/temporal.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -3840,6 +3841,33 @@ namespace hgl::ir
                 return admitted;
             }
 
+            bool admitted_scalar_key(TypeId id) {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const auto &shape = type(id);
+                return shape.kind == TypeKind::Scalar ||
+                    (shape.kind == TypeKind::Symbol && shape.symbol.valid() && module_.symbol(shape.symbol).kind == SymbolKind::Enum);
+            }
+
+            // Provider-dependent values are compared only after cold materialization.
+            static std::optional<std::string> scalar_key_identity(const Constant &constant) {
+                return std::visit([](const auto &value) -> std::optional<std::string> {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, bool>) { return value ? "b:1" : "b:0"; }
+                    else if constexpr (std::is_same_v<T, std::int64_t>) { return "i:" + std::to_string(value); }
+                    else if constexpr (std::is_same_v<T, double>) {
+                        if (std::isnan(value)) { return std::nullopt; }
+                        return "f:" + std::to_string(std::bit_cast<std::uint64_t>(value == 0.0 ? 0.0 : value));
+                    } else if constexpr (std::is_same_v<T, std::string>) { return "s:" + value; }
+                    else if constexpr (std::is_same_v<T, EnumValue>) { return "e:" + value.identity + ":" + std::to_string(value.number); }
+                    else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                        if (value.kind == syntax::TemporalKind::TimeZone || value.kind == syntax::TemporalKind::ZonedDateTime ||
+                            value.kind == syntax::TemporalKind::ZonedTime) { return std::nullopt; }
+                        return "t:" + std::to_string(static_cast<unsigned>(value.kind)) + ":" + std::to_string(value.micros);
+                    } else { return std::nullopt; }
+                }, constant);
+            }
+
             bool admitted_delta_shape(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
@@ -3853,12 +3881,11 @@ namespace hgl::ir
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
                     admitted = admitted_atomic_value(shape.children.front(), visiting);
                 } else if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
-                    const Type child = type(canonical(shape.children[0]));
-                    admitted = child.kind == TypeKind::Scalar && (child.scalar == ScalarType::Bool || child.scalar == ScalarType::I64);
+                    admitted = admitted_scalar_key(shape.children[0]);
                 } else if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::Map || shape.kind == TypeKind::List) {
                     admitted = shape.kind != TypeKind::List || (shape.size.valid() && !shape.unbounded);
                     if (shape.kind == TypeKind::Map) {
-                        admitted = shape.children.size() == 2U && same(shape.children[0], scalar(ScalarType::I64));
+                        admitted = shape.children.size() == 2U && admitted_scalar_key(shape.children[0]);
                     }
                     for (TypeId child : shape.children) { admitted = admitted && admitted_delta_shape(child, visiting); }
                 } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
@@ -3892,20 +3919,22 @@ namespace hgl::ir
                     Expr &entries = module_.exprs[argument.value.value];
                     const auto *sequence = std::get_if<Sequence>(&entries.node);
                     if (!sequence) { type_error(entries.range, "collection delta requires a literal entry list"); continue; }
-                    TypeId item_type = shape.kind == TypeKind::Set ? shape.children[0] : scalar(ScalarType::I64);
+                    TypeId item_type = shape.kind == TypeKind::Set || shape.kind == TypeKind::Map ? shape.children[0] : scalar(ScalarType::I64);
                     for (const auto &entry : sequence->elements) {
                         ExprId key_id = sparse ? entry.key : entry.value;
                         if (!key_id.valid() || (!sparse && entry.key.valid())) {
                             type_error(entries.range, "delta entry has the wrong sparse form"); continue;
                         }
-                        Expr &key = check_expr(key_id, item_type);
-                        require_assignable(item_type, key, "delta member or index");
-                        if (!key.constant) { type_error(key.range, "delta members, keys and indices must be constants"); }
-                        std::string identity;
+                        Expr &key = check_expr(key_id);
+                        if (!same(item_type, key.type)) { type_error(key.range, "delta key, member or index requires its exact declared type"); }
+                        if (key.phase != Phase::Constant ||
+                            ((shape.kind == TypeKind::List || shape.kind == TypeKind::Tuple) && !key.constant)) {
+                            type_error(key.range, "delta members, keys and indices must be constants");
+                        }
                         if (key.constant) {
-                            if (const auto *integer = std::get_if<std::int64_t>(&*key.constant)) { identity = std::to_string(*integer); }
-                            if (const auto *boolean = std::get_if<bool>(&*key.constant)) { identity = *boolean ? "true" : "false"; }
-                            if (!members.insert(identity).second) { type_error(key.range, "duplicate or overlapping delta member, key or index"); }
+                            if (const auto identity = scalar_key_identity(*key.constant); identity && !members.insert(*identity).second) {
+                                type_error(key.range, "duplicate or overlapping delta member, key or index");
+                            }
                         }
                         if (sparse) {
                             TypeId child;

@@ -1503,3 +1503,36 @@ test identity {
     INFO(result.message);
     CHECK(result.passed);
 }
+
+TEST_CASE("direct scalar keys compare cold values and preserve failure order", "[wiring][scalar-keys]") {
+    Unit accepted{R"(module checks.scalar_keys
+fn forward(value: map<zoned_time, i64>) -> map<zoned_time, i64> => value
+test keys {
+    let a = @09:30[US/Eastern]
+    let b = @09:30[America/New_York]
+    assert eval(forward, [delta<map<zoned_time, i64>>(upsert: [a: 1, b: 2]), _, delta<map<zoned_time, i64>>(remove: [a])]) == [delta<map<zoned_time, i64>>(upsert: [b: 2, a: 1]), _, delta<map<zoned_time, i64>>(remove: [a])]
+})"};
+    const auto passed = only(accepted.tests());
+    INFO(passed.message);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(passed.passed);
+    for (const std::string recipe : {
+        "delta<set<timezone>>(added: [@[UTC], @[UTC]])",
+        "delta<set<zoned_time>>(added: [@09:30[UTC]], removed: [@09:30[UTC]])",
+        "delta<map<timezone, i64>>(upsert: [@[UTC]: 1], remove: [@[UTC]])"
+    }) {
+        Unit duplicate{"module checks.duplicate_keys\nconst fn consume<T>(value: T) -> bool => true\ntest duplicate { assert consume(" + recipe + ") }\n"};
+        const auto result = only(duplicate.tests());
+        INFO(result.message);
+        CHECK_FALSE(result.passed);
+        CHECK(result.message.find("duplicate or overlapping") != std::string::npos);
+    }
+    Unit invalid{R"(module checks.key_order
+const fn consume<T>(value: T) -> bool => true
+test order { assert consume(delta<map<timezone, timezone>>(upsert: [@[Missing/Key]: @[Missing/Payload]])) }
+)"};
+    const auto failed = only(invalid.tests());
+    CHECK_FALSE(failed.passed);
+    CHECK(failed.message.find("Missing/Key") != std::string::npos);
+    CHECK(failed.message.find("Missing/Payload") == std::string::npos);
+}

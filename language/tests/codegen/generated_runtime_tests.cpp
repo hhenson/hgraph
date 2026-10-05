@@ -476,3 +476,27 @@ TEST_CASE("generated public enum markers retain nominal schemas and owning value
         values<Value>(sparse(first), none, sparse(high)))),
         values<Value>(sparse(first), none, sparse(high)));
 }
+
+TEST_CASE("generated scalar keys preserve signed zero and both infinities", "[codegen][runtime][scalar-keys]") {
+    session();
+    const Float infinity = std::numeric_limits<Float>::infinity();
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_float_set, TSS<Float>>(
+        values<Value>(set_delta<Float>({-0.0, infinity, -infinity}, {}), none,
+                      set_delta<Float>({}, {0.0, infinity}), set_delta<Float>({infinity}, {-infinity})))),
+        values<Value>(set_delta<Float>({0.0, -infinity, infinity}, {}), none,
+                      set_delta<Float>({}, {-0.0, infinity}), set_delta<Float>({infinity}, {-infinity})));
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_float_map, TSD<Float, TS<Int>>>(
+        values<Value>(dict_delta<Float, TS<Int>>({{-0.0, 1}, {infinity, 2}, {-infinity, 3}}),
+                      dict_delta<Float, TS<Int>>({{0.0, 1}}), none,
+                      dict_delta<Float, TS<Int>>({}, {-0.0, infinity})))),
+        values<Value>(dict_delta<Float, TS<Int>>({{0.0, 1}, {-infinity, 3}, {infinity, 2}}),
+                      dict_delta<Float, TS<Int>>({{-0.0, 1}}), none,
+                      dict_delta<Float, TS<Int>>({}, {0.0, infinity})));
+}
+
+TEST_CASE("generated scalar map recipes retain exact keys", "[codegen][runtime][scalar-keys]") {
+    session();
+    CHECK_OUTPUT((eval_node<runtime::operators::scalar_string_recipe>(values<Int>(1, none, 2))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"first", 1}, {"second", 2}}), none,
+                      dict_delta<Str, TS<Int>>({{"second", 2}, {"first", 1}})));
+}

@@ -4433,3 +4433,23 @@ export fn atomic_value(value: atomic<list<i64>>) -> bool => forward(value)
     CHECK(contains(emitted->source, "struct forward__specialization_"));
     CHECK_FALSE(contains(emitted->source, "hgraph::wire<forward>"));
 }
+
+TEST_CASE("scalar key recipes retain keys before child payloads", "[codegen][scalar-keys]") {
+    Unit unit{R"(
+module tests.scalar_key_order
+const fn recipe() -> delta<map<timezone, timezone>> => delta<map<timezone, timezone>>(upsert: [@[Missing/Key]: @[Missing/Payload]])
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    const auto key = source.find("hgl::temporal::zone(\"Missing/Key\")");
+    const auto payload = source.find("hgl::temporal::zone(\"Missing/Payload\")");
+    const auto check = source.find("hgl_keys.insert(", key);
+    REQUIRE(key != std::string::npos);
+    REQUIRE(payload != std::string::npos);
+    REQUIRE(check != std::string::npos);
+    CHECK(key < check);
+    CHECK(check < payload);
+    CHECK(source.find("hgl::temporal::zone(\"Missing/Key\")", key + 1) == std::string::npos);
+}

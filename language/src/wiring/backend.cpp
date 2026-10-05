@@ -1311,11 +1311,18 @@ namespace hgl::wiring
                 if (entries == nullptr) { backend(value(id).range, "delta entries require a checked sequence"); }
                 return *entries;
             };
+            std::optional<ordinary::ScalarKeySet> keys;
+            if (shape->kind == hgraph::TSTypeKind::TSS || shape->kind == hgraph::TSTypeKind::TSD || shape->kind == hgraph::TSTypeKind::TSL) {
+                const auto *key_type = shape->kind == hgraph::TSTypeKind::TSS ? shape->value_schema->element_type
+                    : shape->kind == hgraph::TSTypeKind::TSD ? shape->key_type() : standard_types().int_type;
+                keys.emplace(factory.type_for(key_type));
+            }
             const auto make_set = [&](gir::ValueId id, const hgraph::ValueTypeMetaData *element) {
                 hgraph::SetBuilder set{factory.type_for(element)};
                 if (id.valid()) {
                     for (const auto &entry : sequence(id).elements) {
                         Slot item = eval_value(entry.value, frame);
+                        keys->insert(item.value.view());
                         set.insert(convert(item.value, element, item.range, "delta member").view());
                     }
                 }
@@ -1328,6 +1335,7 @@ namespace hgl::wiring
                 if (id.valid()) {
                     for (const auto &entry : sequence(id).elements) {
                         Slot key = eval_value(entry.key, frame);
+                        keys->insert(key.value.view());
                         auto item = eval_delta_literal(child_shape, entry.value, frame);
                         map.set_item(convert(key.value, key_type, key.range, "delta key").view(), child_plan.payload(item.view()));
                     }

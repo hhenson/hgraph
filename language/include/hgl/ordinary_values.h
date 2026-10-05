@@ -7,6 +7,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <span>
 #include <utility>
@@ -43,6 +44,23 @@ namespace hgl::ordinary
         } else { throw std::invalid_argument("unsupported atomic publication payload"); }
         visiting.erase(schema);
     }
+
+    // One owning hash set spans every argument in a delta recipe. This catches
+    // duplicates and overlap after provider-dependent keys become real values.
+    class ScalarKeySet {
+      public:
+        explicit ScalarKeySet(hgraph::ValueTypeRef binding) : binding_{binding}, seen_{binding} {}
+        void insert(const hgraph::ValueView &key) {
+            if (key.schema() != binding_.schema()) { throw std::invalid_argument("delta key requires its exact declared type"); }
+            if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
+                throw std::invalid_argument("NaN collection keys are outside the publication profile");
+            }
+            if (!seen_.insert(key)) { throw std::invalid_argument("duplicate or overlapping delta member, key or index"); }
+        }
+      private:
+        hgraph::ValueTypeRef binding_;
+        hgraph::SetBuilder seen_;
+    };
 
     inline void validate_complete_value(const hgraph::ValueView &value) {
         if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
@@ -83,8 +101,9 @@ namespace hgl::ordinary
                     }
                     break;
                 case hgraph::TSTypeKind::TSS:
-                    if (shape->value_schema->element_type != boolean && shape->value_schema->element_type != integer) {
-                        throw std::invalid_argument("ordinary set deltas require bool or i64 members");
+                    if (!shape->value_schema->element_type->is_enum() &&
+                        std::ranges::find(leaves, shape->value_schema->element_type) == leaves.end()) {
+                        throw std::invalid_argument("ordinary set deltas require scalar members");
                     }
                     break;
                 case hgraph::TSTypeKind::TSL:
@@ -92,7 +111,9 @@ namespace hgl::ordinary
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSD:
-                    if (shape->key_type() != integer) { throw std::invalid_argument("ordinary map deltas require i64 keys"); }
+                    if (!shape->key_type()->is_enum() && std::ranges::find(leaves, shape->key_type()) == leaves.end()) {
+                        throw std::invalid_argument("ordinary map deltas require scalar keys");
+                    }
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSB:

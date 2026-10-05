@@ -3552,7 +3552,7 @@ TEST_CASE("ordinary value extensions preserve delta identity and lexical access"
     const std::vector<std::string> rejected{
         "const fn value() -> i64 { let xs = []\nreturn 1 }\n",
         "const fn value(x: delta<list<i64>>) -> i64 => 1\n",
-        "const fn value(x: delta<map<str, i64>>) -> i64 => 1\n",
+        "const fn value(x: delta<map<tuple<i64, i64>, i64>>) -> i64 => 1\n",
         "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2], remove: [1])\n",
         "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [2: 3])\n",
         "const fn value() -> i64 { let xs: list<i64> = []\npush(xs, 1)\nreturn 1 }\n",
@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<set<i64>>", "ref<i64>", "list<i64>", "map<str, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<i64>>", "ref<i64>", "list<i64>", "map<tuple<i64, i64>, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3864,4 +3864,32 @@ TEST_CASE("enum declarations reject invalid numbering and nominal substitutions"
         if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
         CHECK(unit.diagnostics.has_errors());
     }
+}
+
+TEST_CASE("scalar collection keys require exact types and equality", "[ir][typed][scalar-keys]") {
+    for (const std::string source : {
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [0.0, -0.0])",
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [0.0], removed: [-0.0])",
+        "const fn f() -> delta<map<f64, i64>> => delta<map<f64, i64>>(upsert: [0.0: 1, -0.0: 2])",
+        "const fn f() -> delta<map<f64, i64>> => delta<map<f64, i64>>(upsert: [1: 1])",
+        "const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [1])",
+        "const fn f() -> delta<set<str>> => delta<set<str>>(added: [\"same\", \"same\"])",
+        "const fn f() -> delta<set<datetime>> => delta<set<datetime>>(added: [@2026-01-15T12:30Z, @2026-01-15T13:30+01:00])",
+        "enum E { a }\nenum F { a }\nconst fn f() -> delta<map<E, i64>> => delta<map<E, i64>>(upsert: [F::a: 1])",
+        "enum E { a }\nconst fn f() -> delta<set<E>> => delta<set<E>>(added: [0])",
+        "fn f(key: str) { when { let d = delta<map<str, i64>>(upsert: [key: 1]) } }"
+    }) {
+        Lowered unit{"module checks.scalar_keys\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered accepted{R"(module checks.scalar_keys
+    const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [1.000000000000001, 1.000000000000002])
+    const fn zones() -> delta<set<timezone>> => delta<set<timezone>>(added: [@[US/Eastern], @[America/New_York]])
+    )"};
+    require_clean(accepted);
+    const bool valid = complete(accepted);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(valid);
 }
