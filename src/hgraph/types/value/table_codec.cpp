@@ -134,6 +134,15 @@ namespace hgraph
                   "append zone id");
         }
 
+        [[nodiscard]] std::shared_ptr<arrow::DataType> zoned_time_type()
+        {
+            static const auto type = arrow::struct_({
+                arrow::field("time", arrow::time64(arrow::TimeUnit::MICRO)),
+                arrow::field("zone", arrow::utf8()),
+            });
+            return type;
+        }
+
         [[nodiscard]] std::shared_ptr<arrow::DataType> zoned_datetime_type()
         {
             static const auto type = arrow::struct_({
@@ -239,6 +248,21 @@ namespace hgraph
                         },
                         "append civil date range endpoint");
                 });
+        }
+
+        void append_zoned_time(const Column &, const ValueView &leaf,
+                               arrow::ArrayBuilder &builder)
+        {
+            const auto value = leaf.checked_as<ZonedTime>();
+            auto &structure = static_cast<arrow::StructBuilder &>(builder);
+            check(structure.Append(), "append zoned time");
+            append_with<arrow::Time64Builder>(
+                *structure.field_builder(0),
+                [&] { return value.time().microseconds; },
+                "append zoned wall time");
+            check(static_cast<arrow::StringBuilder &>(*structure.field_builder(1))
+                      .Append(value.zone().name()),
+                  "append zoned time zone id");
         }
 
         void append_zoned_datetime(const Column &, const ValueView &leaf,
@@ -460,6 +484,21 @@ namespace hgraph
                 static_cast<const arrow::StringArray &>(array).GetView(row)}};
         }
 
+        Value read_zoned_time(const Column &, const arrow::Array &array,
+                             std::int64_t row)
+        {
+            const auto &structure = static_cast<const arrow::StructArray &>(array);
+            if (structure.field(0)->IsNull(row) || structure.field(1)->IsNull(row))
+            {
+                throw std::invalid_argument("table codec: zoned time components must be present");
+            }
+            const auto micros =
+                static_cast<const arrow::Time64Array &>(*structure.field(0)).Value(row);
+            const auto zone =
+                static_cast<const arrow::StringArray &>(*structure.field(1)).GetView(row);
+            return Value{ZonedTime{CivilTime{micros}, ZoneId{zone}}};
+        }
+
         Value read_zoned_datetime(const Column &, const arrow::Array &array,
                                   std::int64_t row)
         {
@@ -639,6 +678,7 @@ namespace hgraph
     X(CivilDateTime, arrow::timestamp(arrow::TimeUnit::MICRO), civil_datetime)    \
     X(Period, arrow::month_day_nano_interval(), period)                           \
     X(ZoneId, arrow::utf8(), zone_id)                                             \
+    X(ZonedTime, zoned_time_type(), zoned_time)                                  \
     X(ZonedDateTime, zoned_datetime_type(), zoned_datetime)                       \
     X(InstantRange, instant_range_type(), instant_range)                          \
     X(CivilDateRange, civil_date_range_type(), civil_date_range)                  \
