@@ -3683,6 +3683,7 @@ TEST_CASE("atomic scalar spellings have one canonical identity", "[ir][typed][at
 TEST_CASE("finite atomic publications and generic shape arguments are checked", "[ir][typed][atomic]") {
     const std::vector<std::string> accepted{
         "const fn seed() -> atomic<i64> { return 1 }\n",
+        "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest accepted { eval(value, []) }\n",
         "struct Box<T> { value: T }\nfn value(x: Box<atomic<i64>>) -> Box<i64> => x\n",
         "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { let value = Box(value: [1, 2])\nreturn value }\n",
         "struct Box<T> { value: atomic<list<T>> }\nconst fn sample() -> Box<i64> { Box<i64>(value: []) }\n",
@@ -3710,7 +3711,6 @@ TEST_CASE("finite atomic publications and generic shape arguments are checked", 
         "struct Box<T> { value: T }\nfn value(x: Box<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Mixed<T> { value: T\npublication: delta<T> }\nfn value(x: Mixed<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Unused<T> {}\nfn value(x: Unused<atomic<list<i64>>>) -> i64 => 1\n",
-        "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest bad { eval(value, []) }\n",
         "const fn value(x: delta<atomic<set<tuple<i64, i64>>>>) -> i64 => 1\n",
         "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<tuple<i64, i64>>>) -> atomic<set<tuple<i64, i64>>> => pass(x)\n",
         "struct Publication<T> { value: delta<T> }\nconst fn value() { let x = Publication(value: [1, 2]) }\n"
@@ -3961,6 +3961,17 @@ TEST_CASE("rolling publications retain exact shapes and reject delta constructor
     }) {
         Lowered unit{"module checks.rolling\n" + source + "\n"};
         INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("complete optional snapshots retain required-field and exact-type checks", "[ir][typed][optional]") {
+    for (const std::string constructor : {"Record()", "Record(required: null)",
+        "Record(required: 1, optional: true)", "Record(required: 1, optional: 1.0)"}) {
+        Lowered unit{"module checks.optional\nstruct Record { required: i64\n optional: i64 = null }\n"
+            "const fn value() -> Record => " + constructor + "\n"};
+        INFO(constructor);
         if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
         CHECK(unit.diagnostics.has_errors());
     }

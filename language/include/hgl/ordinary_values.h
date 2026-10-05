@@ -10,6 +10,7 @@
 #include <charconv>
 #include <cmath>
 #include <limits>
+#include <functional>
 #include <span>
 #include <utility>
 #include <unordered_set>
@@ -76,22 +77,26 @@ namespace hgl::ordinary
         hgraph::SetBuilder seen_;
     };
 
-    inline void validate_complete_value(const hgraph::ValueView &value) {
+    using OptionalField = std::function<bool(const hgraph::ValueTypeMetaData *, std::size_t)>;
+
+    inline void validate_complete_value(const hgraph::ValueView &value, const OptionalField &optional = {}) {
         if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
         const auto kind = value.schema()->try_value_kind();
         if (kind == hgraph::ValueTypeKind::Map) {
-            for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); validate_complete_value(child); }
+            for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); validate_complete_value(child, optional); }
         } else if (kind == hgraph::ValueTypeKind::Set) {
             for (const auto key : value.as_set()) { validate_scalar_key(key); }
         } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
             const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
             const auto count = ops->size(ops->context, value.data());
             for (std::size_t index = 0; index < count; ++index) {
-                if (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index)) {
+                const hgraph::ValueView child{ops->element_binding(ops->context, value.data(), index),
+                    ops->element_at(ops->context, value.data(), index)};
+                if (!child.valid() || (ops->element_valid != nullptr && !ops->element_valid(ops->context, value.data(), index))) {
+                    if (kind == hgraph::ValueTypeKind::Bundle && optional && optional(value.schema(), index)) { continue; }
                     throw std::invalid_argument("incomplete atomic publication payload");
                 }
-                validate_complete_value(hgraph::ValueView{ops->element_binding(ops->context, value.data(), index),
-                    ops->element_at(ops->context, value.data(), index)});
+                validate_complete_value(child, optional);
             }
         }
     }

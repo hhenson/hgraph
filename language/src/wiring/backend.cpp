@@ -2901,7 +2901,8 @@ namespace hgl::wiring
                     const ordinary::PreparedDeltaPlan input_plan{parameter_schema};
                     for (std::size_t position = 0; position < inputs.back().size(); ++position) {
                         if (!inputs.back()[position]) { continue; }
-                        try { admission.accept(parameter_schema, input_plan.payload(inputs.back()[position]->view())); }
+                        try { admission.accept(parameter_schema, input_plan.payload(inputs.back()[position]->view()),
+                            [&](const hgraph::ValueTypeMetaData *type, std::size_t field) { return bridge_.optional_field(type, field); }); }
                         catch (const std::exception &error) {
                             fail(Category::Type, range, "eval: input delta outside publication profile for '" + parameter.name +
                                  "' at position " + std::to_string(position) + ": " + error.what());

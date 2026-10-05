@@ -66,6 +66,7 @@ namespace hgl::wiring
         if (generation_ == current) { return; }
         values_.clear();
         schemas_.clear();
+        presence_contracts_.clear();
         // The memos hold registry pointers, so a reset invalidates them along
         // with everything else this bridge cached.
         realized_.clear();
@@ -77,6 +78,12 @@ namespace hgl::wiring
             registry_.enum_type(contract.identity, members);
         }
         generation_ = registry_.reset_generation();
+    }
+
+    bool TypeBridge::optional_field(const hgraph::ValueTypeMetaData *type, std::size_t index) const {
+        const auto found = presence_contracts_.find(type);
+        return found != presence_contracts_.end() && index < found->second->fields.size() &&
+               found->second->fields[index].optional;
     }
 
     void TypeBridge::report(syntax::SourceRange range, std::string message) {
@@ -333,6 +340,7 @@ namespace hgl::wiring
             if (described == nullptr) { return nullptr; }
             if (described != declared) { return disagrees("field '" + field.name + "'"); }
         }
+        presence_contracts_[existing] = specialization.contract;
         return existing;
     }
 
@@ -354,8 +362,10 @@ namespace hgl::wiring
         }
 
         try {
-            return registry_.bundle(specialization.module_name, specialization.local_name, fields, parents,
+            const auto *meta = registry_.bundle(specialization.module_name, specialization.local_name, fields, parents,
                                     specialization.contract->abstract, "__type__", specialization.generic_types);
+            presence_contracts_[meta] = specialization.contract;
+            return meta;
         } catch (const std::exception &error) {
             report(range, "cannot register struct '" + specialization.local_name + "': " + error.what());
             return nullptr;

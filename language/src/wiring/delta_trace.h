@@ -11,11 +11,12 @@ namespace hgl::wiring {
     // retained: only owning exact keys and recursively unchanged child state matter.
     class DeltaTrace {
       public:
-        void accept(const hgraph::TSValueTypeMetaData *shape, const hgraph::ValueView &native) {
+        void accept(const hgraph::TSValueTypeMetaData *shape, const hgraph::ValueView &native,
+                    const ordinary::OptionalField &optional = {}) {
             using namespace hgraph;
             switch (shape->kind) {
                 case TSTypeKind::TS:
-                case TSTypeKind::TSW: ordinary::validate_complete_value(native); return;
+                case TSTypeKind::TSW: ordinary::validate_complete_value(native, optional); return;
                 case TSTypeKind::TSS: {
                     const auto parts = native.as_bundle();
                     const auto added = parts.at(0).as_set();
@@ -60,7 +61,7 @@ namespace hgl::wiring {
                             if (static_cast<std::uint64_t>(it->first) >= retained) { it = children_.erase(it); }
                             else { ++it; }
                         }
-                        for (const auto [key, child] : modified) { children_[key.checked_as<Int>()].accept(shape->element_ts(), child); }
+                        for (const auto [key, child] : modified) { children_[key.checked_as<Int>()].accept(shape->element_ts(), child, optional); }
                         length_ = next_length;
                         return;
                     }
@@ -70,7 +71,7 @@ namespace hgl::wiring {
                         const auto index = key.checked_as<Int>();
                         require(index >= 0 && static_cast<std::uint64_t>(index) < shape->value_schema->fixed_size,
                                 "fixed-list index outside its extent");
-                        children_[index].accept(shape->element_ts(), child);
+                        children_[index].accept(shape->element_ts(), child, optional);
                     }
                     return;
                 }
@@ -80,7 +81,7 @@ namespace hgl::wiring {
                     for (std::size_t i = 0; i < shape->field_count(); ++i) {
                         if (!entries.element_valid(i)) { continue; }
                         any = true;
-                        children_[static_cast<Int>(i)].accept(shape->fields()[i].type, entries.at(i));
+                        children_[static_cast<Int>(i)].accept(shape->fields()[i].type, entries.at(i), optional);
                     }
                     require(any, "empty bundle publication");
                     return;
@@ -97,7 +98,7 @@ namespace hgl::wiring {
                         require(!modified.contains(key), "overlapping map key changes");
                     }
                     for (const auto key : removed) { keyed_children_.erase(keyed_children_.find(key)); }
-                    for (const auto [key, child] : modified) { keyed_children_[Value{key}].accept(shape->element_ts(), child); }
+                    for (const auto [key, child] : modified) { keyed_children_[Value{key}].accept(shape->element_ts(), child, optional); }
                     return;
                 }
                 default: throw std::invalid_argument("unsupported publication shape");

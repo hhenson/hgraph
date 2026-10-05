@@ -1353,3 +1353,33 @@ TEST_CASE("zoned time cold literals validate names without date resolution", "[w
     CHECK(retained.view().checked_as<hgraph::ZonedTime>() == first);
     CHECK(provider.contains_calls == 3);
 }
+
+TEST_CASE("atomic preflight distinguishes optional and required source fields", "[wiring][optional]") {
+    Unit unit{R"(module checks.optional_contract
+struct Record { required: i64
+    absent: i64 = null }
+fn consume(value: atomic<Record>) -> atomic<Record> => value
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto parameter = unit.parameter("consume", "value");
+    const auto *schema = bridge.schema(parameter)->value_schema;
+    CHECK_FALSE(bridge.optional_field(schema, 0));
+    CHECK(bridge.optional_field(schema, 1));
+    {
+        const hgl::ordinary::PreparedValuePlan plan{schema};
+        const auto empty = plan.bundle({});
+        const hgraph::Value one{hgraph::Int{1}};
+        const std::array fields{std::pair<std::size_t, hgraph::ValueView>{0, one.view()}};
+        const auto present = plan.bundle(fields);
+        const auto optional = [&](const hgraph::ValueTypeMetaData *type, std::size_t index) { return bridge.optional_field(type, index); };
+        CHECK_THROWS_AS(hgl::ordinary::validate_complete_value(empty.view(), optional), std::invalid_argument);
+        CHECK_NOTHROW(hgl::ordinary::validate_complete_value(present.view(), optional));
+        CHECK_THROWS_AS(hgl::ordinary::validate_complete_value(present.view()), std::invalid_argument);
+    }
+    hgraph::reset_all_registries();
+    schema = bridge.schema(parameter)->value_schema;
+    CHECK_FALSE(bridge.optional_field(schema, 0));
+    CHECK(bridge.optional_field(schema, 1));
+}

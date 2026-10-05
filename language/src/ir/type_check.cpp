@@ -3847,7 +3847,7 @@ namespace hgl::ir
                         const auto fields = structure ? structure->fields : imported->fields;
                         for (const auto &field : fields) {
                             const auto field_type = constraint_solver_.field_type({}, id, field.name);
-                            admitted = admitted && !field.optional && !field.recursive && field_type &&
+                            admitted = admitted && !field.recursive && field_type &&
                                        admitted_atomic_value(*field_type, visiting);
                         }
                     }

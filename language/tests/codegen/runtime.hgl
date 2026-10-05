@@ -612,3 +612,13 @@ export fn rolling_duration_ready(value: rolling<i64, 5us, 1us>) -> bool {
 }
 export fn rolling_observed_ticks(value: rolling<i64, 2, 2>) -> bool => rolling_ticks_ready(rolling_ticks_forward(value))
 export fn rolling_observed_duration(value: rolling<i64, 5us, 1us>) -> bool => rolling_duration_ready(rolling_duration_forward(value))
+
+struct NativeOptionalPublication { count: i64 = null
+    items: list<i64> = null }
+export fn optional_publication_source(trigger: i64) -> atomic<NativeOptionalPublication> {
+    when {
+        if trigger == 1 { return NativeOptionalPublication(count: 0, items: []) }
+        return NativeOptionalPublication()
+    }
+}
+export fn optional_publication_forward(value: atomic<NativeOptionalPublication>) -> atomic<NativeOptionalPublication> => enum_generic_forward(value)

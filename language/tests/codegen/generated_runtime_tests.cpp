@@ -636,3 +636,21 @@ TEST_CASE("generated rolling publication forwards arrivals before readiness", "[
     CHECK_OUTPUT((eval_node<runtime::operators::rolling_observed_duration, TSWDuration<Int, 5, 1>>(duration_arrivals)),
         values<Bool>(false, none, true, none, none, none, none, none, false));
 }
+
+TEST_CASE("generated complete optional snapshots replace field presence", "[codegen][runtime][optional]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::optional_publication_source>(values<Int>(1, 2, 2, 1));
+    REQUIRE(recorded.size() == 4);
+    for (const auto &value : recorded) { REQUIRE(value); }
+    const auto present = recorded[0]->as_bundle();
+    CHECK(present.field("count").checked_as<Int>() == 0);
+    CHECK(present.field("items").as_list().empty());
+    for (std::size_t i : {1U, 2U}) {
+        CHECK_FALSE(recorded[i]->as_bundle().element_valid(0));
+        CHECK_FALSE(recorded[i]->as_bundle().element_valid(1));
+    }
+    CHECK(recorded[0]->equals(*recorded[3]));
+    CHECK_FALSE(recorded[0]->equals(*recorded[1]));
+    using Payload = runtime::NativeOptionalPublication::value_type;
+    CHECK_OUTPUT((eval_node<runtime::operators::optional_publication_forward, TS<Payload>>(recorded)), recorded);
+}
