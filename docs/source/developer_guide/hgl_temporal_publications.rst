@@ -1,5 +1,5 @@
 HGL temporal scalar publications
-===============================
+================================
 
 The HGL publication profile admits eleven scalar leaves: ``bool``, ``i64``,
 ``f64``, ``str``, ``date``, ``time``, ``datetime``, ``duration``,
