@@ -534,3 +534,29 @@ TEST_CASE("generated map defaults retain the type of empty nested lists", "[code
     CHECK(child.as_list().empty());
     CHECK(child.schema() == scalar_descriptor<hgl::ordinary::List<Int>>::value_meta());
 }
+
+TEST_CASE("prepared key aliases never repeat provider construction", "[codegen][runtime][prepared-keys]") {
+    struct CountingProvider final : TimeZoneProvider {
+        std::shared_ptr<const TimeZoneProvider> underlying{make_time_zone_provider()};
+        mutable std::size_t contains_calls{};
+        std::string_view version() const noexcept override { return underlying->version(); }
+        bool contains(ZoneId zone) const noexcept override { ++contains_calls; return underlying->contains(zone); }
+        OffsetInfo at(Instant instant, ZoneId zone) const override { return underlying->at(instant, zone); }
+        LocalResolution resolve(CivilDateTime local, ZoneId zone) const override { return underlying->resolve(local, zone); }
+    };
+    session();
+    GlobalState state;
+    auto provider = std::make_shared<CountingProvider>();
+    set_time_zone_provider(state.view(), provider);
+    GlobalContext context{state};
+    auto retained = runtime::hgl_values::prepared_zone_key_recipe_hgl_value();
+    REQUIRE(provider->contains_calls == 1);
+    const auto payload = retained.as_bundle().at(0);
+    Value copied{payload};
+    CHECK_OUTPUT((eval_node<runtime::operators::prepared_zone_key_forward, TSD<ZoneId, TS<ZoneId>>>(values<Value>(copied, none, copied))),
+        values<Value>(copied, none, copied));
+    CHECK(provider->contains_calls == 1);
+    auto another = runtime::hgl_values::prepared_zone_key_recipe_hgl_value();
+    CHECK(provider->contains_calls == 2);
+    CHECK(another.equals(retained));
+}

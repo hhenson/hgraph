@@ -11,6 +11,10 @@ one identity for positive and negative floating zero. Provider-dependent keys
 remain cold recipes. Both backends materialize each key once, before its child
 payload, and check one owning hash set across all arguments in the constructor.
 This rejects duplicate keys and addition/removal overlap before target start.
+Immutable ordinary local aliases reuse their retained key values, including
+alias chains. Reusing an alias for a key, payload, or replay does not repeat its
+provider-dependent initializer. Mutable and temporal bindings remain outside
+the sparse-key constant grammar.
 The prepared runtime storage uses the existing scalar hash and equality ops;
 no ordering requirement or string conversion is introduced.
 

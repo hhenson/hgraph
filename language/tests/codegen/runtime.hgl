@@ -556,3 +556,11 @@ export fn atomic_collection_default(trigger: i64) -> atomic<RuntimeCollections> 
         return retained
     }
 }
+
+const fn prepared_zone_key_recipe() -> delta<map<timezone, timezone>> {
+    let original: timezone = @[UTC]
+    let alias: timezone = original
+    let retained: timezone = alias
+    return delta<map<timezone, timezone>>(upsert: [alias: retained])
+}
+export fn prepared_zone_key_forward(value: map<timezone, timezone>) -> map<timezone, timezone> => enum_generic_forward(value)

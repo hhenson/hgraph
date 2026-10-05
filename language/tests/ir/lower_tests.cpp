@@ -3922,3 +3922,18 @@ test empty { assert eval(value, [Snapshot()]) == [Snapshot(tags: set<str>(items:
     INFO(accepted.diagnostics.render(accepted.file));
     CHECK(valid);
 }
+
+TEST_CASE("sparse key aliases exclude mutable and temporal bindings", "[ir][typed][prepared-keys]") {
+    for (const std::string body : {
+        "var original: timezone = @[UTC]\nreturn delta<set<timezone>>(added: [original])",
+        "var original: timezone = @[UTC]\nlet alias = original\nreturn delta<set<timezone>>(added: [alias])",
+        "var original: i64 = 1\nreturn delta<set<i64>>(added: [original])"
+    }) {
+        const std::string shape = body.find("i64") != std::string::npos ? "i64" : "timezone";
+        Lowered unit{"module checks.prepared_keys\nconst fn recipe() -> delta<set<" + shape + ">> {\n" + body + "\n}\n"};
+        INFO(body);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.render(unit.file).find("must be constants") != std::string::npos);
+    }
+}
