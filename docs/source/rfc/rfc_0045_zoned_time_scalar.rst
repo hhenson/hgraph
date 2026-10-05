@@ -48,6 +48,12 @@ retain their existing identifiers and bytes. This additive scalar does not
 change existing C++ layouts or semantics. Separately built consumers compile
 against the updated installed SDK.
 
+The table codec stores ``ZonedTime`` as an Arrow struct with ``time``
+(``time64[us]``) and ``zone`` (UTF-8 exact name). A null struct is absent;
+a present struct requires both components and a valid wall-clock time.
+Reading re-interns the zone name without date resolution or TZDB-version
+matching, as for ``ZoneId`` transport. Both table writers use this encoding.
+
 HGL admits this leaf at top level and recursively through its existing finite
 structural and atomic publication profile. ``delta<zoned_time>`` and
 ``atomic<zoned_time>`` normalize to ``zoned_time``. Existing collection key,
