@@ -30,7 +30,7 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
-        if (std::ranges::find(leaves, schema) != leaves.end()) { return; }
+        if (schema->is_enum() || std::ranges::find(leaves, schema) != leaves.end()) { return; }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {

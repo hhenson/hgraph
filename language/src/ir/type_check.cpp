@@ -67,6 +67,9 @@ namespace hgl::ir
                 check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
+                for (DeclarationId declaration : module_.source_order) {
+                    if (std::holds_alternative<EnumDecl>(module_.declaration(declaration).node)) { check_enum(declaration); }
+                }
                 select_native_implementations();
                 if (diagnostics_.has_errors()) { return false; }
                 check_instantiations();
@@ -81,6 +84,31 @@ namespace hgl::ir
             }
 
           private:
+            void check_enum(DeclarationId id) {
+                auto &enumeration = std::get<EnumDecl>(module_.declarations[id.value].node);
+                if (enumeration.members.empty()) { type_error(module_.declaration(id).range, "an enum requires at least one member"); }
+                std::unordered_set<std::int64_t> numbers;
+                std::optional<std::int64_t> previous;
+                for (auto &member : enumeration.members) {
+                    if (member.value.valid()) {
+                        const auto &value = check_expr(member.value);
+                        const auto *number = value.constant ? std::get_if<std::int64_t>(&*value.constant) : nullptr;
+                        if (!number) { type_error(value.range, "enum member number must be an i64 constant"); continue; }
+                        member.number = *number;
+                    } else if (previous) {
+                        if (*previous == INT64_MAX) {
+                            type_error(module_.declaration(id).range, "automatic enum member number overflows i64");
+                            continue;
+                        }
+                        member.number = *previous + 1;
+                    }
+                    if (!numbers.insert(member.number).second) {
+                        type_error(module_.declaration(id).range, "duplicate enum member number");
+                    }
+                    previous = member.number;
+                }
+            }
+
             bool same_native_contract(const NativeFunction &contract, const NativeFunction &implementation) {
                 if (contract.identity != implementation.identity || contract.execution_role != implementation.execution_role ||
                     contract.throws != implementation.throws || contract.parameters.size() != implementation.parameters.size() ||
@@ -1575,6 +1603,17 @@ namespace hgl::ir
                         expression.phase      = Phase::Constant;
                         expression.value_kind = ValueKind::Function;
                         break;
+                    case SymbolKind::EnumMember: {
+                        const auto &declaration = module_.declaration(symbol.owner);
+                        const auto &enumeration = std::get<EnumDecl>(declaration.node);
+                        const auto &member = enumeration.members.at(symbol.index);
+                        expression.type = make_type(TypeKind::Symbol, {}, declaration.symbol);
+                        expression.phase = Phase::Constant;
+                        expression.value_kind = ValueKind::Constant;
+                        expression.constant = Constant{EnumValue{module_.symbol(declaration.symbol).canonical_name, member.number}};
+                        break;
+                    }
+                    case SymbolKind::Enum:
                     case SymbolKind::Struct:
                     // A struct another module exports names a type exactly as a
                     // local one does (ADR 0013); only its declaration lives
@@ -3773,7 +3812,8 @@ namespace hgl::ir
                 const Type shape = type(id);
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
-                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                    (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
                     return admitted_atomic_value(shape.children.front(), visiting);
                 }
@@ -3806,7 +3846,8 @@ namespace hgl::ir
                 const Type shape = type(id);
                 if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
-                    module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
+                    (module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter ||
+                     module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }
                 bool admitted = false;
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {

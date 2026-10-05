@@ -272,6 +272,12 @@ namespace hgl::descriptor
                         out << "            \"kind\": \"str\",\n            \"value\": ";
                         quote_json(out, value);
                         out << '\n';
+                    } else if constexpr (std::is_same_v<T, ir::hir::EnumValue>) {
+                        out << "            \"kind\": \"enum\",\n            \"identity\": ";
+                        quote_json(out, value.identity);
+                        out << ",\n            \"value\": ";
+                        quote_json(out, std::to_string(value.number));
+                        out << '\n';
                     } else {
                         out << "            \"kind\": ";
                         quote_json(out, syntax::temporal_kind_name(value.kind));

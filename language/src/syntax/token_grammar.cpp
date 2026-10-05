@@ -58,7 +58,7 @@ namespace hgl::syntax
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
-                         TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs,
+                         TokenKind::KwCpp, TokenKind::KwStruct, TokenKind::KwEnum, TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs,
                          TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState, TokenKind::KwCache, TokenKind::KwInject, TokenKind::KwReturn,
                          TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop,
                          TokenKind::KwFor, TokenKind::KwWhile, TokenKind::KwYield, TokenKind::KwTest, TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue,
@@ -747,6 +747,23 @@ namespace hgl::syntax
                                                    dsl::trailing_sep(dsl::p<comma_separator>));
         };
 
+        struct enum_member
+        {
+            static constexpr auto rule = dsl::p<name> >>
+                dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::p<expression>);
+        };
+
+        struct enum_decl
+        {
+            static constexpr auto rule =
+                dsl::peek(dsl::opt(token<TokenKind::KwExport>) + token<TokenKind::KwEnum>) >>
+                dsl::opt(token<TokenKind::KwExport>) + token<TokenKind::KwEnum> + dsl::p<name> +
+                dsl::p<newlines> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                dsl::if_(dsl::list(dsl::peek(dsl::p<name>) >> dsl::p<enum_member>,
+                                  dsl::trailing_sep(dsl::p<comma_separator>))) +
+                dsl::p<newlines> + token<TokenKind::RBrace>;
+        };
+
         struct struct_member
         {
             static constexpr auto rule =
@@ -810,12 +827,12 @@ namespace hgl::syntax
         {
             static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
                                          dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<instantiate_decl> |
-                                         dsl::p<struct_decl> | dsl::p<test_context> | dsl::p<test_decl>;
+                                         dsl::p<struct_decl> | dsl::p<enum_decl> | dsl::p<test_context> | dsl::p<test_decl>;
         };
 
         inline constexpr auto declaration_start =
             token<TokenKind::KwUse> / token<TokenKind::KwCpp> / contextual<ContextToken::Native> / token<TokenKind::KwFn> /
-            token<TokenKind::KwOperator> / token<TokenKind::KwInstantiate> / token<TokenKind::KwStruct> / token<TokenKind::KwTest> /
+            token<TokenKind::KwOperator> / token<TokenKind::KwInstantiate> / token<TokenKind::KwStruct> / token<TokenKind::KwEnum> / token<TokenKind::KwTest> /
             token<TokenKind::KwExport> / token<TokenKind::KwImpl> / token<TokenKind::KwAbstract>;
 
         struct declaration_line

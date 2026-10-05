@@ -457,6 +457,11 @@ namespace hgl::syntax
                 require(tokens.size() == 1, "unary expression contains multiple operators");
                 const Token &token = source_token(tokens.front());
                 require(token.kind == TokenKind::Minus || token.kind == TokenKind::Bang, "invalid unary operator");
+                const auto descendants = descendant_tokens(semantic_child(id));
+                if (token.kind == TokenKind::Minus && descendants.size() == 1 &&
+                    source_token(descendants.front()).minimum_magnitude) {
+                    return module_.add(ast::Expr{node(id).range, ast::IntLiteral{INT64_MIN}});
+                }
                 const ast::ExprId  operand = project_expression(semantic_child(id));
                 const ast::UnaryOp op      = token.kind == TokenKind::Minus ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
                 return module_.add(ast::Expr{token.range.join(module_.expr(operand).range), ast::Unary{op, operand}});
@@ -517,7 +522,11 @@ namespace hgl::syntax
             [[nodiscard]] ast::ExprId project_literal(SyntaxTokenId id) {
                 const Token &token = source_token(id);
                 switch (token.kind) {
-                    case TokenKind::IntLiteral: return module_.add(ast::Expr{token.range, ast::IntLiteral{token.int_value}});
+                    case TokenKind::IntLiteral:
+                        if (token.minimum_magnitude) {
+                            diagnostics_.report(Category::Parse, token.range, "integer is out of range for i64");
+                        }
+                        return module_.add(ast::Expr{token.range, ast::IntLiteral{token.int_value}});
                     case TokenKind::FloatLiteral: return module_.add(ast::Expr{token.range, ast::FloatLiteral{token.float_value}});
                     case TokenKind::StringLiteral:
                         return module_.add(ast::Expr{token.range, ast::StringLiteral{token.string_value}});
@@ -1105,6 +1114,7 @@ namespace hgl::syntax
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
                     case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
+                    case SyntaxKind::EnumDecl: return project_enum_decl(declaration);
                     case SyntaxKind::TestDecl: return project_test_decl(declaration);
                     default: malformed("invalid declaration production");
                 }
@@ -1251,6 +1261,21 @@ namespace hgl::syntax
                         argument.name = {};
                     }
                     result.entries.push_back(std::move(entry));
+                }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_enum_decl(SyntaxNodeId id) {
+                ast::EnumDecl result;
+                result.exported = !child_tokens(id, TokenKind::KwExport).empty();
+                result.name = direct_names(id, "an enum name").front();
+                for (const SyntaxNodeId member : child_nodes(id, SyntaxKind::EnumMember)) {
+                    ast::EnumMember item;
+                    item.name = direct_names(member, "an enum member name").front();
+                    if (const auto value = find_child(member, SyntaxKind::Expression)) {
+                        item.value = project_expression(*value);
+                    }
+                    result.members.push_back(std::move(item));
                 }
                 return ast::Decl{node(id).range, std::move(result)};
             }

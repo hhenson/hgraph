@@ -3805,3 +3805,63 @@ TEST_CASE("typed locals fix ordinary and temporal categories", "[ir][typed][loca
         CHECK_FALSE(lowered.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("declared enums keep nominal identity and checked signed numbering", "[ir][typed][enum]") {
+    Lowered unit{R"(module checks.enums
+    enum Mode { low = -9223372036854775808, first = -7, next, high = 9223372036854775807, reset = 9 }
+    const fn member() -> Mode => Mode::next
+    fn identity(value: delta<atomic<Mode>>) -> Mode => value
+    test admitted { eval(identity, [_, Mode::low, Mode::next, Mode::high]) }
+    )"};
+    require_clean(unit);
+    const bool valid = complete(unit);
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(valid);
+    const hir::EnumDecl *enumeration = nullptr;
+    for (const auto &declaration : unit.hir.declarations) {
+        if (const auto *item = std::get_if<hir::EnumDecl>(&declaration.node)) { enumeration = item; }
+    }
+    REQUIRE(enumeration);
+    REQUIRE(enumeration->members.size() == 5);
+    CHECK(enumeration->members[0].number == INT64_MIN);
+    CHECK(enumeration->members[2].number == -6);
+    CHECK(enumeration->members[3].number == INT64_MAX);
+    CHECK(enumeration->members[4].number == 9);
+    bool found = false;
+    for (const auto &expression : unit.hir.exprs) {
+        if (!expression.constant) { continue; }
+        if (const auto *value = std::get_if<hir::EnumValue>(&*expression.constant)) {
+            CHECK(value->identity == "checks.enums.Mode");
+            found = true;
+        }
+    }
+    CHECK(found);
+}
+
+TEST_CASE("enum declarations reject invalid numbering and nominal substitutions", "[ir][typed][enum]") {
+    for (const std::string source : {
+        "enum E {}",
+        "export enum E { a }",
+        "use hgraph.std as E\nenum E { a }",
+        "enum E { a }\nenum F { a }\nconst fn f() -> bool => E::a == F::a",
+        "enum E { a }\nconst fn f() -> bool => E::a == 0",
+        "enum E { a, a }",
+        "enum E { a = 0, b = 0 }",
+        "enum E { a = 1, b, c = 2 }",
+        "enum E { a = 9223372036854775808 }",
+        "enum E { a = -9223372036854775809 }",
+        "enum E { a = 9223372036854775807, b }",
+        "enum E { a = 1.0 }",
+        "enum E { a }\nconst fn f() -> E => E::missing",
+        "enum E { a }\nconst fn f() -> E => a",
+        "enum E { a }\nconst fn f() -> E => 0",
+        "enum E { a }\nenum F { a }\nconst fn f() -> E => F::a",
+        "enum E { a }\nconst fn f() -> i64 => E::a",
+        "enum E { a }\nconst fn f() -> E<i64> => E::a"
+    }) {
+        Lowered unit{"module checks.invalid_enum\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}

@@ -129,7 +129,15 @@ namespace hgl::semantics
                     const ast::Decl &decl       = module_.decl(id);
                     const bool       test_scope = decl.test_only || std::holds_alternative<ast::TestDecl>(decl.node);
                     test_scope_active_          = test_scope;
-                    if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
+                    if (const auto *enumeration = std::get_if<ast::EnumDecl>(&decl.node)) {
+                        if (enumeration->exported) {
+                            report(Category::Module, decl.range, "enum source-module export/import is not yet supported");
+                        }
+                        Context context{};
+                        for (const auto &member : enumeration->members) {
+                            if (member.value != ast::no_node) { resolve_expr(member.value, context); }
+                        }
+                    } else if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         resolve_function(id, *fn);
@@ -210,6 +218,22 @@ namespace hgl::semantics
                         binding.kind = BindingKind::Struct;
                         binding.decl = id;
                         declare(structure->name, binding, "in the module");
+                    } else if (const auto *enumeration = std::get_if<ast::EnumDecl>(&decl.node)) {
+                        Binding binding;
+                        binding.kind = BindingKind::Enum;
+                        binding.decl = id;
+                        declare(enumeration->name, binding, "in the module");
+                        for (const auto &alias : result_.aliases) {
+                            if (alias.alias == enumeration->name.text) {
+                                report(Category::Name, enumeration->name.range, "enum name conflicts with a module alias");
+                            }
+                        }
+                        std::unordered_set<std::string_view> names;
+                        for (const auto &member : enumeration->members) {
+                            if (!names.insert(member.name.text).second) {
+                                report(Category::Name, member.name.range, "duplicate enum member name");
+                            }
+                        }
                     }
                 }
                 // Operators share the value namespace with exact functions
@@ -1262,6 +1286,18 @@ namespace hgl::semantics
             }
 
             void resolve_qualified(ast::ExprId id, const ast::QualifiedRef &ref) {
+                if (const auto binding = lookup(ref.qualifier.text); binding && binding->kind == BindingKind::Enum) {
+                    const auto &enumeration = std::get<ast::EnumDecl>(module_.decl(binding->decl).node);
+                    for (std::size_t i = 0; i < enumeration.members.size(); ++i) {
+                        if (enumeration.members[i].name.text != ref.name.text) { continue; }
+                        result_.bindings[id] = *binding;
+                        result_.bindings[id].kind = BindingKind::EnumMember;
+                        result_.bindings[id].index = static_cast<std::uint32_t>(i);
+                        return;
+                    }
+                    report(Category::Name, ref.name.range, "unknown enum member '" + std::string{ref.name.text} + "'");
+                    return;
+                }
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
                     if (const auto *contract = catalog_.find_operator(alias.module, ref.name.text)) {
@@ -1356,7 +1392,7 @@ namespace hgl::semantics
                 if (binding->kind == BindingKind::Generic && is_const_generic(*binding)) {
                     report(Category::Type, argument.name.range,
                            "type generic '" + std::string{parameter.name.text} + "' takes a type argument");
-                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct) {
+                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum) {
                     report(Category::Type, argument.name.range, "'" + std::string{argument.name.text} + "' is not a type");
                 } else if (binding->kind == BindingKind::Struct && !generics_of(binding->decl).empty()) {
                     report(Category::Type, argument.name.range,
@@ -1398,7 +1434,7 @@ namespace hgl::semantics
                         report(Category::Type, argument.name.range,
                                "const generic '" + parameter.name + "' takes a const value argument");
                     }
-                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct &&
+                } else if (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum &&
                            binding->kind != BindingKind::ImportedStruct) {
                     // A value name is not a type: the local path refuses it, so
                     // an imported application must too, or it binds an invalid
@@ -1562,11 +1598,11 @@ namespace hgl::semantics
                             result_.type_bindings[id] = *binding;
                         }
                     } else if (!binding ||
-                               (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct)) {
+                               (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Struct && binding->kind != BindingKind::Enum)) {
                         report(Category::Type, type.name.range, "unknown type '" + std::string{type.name.text} + "'");
                     } else {
                         result_.type_bindings[id] = *binding;
-                        if (binding->kind == BindingKind::Generic) {
+                        if (binding->kind == BindingKind::Generic || binding->kind == BindingKind::Enum) {
                             if (!type.arguments.empty()) {
                                 report(Category::Type, type.range, "a type parameter cannot be applied as a generic struct");
                             }

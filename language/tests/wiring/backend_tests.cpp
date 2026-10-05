@@ -1483,3 +1483,23 @@ test ordered { target(@[Missing/First]) }
     CHECK_FALSE(result.passed);
     CHECK(result.message.find("Missing/First") != std::string::npos);
 }
+
+TEST_CASE("direct enum publications preserve nominal members and nested deltas", "[wiring][enum]") {
+    Unit unit{R"(
+module tests.enum_publications
+enum Mode { low = -9223372036854775808, first = -7, next, high = 9223372036854775807 }
+struct Snapshot { mode: Mode = Mode::first }
+fn scalar(value: Mode) -> Mode => value
+fn fixed(value: list<Mode, 2>) -> list<Mode, 2> => value
+fn snapshot(value: atomic<Snapshot>) -> atomic<Snapshot> => value
+test identity {
+    assert eval(scalar, [_, Mode::low, Mode::low, _, Mode::first, Mode::next, Mode::high]) == [_, Mode::low, Mode::low, _, Mode::first, Mode::next, Mode::high]
+    assert eval(fixed, [delta<list<Mode, 2>>(items: [1: Mode::first]), _, delta<list<Mode, 2>>(items: [1: Mode::high])]) == [delta<list<Mode, 2>>(items: [1: Mode::first]), _, delta<list<Mode, 2>>(items: [1: Mode::high])]
+    assert eval(snapshot, [Snapshot(), _, Snapshot(mode: Mode::high)]) == [Snapshot(mode: Mode::first), _, Snapshot(mode: Mode::high)]
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}

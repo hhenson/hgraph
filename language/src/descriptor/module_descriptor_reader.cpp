@@ -708,6 +708,17 @@ namespace hgl::descriptor
                     out = std::move(text);
                     return true;
                 }
+                if (kind == "enum") {
+                    std::string identity;
+                    if (!required_string(fields, "identity", path, identity) || identity.empty()) { return false; }
+                    std::int64_t number{};
+                    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), number);
+                    if (error != std::errc{} || end != text.data() + text.size()) {
+                        return fail(member_path(path, "value"), "invalid enum member number");
+                    }
+                    out = ir::hir::EnumValue{identity, number};
+                    return true;
+                }
                 if (kind == "i64") {
                     std::int64_t decoded{};
                     const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), decoded);

@@ -416,7 +416,9 @@ namespace hgl::ir
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
-                        if constexpr (std::is_same_v<T, ast::StructDecl>) {
+                        if constexpr (std::is_same_v<T, ast::EnumDecl>) {
+                            for (const auto &member : node.members) { mark_expr(member.value, declaration); }
+                        } else if constexpr (std::is_same_v<T, ast::StructDecl>) {
                             mark_generics(node.generics, declaration);
                             for (ast::TypeId parent : node.parents) { mark_type(parent, declaration); }
                             mark_constraint(node.requirements, declaration);
@@ -484,6 +486,9 @@ namespace hgl::ir
                             if constexpr (std::is_same_v<T, ast::ModuleDecl>) {
                                 declaration_symbols_[declaration] = add_symbol(hir::SymbolKind::Module, join_path(node.path),
                                                                                module_.decl(declaration).range, declaration);
+                            } else if constexpr (std::is_same_v<T, ast::EnumDecl>) {
+                                declaration_symbols_[declaration] = add_symbol(hir::SymbolKind::Enum, node.name.text, node.name.range, declaration, 0, {}, result_.path + "." + std::string{node.name.text});
+                                global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
                             } else if constexpr (std::is_same_v<T, ast::StructDecl>) {
                                 declaration_symbols_[declaration] =
                                     add_symbol(hir::SymbolKind::Struct, node.name.text, node.name.range, declaration);
@@ -1200,6 +1205,9 @@ namespace hgl::ir
                         lower_imported_closure(structure, symbol, range);
                         return symbol;
                     }
+                    case BindingKind::EnumMember:
+                        return add_symbol(hir::SymbolKind::EnumMember, spelling, range, binding.decl, binding.index);
+                    case BindingKind::Enum:
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
@@ -1259,7 +1267,7 @@ namespace hgl::ir
                     if (kind == hir::SymbolKind::ConstParameter) {
                         value_kind = hir::ValueKind::Constant;
                         phase      = hir::Phase::Constant;
-                    } else if (kind == hir::SymbolKind::TypeParameter || kind == hir::SymbolKind::Struct) {
+                    } else if (kind == hir::SymbolKind::TypeParameter || kind == hir::SymbolKind::Struct || kind == hir::SymbolKind::Enum) {
                         value_kind = hir::ValueKind::Type;
                     }
                 }
@@ -1677,6 +1685,13 @@ namespace hgl::ir
                                 result_.cpp_includes.push_back(node.spelling);
                             }
                             target.node = hir::CppIncludeDecl{node.spelling};
+                        } else if constexpr (std::is_same_v<T, ast::EnumDecl>) {
+                            hir::EnumDecl enumeration;
+                            enumeration.exported = node.exported;
+                            for (const auto &member : node.members) {
+                                enumeration.members.push_back({std::string{member.name.text}, id<hir::ExprId>(member.value), 0});
+                            }
+                            target.node = std::move(enumeration);
                         } else if constexpr (std::is_same_v<T, ast::StructDecl>) {
                             hir::StructDecl structure;
                             structure.exported = node.exported;

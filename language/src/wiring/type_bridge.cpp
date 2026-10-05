@@ -53,6 +53,11 @@ namespace hgl::wiring
         : module_{module}, diagnostics_{diagnostics}, registry_{hgraph::TypeRegistry::instance()},
           types_{hgraph::stdlib::register_standard_types(registry_)}, generation_{registry_.reset_generation()} {
         structures_.reserve(module_.structures.size());
+        for (const auto &contract : module_.enums) {
+            std::vector<std::pair<std::string, long long>> members;
+            for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
+            hgraph::TypeRegistry::instance().enum_type(contract.identity, members);
+        }
         for (const hgraph_ir::StructContract &contract : module_.structures) { structures_.emplace(contract.identity, &contract); }
     }
 
@@ -129,6 +134,11 @@ namespace hgl::wiring
                 if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, std::int64_t> || std::is_same_v<T, double> ||
                               std::is_same_v<T, std::string>) {
                     return hgraph::Value{item};
+                } else if constexpr (std::is_same_v<T, hir::EnumValue>) {
+                    const auto *meta = hgraph::TypeRegistry::instance().named_enum(item.identity);
+                    if (!meta) { report(source.range, "unknown enum constant identity"); return std::nullopt; }
+                    const hgraph::Int number = item.number;
+                    return hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(meta), &number};
                 } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                     using syntax::TemporalKind;
                     switch (item.kind) {
@@ -371,7 +381,7 @@ namespace hgl::wiring
                 for (const hgraph_ir::TypeArgument &argument : type.arguments) {
                     if (argument.type) { value_edges(*argument.type, bindings, out, depth + 1U); }
                 }
-                out.push_back(id);
+                if (structure(type.nominal_identity)) { out.push_back(id); }
                 return;
             // Exactly the kinds `value()` recurses into with `value()`.
             case hir::TypeKind::Tuple:
@@ -401,7 +411,7 @@ namespace hgl::wiring
                         return;
                     }
                 }
-                if (!type.nominal_identity.empty()) { out.push_back(id); }
+                if (structure(type.nominal_identity)) { out.push_back(id); }
                 return;
             // Exactly the positions `schema()` recurses into with `schema()`.
             // An `atomic<T>`, a set element, a map KEY and a rolling element
@@ -833,6 +843,7 @@ namespace hgl::wiring
                         return value(generic->second, bindings);
                     }
                 }
+                if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return enumeration; }
                 return nominal_value(type, bindings);
             case hir::TypeKind::Tuple:
                 {
@@ -933,6 +944,7 @@ namespace hgl::wiring
                         return schema(generic->second, bindings);
                     }
                 }
+                if (const auto *enumeration = hgraph::TypeRegistry::instance().named_enum(type.nominal_identity)) { return registry_.ts(enumeration); }
                 return nominal_schema(type, bindings);
             case hir::TypeKind::Tuple:
                 {

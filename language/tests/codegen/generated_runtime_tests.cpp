@@ -449,3 +449,30 @@ TEST_CASE("generated generic compositions preserve scalar and structural signal 
                      values<Value>(list_delta<TS<Int>>({{1, 0}}), none, list_delta<TS<Int>>({{1, 0}})))),
                  values<Int>(1, none, 2));
 }
+
+TEST_CASE("generated public enum markers retain nominal schemas and owning values", "[codegen][runtime][enum]") {
+    session();
+    using Mode = runtime::RuntimeMode;
+    const auto low = Mode::member(INT64_MIN);
+    const auto high = Mode::member(INT64_MAX);
+    const auto first = Mode::member(-7);
+    REQUIRE(low.schema() == scalar_descriptor<Mode>::value_meta());
+    CHECK(low.schema()->is_enum());
+    CHECK(low.schema() != scalar_descriptor<Int>::value_meta());
+    CHECK_THROWS_AS(Mode::member(0), std::invalid_argument);
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_forward, TS<Mode>>(
+        values<Value>(none, low, low, none, first, high, none))),
+        values<Value>(none, low, low, none, first, high, none));
+    CHECK_OUTPUT(eval_node<runtime::operators::enum_default_source>(values<Int>(1, 1)), values<Value>(first, first));
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_value_forward, TS<Mode>>(values<Value>(first, high))),
+                 values<Value>(first, high));
+    const auto sparse = [&](const Value &value) {
+        MapBuilder builder{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta()), value.binding()};
+        const Int index = 1;
+        builder.set_item_copy(&index, value.view().data());
+        return builder.build();
+    };
+    CHECK_OUTPUT((eval_node<runtime::operators::enum_fixed_forward, TSL<TS<Mode>, 2>>(
+        values<Value>(sparse(first), none, sparse(high)))),
+        values<Value>(sparse(first), none, sparse(high)));
+}

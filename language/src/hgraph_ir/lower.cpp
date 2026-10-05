@@ -695,6 +695,13 @@ namespace hgl::hgraph_ir
 
             void lower_structures() {
                 for (const hir::Declaration &declaration : source_.declarations) {
+                    if (const auto *enumeration = std::get_if<hir::EnumDecl>(&declaration.node)) {
+                        EnumContract contract;
+                        contract.identity = symbol_identity(declaration.symbol);
+                        contract.exported = enumeration->exported;
+                        for (const auto &member : enumeration->members) { contract.members.emplace_back(member.name, member.number); }
+                        result_.enums.push_back(std::move(contract));
+                    }
                     const auto *source = std::get_if<hir::StructDecl>(&declaration.node);
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
 
@@ -1324,6 +1331,7 @@ namespace hgl::hgraph_ir
                     const hir::Declaration &declaration = source_.declaration(source_id);
                     if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
                         std::holds_alternative<hir::UseDecl>(declaration.node) ||
+                        std::holds_alternative<hir::EnumDecl>(declaration.node) ||
                         std::holds_alternative<hir::CppIncludeDecl>(declaration.node) ||
                         std::holds_alternative<hir::InstantiateDecl>(declaration.node) ||
                         std::holds_alternative<hir::NativeSourceDecl>(declaration.node)) {

@@ -493,6 +493,11 @@ namespace hgl::wiring
                     if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, std::int64_t> || std::is_same_v<T, double> ||
                                   std::is_same_v<T, std::string>) {
                         return make_const(hgraph::Value{item}, range);
+                    } else if constexpr (std::is_same_v<T, hir::EnumValue>) {
+                        const auto *meta = hgraph::TypeRegistry::instance().named_enum(item.identity);
+                        if (!meta) { backend(range, "unknown enum constant identity"); }
+                        const hgraph::Int number = item.number;
+                        return make_const(hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(meta), &number}, range);
                     } else if constexpr (std::is_same_v<T, hir::NullValue>) {
                         return make_marker(Slot::Kind::Null, range);
                     } else if constexpr (std::is_same_v<T, hir::PlaceholderValue>) {

@@ -189,6 +189,14 @@ namespace hgl::syntax
                      "cpp(" + d.implementation.parameters + ") " + d.implementation.body);
             }
 
+            void decl_node(int depth, SourceRange range, const ast::EnumDecl &d) {
+                line(depth, "EnumDecl", range, std::string{d.name.text});
+                for (const auto &member : d.members) {
+                    line(depth + 1, "EnumMember", member.name.range, std::string{member.name.text});
+                    if (member.value != ast::no_node) { expr(depth + 2, member.value, "value"); }
+                }
+            }
+
             void decl_node(int depth, SourceRange range, const ast::StructDecl &d) {
                 std::string details;
                 if (d.exported) { details += "export "; }

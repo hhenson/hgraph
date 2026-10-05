@@ -100,6 +100,8 @@ namespace hgl::syntax
             KindName{SyntaxKind::StructMember, "struct_member"},
             KindName{SyntaxKind::StructBodyItem, "struct_body_item"},
             KindName{SyntaxKind::StructDecl, "struct_decl"},
+            KindName{SyntaxKind::EnumMember, "enum_member"},
+            KindName{SyntaxKind::EnumDecl, "enum_decl"},
             KindName{SyntaxKind::UseDecl, "use_decl"},
             KindName{SyntaxKind::TestDecl, "test_decl"},
             KindName{SyntaxKind::TestContext, "test_context"},

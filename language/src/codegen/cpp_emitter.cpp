@@ -55,6 +55,7 @@ namespace hgl::codegen
             enum class Kind : std::uint8_t {
                 Unknown,  ///< a port whose schema the registry decides
                 Scalar,
+                Enum,
                 Tuple,
                 List,
                 Set,
@@ -705,7 +706,7 @@ namespace hgl::codegen
             [[nodiscard]] Value construct_delta(const HType &type, const std::vector<gir::Argument> &arguments,
                                                 SourceRange range, Frame &frame);
             [[nodiscard]] static bool ordinary_aggregate(const HType &type) {
-                return type.kind == HType::Kind::List || type.kind == HType::Kind::Struct ||
+                return type.kind == HType::Kind::Enum || type.kind == HType::Kind::List || type.kind == HType::Kind::Struct ||
                        type.kind == HType::Kind::Tuple || type.kind == HType::Kind::Delta;
             }
             [[nodiscard]] std::string storage_type(const HType &type, SourceRange range) {
@@ -1403,6 +1404,14 @@ namespace hgl::codegen
                                           item);
                     } else if constexpr (std::is_same_v<T, std::string>) {
                         return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(hir::ScalarType::Str), range);
+                    } else if constexpr (std::is_same_v<T, hir::EnumValue>) {
+                        HType type;
+                        type.kind = HType::Kind::Enum;
+                        type.nominal_identity = item.identity;
+                        type.cpp_type = "::" + namespace_ + "::" + cpp_name(local_identity(item.identity));
+                        auto result = make_const("([&] { const hgraph::Int number = " + integer_literal(item.number) + "; return hgraph::Value{" + ordinary_plan(type, range) + ".binding(), &number}; }())", type, range);
+                        result.ordinary_value = true;
+                        return result;
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                         if (literal_callable_.valid() &&
                             (item.kind == syntax::TemporalKind::TimeZone || item.kind == syntax::TemporalKind::ZonedDateTime || item.kind == syntax::TemporalKind::ZonedTime)) {
@@ -1519,6 +1528,13 @@ namespace hgl::codegen
                             result.source_generic = binding.name;
                             return result;
                         }
+                        if (std::ranges::any_of(graph_.enums, [&](const auto &item) { return item.identity == type.nominal_identity; })) {
+                            HType result;
+                            result.kind = HType::Kind::Enum;
+                            result.nominal_identity = type.nominal_identity;
+                            result.cpp_type = "::" + namespace_ + "::" + cpp_name(local_identity(type.nominal_identity));
+                            return result;
+                        }
                         const auto contract =
                             std::find_if(graph_.structures.begin(), graph_.structures.end(),
                                          [&](const auto &candidate) { return candidate.identity == type.nominal_identity; });
@@ -1554,7 +1570,7 @@ namespace hgl::codegen
                     {
                         if (type.children.size() != 1U) { backend(range, "hgraph IR delta type requires one originating shape"); }
                         HType origin = planned_type(type.children.front(), range, bindings);
-                        if (origin.kind == HType::Kind::Scalar) { return origin; }
+                        if (origin.kind == HType::Kind::Scalar || origin.kind == HType::Kind::Enum) { return origin; }
                         if (origin.kind == HType::Kind::Atomic) { return origin.children.front(); }
                         HType result;
                         result.kind = HType::Kind::Delta;
@@ -1899,6 +1915,7 @@ namespace hgl::codegen
 
         std::string Emitter::value_type(const HType &type, SourceRange range) {
             switch (type.kind) {
+                case HType::Kind::Enum: return type.cpp_type;
                 case HType::Kind::Scalar:
                     switch (type.scalar) {
                         case hir::ScalarType::Bool: return "hgraph::Bool";
@@ -1944,6 +1961,7 @@ namespace hgl::codegen
 
         std::string Emitter::schema(const HType &type, SourceRange range) {
             switch (type.kind) {
+                case HType::Kind::Enum:
                 case HType::Kind::Scalar: return "hgraph::TS<" + value_type(type, range) + ">";
                 case HType::Kind::Atomic: return "hgraph::TS<" + value_type(type.children[0], range) + ">";
                 case HType::Kind::Tuple:
@@ -2439,7 +2457,8 @@ namespace hgl::codegen
                 return "hgraph::wire<hgraph::stdlib::const_, " + s + ">(w, " + converted + ")";
             }
             if (!value.is_port()) { fail(Category::Type, range, "a time-series value is required"); }
-            if (value.type.kind != HType::Kind::Unknown && same_type(value.type, temporal)) { return value.code; }
+            if (temporal.kind == HType::Kind::Generic ||
+                (value.type.kind != HType::Kind::Unknown && same_type(value.type, temporal))) { return value.code; }
             return value.code + ".as<" + s + ">()";
         }
 
@@ -3946,6 +3965,12 @@ namespace hgl::codegen
                 if (input.type.kind == HType::Kind::Scalar) {
                     return make_runtime(ordinary_scalar(input.selector + ".delta_value()", input.type, range), input.type, range);
                 }
+                if (input.type.kind == HType::Kind::Enum) {
+                    Value value = make_runtime(input.selector + ".delta_value()", input.type, range);
+                    value.ordinary_value = true;
+                    value.borrowed_value = true;
+                    return value;
+                }
                 if (input.type.kind == HType::Kind::Atomic) {
                     static_cast<void>(delta_plan(input.type, range));
                     Value value = make_runtime(input.selector + ".delta_value()", input.type.children.front(), range);
@@ -5103,6 +5128,10 @@ namespace hgl::codegen
         }
 
         void Emitter::emit_output_value(const Value &value, const HType &target, const std::string &selector, Writer &out) {
+            if (target.kind == HType::Kind::Enum && value.ordinary_value && same_type(value.type, target)) {
+                out.line(selector + ".apply(" + ordinary_view(value) + ");");
+                return;
+            }
             if (target.kind == HType::Kind::Atomic && target.children.size() == 1U &&
                 value.ordinary_value && same_type(value.type, target.children.front())) {
                 out.line("hgraph::apply_delta(" + selector + ", " + ordinary_view(value) + ");");
@@ -5802,8 +5831,8 @@ namespace hgl::codegen
                 } else {
                     frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
                                                              : make_runtime(name + ".value()", type, binding.range, name);
-                    if (!parameter.is_const && type.kind == HType::Kind::Atomic &&
-                        ordinary_aggregate(type.children.front())) {
+                    if (!parameter.is_const && (type.kind == HType::Kind::Enum ||
+                        (type.kind == HType::Kind::Atomic && ordinary_aggregate(type.children.front())))) {
                         // Atomic composite payloads use the existing erased value
                         // view, not checked_as on the static schema marker.
                         frame.params[index].code = name + ".base().value()";
@@ -7239,6 +7268,43 @@ namespace hgl::codegen
                 header.line();
             }
             emit_native_interface(header);
+            for (const auto &enumeration : graph_.enums) {
+                const auto name = cpp_name(local_identity(enumeration.identity));
+                header.open("struct " + name);
+                header.line("static const hgraph::ValueTypeMetaData *value_meta() {");
+                header.indent();
+                std::vector<std::string> members;
+                for (const auto &[member, number] : enumeration.members) {
+                    members.push_back("{" + quote(member) + ", " + integer_literal(number) + "}");
+                }
+                header.line("return hgraph::TypeRegistry::instance().enum_type(" + quote(enumeration.identity) + ", {" + join(members, ", ") + "});");
+                header.dedent();
+                header.line("}");
+                header.line("static hgraph::Value member(hgraph::Int number) {");
+                header.indent();
+                header.line("const auto *meta = value_meta();");
+                header.line("bool found = false;");
+                header.line("for (std::size_t i = 0; i < meta->field_count; ++i) { found = found || meta->fields[i].enum_value == number; }");
+                header.line("if (!found) { throw std::invalid_argument(\"unknown enum member number\"); }");
+                header.line("return hgraph::Value{hgraph::ValuePlanFactory::instance().type_for(meta), &number};");
+                header.dedent();
+                header.line("}");
+                header.close(";");
+            }
+            if (!graph_.enums.empty()) {
+                header.dedent();
+                header.line("} // namespace " + namespace_);
+                header.open("namespace hgraph");
+                for (const auto &enumeration : graph_.enums) {
+                    const auto name = "::" + namespace_ + "::" + cpp_name(local_identity(enumeration.identity));
+                    header.open("template <> struct scalar_descriptor<" + name + ">");
+                    header.line("static constexpr bool is_concrete() noexcept { return true; }");
+                    header.line("static const ValueTypeMetaData *value_meta() { return " + name + "::value_meta(); }");
+                    header.close(";");
+                }
+                header.close();
+                header.open("namespace " + namespace_);
+            }
             emit_struct_declarations(header);
             for (const auto &[marker, name] : ordinary_plans_) {
                 static_cast<void>(marker);

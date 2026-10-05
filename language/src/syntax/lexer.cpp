@@ -430,7 +430,8 @@ namespace hgl::syntax
                     const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
                     if (ec == std::errc::result_out_of_range)
                     {
-                        error(begin, pos_, "'" + std::string{text} + "' is out of range for i64");
+                        if (text == "9223372036854775808" && !result_.tokens.empty() && result_.tokens.back().kind == TokenKind::Minus) { token.minimum_magnitude = true; }
+                        else { error(begin, pos_, "'" + std::string{text} + "' is out of range for i64"); }
                     }
                     else { token.int_value = value; }
                 }
