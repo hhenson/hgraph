@@ -205,6 +205,8 @@ TEST_CASE("atomic publication schemas and values require complete finite payload
     const PreparedValuePlan record_plan{record_schema};
     const auto missing = record_plan.bundle({});
     CHECK_THROWS_AS(validate_complete_value(missing.view()), std::invalid_argument);
-    CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(integer))), std::invalid_argument);
+    CHECK(delta_schema(registry.ts(registry.set(integer))) == registry.set(integer));
+    CHECK(delta_schema(registry.ts(registry.map(integer, integer))) == registry.map(integer, integer));
+    CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(registry.list(integer)))), std::invalid_argument);
     CHECK_THROWS_AS(delta_schema(registry.ts(registry.list(integer, 0, true))), std::invalid_argument);
 }
