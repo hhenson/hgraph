@@ -291,11 +291,11 @@ namespace hgl::ordinary
         PreparedValuePlan() = default;
         explicit PreparedValuePlan(const hgraph::ValueTypeMetaData *schema) : PreparedValuePlan(storage_binding(schema)) {}
         explicit PreparedValuePlan(hgraph::ValueTypeRef binding) : binding_{binding} {
-            if (binding.schema()->is_owned()) { return; }
             const auto kind = binding.schema()->try_value_kind();
             if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
                 indexed_ = hgraph::checked_value_ops<hgraph::IndexedValueOps>(binding, "HGL ordinary indexed value");
             }
+            if (binding.schema()->is_owned()) { return; }
             if (binding.ops()->kind == hgraph::ValueOpsKind::MutableList) {
                 list_ = hgraph::checked_value_ops<hgraph::MutableListValueOps>(binding, "HGL ordinary mutable list");
             }
@@ -321,6 +321,7 @@ namespace hgl::ordinary
             return result.build();
         }
         [[nodiscard]] std::int64_t len(const hgraph::ValueView &value) const {
+            if (indexed_ == nullptr) { throw std::invalid_argument("ordinary value storage is not indexed"); }
             const auto size = indexed_->size(indexed_->context, value.data());
             if (size > static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())) {
                 throw std::overflow_error("ordinary list length is not representable as i64");
@@ -357,6 +358,7 @@ namespace hgl::ordinary
             target.binding().copy_assign_at(const_cast<void *>(target.data()), retained.view().data());
         }
         void push(const hgraph::ValueView &list, const hgraph::ValueView &element) const {
+            if (list_ == nullptr) { throw std::invalid_argument("ordinary list storage does not support growth"); }
             auto retained = hgraph::Value{element_, element};
             auto writable = list.begin_mutation();
             list_->push_back(list_->context, writable.mutable_data(), retained.view().binding(), retained.view().data());

@@ -281,4 +281,13 @@ TEST_CASE("recursive atomic plans retain finite owned trees and validate descend
         std::pair<std::size_t, ValueView>{2, incomplete.view()}};
     auto bad = plan.bundle(bad_fields);
     CHECK_THROWS_AS(validate_complete_value(bad.view(), optional), std::invalid_argument);
+    auto edge = plan.index_mutable(root.view(), 2);
+    const PreparedValuePlan edge_plan{edge.binding()};
+    CHECK(edge_plan.len(edge) == 3);
+    edge_plan.replace_index(edge, 0, two.view());
+    CHECK(edge_plan.index(edge, 0).checked_as<Int>() == 2);
+    CHECK(retained.as_bundle().field("next").concrete().as_bundle().field("value").checked_as<Int>() == 1);
+    auto edge_items = edge_plan.index_mutable(edge, 1);
+    const PreparedValuePlan edge_items_plan{edge_items.binding()};
+    CHECK_THROWS_WITH(edge_items_plan.push(edge_items, two.view()), "ordinary list storage does not support growth");
 }
