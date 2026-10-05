@@ -926,6 +926,25 @@ namespace hgraph
         zone_registry().reset();
     }
 
+    ZonedTime::ZonedTime(CivilTime time, ZoneId zone) : time_{time}, zone_{zone}
+    {
+        if (time.microseconds < 0 || time.microseconds >= microseconds_per_day)
+        {
+            throw std::invalid_argument("zoned time requires a time within one day");
+        }
+        if (!zone.valid()) { throw std::invalid_argument("zoned time requires a valid zone"); }
+    }
+
+    std::string format_zoned_time(const ZonedTime &value)
+    {
+        return format_civil_time(value.time()) + "[" + std::string{value.zone().name()} + "]";
+    }
+
+    std::ostream &operator<<(std::ostream &out, const ZonedTime &value)
+    {
+        return out << format_zoned_time(value);
+    }
+
     ZonedDateTime ZonedDateTime::from_resolved(Instant instant, ZoneId zone,
                                                 std::int32_t offset_seconds)
     {

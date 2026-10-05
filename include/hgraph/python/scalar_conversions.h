@@ -93,6 +93,7 @@ namespace hgraph
     template <> struct python_conversion_traits<CivilDateTime> : temporal_native_python_conversion<CivilDateTime> {};
     template <> struct python_conversion_traits<ZoneId> : temporal_native_python_conversion<ZoneId> {};
     template <> struct python_conversion_traits<ZonedDateTime> : temporal_native_python_conversion<ZonedDateTime> {};
+    template <> struct python_conversion_traits<ZonedTime> : temporal_native_python_conversion<ZonedTime> {};
     template <> struct python_conversion_traits<InstantRange> : temporal_native_python_conversion<InstantRange> {};
     template <> struct python_conversion_traits<CivilDateRange> : temporal_native_python_conversion<CivilDateRange> {};
     template <> struct python_conversion_traits<InstantRangeSet> : temporal_native_python_conversion<InstantRangeSet> {};

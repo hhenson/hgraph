@@ -39,6 +39,7 @@ namespace hgraph::manifest
             CivilDateRange = 14,
             InstantRangeSet = 15,
             CivilDateRangeSet = 16,
+            ZonedTime = 17,
         };
 
         WireAtomic wire_atomic_for(const ValueTypeMetaData *meta)
@@ -57,6 +58,7 @@ namespace hgraph::manifest
             }
             if (meta == scalar_descriptor<Period>::value_meta()) { return WireAtomic::Period; }
             if (meta == scalar_descriptor<ZoneId>::value_meta()) { return WireAtomic::ZoneId; }
+            if (meta == scalar_descriptor<ZonedTime>::value_meta()) { return WireAtomic::ZonedTime; }
             if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
             {
                 return WireAtomic::ZonedDateTime;
@@ -505,6 +507,12 @@ namespace hgraph::manifest
                 // process-local. An invalid/default zone encodes empty.
                 const auto &zone = value.checked_as<ZoneId>();
                 writer.string_field(zone.valid() ? zone.name() : std::string_view{});
+                return;
+            }
+            case WireAtomic::ZonedTime: {
+                const auto &zoned = value.checked_as<ZonedTime>();
+                writer.svarint(zoned.time().microseconds);
+                writer.string_field(zoned.zone().valid() ? zoned.zone().name() : std::string_view{});
                 return;
             }
             case WireAtomic::ZonedDateTime: {

@@ -515,7 +515,7 @@ namespace hgl::wiring
                             case syntax::TemporalKind::ZonedDateTime:
                                 return make_const(hgraph::Value{temporal::zoned(item.micros, item.zone, item.offset_seconds, *literal_provider_)}, range);
                             case syntax::TemporalKind::ZonedTime:
-                                backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
+                                return make_const(hgraph::Value{temporal::zoned_time(item.micros, item.zone, *literal_provider_)}, range);
                         }
                         backend(range, "unsupported hgraph IR constant");
                     }

@@ -72,3 +72,4 @@ RFC catalogue
    rfc_0042_types_as_values
    rfc_0043_prepared_global_entries
    rfc_0044_scalar_schema_projections
+   rfc_0045_zoned_time_scalar

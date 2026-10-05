@@ -212,6 +212,24 @@ namespace hgraph
 
         void write_zoned_time(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
         {
+            const auto value = view.checked_as<ZonedTime>();
+            const auto time = value.time().microseconds;
+            writer.out.append(reinterpret_cast<const char *>(&time), sizeof(time));
+            write_zone(value.zone(), writer.out);
+        }
+
+        Value read_zoned_time(const BinaryConverter &self, BinaryReader &reader)
+        {
+            std::int64_t time{};
+            std::memcpy(&time, reader.take(sizeof(time)), sizeof(time));
+            const auto zone = read_zone(reader);
+            if (!zone.valid() && time != 0) { throw std::invalid_argument("invalid zoned time sentinel"); }
+            const auto value = zone.valid() ? ZonedTime{CivilTime{time}, zone} : ZonedTime{};
+            return Value{self.binding, &value};
+        }
+
+        void write_zoned_datetime(const BinaryConverter &, const ValueView &view, BinaryWriter &writer)
+        {
             auto &out = writer.out;
             const auto value = view.checked_as<ZonedDateTime>();
             const auto instant = value.instant();
@@ -221,7 +239,7 @@ namespace hgraph
             out.append(reinterpret_cast<const char *>(&offset), sizeof(offset));
         }
 
-        Value read_zoned_time(const BinaryConverter &self, BinaryReader &reader)
+        Value read_zoned_datetime(const BinaryConverter &self, BinaryReader &reader)
         {
             Instant instant{};
             std::memcpy(&instant, reader.take(sizeof(instant)), sizeof(instant));
@@ -1939,10 +1957,16 @@ namespace hgraph
                         raw->read_ = &read_zone_id;
                         break;
                     }
-                    if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
+                    if (meta == scalar_descriptor<ZonedTime>::value_meta())
                     {
                         raw->write_ = &write_zoned_time;
                         raw->read_ = &read_zoned_time;
+                        break;
+                    }
+                    if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
+                    {
+                        raw->write_ = &write_zoned_datetime;
+                        raw->read_ = &read_zoned_datetime;
                         break;
                     }
                     if (meta == scalar_descriptor<Str>::value_meta())

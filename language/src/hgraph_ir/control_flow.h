@@ -29,14 +29,6 @@ namespace hgl::hgraph_ir
         bool context_free{true};
     };
 
-    /// Rules only an execution backend can decide because they depend on the
-    /// values it has to materialize. The wording still has a single owner.
-    namespace first_pass
-    {
-        inline constexpr std::string_view unsupported_temporal_literal =
-            "zoned_time literals are not supported by the first pass";
-    }  // namespace first_pass
-
     /// An outer lexical binding read by a nested conditional branch. The
     /// phase is retained at the use site so execution backends can distinguish
     /// temporal boundary inputs from scalar configuration captures.

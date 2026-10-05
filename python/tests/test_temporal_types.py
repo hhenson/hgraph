@@ -272,3 +272,27 @@ def test_temporal_schema_identity_is_available_to_python_wiring():
     assert hg.TS[hg.Period] != hg.TS[dt.timedelta]
     assert hg.TS[hg.InstantRange] != hg.TS[hg.CivilDateRange]
     assert hg.TSD[hg.ZoneId, hg.TS[hg.ZonedDateTime]]
+
+
+def test_zoned_time_native_wrapper_and_owning_publications():
+    first = hg.ZonedTime(dt.time(9, 30, 0, 123456), hg.ZoneId("US/Eastern"))
+    alias = hg.ZonedTime(first.time, hg.ZoneId("America/New_York"))
+    assert first.time == dt.time(9, 30, 0, 123456)
+    assert first.zone.name == "US/Eastern"
+    assert first != alias
+    assert first != hg.ZonedTime(dt.time(9, 30, 0, 123457), first.zone)
+    assert len({first, first, alias}) == 2
+    assert "09:30:00.123456[US/Eastern]" in repr(first)
+    with pytest.raises(AttributeError):
+        first.time = dt.time(10)
+    with pytest.raises(TypeError, match="timezone-aware time"):
+        hg.ZonedTime(dt.time(9, tzinfo=ZoneInfo("UTC")), first.zone)
+
+    @hg.compute_node
+    def identity(value: hg.TS[hg.ZonedTime]) -> hg.TS[hg.ZonedTime]:
+        return value.value
+
+    retained = eval_node(identity, [first, first, None, alias])
+    assert retained == [first, first, None, alias]
+    assert eval_node(identity, [alias]) == [alias]
+    assert retained == [first, first, None, alias]

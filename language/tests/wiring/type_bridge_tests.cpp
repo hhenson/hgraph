@@ -7,6 +7,7 @@
 #include "wiring/type_bridge.h"
 
 #include <hgl/ordinary_values.h>
+#include <hgl/temporal_literals.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -1305,4 +1306,31 @@ TEST_CASE("recursive shape roles survive both declaration and query orders", "[w
             }
         }
     }
+}
+
+TEST_CASE("zoned time cold literals validate names without date resolution", "[wiring][temporal]") {
+    class Catalog final : public hgraph::TimeZoneProvider {
+    public:
+        std::string_view version() const noexcept override { return "test"; }
+        bool contains(hgraph::ZoneId zone) const noexcept override {
+            ++contains_calls;
+            return zone.name() == "US/Eastern" || zone.name() == "America/New_York";
+        }
+        hgraph::OffsetInfo at(hgraph::Instant, hgraph::ZoneId) const override {
+            throw std::logic_error("zoned time must not query an offset");
+        }
+        hgraph::LocalResolution resolve(hgraph::CivilDateTime, hgraph::ZoneId) const override {
+            throw std::logic_error("zoned time must not resolve a date");
+        }
+        mutable unsigned contains_calls{};
+    } provider;
+    const auto first = hgl::temporal::zoned_time(34200123456, "US/Eastern", provider);
+    const auto alias = hgl::temporal::zoned_time(34200123456, "America/New_York", provider);
+    CHECK(first != alias);
+    CHECK_THROWS_AS(hgl::temporal::zoned_time(34200123456, "us/eastern", provider), std::invalid_argument);
+    CHECK(provider.contains_calls == 3);
+    const hgraph::Value snapshot{first};
+    const hgraph::Value retained{snapshot};
+    CHECK(retained.view().checked_as<hgraph::ZonedTime>() == first);
+    CHECK(provider.contains_calls == 3);
 }

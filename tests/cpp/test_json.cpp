@@ -103,6 +103,13 @@ TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
           "{\"months\": 10, \"days\": 3}");
     CHECK(round_trip(ZoneId{"America/New_York"}) ==
           "\"America/New_York\"");
+    CHECK(round_trip(ZonedTime{time_of_day(9, 30, 0, 123456), ZoneId{"US/Eastern"}}) ==
+          "\"09:30:00.123456[US/Eastern]\"");
+    for (const std::string text : {"09:30:00[utc]", "09:30:00[Missing/Zone]", "24:00:00[UTC]",
+                                   "23:59:60[UTC]", "09:30:00+01:00[UTC]"})
+    {
+        CHECK_THROWS(from_json_string(scalar_descriptor<ZonedTime>::value_meta(), "\"" + text + "\""));
+    }
     const auto provider = make_time_zone_provider();
     const ZonedDateTime zoned = resolve(
         CivilDateTime{day, 1, 30}, ZoneId{"America/New_York"},

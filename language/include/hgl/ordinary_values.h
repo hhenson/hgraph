@@ -28,7 +28,8 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
             hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         if (std::ranges::find(leaves, schema) != leaves.end()) { return; }
         if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive atomic publication payload"); }
         const auto kind = schema->try_value_kind();
@@ -68,7 +69,8 @@ namespace hgl::ordinary
             hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(),
             hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
             hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(),
-            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta()};
+            hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
         std::vector<const hgraph::TSValueTypeMetaData *> pending{root};
         while (!pending.empty()) {
             const auto *shape = pending.back();

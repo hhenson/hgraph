@@ -223,3 +223,25 @@ TEST_CASE("temporal range graph operators preserve concrete schemas")
             values<InstantRange>(whole)),
         values<Duration>(Duration{10}));
 }
+
+namespace
+{
+    struct ZonedTimeIdentity
+    {
+        static void eval(In<"value", TS<ZonedTime>> value, Out<TS<ZonedTime>> out)
+        {
+            out.set(value.value());
+        }
+    };
+}
+
+TEST_CASE("native zoned time wiring retains independent equal publications", "[temporal][zoned-time]")
+{
+    const ZonedTime first{time_of_day(9, 30, 0, 123456), ZoneId{"US/Eastern"}};
+    const ZonedTime other{first.time(), ZoneId{"America/New_York"}};
+    const auto retained = eval_node<ZonedTimeIdentity>(values<ZonedTime>(first, first, std::nullopt, other));
+    CHECK_OUTPUT(retained, values<ZonedTime>(first, first, std::nullopt, other));
+    const auto second = eval_node<ZonedTimeIdentity>(values<ZonedTime>(other));
+    CHECK_OUTPUT(second, values<ZonedTime>(other));
+    CHECK_OUTPUT(retained, values<ZonedTime>(first, first, std::nullopt, other));
+}

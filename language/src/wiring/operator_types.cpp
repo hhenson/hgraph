@@ -122,7 +122,7 @@ namespace hgl::wiring
                     case ScalarType::CivilDateTime: return types_.civil_datetime_type;
                     case ScalarType::ZonedDateTime: return types_.zoned_datetime_type;
                     case ScalarType::TimeZone: return types_.zone_id_type;
-                    case ScalarType::ZonedTime: return nullptr;
+                    case ScalarType::ZonedTime: return types_.zoned_time_type;
                 }
                 std::unreachable();
             }

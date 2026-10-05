@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 216
+     - 217
    * - Public operator groups
      - 189
    * - Public submodules
@@ -144,6 +144,7 @@ Top-level wildcard exports
    * - ``WiringPort``
    * - ``ZoneId``
    * - ``ZonedDateTime``
+   * - ``ZonedTime``
    * - ``adaptor``
    * - ``adaptor_impl``
    * - ``bind_``

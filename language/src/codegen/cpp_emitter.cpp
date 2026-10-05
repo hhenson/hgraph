@@ -783,7 +783,7 @@ namespace hgl::codegen
                     if (!id.valid() || !visited.insert(id.value).second) { continue; }
                     const auto &expression = graph_constant(id, range);
                     const auto *temporal = expression.literal ? std::get_if<syntax::TemporalValue>(&*expression.literal) : nullptr;
-                    if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime)) {
+                    if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime || temporal->kind == syntax::TemporalKind::ZonedTime)) {
                         provider_dependent = true;
                         continue;
                     }
@@ -1404,14 +1404,14 @@ namespace hgl::codegen
                         return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(hir::ScalarType::Str), range);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                         if (literal_callable_.valid() &&
-                            (item.kind == syntax::TemporalKind::TimeZone || item.kind == syntax::TemporalKind::ZonedDateTime)) {
+                            (item.kind == syntax::TemporalKind::TimeZone || item.kind == syntax::TemporalKind::ZonedDateTime || item.kind == syntax::TemporalKind::ZonedTime)) {
                             if (callable(literal_callable_).kind == gir::CallableKind::RuntimeNode) {
                                 backend(range, "provider-dependent literal construction in a node hook is not supported; supply a constructed scalar argument");
                             }
                             provider_literal_helpers_.insert(callable(literal_callable_).range.begin);
                         }
                         if (std::optional<Value> value = temporal_constant(item, range)) { return std::move(*value); }
-                        backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
+                        backend(range, "unsupported temporal literal kind");
                     }
                 },
                 literal);
@@ -1911,7 +1911,7 @@ namespace hgl::codegen
                         case hir::ScalarType::CivilDateTime: return "hgraph::CivilDateTime";
                         case hir::ScalarType::ZonedDateTime: return "hgraph::ZonedDateTime";
                         case hir::ScalarType::TimeZone: return "hgraph::ZoneId";
-                        case hir::ScalarType::ZonedTime: break;
+                        case hir::ScalarType::ZonedTime: return "hgraph::ZonedTime";
                     }
                     backend(range, std::string{"'"} + std::string{hir::scalar_type_name(type.scalar)} +
                                        "' is not supported by the first pass (datetime and duration are)");
@@ -2018,7 +2018,9 @@ namespace hgl::codegen
                     return make_const("hgl::temporal::zoned(" + micros + ", " + quote(literal.zone) + ", " +
                                       std::to_string(literal.offset_seconds) + ")",
                                       scalar_type(hir::ScalarType::ZonedDateTime), range);
-                case syntax::TemporalKind::ZonedTime: return std::nullopt;
+                case syntax::TemporalKind::ZonedTime:
+                    return make_const("hgl::temporal::zoned_time(" + micros + ", " + quote(literal.zone) + ")",
+                                      scalar_type(hir::ScalarType::ZonedTime), range);
             }
             return std::nullopt;
         }
@@ -6842,7 +6844,7 @@ namespace hgl::codegen
                 const hir::Constant *literal = expression.constant ? &*expression.constant : nullptr;
                 if (const auto *source = std::get_if<gir::Literal>(&expression.node)) { literal = &source->value; }
                 const auto *temporal = literal ? std::get_if<syntax::TemporalValue>(literal) : nullptr;
-                if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime)) {
+                if (temporal && (temporal->kind == syntax::TemporalKind::TimeZone || temporal->kind == syntax::TemporalKind::ZonedDateTime || temporal->kind == syntax::TemporalKind::ZonedTime)) {
                     provider_literal_helpers_.insert(owner->begin);
                 }
                 std::vector<gir::ConstExprId> defaults;

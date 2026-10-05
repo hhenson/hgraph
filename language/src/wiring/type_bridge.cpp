@@ -37,7 +37,7 @@ namespace hgl::wiring
                 case hir::ScalarType::CivilDateTime: return types.civil_datetime_type;
                 case hir::ScalarType::ZonedDateTime: return types.zoned_datetime_type;
                 case hir::ScalarType::TimeZone: return types.zone_id_type;
-                case hir::ScalarType::ZonedTime: return nullptr;
+                case hir::ScalarType::ZonedTime: return types.zoned_time_type;
             }
             std::unreachable();
         }
@@ -143,8 +143,7 @@ namespace hgl::wiring
                         case TemporalKind::ZonedDateTime:
                             return hgraph::Value{temporal::zoned(item.micros, item.zone, item.offset_seconds)};
                         case TemporalKind::ZonedTime:
-                            report(source.range, "zoned and civil constants are not supported by the direct backend yet");
-                            return std::nullopt;
+                            return hgraph::Value{temporal::zoned_time(item.micros, item.zone)};
                     }
                     std::unreachable();
                 } else {

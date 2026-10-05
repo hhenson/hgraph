@@ -4256,6 +4256,8 @@ export fn identity(value: timezone, const fallback: timezone = @[Missing/UnusedD
 TEST_CASE("generated hooks reject provider construction instead of resolving names per tick", "[codegen][temporal]") {
     for (const std::string body : {
         "export fn f(tick: bool) -> timezone { when { return @[UTC] } }",
+        "export fn f(tick: bool) -> zoned_time { when { return @09:30[UTC] } }",
+        "const fn helper() -> zoned_time => @09:30[UTC]\nexport fn f(tick: bool) -> zoned_time { when { return helper() } }",
         "struct Box<T> { value: T\nzone: timezone = @[UTC] }\nconst fn make<T>(value: T) -> Box<T> { return Box<T>(value: value) }\nfn node(tick: bool) -> timezone { when { return make(tick).zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
         "struct Box { zone: timezone = @[UTC] }\nstruct Outer { inner: atomic<Box> = Box() }\nconst fn make() -> Outer { return Outer() }\nfn node(tick: bool) -> timezone { when { return make().inner.zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
         "struct Box { zone: timezone = @[UTC] }\nconst fn make() -> Box { return Box() }\nfn node(tick: bool) -> timezone { when { return make().zone } }\nexport fn f(tick: bool) -> timezone => node(tick)",
@@ -4397,4 +4399,21 @@ export fn check(trigger: bool, const expected: list<Recursive<timezone>>) -> boo
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
+}
+
+TEST_CASE("generated zoned time uses cold validation and selected contextual defaults", "[codegen][temporal]") {
+    Unit unit{R"(
+module tests.zoned_time_defaults
+export fn identity(value: zoned_time, const fallback: zoned_time = @09:30[Missing/UnusedDefault]) -> zoned_time {
+    when { return value }
+}
+export fn opening() -> zoned_time => @09:30:00.123456[US/Eastern]
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    CHECK(contains(source, "hgraph::ZonedTime"));
+    CHECK(contains(source, "hgl::temporal::zoned_time(34200123456"));
+    CHECK_FALSE(contains(source, "Missing/UnusedDefault"));
 }

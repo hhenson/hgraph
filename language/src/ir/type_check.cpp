@@ -1712,7 +1712,7 @@ namespace hgl::ir
                 const auto provider_dependent = [](const Constant &value) {
                     const auto *temporal = std::get_if<syntax::TemporalValue>(&value);
                     return temporal && (temporal->kind == syntax::TemporalKind::TimeZone ||
-                                        temporal->kind == syntax::TemporalKind::ZonedDateTime);
+                                        temporal->kind == syntax::TemporalKind::ZonedDateTime || temporal->kind == syntax::TemporalKind::ZonedTime);
                 };
                 if (provider_dependent(a) || provider_dependent(b)) { return; }
                 const auto      as_double = [](const Constant &value) -> std::optional<double> {
@@ -3771,7 +3771,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
                 if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
@@ -3804,7 +3804,7 @@ namespace hgl::ir
                 id = canonical(id);
                 if (!id.valid()) { return false; }
                 const Type shape = type(id);
-                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedDateTime || shape.scalar == ScalarType::TimeZone); }
+                if (shape.kind == TypeKind::Scalar) { return (shape.scalar <= ScalarType::ZonedTime || shape.scalar == ScalarType::TimeZone); }
                 if (shape.kind == TypeKind::Symbol && shape.symbol.valid() &&
                     module_.symbol(shape.symbol).kind == SymbolKind::TypeParameter) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }

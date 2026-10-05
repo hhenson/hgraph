@@ -1396,6 +1396,7 @@ module tests.temporal_publications
 fn civil(value: civil_datetime) -> civil_datetime => value
 fn zone(value: timezone) -> timezone => value
 fn zoned(value: zoned_datetime) -> zoned_datetime => value
+fn clock(value: zoned_time) -> zoned_time => value
 
 test identity {
     let local = @2024-02-29T12:30:00.123456
@@ -1404,6 +1405,10 @@ test identity {
     assert eval(zoned, [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]) == [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]
     assert @2026-01-15T12:30Z[UTC] != @2026-01-15T13:30+01[Europe/Paris]
     assert @[UTC] != @[Etc/UTC]
+    let opening = @09:30:00.123456[US/Eastern]
+    let alias = @09:30:00.123456[America/New_York]
+    assert opening != alias
+    assert eval(clock, [opening, opening, _, alias]) == [opening, opening, _, alias]
 }
 )"};
     const auto result = only(unit.tests());
@@ -1411,7 +1416,8 @@ test identity {
     CHECK(result.passed);
     for (const std::string literal : {"@[utc]", "@[america/new_york]", "@[Etc/Unknown]", "@[Missing/Zone]",
                                       "@2026-01-15T12:30Z[utc]", "@2026-01-15T12:30Z[Missing/Zone]",
-                                      "@2026-01-15T12:30+01[UTC]"}) {
+                                      "@2026-01-15T12:30+01[UTC]", "@09:30[utc]", "@09:30[america/new_york]",
+                                      "@09:30[Etc/Unknown]", "@09:30[Missing/Zone]"}) {
         Unit invalid{"module tests.invalid_zone\ntest invalid { " + literal + "\nassert true }\n"};
         const auto rejected = only(invalid.tests());
         INFO(literal);

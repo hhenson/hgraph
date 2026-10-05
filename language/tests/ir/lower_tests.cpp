@@ -3738,8 +3738,8 @@ TEST_CASE("recursive generic occurrence validation does not retain provisional s
     }
 }
 
-TEST_CASE("the temporal publication profile admits three leaves recursively", "[ir][typed][temporal]") {
-    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime"}) {
+TEST_CASE("the temporal publication profile admits four leaves recursively", "[ir][typed][temporal]") {
+    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime", "zoned_time"}) {
         for (const std::string &shape : {leaf, "atomic<" + leaf + ">", "list<" + leaf + ", 2>",
                                         "atomic<list<" + leaf + ">>", "map<i64, " + leaf + ">"}) {
             Lowered unit{"module checks.temporal_profile\nfn identity(value: " + shape + ") -> " + shape +
@@ -3750,10 +3750,7 @@ TEST_CASE("the temporal publication profile admits three leaves recursively", "[
             CHECK(result);
         }
     }
-    Lowered rejected{"module checks.temporal_profile\nfn identity(value: zoned_time) -> zoned_time => value\ntest rejected { eval(identity, []) }\n"};
-    REQUIRE_FALSE(rejected.diagnostics.has_errors());
-    CHECK_FALSE(complete(rejected));
-    CHECK(rejected.diagnostics.render(rejected.file).find("publication profile") != std::string::npos);
+
 }
 
 TEST_CASE("generic delta equality checks its concrete publication origin", "[ir][typed][temporal]") {

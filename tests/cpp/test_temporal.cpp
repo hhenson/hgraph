@@ -560,3 +560,25 @@ TEST_CASE("temporal schemas participate in standard registration")
     CHECK(types.ts_zoned_datetime != nullptr);
     CHECK(types.instant_range_set_type != nullptr);
 }
+
+TEST_CASE("zoned time is an exact wall-clock and zone scalar", "[temporal][zoned-time]")
+{
+    static_assert(std::is_standard_layout_v<ZonedTime>);
+    static_assert(std::is_trivially_copyable_v<ZonedTime>);
+    static_assert(sizeof(ZonedTime) <= 16);
+    const ZonedTime first{time_of_day(9, 30, 0, 123456), ZoneId{"US/Eastern"}};
+    const ZonedTime alias{first.time(), ZoneId{"America/New_York"}};
+    CHECK(first.time() == time_of_day(9, 30, 0, 123456));
+    CHECK(first.zone().name() == "US/Eastern");
+    CHECK(first != alias);
+    CHECK(first != ZonedTime{time_of_day(9, 30, 0, 123457), first.zone()});
+    CHECK(std::unordered_set<ZonedTime>{first, first, alias}.size() == 2);
+    CHECK(format_zoned_time(first) == "09:30:00.123456[US/Eastern]");
+    CHECK_THROWS_AS((ZonedTime{CivilTime{-1}, first.zone()}), std::invalid_argument);
+    CHECK_THROWS_AS((ZonedTime{CivilTime{86'400'000'000}, first.zone()}), std::invalid_argument);
+    CHECK_THROWS_AS((ZonedTime{CivilTime{}, ZoneId{}}), std::invalid_argument);
+    CHECK(ZonedTime{CivilTime{86'399'999'999}, first.zone()}.time().microseconds == 86'399'999'999);
+    const auto types = stdlib::register_standard_types();
+    CHECK(types.zoned_time_type == scalar_descriptor<ZonedTime>::value_meta());
+    CHECK(types.ts_zoned_time == schema_descriptor<TS<ZonedTime>>::ts_meta());
+}
