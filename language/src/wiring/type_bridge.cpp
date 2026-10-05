@@ -71,6 +71,11 @@ namespace hgl::wiring
         realized_.clear();
         realized_schemas_.clear();
         types_      = hgraph::stdlib::register_standard_types(registry_);
+        for (const auto &contract : module_.enums) {
+            std::vector<std::pair<std::string, long long>> members;
+            for (const auto &[name, number] : contract.members) { members.emplace_back(name, number); }
+            registry_.enum_type(contract.identity, members);
+        }
         generation_ = registry_.reset_generation();
     }
 

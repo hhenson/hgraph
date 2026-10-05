@@ -3881,6 +3881,40 @@ namespace hgl::codegen
                 result.ordinary_value = true;
                 return result;
             }
+            if (expression.kind == gir::ConstExprKind::Construct && type.kind == HType::Kind::Struct) {
+                const auto &contract = planned_structure(type.nominal_identity, range);
+                PlannedTypeBindings generics = bindings != nullptr ? *bindings : PlannedTypeBindings{};
+                for (auto &&[binding, value] : planned_struct_bindings(contract, type, range)) {
+                    generics.insert_or_assign(binding, std::move(value));
+                }
+                std::unordered_set<std::size_t> supplied;
+                std::vector<std::string> fields;
+                std::string code = "[&]() { ";
+                const auto retain = [&](std::size_t index, gir::ConstExprId value) {
+                    const auto &field = contract.fields[index];
+                    if (!value.valid() || planned_null(value, field.range)) { return; }
+                    const auto field_type = planned_type(field.type, field.range, &generics);
+                    const auto child = planned_collection_child(value, field_type, field.range, &generics);
+                    const std::string local = "hgl_field_" + std::to_string(index);
+                    code += "auto " + local + " = " + ordinary_retain(child) + "; ";
+                    fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+                };
+                for (const auto &argument : expression.arguments) {
+                    const auto field = std::ranges::find(contract.fields, argument.name, &gir::StructField::name);
+                    if (field == contract.fields.end()) { backend(range, "ordinary default has an unresolved field"); }
+                    const auto index = static_cast<std::size_t>(field - contract.fields.begin());
+                    supplied.insert(index);
+                    retain(index, argument.value);
+                }
+                for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                    if (!supplied.contains(index)) { retain(index, contract.fields[index].default_value); }
+                }
+                code += "std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) +
+                        "> hgl_fields{" + join(fields, ", ") + "}; return " + ordinary_plan(type, range) + ".bundle(hgl_fields); }()";
+                auto result = make_const(std::move(code), type, range);
+                result.ordinary_value = true;
+                return result;
+            }
             return planned_field_value(id, range, bindings);
         }
 
@@ -6897,8 +6931,8 @@ namespace hgl::codegen
             frame.reachable = planned.concise_body.valid() ? gir::binding_uses(graph_, planned.concise_body)
                                                            : reachable_in(planned.block_body);
             out.open("");
-            current_body_ = &out;
-            active_uses_  = &frame.used;
+            Writer *previous_body = std::exchange(current_body_, &out);
+            auto *previous_uses = std::exchange(active_uses_, &frame.used);
             if (planned.concise_body.valid() == planned.block_body.valid()) {
                 backend(planned.range, "hgraph IR callable '" + std::string{callable_name(decl)} +
                                            "' must have exactly one concise or block body");
@@ -6910,8 +6944,8 @@ namespace hgl::codegen
             } else {
                 emit_planned_block(planned.block_body, frame, out, true, planned.range);
             }
-            current_body_ = nullptr;
-            active_uses_  = nullptr;
+            current_body_ = previous_body;
+            active_uses_ = previous_uses;
             out.replace_first(compose_placeholder, signature(decl, &frame.used));
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }
@@ -7368,6 +7402,8 @@ namespace hgl::codegen
             for (const auto &enumeration : graph_.enums) {
                 const auto name = cpp_name(local_identity(enumeration.identity));
                 header.open("struct " + name);
+                header.line("hgraph::Int number{" + integer_literal(enumeration.members.front().second) + "};");
+                header.line("friend bool operator==(const " + name + " &, const " + name + " &) = default;");
                 header.line("static const hgraph::ValueTypeMetaData *value_meta() {");
                 header.indent();
                 std::vector<std::string> members;
@@ -7397,6 +7433,27 @@ namespace hgl::codegen
                     header.open("template <> struct scalar_descriptor<" + name + ">");
                     header.line("static constexpr bool is_concrete() noexcept { return true; }");
                     header.line("static const ValueTypeMetaData *value_meta() { return " + name + "::value_meta(); }");
+                    header.close(";");
+                    // The registry's nominal enum storage is Int. The public
+                    // marker is a typed value wrapper, never that storage plan.
+                    header.open("template <fixed_string Name, auto... Policies> class In<Name, TS<" + name + ">, Policies...> : public TSInputView");
+                    header.line("public:");
+                    header.line("using schema = TS<" + name + ">;");
+                    header.line("using value_type = " + name + ";");
+                    header.line("static constexpr auto field_name = Name;");
+                    header.line("static constexpr auto activity = static_node_detail::resolved_input_activity<Policies...>();");
+                    header.line("static constexpr auto validity = static_node_detail::resolved_input_validity<Policies...>();");
+                    header.line("explicit In(TSInputView view) noexcept : TSInputView(std::move(view)) {}");
+                    header.line("value_type value() const { auto view = TSInputView::value(); if (!view.valid()) { throw std::logic_error(\"enum input has no value\"); } return value_type{*static_cast<const Int *>(view.data())}; }");
+                    header.line("const TSInputView &base() const noexcept { return *this; }");
+                    header.close(";");
+                    header.open("template <> class Out<TS<" + name + ">> : public TSOutputView");
+                    header.line("public:");
+                    header.line("using schema = TS<" + name + ">;");
+                    header.line("using value_type = " + name + ";");
+                    header.line("Out(TSOutputView view, DateTime) noexcept : TSOutputView(std::move(view)) {}");
+                    header.line("void set(value_type value) const { auto mutation = begin_mutation(evaluation_time()); const ValueView source{mutation.value().binding(), &value.number}; static_cast<void>(mutation.copy_value_from(source)); }");
+                    header.line("void apply(const ValueView &value) const { auto mutation = begin_mutation(evaluation_time()); static_cast<void>(mutation.copy_value_from(value)); }");
                     header.close(";");
                 }
                 header.close();
