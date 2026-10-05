@@ -552,7 +552,7 @@ namespace hgl::wiring
             }
             if (target->is_abstract_bundle()) {
                 const auto family = hgraph::value_type_for_wiring(target);
-                const auto input = source.view();
+                const auto input = source.view().concrete();
                 if (family.ops_ref().accepts_source(family, input.binding())) { return hgraph::Value{family, input}; }
             }
             if (target->is_owned()) {

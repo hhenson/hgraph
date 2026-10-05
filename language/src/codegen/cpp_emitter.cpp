@@ -679,7 +679,9 @@ namespace hgl::codegen
             // Binding IDs uniquely identify declaration formals in the module.
             std::optional<std::unordered_set<std::uint32_t>> shape_parameters_{};
             [[nodiscard]] std::string ordinary_plan(const HType &type, SourceRange range);
-            [[nodiscard]] std::string delta_plan(const HType &type, SourceRange range);
+            [[nodiscard]] bool family_plan(const HType &type, SourceRange range);
+            std::unordered_set<std::size_t> family_plan_helpers_{};
+            [[nodiscard]] std::string delta_plan(const HType &type, SourceRange range, bool used = true);
             [[nodiscard]] std::string ordinary_schema(const HType &type, SourceRange range);
             [[nodiscard]] std::string temporal_schema(const HType &type, SourceRange range);
             [[nodiscard]] std::string ordinary_extent(const std::string &size, SourceRange range);
@@ -690,7 +692,7 @@ namespace hgl::codegen
             [[nodiscard]] bool ordinary_cache(const gir::Callable &fn, const RuntimeInfo &info) {
                 // A retained body may need a concrete ordinary plan for a local
                 // even when its signature has no aggregate const parameter.
-                return info.global_state_binding.valid() || !fn.generics.empty() ||
+                return info.global_state_binding.valid() || !fn.generics.empty() || family_plan_helpers_.contains(fn.range.begin) ||
                        std::ranges::any_of(fn.parameters, [&](const auto &parameter) {
                            return parameter.is_const && ordinary_aggregate(planned_type(parameter.type, fn.range));
                        });
@@ -2165,8 +2167,31 @@ namespace hgl::codegen
             backend(value.range, "hgraph IR value produces no wiring value");
         }
 
+        bool Emitter::family_plan(const HType &type, SourceRange range) {
+            std::unordered_set<std::string> visiting;
+            const auto visit = [&](auto &&self, const HType &candidate) -> bool {
+                if (std::ranges::any_of(candidate.children, [&](const auto &child) { return self(self, child); })) { return true; }
+                if (candidate.kind != HType::Kind::Struct) { return false; }
+                const auto &contract = planned_structure(candidate.nominal_identity, range);
+                if (contract.abstract) { return true; }
+                // Constructor symbols can occur before generic application;
+                // their applied result is inspected separately.
+                if (candidate.children.size() != contract.generics.size()) { return false; }
+                if (!visiting.insert(candidate.nominal_identity).second) { return false; }
+                const auto bindings = planned_struct_bindings(contract, candidate, range);
+                const bool found = std::ranges::any_of(contract.fields, [&](const auto &field) {
+                    return self(self, planned_type(field.type, range, &bindings));
+                });
+                visiting.erase(candidate.nominal_identity);
+                return found;
+            };
+            return visit(visit, type);
+        }
+
         std::string Emitter::ordinary_plan(const HType &type, SourceRange range) {
-            if (symbolic(type)) {
+            const bool family = family_plan(type, range);
+            const bool runtime = literal_callable_.valid() && callable(literal_callable_).kind == gir::CallableKind::RuntimeNode;
+            if (symbolic(type) || (family && runtime)) {
                 for (const auto &[existing, name] : ordinary_node_plans_) {
                     if (same_type(existing, type)) { use("hgl_cache"); return "hgl_cache.ref()." + name; }
                 }
@@ -2176,6 +2201,7 @@ namespace hgl::codegen
                 return "hgl_cache.ref()." + name;
             }
             const std::string marker = value_type(type, range);
+            if (family) { return "hgl::ordinary::PreparedValuePlan{hgraph::scalar_descriptor<" + marker + ">::value_meta()}"; }
             const auto existing = std::ranges::find(ordinary_plans_, marker, &std::pair<std::string, std::string>::first);
             if (existing != ordinary_plans_.end()) { return namespace_ + "::" + existing->second; }
             const std::string name = "hgl_value_plan_" + std::to_string(ordinary_plans_.size());
@@ -2183,17 +2209,20 @@ namespace hgl::codegen
             return namespace_ + "::" + name;
         }
 
-        std::string Emitter::delta_plan(const HType &type, SourceRange range) {
-            if (symbolic(type)) {
+        std::string Emitter::delta_plan(const HType &type, SourceRange range, bool used) {
+            const bool family = family_plan(type, range);
+            const bool runtime = literal_callable_.valid() && callable(literal_callable_).kind == gir::CallableKind::RuntimeNode;
+            if (symbolic(type) || (family && runtime)) {
                 for (const auto &[existing, name] : delta_node_plans_) {
-                    if (same_type(existing, type)) { use("hgl_cache"); return "hgl_cache.ref()." + name; }
+                    if (same_type(existing, type)) { if (used) { use("hgl_cache"); } return "hgl_cache.ref()." + name; }
                 }
                 const std::string name = "hgl_delta_plan_" + std::to_string(delta_node_plans_.size());
                 delta_node_plans_.emplace_back(type, name);
-                use("hgl_cache");
+                if (used) { use("hgl_cache"); }
                 return "hgl_cache.ref()." + name;
             }
             const std::string marker = schema(type, range);
+            if (family) { return "hgl::ordinary::PreparedDeltaPlan{hgraph::schema_descriptor<" + marker + ">::ts_meta()}"; }
             const auto existing = std::ranges::find(delta_plans_, marker, &std::pair<std::string, std::string>::first);
             if (existing != delta_plans_.end()) { return namespace_ + "::" + existing->second; }
             const std::string name = "hgl_delta_plan_" + std::to_string(delta_plans_.size());
@@ -2429,7 +2458,9 @@ namespace hgl::codegen
                 return value.code;
             }
             if (value.ordinary_value && value.type.kind == HType::Kind::Struct && target.kind == HType::Kind::Struct &&
-                planned_structure(target.nominal_identity, range).abstract) { return value.code; }
+                planned_structure(target.nominal_identity, range).abstract) {
+                return ordinary_plan(target, range) + ".retain(" + ordinary_view(value) + ")";
+            }
             if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
@@ -4100,7 +4131,7 @@ namespace hgl::codegen
                                         input.type.children.front(), range);
                 }
                 if (input.type.kind == HType::Kind::Atomic || input.type.kind == HType::Kind::Rolling) {
-                    static_cast<void>(delta_plan(input.type, range));
+                    static_cast<void>(delta_plan(input.type, range, false));
                     Value value = make_runtime(input.selector + ".delta_value()", input.type.children.front(), range);
                     value.ordinary_value = true;
                     value.borrowed_value = true;
@@ -4109,7 +4140,7 @@ namespace hgl::codegen
                 // Even a forwarded borrowed delta must prove its concrete
                 // originating shape before start; observing it need not copy.
                 const auto observation_uses = frame.used;
-                static_cast<void>(delta_plan(input.type, range));
+                static_cast<void>(delta_plan(input.type, range, false));
                 frame.used = observation_uses;
                 HType type;
                 type.kind = HType::Kind::Delta;
@@ -7025,6 +7056,13 @@ namespace hgl::codegen
                 if (owner == callable_ranges.begin()) { continue; }
                 --owner;
                 if (expression.range.end > owner->end) { continue; }
+                if (expression.type.valid()) {
+                    const auto kind = graph_type(expression.type, expression.range).kind;
+                    if (kind >= hir::TypeKind::Symbol && kind <= hir::TypeKind::SchemaView &&
+                        family_plan(planned_type(expression.type, expression.range), expression.range)) {
+                        family_plan_helpers_.insert(owner->begin);
+                    }
+                }
                 const hir::Constant *literal = expression.constant ? &*expression.constant : nullptr;
                 if (const auto *source = std::get_if<gir::Literal>(&expression.node)) { literal = &source->value; }
                 const auto *temporal = literal ? std::get_if<syntax::TemporalValue>(literal) : nullptr;
@@ -7279,6 +7317,11 @@ namespace hgl::codegen
             body.open("hgraph::OperatorProviderHandle register_operators()");
             body.line("auto &registry = hgraph::OperatorRegistry::instance();");
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
+            for (const auto &structure : graph_.structures) {
+                if (structure.generics.empty() && !structure.imported) {
+                    body.line("(void)hgraph::scalar_descriptor<" + struct_cpp_type(structure.identity, structure.range) + "::value_type>::value_meta();");
+                }
+            }
             for (const auto &[marker, name] : ordinary_plans_) {
                 body.line("(void)hgraph::scalar_descriptor<" + marker + ">::value_meta();");
             }
