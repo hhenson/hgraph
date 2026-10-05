@@ -441,6 +441,12 @@ TEST_CASE("generated atomic list temporaries publish immediately and survive res
     CHECK(recorded[3]->equals(snapshot({})));
 }
 
+TEST_CASE("generic composition preserves its enclosing conditional body", "[codegen][runtime][signal]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_then_conditional>(values<Bool>(true, false, true), values<Int>(1, 2, 3)),
+        values<Int>(1, 2, 3));
+}
+
 TEST_CASE("generated generic compositions preserve scalar and structural signal observations", "[codegen][runtime][signal]") {
     session();
     CHECK_OUTPUT(eval_node<runtime::operators::generic_scalar_signal_count>(values<Int>(none, 0, 0, none, -7)),
