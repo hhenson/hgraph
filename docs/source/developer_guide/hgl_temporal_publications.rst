@@ -61,3 +61,16 @@ Shared conformance cases live in the three ``temporal_*_values.hgl`` test parts,
 ``recursive_eval_values.hgl`` and ``record_observation_values.hgl`` of
 ``external/hgraph_std``; compiler checks additionally cover unsupported
 shapes, strict literal failure and materialization order.
+
+Signal observation
+------------------
+
+``signal`` remains an input-only view that preserves endpoint validity,
+modification and last-modified metadata while hiding its payload. A generic
+composition forwarding a concrete endpoint to a signal observer is materialized
+using its exact source schema, including structural and atomic boundaries.
+Generated helper definitions precede their callers, and reuse the same prepared
+composition contract as the direct backend. No scalar conversion or payload
+snapshot is needed for signal observation. Shared ``signal_observation_values``
+fixtures cover each admitted scalar, structural and atomic inputs, equal
+publications, silence, and observation from an independent trigger.

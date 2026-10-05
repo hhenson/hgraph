@@ -4417,3 +4417,19 @@ export fn opening() -> zoned_time => @09:30:00.123456[US/Eastern]
     CHECK(contains(source, "hgl::temporal::zoned_time(34200123456"));
     CHECK_FALSE(contains(source, "Missing/UnusedDefault"));
 }
+
+TEST_CASE("generic compositions materialize before signal observer callers", "[codegen][signal]") {
+    Unit unit{R"(
+module tests.signal_helpers
+fn observed(value: signal) -> bool { when { return modified(value) } }
+fn forward<T>(value: T) -> bool => observed(value)
+export fn scalar(value: i64) -> bool => forward(value)
+export fn structural(value: list<i64, 2>) -> bool => forward(value)
+export fn atomic_value(value: atomic<list<i64>>) -> bool => forward(value)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct forward__specialization_"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::wire<forward>"));
+}

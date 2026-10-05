@@ -821,6 +821,7 @@ namespace hgl::codegen
             std::unordered_set<std::string>                     local_names_{};
             Writer                                              generated_helpers_{};
             Writer                                              generated_value_helpers_{};
+            Writer                                              generated_composition_helpers_{};
             std::unordered_map<std::string, std::string> specialized_value_helpers_{};
             std::size_t                                         anonymous_function_index_{0};
             Writer                                             *current_body_{nullptr};
@@ -4525,7 +4526,9 @@ namespace hgl::codegen
                 case Value::Kind::Struct:
                     return eval_planned_construct(expression.type, call.arguments, false, expression.range, frame);
                 case Value::Kind::Function:
-                    if (callable(callee.callable).kind == gir::CallableKind::ValueFunction &&
+                    if ((callable(callee.callable).kind == gir::CallableKind::ValueFunction ||
+                         (callable(callee.callable).kind == gir::CallableKind::Composition &&
+                          !std::ranges::all_of(callable(callee.callable).generics, &gir::GenericParameter::is_pack))) &&
                         !callable(callee.callable).generics.empty()) {
                         PlannedTypeBindings selected_types;
                         std::unordered_map<std::uint32_t, gir::ConstExprId> selected_values;
@@ -4533,13 +4536,14 @@ namespace hgl::codegen
                         for (const auto &substitution : expression.operation.substitutions) {
                             if (substitution.type.valid()) {
                                 HType type = planned_type(substitution.type, expression.range);
-                                if (symbolic(type)) { backend(expression.range, "a generated value helper needs concrete source types"); }
-                                identity += ":" + value_type(type, expression.range);
+                                if (symbolic(type)) { backend(expression.range, "a generated generic helper needs concrete source types"); }
+                                identity += ":" + (callable(callee.callable).kind == gir::CallableKind::Composition
+                                    ? schema(type, expression.range) : value_type(type, expression.range));
                                 selected_types.emplace(substitution.parameter.value, std::move(type));
                             } else if (substitution.value.valid()) {
                                 identity += ":" + planned_constant(substitution.value, expression.range).code;
                                 selected_values.emplace(substitution.parameter.value, substitution.value);
-                            } else { backend(expression.range, "a generated value helper needs complete substitutions"); }
+                            } else { backend(expression.range, "a generated generic helper needs complete substitutions"); }
                         }
                         const std::string helper_base_name = callable_cpp_name(callee.callable);
                         const auto saved_types = materialized_types_;
@@ -4565,7 +4569,9 @@ namespace hgl::codegen
                             materialized_identity_ = callable(callee.callable).identity + "<" + identity + ">";
                             Writer generated;
                             emit_function(callee.callable, generated, Form::InlineStruct);
-                            generated_value_helpers_.append(generated.str());
+                            if (callable(callee.callable).kind == gir::CallableKind::Composition) {
+                                generated_composition_helpers_.append(generated.str());
+                            } else { generated_value_helpers_.append(generated.str()); }
                         }
                         materialized_cpp_name_ = specialized_value_helpers_.at(identity);
                         active_uses_ = saved_uses;
@@ -6982,6 +6988,13 @@ namespace hgl::codegen
             // header must include. Anonymous graph bodies are collected while
             // their containing functions emit, then placed before every use.
             Writer private_functions;
+            const auto emit_private_function = [&](gir::CallableId id) {
+                Writer function;
+                emit_function(id, function, Form::InlineStruct);
+                private_functions.append(generated_composition_helpers_.str());
+                generated_composition_helpers_ = Writer{};
+                private_functions.append(function.str());
+            };
             private_namespace_ = split ? std::string{"hgl_detail"} : std::string{};
             for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
@@ -6991,17 +7004,17 @@ namespace hgl::codegen
                 const bool pack_only_generics =
                     !fn.generics.empty() && std::ranges::all_of(fn.generics, &gir::GenericParameter::is_pack);
                 if (fn.generics.empty() || pack_only_generics || fn.kind == gir::CallableKind::RuntimeNode) {
-                    emit_function(id, private_functions, Form::InlineStruct);
+                    emit_private_function(id);
                 }
             }
             for (const gir::CallableId id : impls) {
-                if (callable(id).generics.empty()) { emit_function(id, private_functions, Form::InlineStruct); }
+                if (callable(id).generics.empty()) { emit_private_function(id); }
             }
             for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
                 const gir::Materialization &materialization = graph_.materializations[index];
                 begin_materialization(materialization, index);
                 check_supported(materialization.implementation);
-                emit_function(materialization.implementation, private_functions, Form::InlineStruct);
+                emit_private_function(materialization.implementation);
                 end_materialization();
             }
             private_namespace_.reset();
@@ -7014,6 +7027,8 @@ namespace hgl::codegen
                 compositions.push_back(function.str());
                 public_functions.append(function.str());
             }
+            private_functions.append(generated_composition_helpers_.str());
+            generated_composition_helpers_ = Writer{};
             Writer public_header_functions;
             public_header_functions.indent();
             for (const gir::CallableId id : internal) {

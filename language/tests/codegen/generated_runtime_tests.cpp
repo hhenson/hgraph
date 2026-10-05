@@ -440,3 +440,12 @@ TEST_CASE("generated atomic list temporaries publish immediately and survive res
     CHECK(recorded[2]->equals(snapshot({3, 4})));
     CHECK(recorded[3]->equals(snapshot({})));
 }
+
+TEST_CASE("generated generic compositions preserve scalar and structural signal observations", "[codegen][runtime][signal]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::generic_scalar_signal_count>(values<Int>(none, 0, 0, none, -7)),
+                 values<Int>(none, 1, 2, none, 3));
+    CHECK_OUTPUT((eval_node<runtime::operators::generic_structural_signal_count, TSL<TS<Int>, 2>>(
+                     values<Value>(list_delta<TS<Int>>({{1, 0}}), none, list_delta<TS<Int>>({{1, 0}})))),
+                 values<Int>(1, none, 2));
+}

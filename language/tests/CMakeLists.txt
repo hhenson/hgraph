@@ -774,6 +774,7 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/temporal.hgl
             --part ${HGRAPH_STD}/tests/temporal_scalar_values.hgl
             --part ${HGRAPH_STD}/tests/zoned_time_values.hgl
+            --part ${HGRAPH_STD}/tests/signal_observation_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl
