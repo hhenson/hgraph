@@ -1536,3 +1536,30 @@ test order { assert consume(delta<map<timezone, timezone>>(upsert: [@[Missing/Ke
     CHECK(failed.message.find("Missing/Key") != std::string::npos);
     CHECK(failed.message.find("Missing/Payload") == std::string::npos);
 }
+
+TEST_CASE("ordinary map construction owns values and stops at duplicate keys", "[wiring][atomic-collections]") {
+    Unit accepted{R"(module checks.atomic_collections
+struct Snapshot { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
+fn forward(value: atomic<Snapshot>) -> atomic<Snapshot> => value
+test ownership {
+    var row: list<i64> = [1]
+    let saved = map<str, list<i64>>(items: ["row": row])
+    push(row, 2)
+    var source = Snapshot(values: saved)
+    let captured = source
+    source.values = map<str, list<i64>>(items: [])
+    assert eval(forward, [captured, Snapshot()]) == [Snapshot(values: map<str, list<i64>>(items: ["row": [1]])), Snapshot(values: map<str, list<i64>>(items: ["empty": []]))]
+})"};
+    const auto passed = only(accepted.tests());
+    INFO(passed.message);
+    CHECK(passed.passed);
+    Unit duplicate{R"(module checks.atomic_duplicate
+const fn consume<T>(value: T) -> bool => true
+test fail { assert consume(map<timezone, timezone>(items: [@[UTC]: @[UTC], @[UTC]: @[Missing/Payload]])) }
+)"};
+    const auto failed = only(duplicate.tests());
+    CHECK_FALSE(failed.passed);
+    INFO(failed.message);
+    CHECK(failed.message.find("duplicate") != std::string::npos);
+    CHECK(failed.message.find("Missing/Payload") == std::string::npos);
+}

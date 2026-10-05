@@ -664,9 +664,31 @@ namespace hgl::syntax
                         type.arguments = project_generic_arguments(*arguments);
                         type.range     = type.range.join(node(*arguments).range);
                     }
+                    if (names.size() == 1 && (type.name.text == "set" || type.name.text == "map")) {
+                        const std::size_t arity = type.name.text == "set" ? 1U : 2U;
+                        if (type.arguments.size() != arity) {
+                            diagnostics_.report(Category::Parse, type.range, "ordinary collection constructor needs its explicit type arguments");
+                        } else {
+                            type.kind = arity == 1U ? ast::TypeKind::Set : ast::TypeKind::Map;
+                            type.value_position = true;
+                            for (const auto &argument : type.arguments) {
+                                if (argument.type != ast::no_node) { type.children.push_back(argument.type); }
+                                else if (!argument.name.text.empty()) {
+                                    ast::Type child;
+                                    child.kind = ast::TypeKind::Named;
+                                    child.range = argument.range;
+                                    child.name = argument.name;
+                                    child.value_position = true;
+                                    type.children.push_back(module_.add(std::move(child)));
+                                } else { diagnostics_.report(Category::Parse, argument.range, "ordinary collection constructor arguments must be types"); }
+                            }
+                            type.arguments.clear();
+                        }
+                    }
                     result.type = module_.add(std::move(type));
                 }
-                if (!result.delta && module_.type(result.type).kind != ast::TypeKind::Named) {
+                if (!result.delta && module_.type(result.type).kind != ast::TypeKind::Named &&
+                    module_.type(result.type).kind != ast::TypeKind::Set && module_.type(result.type).kind != ast::TypeKind::Map) {
                     diagnostics_.report(Category::Parse, module_.type(result.type).range,
                                         "a struct constructor takes a named struct type");
                 }

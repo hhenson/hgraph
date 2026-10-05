@@ -534,3 +534,25 @@ export fn scalar_float_map(value: map<f64, i64>) -> map<f64, i64> => enum_generi
 export fn scalar_string_recipe(trigger: i64) -> map<str, i64> {
     when { return delta<map<str, i64>>(upsert: ["second": 2, "first": 1]) }
 }
+
+export fn atomic_map_recipe(key: str, value: i64) -> atomic<map<str, list<i64>>> {
+    when {
+        var row: list<i64> = []
+        push(row, value)
+        let saved = map<str, list<i64>>(items: [key: row])
+        push(row, 999)
+        return saved
+    }
+}
+export fn atomic_set_recipe(first: str, second: str) -> atomic<set<str>> {
+    when { return set<str>(items: [first, second]) }
+}
+struct RuntimeCollections { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
+export fn atomic_collection_default(trigger: i64) -> atomic<RuntimeCollections> {
+    when {
+        var source = RuntimeCollections()
+        let retained = source
+        source.values = map<str, list<i64>>(items: [])
+        return retained
+    }
+}

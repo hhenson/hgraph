@@ -4453,3 +4453,21 @@ const fn recipe() -> delta<map<timezone, timezone>> => delta<map<timezone, timez
     CHECK(check < payload);
     CHECK(source.find("hgl::temporal::zone(\"Missing/Key\")", key + 1) == std::string::npos);
 }
+
+TEST_CASE("ordinary map recipes validate each retained key before its payload", "[codegen][atomic-collections]") {
+    Unit unit{R"(
+module tests.ordinary_map_order
+const fn recipe() -> map<timezone, timezone> => map<timezone, timezone>(items: [@[UTC]: @[UTC], @[UTC]: @[Missing/Payload]])
+struct Snapshot { values: map<str, list<i64>> = map<str, list<i64>>(items: ["empty": []]) }
+export fn default_value() -> atomic<Snapshot> => Snapshot()
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const auto source = emitted->header + emitted->source;
+    const auto check = source.find("hgl_keys.insert(hgl_key_1.view())");
+    const auto payload = source.find("hgl::temporal::zone(\"Missing/Payload\")");
+    REQUIRE(check != std::string::npos);
+    REQUIRE(payload != std::string::npos);
+    CHECK(check < payload);
+}

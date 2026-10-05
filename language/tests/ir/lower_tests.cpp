@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<set<i64>>", "ref<i64>", "list<i64>", "map<tuple<i64, i64>, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<tuple<i64, i64>>>", "ref<i64>", "list<i64>", "map<tuple<i64, i64>, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3711,8 +3711,8 @@ TEST_CASE("finite atomic publications and generic shape arguments are checked", 
         "struct Mixed<T> { value: T\npublication: delta<T> }\nfn value(x: Mixed<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Unused<T> {}\nfn value(x: Unused<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Optional { value: i64 = null }\nfn value(x: atomic<Optional>) -> atomic<Optional> => x\ntest bad { eval(value, []) }\n",
-        "const fn value(x: delta<atomic<set<i64>>>) -> i64 => 1\n",
-        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<i64>>) -> atomic<set<i64>> => pass(x)\n",
+        "const fn value(x: delta<atomic<set<tuple<i64, i64>>>>) -> i64 => 1\n",
+        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<tuple<i64, i64>>>) -> atomic<set<tuple<i64, i64>>> => pass(x)\n",
         "struct Publication<T> { value: delta<T> }\nconst fn value() { let x = Publication(value: [1, 2]) }\n"
     };
     for (const auto &source : rejected) {
@@ -3888,6 +3888,35 @@ TEST_CASE("scalar collection keys require exact types and equality", "[ir][typed
     const fn f() -> delta<set<f64>> => delta<set<f64>>(added: [1.000000000000001, 1.000000000000002])
     const fn zones() -> delta<set<timezone>> => delta<set<timezone>>(added: [@[US/Eastern], @[America/New_York]])
     )"};
+    require_clean(accepted);
+    const bool valid = complete(accepted);
+    INFO(accepted.diagnostics.render(accepted.file));
+    CHECK(valid);
+}
+
+TEST_CASE("ordinary set and map constructors require exact typed items", "[ir][typed][atomic-collections]") {
+    for (const std::string source : {
+        "const fn f() -> set<str> => set<str>()",
+        "const fn f() -> set<str> => set<str>(other: [])",
+        "const fn f() -> set<str> => set<str>(items: [], items: [])",
+        "const fn f() -> set<f64> => set<f64>(items: [0.0, -0.0])",
+        "const fn f() -> map<f64, i64> => map<f64, i64>(items: [0.0: 1, -0.0: 2])",
+        "const fn f() -> map<f64, i64> => map<f64, i64>(items: [1: 2])",
+        "const fn f() -> map<str, i64> => map<str, i64>(items: [1])",
+        "const fn f() -> set<str> => set<str>(items: [\"key\": 1])",
+        "const fn f() -> set<tuple<i64, i64>> => set<tuple<i64, i64>>(items: [])"
+    }) {
+        Lowered unit{"module checks.atomic_collections\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered accepted{R"(module checks.atomic_collections
+const fn dynamic(key: str, value: i64) -> map<str, i64> => map<str, i64>(items: [key: value])
+struct Snapshot { tags: set<str> = set<str>(items: []) }
+fn value(x: atomic<Snapshot>) -> atomic<Snapshot> => x
+test empty { assert eval(value, [Snapshot()]) == [Snapshot(tags: set<str>(items: []))] }
+)"};
     require_clean(accepted);
     const bool valid = complete(accepted);
     INFO(accepted.diagnostics.render(accepted.file));

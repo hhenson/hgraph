@@ -636,6 +636,11 @@ namespace hgl::codegen
             };
             [[nodiscard]] Value constructed_struct(const HType &type, const std::vector<ConstructedField> &fields,
                                                    SourceRange range);
+            [[nodiscard]] Value planned_collection_child(gir::ConstExprId id, const HType &type, SourceRange range,
+                const PlannedTypeBindings *bindings);
+            [[nodiscard]] Value construct_ordinary_collection(const HType &type, std::size_t count,
+                const std::function<Value(std::size_t)> &key, const std::function<Value(std::size_t)> &item,
+                SourceRange range, bool runtime);
             [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
                                                        SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame);
@@ -707,7 +712,8 @@ namespace hgl::codegen
                                                 SourceRange range, Frame &frame);
             [[nodiscard]] static bool ordinary_aggregate(const HType &type) {
                 return type.kind == HType::Kind::Enum || type.kind == HType::Kind::List || type.kind == HType::Kind::Struct ||
-                       type.kind == HType::Kind::Tuple || type.kind == HType::Kind::Delta;
+                       type.kind == HType::Kind::Tuple || type.kind == HType::Kind::Delta ||
+                       type.kind == HType::Kind::Set || type.kind == HType::Kind::Map;
             }
             [[nodiscard]] std::string storage_type(const HType &type, SourceRange range) {
                 return ordinary_aggregate(type) ? "hgraph::Value" : value_type(type, range);
@@ -1816,6 +1822,12 @@ namespace hgl::codegen
                 if (type.children.size() != 1U) { backend(range, "an atomic constructed type requires one value type"); }
                 HType inner = std::move(type.children.front());
                 type        = std::move(inner);
+            }
+            if (type.kind == HType::Kind::Map || type.kind == HType::Kind::Set) {
+                const auto &entries = graph_.const_exprs[expression.arguments.front().value.value].elements;
+                return construct_ordinary_collection(type, entries.size(),
+                    [&](std::size_t i) { return planned_field_value(type.kind == HType::Kind::Map ? entries[i].key : entries[i].value, range, bindings); },
+                    [&](std::size_t i) { return planned_collection_child(entries[i].value, type.children.back(), range, bindings); }, range, false);
             }
             if (type.kind != HType::Kind::Struct) { backend(range, "a constructed hgraph IR default does not name a struct type"); }
             const gir::StructContract &contract = planned_structure(type.nominal_identity, range);
@@ -3286,7 +3298,7 @@ namespace hgl::codegen
                             std::string code = plan +
                                                (target.ordinary_writable && ordinary_aggregate(type) ? ".index_mutable(" : ".index(") +
                                                arguments;
-                            const std::string projection = plan + ".index_mutable(" + arguments;
+                            const std::string projection = plan + ".replace_index(" + arguments.substr(0, arguments.size() - 1) + ", ";
                             if (!ordinary_aggregate(type)) { code = ordinary_scalar(code, type, expression.range); }
                             Value result = make_runtime(std::move(code), type, expression.range);
                             if (target.ordinary_writable) { result.assignment_target = projection; }
@@ -3837,6 +3849,65 @@ namespace hgl::codegen
             return result;
         }
 
+        Value Emitter::planned_collection_child(gir::ConstExprId id, const HType &type, SourceRange range,
+            const PlannedTypeBindings *bindings) {
+            const auto &expression = graph_constant(id, range);
+            if (expression.kind == gir::ConstExprKind::Sequence && type.kind == HType::Kind::List) {
+                const std::string plan = ordinary_plan(type, range);
+                std::string code = "[&]() { auto hgl_list = " + plan + ".empty_list(); ";
+                for (std::size_t index = 0; index < expression.elements.size(); ++index) {
+                    const auto item = planned_collection_child(expression.elements[index].value, type.children[0], range, bindings);
+                    const std::string local = "hgl_item_" + std::to_string(index);
+                    code += "auto " + local + " = " + ordinary_retain(item) + "; ";
+                    if (type.size.empty()) { code += plan + ".push(hgl_list.view(), " + local + ".view()); "; }
+                    else { code += plan + ".index_mutable(hgl_list.view(), " + std::to_string(index) + ").begin_mutation().copy_from(" + local + ".view()); "; }
+                }
+                code += "return hgl_list; }()";
+                auto result = make_const(std::move(code), type, range);
+                result.ordinary_value = true;
+                return result;
+            }
+            if (expression.kind == gir::ConstExprKind::Tuple && type.kind == HType::Kind::Tuple) {
+                std::string code = "[&]() { ";
+                std::vector<std::string> fields;
+                for (std::size_t index = 0; index < expression.items.size(); ++index) {
+                    const std::string local = "hgl_item_" + std::to_string(index);
+                    code += "auto " + local + " = " + ordinary_retain(planned_collection_child(expression.items[index], type.children[index], range, bindings)) + "; ";
+                    fields.push_back("std::pair<std::size_t, hgraph::ValueView>{" + std::to_string(index) + ", " + local + ".view()}");
+                }
+                code += "std::array<std::pair<std::size_t, hgraph::ValueView>, " + std::to_string(fields.size()) + "> hgl_fields{" + join(fields, ", ") + "}; return " + ordinary_plan(type, range) + ".bundle(hgl_fields); }()";
+                auto result = make_const(std::move(code), type, range);
+                result.ordinary_value = true;
+                return result;
+            }
+            return planned_field_value(id, range, bindings);
+        }
+
+        Value Emitter::construct_ordinary_collection(const HType &type, std::size_t count,
+            const std::function<Value(std::size_t)> &key, const std::function<Value(std::size_t)> &item,
+            SourceRange range, bool runtime) {
+            const bool map = type.kind == HType::Kind::Map;
+            const std::string plan = ordinary_plan(type, range);
+            const std::string key_binding = plan + (map ? ".key_binding()" : ".element_binding()");
+            std::string code = "[&]() { hgl::ordinary::ScalarKeySet hgl_keys{" + key_binding + "}; ";
+            code += map ? "hgraph::MapBuilder hgl_items{" + key_binding + ", " + plan + ".element_binding()}; "
+                        : "hgraph::SetBuilder hgl_items{" + key_binding + "}; ";
+            for (std::size_t index = 0; index < count; ++index) {
+                const std::string local_key = "hgl_key_" + std::to_string(index);
+                code += "auto " + local_key + " = " + ordinary_retain(key(index)) + "; hgl_keys.insert(" + local_key + ".view()); ";
+                if (map) {
+                    const std::string local_item = "hgl_item_" + std::to_string(index);
+                    code += "auto " + local_item + " = " + ordinary_retain(item(index)) + "; ";
+                    code += "hgl_items.set_item(" + local_key + ".view(), " + local_item + ".view()); ";
+                } else { code += "hgl_items.insert(" + local_key + ".view()); "; }
+            }
+            code += "auto hgl_storage = hgl_items.build_storage(); return hgraph::Value{" + plan +
+                    ".binding(), &hgl_storage, hgraph::Value::AdoptStorage{}}; }()";
+            Value result = runtime ? make_runtime(std::move(code), type, range) : make_const(std::move(code), type, range);
+            result.ordinary_value = true;
+            return result;
+        }
+
         Value Emitter::eval_planned_construct(gir::TypeId type_id, const std::vector<gir::Argument> &arguments, bool delta,
                                               SourceRange range, Frame &frame) {
             HType type = planned_type(type_id, range);
@@ -3848,6 +3919,12 @@ namespace hgl::codegen
                 // `type`'s own children destroys it before its strings are copied.
                 HType inner = std::move(type.children.front());
                 type        = std::move(inner);
+            }
+            if (type.kind == HType::Kind::Map || type.kind == HType::Kind::Set) {
+                const auto &entries = std::get<gir::Sequence>(planned_value(arguments.front().value, range).node).elements;
+                return construct_ordinary_collection(type, entries.size(),
+                    [&](std::size_t i) { return eval_planned_expr(type.kind == HType::Kind::Map ? entries[i].key : entries[i].value, frame); },
+                    [&](std::size_t i) { return eval_planned_expr(entries[i].value, frame); }, range, frame.runtime);
             }
             if (type.kind != HType::Kind::Struct) { backend(range, "a generated constructor needs a nominal struct type"); }
             const gir::StructContract &contract         = planned_structure(type.nominal_identity, range);
@@ -4133,6 +4210,7 @@ namespace hgl::codegen
                 }
 
                 std::vector<std::string> arguments{output.selector};
+                bool owning_map_value = false;
                 for (std::size_t index = 1U; index < call.arguments.size(); ++index) {
                     const Value value = eval_planned_expr(call.arguments[index].value, frame);
                     HType       expected;
@@ -4145,13 +4223,25 @@ namespace hgl::codegen
                     } else {
                         backend(range, "typed HIR admitted arguments for an incompatible output mutation");
                     }
-                    arguments.push_back(as_runtime(value, expected, value.range, "output mutation argument"));
+                    if (output.type.kind == HType::Kind::Map && index == 2U &&
+                        expected.kind == HType::Kind::Atomic && ordinary_aggregate(expected.children.front())) {
+                        owning_map_value = true;
+                        arguments.push_back(ordinary_retain(value));
+                    } else { arguments.push_back(as_runtime(value, expected, value.range, "output mutation argument")); }
                 }
 
                 uses_output_mutations_ = true;
                 Value result;
                 result.kind  = Value::Kind::Void;
                 result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
+                if (owning_map_value) {
+                    result.code = "[&]() { auto hgl_key = " + arguments[1] + "; auto hgl_item = " + arguments[2] +
+                        "; const bool hgl_existed = hgl_output.contains(hgl_key); ";
+                    if (name == "insert") { result.code += "if (hgl_existed) throw std::invalid_argument(\"insert requires an absent TSD key\"); "; }
+                    if (name == "update") { result.code += "if (!hgl_existed) throw std::out_of_range(\"update requires a present TSD key\"); "; }
+                    result.code += "auto hgl_rollback = hgraph::make_scope_exit<true>([&]() { if (!hgl_existed) static_cast<void>(hgl_output.erase(hgl_key)); }); "
+                        "hgl_output[hgl_key].apply(hgl_item.view()); hgl_rollback.release(); }()";
+                }
                 result.range = range;
                 return result;
             }
@@ -5279,7 +5369,7 @@ namespace hgl::codegen
                                         : node.op == gir::AssignOp::Mul ? hir::BinaryOp::Mul : hir::BinaryOp::Div;
                                     value = fold_binary(op, target, value, statement.range);
                                 }
-                                out.line(target.assignment_target + ".begin_mutation().copy_from(" + ordinary_view(value) + ");");
+                                out.line(target.assignment_target + ordinary_view(value) + ");");
                                 return;
                             }
                         }

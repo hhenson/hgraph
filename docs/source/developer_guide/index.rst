@@ -30,6 +30,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    hgl_temporal_publications
    hgl_enum_publications
    hgl_scalar_collection_keys
+   hgl_atomic_set_map_publications
    hgl_contextual_bindings
    writing_nodes
    parity_matrix

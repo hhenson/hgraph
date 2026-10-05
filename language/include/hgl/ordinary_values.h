@@ -36,6 +36,15 @@ namespace hgl::ordinary
         const auto kind = schema->try_value_kind();
         if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
             validate_atomic_schema(schema->element_type, visiting);
+        } else if (kind == hgraph::ValueTypeKind::Set) {
+            if (!schema->element_type->is_enum() && std::ranges::find(leaves, schema->element_type) == leaves.end()) {
+                throw std::invalid_argument("unsupported atomic set member type");
+            }
+        } else if (kind == hgraph::ValueTypeKind::Map) {
+            if (!schema->key_type->is_enum() && std::ranges::find(leaves, schema->key_type) == leaves.end()) {
+                throw std::invalid_argument("unsupported atomic map key type");
+            }
+            validate_atomic_schema(schema->element_type, visiting);
         } else if ((kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) &&
                    !schema->is_abstract_bundle()) {
             for (std::size_t index = 0; index < schema->field_count; ++index) {
@@ -65,7 +74,9 @@ namespace hgl::ordinary
     inline void validate_complete_value(const hgraph::ValueView &value) {
         if (!value.valid()) { throw std::invalid_argument("incomplete atomic publication payload"); }
         const auto kind = value.schema()->try_value_kind();
-        if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+        if (kind == hgraph::ValueTypeKind::Map) {
+            for (const auto [key, child] : value.as_map()) { validate_complete_value(child); }
+        } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
             const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
             const auto count = ops->size(ops->context, value.data());
             for (std::size_t index = 0; index < count; ++index) {
@@ -202,6 +213,12 @@ namespace hgl::ordinary
             if (schema->is_fixed_size()) { return factory.realized_fixed_list_type_for(schema, element); }
             return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
         }
+        if (kind == hgraph::ValueTypeKind::Map) {
+            return hgraph::compact_map_type(storage_binding(schema->key_type), storage_binding(schema->element_type));
+        }
+        if (kind == hgraph::ValueTypeKind::Set) {
+            return hgraph::compact_set_type(storage_binding(schema->element_type));
+        }
         if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
             std::vector<hgraph::ValueTypeRef> fields;
             fields.reserve(schema->field_count);
@@ -272,6 +289,14 @@ namespace hgl::ordinary
                 : const_cast<void *>(indexed_->element_at(indexed_->context, writable.mutable_data(), offset));
             return hgraph::ValueView{indexed_->element_binding(indexed_->context, value.data(), offset),
                                      element};
+        }
+        // Replacing a slot is a mutation of its owning parent, not permission
+        // to mutate the internals of a read-only child container.
+        void replace_index(const hgraph::ValueView &parent, std::int64_t index, const hgraph::ValueView &source) const {
+            const auto child = this->index(parent, index);
+            hgraph::Value retained{child.binding(), source};
+            auto target = index_mutable(parent, index);
+            target.binding().copy_assign_at(const_cast<void *>(target.data()), retained.view().data());
         }
         void push(const hgraph::ValueView &list, const hgraph::ValueView &element) const {
             auto retained = hgraph::Value{element_, element};

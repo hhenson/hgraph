@@ -3823,6 +3823,11 @@ namespace hgl::ir
                 if (shape.kind == TypeKind::Tuple || shape.kind == TypeKind::List) {
                     admitted = true;
                     for (TypeId child : shape.children) { admitted = admitted && admitted_atomic_value(child, visiting); }
+                } else if (shape.kind == TypeKind::Set || shape.kind == TypeKind::Map) {
+                    admitted = !shape.children.empty() && admitted_scalar_key(shape.children[0]);
+                    if (shape.kind == TypeKind::Map) {
+                        admitted = admitted && shape.children.size() == 2U && admitted_atomic_value(shape.children[1], visiting);
+                    }
                 } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
                     const auto &symbol = module_.symbol(shape.symbol);
                     const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
@@ -3968,14 +3973,60 @@ namespace hgl::ir
                 }
             }
 
+            void check_ordinary_collection(Expr &expression, const Construct &node, TypeId applied) {
+                const Type shape = type(applied);
+                if (!admitted_scalar_key(shape.children[0])) { type_error(expression.range, "ordinary collection keys require admitted scalar types"); }
+                if (node.arguments.size() != 1U || node.arguments.front().name != "items") {
+                    type_error(expression.range, "ordinary collection construction requires exactly one named items argument");
+                    return;
+                }
+                const auto &argument = node.arguments.front();
+                Expr &entries = module_.exprs[argument.value.value];
+                const auto *sequence = std::get_if<Sequence>(&entries.node);
+                if (!sequence) { type_error(entries.range, "ordinary collection items require a literal entry list"); return; }
+                std::unordered_set<std::string> members;
+                entries.phase = Phase::Constant;
+                for (const auto &entry : sequence->elements) {
+                    const bool map = shape.kind == TypeKind::Map;
+                    const ExprId key_id = map ? entry.key : entry.value;
+                    if (!key_id.valid() || (!map && entry.key.valid())) {
+                        type_error(entries.range, "ordinary collection entry has the wrong form"); continue;
+                    }
+                    Expr &key = check_expr(key_id);
+                    if (!same(shape.children[0], key.type)) { type_error(key.range, "ordinary collection key requires its exact declared type"); }
+                    if (key.constant) {
+                        if (const auto identity = scalar_key_identity(*key.constant); identity && !members.insert(*identity).second) {
+                            type_error(key.range, "duplicate ordinary collection member or key");
+                        }
+                    }
+                    entries.effects |= key.effects;
+                    entries.phase = join_phase(entries.phase, key.phase);
+                    if (map) {
+                        Expr &item = check_expr(entry.value, shape.children[1]);
+                        require_assignable(shape.children[1], item, "ordinary map value");
+                        entries.effects |= item.effects;
+                        entries.phase = join_phase(entries.phase, item.phase);
+                    }
+                }
+                entries.type = make_type(TypeKind::List, {shape.children[0]});
+                entries.value_kind = value_kind_for_phase(entries.phase);
+                expr_state_[argument.value.value] = 2;
+                expression.effects |= entries.effects;
+            }
+
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
-                if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
+                if (expected.valid() && assignable(expected, applied) &&
+                    (node.delta || (type(applied).kind != TypeKind::Set && type(applied).kind != TypeKind::Map))) {
+                    applied = canonical(expected);
+                }
                 if (node.delta && type(applied).kind != TypeKind::Symbol) {
                     const TypeKind kind = type(applied).kind;
                     if (kind == TypeKind::Map || kind == TypeKind::Set || kind == TypeKind::List || kind == TypeKind::Tuple) {
                         check_collection_delta(expression, node, applied);
                     } else { type_error(expression.range, "delta constructors require an admitted structural shape"); }
+                } else if (!node.delta && (type(applied).kind == TypeKind::Set || type(applied).kind == TypeKind::Map)) {
+                    check_ordinary_collection(expression, node, applied);
                 } else { applied = check_constructor_arguments(expression, applied, node.arguments, node.delta); }
                 expression.type  = node.delta ? make_type(TypeKind::Delta, {applied}) : applied;
                 expression.phase = Phase::Constant;

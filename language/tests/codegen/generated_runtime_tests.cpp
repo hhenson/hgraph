@@ -500,3 +500,37 @@ TEST_CASE("generated scalar map recipes retain exact keys", "[codegen][runtime][
         values<Value>(dict_delta<Str, TS<Int>>({{"first", 1}, {"second", 2}}), none,
                       dict_delta<Str, TS<Int>>({{"second", 2}, {"first", 1}})));
 }
+
+TEST_CASE("generated ordinary collections retain runtime children and reject duplicates", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto snapshot = [](const Str &key, Int item) {
+        ListBuilder row{ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta()),
+                        *scalar_descriptor<hgl::ordinary::List<Int>>::value_meta()};
+        row.push_back(item);
+        auto child = row.build();
+        MapBuilder map{ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta()), child.binding()};
+        map.set_item(Value{key}.view(), child.view());
+        return map.build();
+    };
+    CHECK_OUTPUT(eval_node<runtime::operators::atomic_map_recipe>(values<Str>("row", none, "other"), values<Int>(1, none, 2)),
+        values<Value>(snapshot("row", 1), none, snapshot("other", 2)));
+    SetBuilder members{ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta())};
+    members.insert(Value{Str{"alpha"}}.view());
+    members.insert(Value{Str{"beta"}}.view());
+    CHECK_OUTPUT(eval_node<runtime::operators::atomic_set_recipe>(values<Str>("alpha"), values<Str>("beta")),
+        values<Value>(members.build()));
+    CHECK_THROWS_WITH(eval_node<runtime::operators::atomic_set_recipe>(values<Str>("same"), values<Str>("same")),
+        Catch::Matchers::ContainsSubstring("duplicate"));
+}
+
+TEST_CASE("generated map defaults retain the type of empty nested lists", "[codegen][runtime][atomic-collections]") {
+    session();
+    const auto recorded = eval_node<runtime::operators::atomic_collection_default>(values<Int>(1));
+    REQUIRE(recorded.size() == 1);
+    REQUIRE(recorded[0]);
+    const auto map = recorded[0]->as_bundle().field("values").as_map();
+    REQUIRE(map.size() == 1);
+    const auto child = map.at(Value{Str{"empty"}}.view());
+    CHECK(child.as_list().empty());
+    CHECK(child.schema() == scalar_descriptor<hgl::ordinary::List<Int>>::value_meta());
+}

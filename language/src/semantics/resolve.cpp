@@ -1248,7 +1248,8 @@ namespace hgl::semantics
                             const auto shape = module_.type(node.type).kind;
                             const bool collection_delta = node.delta && (shape == ast::TypeKind::Set || shape == ast::TypeKind::Map ||
                                 shape == ast::TypeKind::List || shape == ast::TypeKind::Tuple);
-                            if (!collection_delta && target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
+                            const bool ordinary_collection = !node.delta && (shape == ast::TypeKind::Set || shape == ast::TypeKind::Map);
+                            if (!collection_delta && !ordinary_collection && target.kind != BindingKind::Struct && target.kind != BindingKind::ImportedStruct) {
                                 report(Category::Type, module_.type(node.type).range,
                                        "a struct constructor target is a concrete struct type");
                             }

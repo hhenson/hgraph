@@ -37,6 +37,7 @@
 #endif
 
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <compare>
 #include <exception>
@@ -336,6 +337,7 @@ namespace hgl::wiring
 
             [[nodiscard]] Slot          constant(const hir::Constant &constant, SourceRange range);
             [[nodiscard]] Slot          eval_const_expr(gir::ConstExprId id, Frame &frame);
+            [[nodiscard]] Slot eval_typed_collection_child(gir::ConstExprId id, const hgraph::ValueTypeMetaData *meta, Frame &frame);
             [[nodiscard]] hgraph::Value convert(const hgraph::Value &source, const hgraph::ValueTypeMetaData *target,
                                                 SourceRange range, std::string_view role);
             [[nodiscard]] Slot          fold_unary(hir::UnaryOp op, const Slot &operand, SourceRange range);
@@ -375,6 +377,8 @@ namespace hgl::wiring
             [[nodiscard]] Slot eval_tuple(const gir::Tuple &tuple, SourceRange range, Frame &frame);
             [[nodiscard]] Slot assemble_construct(gir::TypeId type, std::vector<std::pair<std::string, Slot>> supplied, bool delta,
                                                   SourceRange range, Frame &frame);
+            [[nodiscard]] Slot build_ordinary_collection(gir::TypeId type, std::size_t count,
+                const std::function<Slot(std::size_t)> &key, const std::function<Slot(std::size_t)> &item, SourceRange range);
             [[nodiscard]] Slot eval_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
                                               SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_delta_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments,
@@ -771,6 +775,29 @@ namespace hgl::wiring
             return type_error();
         }
 
+        Slot Compiler::eval_typed_collection_child(gir::ConstExprId id, const hgraph::ValueTypeMetaData *meta, Frame &frame) {
+            const auto &expression = module_.const_exprs[id.value];
+            if (expression.kind == gir::ConstExprKind::Sequence && meta->try_value_kind() == hgraph::ValueTypeKind::List) {
+                ordinary::PreparedValuePlan plan{meta};
+                auto result = plan.empty_list();
+                for (std::size_t index = 0; index < expression.elements.size(); ++index) {
+                    auto child = eval_typed_collection_child(expression.elements[index].value, meta->element_type, frame);
+                    if (meta->is_fixed_size()) { plan.index_mutable(result.view(), static_cast<std::int64_t>(index)).begin_mutation().copy_from(child.value.view()); }
+                    else { plan.push(result.view(), child.value.view()); }
+                }
+                return make_const(std::move(result), expression.range);
+            }
+            if (expression.kind == gir::ConstExprKind::Tuple && meta->try_value_kind() == hgraph::ValueTypeKind::Tuple) {
+                hgraph::BundleBuilder result{ordinary::storage_binding(meta)};
+                for (std::size_t index = 0; index < expression.items.size(); ++index) {
+                    auto child = eval_typed_collection_child(expression.items[index], meta->fields[index].type, frame);
+                    result.set(index, child.value.view());
+                }
+                return make_const(result.build(), expression.range);
+            }
+            return eval_const_expr(id, frame);
+        }
+
         Slot Compiler::eval_const_expr(gir::ConstExprId id, Frame &frame) {
             if (!id.valid() || id.value >= module_.const_exprs.size()) { backend({}, "invalid constant expression ID"); }
             const gir::ConstExpr &expression = module_.const_exprs[id.value];
@@ -869,6 +896,13 @@ namespace hgl::wiring
                     }
                 case gir::ConstExprKind::Construct:
                     {
+                        const auto kind = value_meta(expression.constructed_type)->try_value_kind();
+                        if (!expression.delta && (kind == hgraph::ValueTypeKind::Map || kind == hgraph::ValueTypeKind::Set)) {
+                            const auto &entries = module_.const_exprs[expression.arguments.front().value.value].elements;
+                            return build_ordinary_collection(expression.constructed_type, entries.size(),
+                                [&](std::size_t i) { return eval_const_expr(kind == hgraph::ValueTypeKind::Map ? entries[i].key : entries[i].value, frame); },
+                                [&](std::size_t i) { return eval_typed_collection_child(entries[i].value, value_meta(expression.constructed_type)->element_type, frame); }, expression.range);
+                        }
                         std::vector<std::pair<std::string, Slot>> supplied;
                         supplied.reserve(expression.arguments.size());
                         for (const gir::ConstArgument &argument : expression.arguments) {
@@ -1270,9 +1304,41 @@ namespace hgl::wiring
             return result;
         }
 
+        Slot Compiler::build_ordinary_collection(gir::TypeId type, std::size_t count,
+            const std::function<Slot(std::size_t)> &key, const std::function<Slot(std::size_t)> &item, SourceRange range) {
+            const auto *meta = value_meta(type);
+            ordinary::PreparedValuePlan plan{meta};
+            const bool map = meta->try_value_kind() == hgraph::ValueTypeKind::Map;
+            ordinary::ScalarKeySet keys{map ? plan.key_binding() : plan.element_binding()};
+            if (map) {
+                hgraph::MapBuilder output{plan.key_binding(), plan.element_binding()};
+                for (std::size_t index = 0; index < count; ++index) {
+                    Slot retained_key = key(index);
+                    keys.insert(retained_key.value.view());
+                    Slot retained_item = item(index);
+                    output.set_item(retained_key.value.view(), convert(retained_item.value, meta->element_type, range, "ordinary map value").view());
+                }
+                return make_const(output.build(), range);
+            }
+            hgraph::SetBuilder output{plan.element_binding()};
+            for (std::size_t index = 0; index < count; ++index) {
+                Slot retained_key = key(index);
+                keys.insert(retained_key.value.view());
+                output.insert(retained_key.value.view());
+            }
+            return make_const(output.build(), range);
+        }
+
         Slot Compiler::eval_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta, SourceRange range,
                                       Frame &frame) {
             if (delta) { return eval_delta_construct(type, arguments, range, frame); }
+            const auto kind = value_meta(type)->try_value_kind();
+            if (kind == hgraph::ValueTypeKind::Map || kind == hgraph::ValueTypeKind::Set) {
+                const auto &entries = std::get<gir::Sequence>(value(arguments.front().value).node).elements;
+                return build_ordinary_collection(type, entries.size(),
+                    [&](std::size_t i) { return eval_value(kind == hgraph::ValueTypeKind::Map ? entries[i].key : entries[i].value, frame); },
+                    [&](std::size_t i) { return eval_value(entries[i].value, frame); }, range);
+            }
             std::vector<std::pair<std::string, Slot>> supplied;
             supplied.reserve(arguments.size());
             for (const gir::Argument &argument : arguments) {
@@ -2421,6 +2487,16 @@ namespace hgl::wiring
                                 next = fold_binary(op, make_const(hgraph::Value{target.binding(), target}, place.range), next, statement.range);
                             }
                             next = constant_of(next, target.schema(), frame, "ordinary member assignment");
+                            if (const auto *field = std::get_if<gir::Field>(&place.node)) {
+                                auto parent = ordinary_place(field->target, frame);
+                                for (std::size_t index = 0; index < parent.schema()->field_count; ++index) {
+                                    if (parent.schema()->fields[index].name == field->name) {
+                                        ordinary::PreparedValuePlan{parent.binding()}.replace_index(parent, static_cast<std::int64_t>(index), next.value.view());
+                                        return;
+                                    }
+                                }
+                                backend(place.range, "ordinary assignment has no matching field");
+                            }
                             target.begin_mutation().copy_from(next.value.view());
                             return;
                         }
