@@ -210,3 +210,35 @@ TEST_CASE("atomic publication schemas and values require complete finite payload
     CHECK_THROWS_AS(delta_schema(registry.ts(registry.set(registry.list(integer)))), std::invalid_argument);
     CHECK_THROWS_AS(delta_schema(registry.ts(registry.list(integer, 0, true))), std::invalid_argument);
 }
+
+TEST_CASE("rolling arrival payloads preserve exact cold origin metadata", "[ordinary][rolling]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const std::array shapes{registry.tsw(integer, 2, 2), registry.tsw(integer, 2, 0),
+        registry.tsw(integer, 3, 2), registry.tsw_duration(integer, TimeDelta{5}, TimeDelta{1}),
+        registry.tsw_duration(integer, TimeDelta{5}, TimeDelta{0})};
+    for (const auto *shape : shapes) {
+        CHECK(delta_schema(shape) == integer);
+        CHECK(origin_source(origin_schema(shape)) == shape);
+        const PreparedDeltaPlan plan{shape};
+        const Value arrival{Int{10}};
+        const auto retained = plan.capture(arrival.view());
+        CHECK(retained.schema() == integer);
+        CHECK(plan.payload(retained.view()).checked_as<Int>() == 10);
+        for (const auto *other : shapes) {
+            CHECK((origin_schema(shape) == origin_schema(other)) == (shape == other));
+        }
+    }
+    const auto *list = registry.list(integer);
+    const auto *shape = registry.tsw(list, 2, 1);
+    const PreparedValuePlan list_plan{list};
+    const PreparedDeltaPlan arrival_plan{shape};
+    auto source = list_plan.empty_list();
+    list_plan.push(source.view(), Value{Int{1}}.view());
+    const auto retained = arrival_plan.capture(source.view());
+    list_plan.push(source.view(), Value{Int{2}}.view());
+    CHECK(list_plan.len(arrival_plan.payload(retained.view())) == 1);
+    CHECK(origin_source(origin_schema(shape)) == shape);
+}

@@ -1577,7 +1577,7 @@ namespace hgl::codegen
                         if (type.children.size() != 1U) { backend(range, "hgraph IR delta type requires one originating shape"); }
                         HType origin = planned_type(type.children.front(), range, bindings);
                         if (origin.kind == HType::Kind::Scalar || origin.kind == HType::Kind::Enum) { return origin; }
-                        if (origin.kind == HType::Kind::Atomic) { return origin.children.front(); }
+                        if (origin.kind == HType::Kind::Atomic || origin.kind == HType::Kind::Rolling) { return origin.children.front(); }
                         HType result;
                         result.kind = HType::Kind::Delta;
                         result.children.push_back(std::move(origin));
@@ -4089,7 +4089,11 @@ namespace hgl::codegen
                     value.borrowed_value = true;
                     return value;
                 }
-                if (input.type.kind == HType::Kind::Atomic) {
+                if (input.type.kind == HType::Kind::Rolling && input.type.children.front().kind == HType::Kind::Scalar) {
+                    return make_runtime(ordinary_scalar(input.selector + ".delta_value()", input.type.children.front(), range),
+                                        input.type.children.front(), range);
+                }
+                if (input.type.kind == HType::Kind::Atomic || input.type.kind == HType::Kind::Rolling) {
                     static_cast<void>(delta_plan(input.type, range));
                     Value value = make_runtime(input.selector + ".delta_value()", input.type.children.front(), range);
                     value.ordinary_value = true;

@@ -609,3 +609,15 @@ TEST_CASE("generated growing lists publish tail removal and regrowth", "[codegen
     CHECK_OUTPUT((eval_node<runtime::operators::growing_forward, TSL<TS<Int>, unbounded_tsl_size>>(expected)), expected);
     CHECK_OUTPUT(eval_node<runtime::operators::growing_source>(), expected);
 }
+
+TEST_CASE("generated rolling publication forwards arrivals before readiness", "[codegen][runtime][rolling]") {
+    session();
+    const auto arrivals = values<Value>(Value{Int{10}}, none, Value{Int{10}}, Value{Int{20}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_ticks_forward, TSW<Int, 2, 2>>(arrivals)), arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_observed_ticks, TSW<Int, 2, 2>>(arrivals)),
+        values<Bool>(false, none, true, true));
+    const auto duration_arrivals = values<Value>(Value{Int{10}}, none, Value{Int{20}}, none, none, none, none, none, Value{Int{30}});
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_duration_forward, TSWDuration<Int, 5, 1>>(duration_arrivals)), duration_arrivals);
+    CHECK_OUTPUT((eval_node<runtime::operators::rolling_observed_duration, TSWDuration<Int, 5, 1>>(duration_arrivals)),
+        values<Bool>(false, none, true, none, none, none, none, none, false));
+}

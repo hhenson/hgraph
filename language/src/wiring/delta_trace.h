@@ -14,7 +14,8 @@ namespace hgl::wiring {
         void accept(const hgraph::TSValueTypeMetaData *shape, const hgraph::ValueView &native) {
             using namespace hgraph;
             switch (shape->kind) {
-                case TSTypeKind::TS: ordinary::validate_complete_value(native); return;
+                case TSTypeKind::TS:
+                case TSTypeKind::TSW: ordinary::validate_complete_value(native); return;
                 case TSTypeKind::TSS: {
                     const auto parts = native.as_bundle();
                     const auto added = parts.at(0).as_set();

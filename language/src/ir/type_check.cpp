@@ -3274,7 +3274,10 @@ namespace hgl::ir
                             type_error(key.range, "sparse entries require a delta constructor; harness keys must be temporal");
                         }
                     }
-                    const TypeId item_expected = element_type.valid() && type(canonical(element_type)).kind == TypeKind::Atomic
+                    const bool harness = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence;
+                    const bool rolling_arrival = harness && element_type.valid() && type(canonical(element_type)).kind == TypeKind::Rolling;
+                    const TypeId item_expected = element_type.valid() &&
+                        (type(canonical(element_type)).kind == TypeKind::Atomic || rolling_arrival)
                         ? type(canonical(element_type)).children.front() : element_type;
                     Expr &value = check_expr(element.value, item_expected);
                     if (!element_type.valid() && value.type.valid()) {
@@ -3283,7 +3286,9 @@ namespace hgl::ir
                         const Type payload = type(canonical(value.type));
                         const bool publication = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence &&
                             payload.kind == TypeKind::Delta && payload.children.size() == 1U && same(element_type, payload.children.front());
-                        if (!publication) { type_error(value.range, "sequence elements have incompatible types"); }
+                        if (!publication && !(rolling_arrival && assignable(item_expected, value.type))) {
+                            type_error(value.range, "sequence elements have incompatible types");
+                        }
                     }
                     phase = join_phase(phase, value.phase);
                     expression.effects |= value.effects;
@@ -3883,7 +3888,7 @@ namespace hgl::ir
                      module_.symbol(shape.symbol).kind == SymbolKind::Enum)) { return true; }
                 if (!visiting.insert(id.value).second) { return false; }
                 bool admitted = false;
-                if (shape.kind == TypeKind::Atomic && shape.children.size() == 1U) {
+                if ((shape.kind == TypeKind::Atomic || shape.kind == TypeKind::Rolling) && shape.children.size() == 1U) {
                     admitted = admitted_atomic_value(shape.children.front(), visiting);
                 } else if (shape.kind == TypeKind::Set && shape.children.size() == 1U) {
                     admitted = admitted_scalar_key(shape.children[0]);

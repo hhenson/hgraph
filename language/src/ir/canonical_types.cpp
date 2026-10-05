@@ -117,7 +117,7 @@ namespace hgl::ir::detail
             const Type &origin = module_.type(value.children.front());
             if (origin.kind == TypeKind::Scalar && (origin.scalar <= ScalarType::ZonedTime || origin.scalar == ScalarType::TimeZone)) { return value.children.front(); }
             if (origin.kind == TypeKind::Symbol && origin.symbol.valid() && module_.symbol(origin.symbol).kind == SymbolKind::Enum) { return value.children.front(); }
-            if (origin.kind == TypeKind::Atomic && origin.children.size() == 1U) { return origin.children.front(); }
+            if ((origin.kind == TypeKind::Atomic || origin.kind == TypeKind::Rolling) && origin.children.size() == 1U) { return origin.children.front(); }
         }
         if (value.kind == TypeKind::List && !value.size.valid()) { value.unbounded = true; }
         value.range           = {};

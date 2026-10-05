@@ -584,3 +584,14 @@ export fn growing_source() -> list<i64> {
     yield 1us: delta<list<i64>>(remove: [0])
     yield 1us: delta<list<i64>>(items: [0: 3])
 }
+
+export fn rolling_ticks_forward(value: rolling<i64, 2, 2>) -> rolling<i64, 2, 2> => enum_generic_forward(value)
+export fn rolling_duration_forward(value: rolling<i64, 5us, 1us>) -> rolling<i64, 5us, 1us> => enum_generic_forward(value)
+export fn rolling_ticks_ready(value: rolling<i64, 2, 2>) -> bool {
+    when valid(value) && modified(value) { return all_valid(value) }
+}
+export fn rolling_duration_ready(value: rolling<i64, 5us, 1us>) -> bool {
+    when valid(value) && modified(value) { return all_valid(value) }
+}
+export fn rolling_observed_ticks(value: rolling<i64, 2, 2>) -> bool => rolling_ticks_ready(rolling_ticks_forward(value))
+export fn rolling_observed_duration(value: rolling<i64, 5us, 1us>) -> bool => rolling_duration_ready(rolling_duration_forward(value))

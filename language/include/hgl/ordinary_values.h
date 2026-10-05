@@ -7,6 +7,7 @@
 #include <hgraph/types/value/value_builder.h>
 
 #include <cstdint>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <span>
@@ -117,6 +118,11 @@ namespace hgl::ordinary
                         validate_atomic_schema(shape->value_schema, visiting);
                     }
                     break;
+                case hgraph::TSTypeKind::TSW: {
+                    std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+                    validate_atomic_schema(shape->delta_value_schema, visiting);
+                    break;
+                }
                 case hgraph::TSTypeKind::TSS:
                     if (!shape->value_schema->element_type->is_enum() &&
                         std::ranges::find(leaves, shape->value_schema->element_type) == leaves.end()) {
@@ -150,6 +156,11 @@ namespace hgl::ordinary
         switch (shape->kind) {
             case TSTypeKind::TS: kind = "TS"; break;
             case TSTypeKind::TSS: kind = "TSS"; break;
+            case TSTypeKind::TSW:
+                kind = shape->is_duration_based()
+                    ? "TSWduration:" + std::to_string(shape->time_range().count()) + ":" + std::to_string(shape->min_time_range().count())
+                    : "TSWtick:" + std::to_string(shape->period()) + ":" + std::to_string(shape->min_period());
+                break;
             case TSTypeKind::TSL:
                 kind = "TSL";
                 children.emplace_back("element", origin_schema(shape->element_ts()));
@@ -177,6 +188,22 @@ namespace hgl::ordinary
         if (arguments.size() != 1U) { return nullptr; }
         const auto *held = arguments.front();
         auto &registry = TypeRegistry::instance();
+        // Window parameters are cold nominal metadata, never publication fields.
+        const std::string_view name = value->name();
+        const bool duration_window = name.starts_with("hgl.origin::TSWduration:");
+        if (duration_window || name.starts_with("hgl.origin::TSWtick:")) {
+            const auto parameters = name.substr(duration_window ? 24U : 20U);
+            const auto separator = parameters.find(':');
+            const auto end = parameters.find('[');
+            if (separator == std::string_view::npos || end == std::string_view::npos || separator >= end) { return nullptr; }
+            std::int64_t maximum{}, minimum{};
+            const auto a = std::from_chars(parameters.data(), parameters.data() + separator, maximum);
+            const auto b = std::from_chars(parameters.data() + separator + 1U, parameters.data() + end, minimum);
+            if (a.ec != std::errc{} || b.ec != std::errc{} || a.ptr != parameters.data() + separator ||
+                b.ptr != parameters.data() + end || maximum <= 0 || minimum < 0 || minimum > maximum) { return nullptr; }
+            return duration_window ? registry.tsw_duration(held->element_type, TimeDelta{maximum}, TimeDelta{minimum})
+                                   : registry.tsw(held->element_type, static_cast<std::size_t>(maximum), static_cast<std::size_t>(minimum));
+        }
         if (value->name().starts_with("hgl.origin::TS[")) { return registry.ts(held); }
         if (value->name().starts_with("hgl.origin::TSS[")) { return registry.tss(held->element_type); }
         if (value->name().starts_with("hgl.origin::TSL[")) {
@@ -203,7 +230,7 @@ namespace hgl::ordinary
     // when two native delta payloads happen to have identical storage schemas.
     inline const hgraph::ValueTypeMetaData *delta_schema(const hgraph::TSValueTypeMetaData *shape) {
         validate_delta_shape(shape);
-        if (shape->kind == hgraph::TSTypeKind::TS) { return shape->delta_value_schema; }
+        if ((shape->kind == hgraph::TSTypeKind::TS || shape->kind == hgraph::TSTypeKind::TSW)) { return shape->delta_value_schema; }
         return hgraph::TypeRegistry::instance().bundle(
             "hgl.delta", std::string{shape->name()}, {{"payload", shape->delta_value_schema}},
             {}, false, "__type__", {origin_schema(shape)});
@@ -323,7 +350,7 @@ namespace hgl::ordinary
         PreparedDeltaPlan() = default;
         explicit PreparedDeltaPlan(const hgraph::TSValueTypeMetaData *shape)
             : value_{delta_schema(shape)}, native_{hgraph::ValuePlanFactory::instance().type_for(shape->delta_value_schema)} {
-            if (shape->kind == hgraph::TSTypeKind::TS) {
+            if ((shape->kind == hgraph::TSTypeKind::TS || shape->kind == hgraph::TSTypeKind::TSW)) {
                 capture_ = [](const PreparedValuePlan &plan, const hgraph::ValueView &delta) { return plan.retain(delta); };
                 payload_ = [](const PreparedValuePlan &, const hgraph::ValueView &delta) { return hgraph::ValueView{delta.binding(), delta.data()}; };
             } else {

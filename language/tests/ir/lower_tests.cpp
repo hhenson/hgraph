@@ -3951,3 +3951,17 @@ TEST_CASE("growing list deltas reject malformed index recipes", "[ir][typed][gro
         CHECK(unit.diagnostics.has_errors());
     }
 }
+
+TEST_CASE("rolling publications retain exact shapes and reject delta constructors", "[ir][typed][rolling]") {
+    for (const std::string source : {
+        "const fn bad() -> delta<rolling<i64, 2>> => delta<rolling<i64, 2>>(items: [0: 1])",
+        "fn bad(value: rolling<i64, 2, 1>) -> rolling<i64, 2, 2> => value",
+        "fn bad(value: rolling<i64, 2us, 1us>) -> rolling<i64, 2, 1> => value",
+        "fn bad(value: atomic<rolling<i64, 2>>) -> atomic<rolling<i64, 2>> { when { return delta_value(value) } }"
+    }) {
+        Lowered unit{"module checks.rolling\n" + source + "\n"};
+        INFO(source);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
