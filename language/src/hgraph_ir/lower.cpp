@@ -1158,7 +1158,7 @@ namespace hgl::hgraph_ir
                     [&](const auto &node) -> StatementNode {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, hir::LocalDecl>) {
-                            return LocalBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init)};
+                            return LocalBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init), node.phase};
                         } else if constexpr (std::is_same_v<T, hir::StateDecl>) {
                             return StateBinding{binding(node.symbol), lower_type(node.type), lower_value(node.init), node.cache};
                         } else if constexpr (std::is_same_v<T, hir::InjectDecl>) {
@@ -1180,7 +1180,7 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, hir::YieldStmt>) {
                             return Yield{lower_value(node.time), lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::AssignStmt>) {
-                            return Assignment{lower_assign_op(node.op), lower_value(node.place), lower_value(node.value)};
+                            return Assignment{lower_assign_op(node.op), lower_value(node.place), lower_value(node.value), node.lift_branch_output};
                         } else if constexpr (std::is_same_v<T, hir::ReturnStmt>) {
                             return Return{lower_value(node.value)};
                         } else if constexpr (std::is_same_v<T, hir::AssertStmt>) {

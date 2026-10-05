@@ -11,6 +11,7 @@
 #include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
+#include <hgl/global_key_preflight.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -28,6 +29,20 @@ using namespace hgl::wiring;
 
 namespace
 {
+    struct generic_preflight_bool_output {
+        static constexpr auto name = "hgl_generic_preflight_bool_output";
+        static void eval(hgraph::In<"value", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TS<hgraph::Bool>>);
+    };
+    struct generic_preflight_variable_output {
+        static constexpr auto name = "hgl_generic_preflight_variable_output";
+        static void eval(hgraph::In<"value", hgraph::TsVar<"T">>, hgraph::Out<hgraph::TsVar<"T">>);
+    };
+    static_assert(std::is_same_v<decltype(hgl::ordinary::preflight_wire<generic_preflight_bool_output>(
+        std::declval<hgraph::Wiring &>(), std::declval<hgraph::Port<hgraph::TS<hgraph::Int>>>())),
+        hgraph::Port<hgraph::TS<hgraph::Bool>>>);
+    static_assert(std::is_same_v<decltype(hgl::ordinary::preflight_wire<generic_preflight_variable_output>(
+        std::declval<hgraph::Wiring &>(), std::declval<hgraph::Port<hgraph::TS<hgraph::Int>>>())), hgraph::Port<void>>);
+
     struct fixed_pair_operator
         : hgraph::Operator<"hgl_fixed_pair", hgraph::In<"a", hgraph::TS<hgraph::Float>>, hgraph::In<"b", hgraph::TS<hgraph::Float>>,
                            hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>, 2>>>
@@ -183,7 +198,7 @@ test folding {
     assert 7 % 3 == 1
     assert 1 == 1.0
     assert "ab" + "c" == "abc"
-    assert @2026-09-03T10:30+01[Europe/London] == @2026-09-03T09:30Z[UTC]
+    assert @2026-09-03T10:30+01[Europe/London] != @2026-09-03T09:30Z[UTC]
     assert (1, 2.0)[1] == 2.0
     let xs: list<i64> = [10, 20, 30]
     assert xs[2] == 30
@@ -252,9 +267,8 @@ test narrowing {
     assert y == 2
 }
 )"};
-        const TestResult result = only(unit.tests());
-        CHECK_FALSE(result.passed);
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
     SECTION("i64 widens into an f64 var") {
         Unit             unit{R"(
@@ -1374,4 +1388,92 @@ test recursive_values {
     INFO(unit.diagnostics.render(unit.file));
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("temporal publication literals preserve identity and validate before eval", "[wiring][temporal]") {
+    Unit unit{R"(
+module tests.temporal_publications
+fn civil(value: civil_datetime) -> civil_datetime => value
+fn zone(value: timezone) -> timezone => value
+fn zoned(value: zoned_datetime) -> zoned_datetime => value
+
+test identity {
+    let local = @2024-02-29T12:30:00.123456
+    assert eval(civil, [local, local, _, @2024-02-29T12:30:00.123457]) == [local, local, _, @2024-02-29T12:30:00.123457]
+    assert eval(zone, [@[US/Eastern], @[US/Eastern], _, @[America/New_York]]) == [@[US/Eastern], @[US/Eastern], _, @[America/New_York]]
+    assert eval(zoned, [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]) == [@2026-01-15T12:30Z[UTC], _, @2026-01-15T13:30+01[Europe/Paris]]
+    assert @2026-01-15T12:30Z[UTC] != @2026-01-15T13:30+01[Europe/Paris]
+    assert @[UTC] != @[Etc/UTC]
+}
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    CHECK(result.passed);
+    for (const std::string literal : {"@[utc]", "@[america/new_york]", "@[Etc/Unknown]", "@[Missing/Zone]",
+                                      "@2026-01-15T12:30Z[utc]", "@2026-01-15T12:30Z[Missing/Zone]",
+                                      "@2026-01-15T12:30+01[UTC]"}) {
+        Unit invalid{"module tests.invalid_zone\ntest invalid { " + literal + "\nassert true }\n"};
+        const auto rejected = only(invalid.tests());
+        INFO(literal);
+        INFO(rejected.message);
+        CHECK_FALSE(rejected.passed);
+    }
+}
+
+TEST_CASE("eval temporal recipes preserve written failure order and selected defaults", "[wiring][temporal]") {
+    const std::string declarations = R"(
+module tests.temporal_order
+const fn ready(value: timezone) -> bool { return true }
+fn target(tick: bool, const first: timezone = @[Missing/Default], const second: timezone = @[UTC]) -> bool => tick
+)";
+    for (const auto &call : {
+        std::string{"eval(target, tick: [ready(@[Missing/First])], first: @[Missing/Second])"},
+        std::string{"eval(target, second: @[Missing/First], tick: [true], first: @[Missing/Second])"}}) {
+        Unit unit{declarations + "test order { " + call + " }\n"};
+        const auto result = only(unit.tests());
+        INFO(result.message);
+        CHECK_FALSE(result.passed);
+        CHECK(result.message.find("Missing/First") != std::string::npos);
+    }
+    Unit selected{declarations + "test defaults { eval(target, tick: [true]) }\n"};
+    const auto failed = only(selected.tests());
+    CHECK_FALSE(failed.passed);
+    CHECK(failed.message.find("Missing/Default") != std::string::npos);
+    Unit overridden{declarations + "test defaults { assert eval(target, tick: [true], first: @[Etc/UTC]) == [true] }\n"};
+    const auto succeeded = only(overridden.tests());
+    INFO(succeeded.message);
+    CHECK(succeeded.passed);
+    Unit skipped{R"(
+module tests.temporal_skipped
+const fn selected(value: bool) -> timezone {
+    if value { return @[UTC] }
+    return @[Missing/Skipped]
+}
+test skipped { assert selected(true) == @[UTC] }
+)"};
+    const auto branch = only(skipped.tests());
+    INFO(branch.message);
+    CHECK(branch.passed);
+}
+
+TEST_CASE("selected temporal default recipes retain short circuit reachability", "[wiring][temporal]") {
+    for (const std::string expression : {"false && (@[Missing/Skipped] == @[UTC])", "true || (@[Missing/Skipped] == @[UTC])"}) {
+        Unit unit{"module tests.default_short_circuit\nconst fn target(value: bool = " + expression +
+                  ") -> bool { return value }\ntest selected { target()\nassert true }\n"};
+        const auto result = only(unit.tests());
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
+TEST_CASE("ordinary calls materialize supplied temporal arguments before defaults", "[wiring][temporal]") {
+    Unit unit{R"(
+module tests.ordinary_default_order
+fn target(first: timezone, const second: timezone = @[Missing/Second]) -> timezone => first
+test ordered { target(@[Missing/First]) }
+)"};
+    const auto result = only(unit.tests());
+    INFO(result.message);
+    CHECK_FALSE(result.passed);
+    CHECK(result.message.find("Missing/First") != std::string::npos);
 }

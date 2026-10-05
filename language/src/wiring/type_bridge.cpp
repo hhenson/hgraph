@@ -1,4 +1,5 @@
 #include "wiring/type_bridge.h"
+#include <hgl/temporal_literals.h>
 #include "hgraph_ir/shape_parameters.h"
 #include <hgl/ordinary_values.h>
 
@@ -137,9 +138,11 @@ namespace hgl::wiring
                         case TemporalKind::DateTime: return hgraph::Value{hgraph::DateTime{std::chrono::microseconds{item.micros}}};
                         case TemporalKind::Duration: return hgraph::Value{hgraph::TimeDelta{item.micros}};
                         case TemporalKind::CivilDateTime:
+                            return hgraph::Value{hgraph::CivilDateTime::from_epoch_microseconds(item.micros)};
+                        case TemporalKind::TimeZone: return hgraph::Value{temporal::zone(item.zone)};
                         case TemporalKind::ZonedDateTime:
+                            return hgraph::Value{temporal::zoned(item.micros, item.zone, item.offset_seconds)};
                         case TemporalKind::ZonedTime:
-                        case TemporalKind::TimeZone:
                             report(source.range, "zoned and civil constants are not supported by the direct backend yet");
                             return std::nullopt;
                     }

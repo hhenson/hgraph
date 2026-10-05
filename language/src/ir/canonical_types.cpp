@@ -113,7 +113,7 @@ namespace hgl::ir::detail
         }
         if (value.kind == TypeKind::Delta && value.children.size() == 1U) {
             const Type &origin = module_.type(value.children.front());
-            if (origin.kind == TypeKind::Scalar && origin.scalar <= ScalarType::Duration) { return value.children.front(); }
+            if (origin.kind == TypeKind::Scalar && (origin.scalar <= ScalarType::ZonedDateTime || origin.scalar == ScalarType::TimeZone)) { return value.children.front(); }
             if (origin.kind == TypeKind::Atomic && origin.children.size() == 1U) { return origin.children.front(); }
         }
         if (value.kind == TypeKind::List && !value.size.valid()) { value.unbounded = true; }

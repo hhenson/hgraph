@@ -2,6 +2,7 @@
 #include "wiring/delta_trace.h"
 #include <hgl/constant_arithmetic.h>
 #include <hgl/ordinary_values.h>
+#include <hgl/temporal_literals.h>
 
 #include "hgraph_ir/control_flow.h"
 #include "syntax/temporal.h"
@@ -477,6 +478,7 @@ namespace hgl::wiring
             std::unordered_map<std::string_view, const gir::StructContract *> structures_{};
             const hgraph::stdlib::RegisteredStandardTypes &types_{standard_types()};
             hgraph::Wiring                                *wiring_{nullptr};
+            std::shared_ptr<const hgraph::TimeZoneProvider> literal_provider_{hgraph::make_time_zone_provider()};
             std::string                                    comparison_detail_{};
             // WiredFn is a non-owning view; retain its callback contexts for this compilation.
             std::vector<std::unique_ptr<ConditionalBranchContext>> conditional_branches_{};
@@ -507,9 +509,12 @@ namespace hgl::wiring
                             case syntax::TemporalKind::Duration:
                                 return make_const(hgraph::Value{hgraph::TimeDelta{item.micros}}, range);
                             case syntax::TemporalKind::CivilDateTime:
-                            case syntax::TemporalKind::ZonedDateTime:
-                            case syntax::TemporalKind::ZonedTime:
+                                return make_const(hgraph::Value{hgraph::CivilDateTime::from_epoch_microseconds(item.micros)}, range);
                             case syntax::TemporalKind::TimeZone:
+                                return make_const(hgraph::Value{temporal::zone(item.zone, *literal_provider_)}, range);
+                            case syntax::TemporalKind::ZonedDateTime:
+                                return make_const(hgraph::Value{temporal::zoned(item.micros, item.zone, item.offset_seconds, *literal_provider_)}, range);
+                            case syntax::TemporalKind::ZonedTime:
                                 backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                         }
                         backend(range, "unsupported hgraph IR constant");
@@ -777,8 +782,16 @@ namespace hgl::wiring
                 case gir::ConstExprKind::Unary:
                     return fold_unary(expression.unary, eval_const_expr(expression.lhs, frame), expression.range);
                 case gir::ConstExprKind::Binary:
-                    return fold_binary(expression.binary, eval_const_expr(expression.lhs, frame),
-                                       eval_const_expr(expression.rhs, frame), expression.range);
+                    {
+                        const Slot lhs = eval_const_expr(expression.lhs, frame);
+                        if (lhs.is_const() && lhs.meta() == types_.bool_type &&
+                            ((expression.binary == hir::BinaryOp::And && !lhs.value.view().checked_as<hgraph::Bool>()) ||
+                             (expression.binary == hir::BinaryOp::Or && lhs.value.view().checked_as<hgraph::Bool>()))) {
+                            return lhs;
+                        }
+                        const Slot rhs = eval_const_expr(expression.rhs, frame);
+                        return fold_binary(expression.binary, lhs, rhs, expression.range);
+                    }
                 case gir::ConstExprKind::Index:
                     {
                         const Slot target = eval_const_expr(expression.lhs, frame);
@@ -1590,12 +1603,30 @@ namespace hgl::wiring
             Frame      callee;
             callee.callable = id;
             initialize_generics(callee);
+            std::unordered_map<std::uint32_t, Slot> supplied;
+            for (const auto &argument : arguments) {
+                supplied.emplace(argument.value.value, eval_value(argument.value, caller));
+            }
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                const auto &parameter = target.parameters[index];
+                if (parameter.is_const && bound[index]) {
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, supplied.at(bound[index]->value), callee, range);
+                }
+            }
+            std::vector<std::optional<Slot>> defaults(target.parameters.size());
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                if (bound[index]) { continue; }
+                const auto &parameter = target.parameters[index];
+                defaults[index] = default_argument(parameter.default_value, callee);
+                if (parameter.is_const) {
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, *defaults[index], callee, range);
+                }
+            }
             for (std::size_t pass = 0; pass < 2; ++pass) {
                 for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                     const gir::Parameter &parameter = target.parameters[index];
                     if (parameter.is_const != (pass == 0)) { continue; }
-                    Slot argument =
-                        bound[index] ? eval_value(*bound[index], caller) : default_argument(parameter.default_value, callee);
+                    Slot argument = bound[index] ? std::move(supplied.at(bound[index]->value)) : std::move(*defaults[index]);
                     callee.bindings[parameter.binding.value] = bind_parameter(parameter, argument, callee, argument.range);
                 }
             }
@@ -2389,6 +2420,10 @@ namespace hgl::wiring
                         }
                         const auto current_it = frame.bindings.find(reference->binding.value);
                         Slot       next       = eval_value(node.value, frame);
+                        if (node.lift_branch_output && next.is_const()) {
+                            next = wire_constant(constant_of(next, value_meta(target.type), frame, "conditional branch output"),
+                                                 schema(target.type));
+                        }
                         if (current_it == frame.bindings.end()) {
                             if (node.op != gir::AssignOp::Assign) {
                                 backend(statement.range,
@@ -2692,6 +2727,7 @@ namespace hgl::wiring
             const auto bound = bind_arguments(target, eval.arguments, range);
 
             hgraph::GlobalState run_seed;
+            hgraph::set_time_zone_provider(run_seed.view(), literal_provider_);
             hgraph::Wiring local_wiring{run_seed};
             hgraph::Wiring *previous = wiring_;
             wiring_                  = &local_wiring;
@@ -2708,20 +2744,57 @@ namespace hgl::wiring
                     {{"time", standard_types().datetime_type}, {"value", ordinary::delta_schema(shape)}},
                     {}, false, "__type__", {origin});
             };
+            // Materialize and retain supplied arguments in written order, before
+            // binding defaults or constructing any replay/target node.
+            std::unordered_map<std::uint32_t, std::size_t> parameter_for;
+            for (std::size_t index = 0; index < bound.size(); ++index) {
+                if (bound[index]) { parameter_for.emplace(bound[index]->value, index); }
+            }
+            std::vector<std::optional<Slot>> supplied(target.parameters.size());
+            for (const auto &argument : eval.arguments) {
+                const auto index = parameter_for.at(argument.value.value);
+                const auto &parameter = target.parameters[index];
+                Slot item = eval_value(argument.value, caller);
+                if (!parameter.is_const) {
+                    if (item.kind != Slot::Kind::Sequence) {
+                        fail(Category::Type, item.range, "eval drives '" + parameter.name + "' with a harness sequence");
+                    }
+                    item.delta_origin = schema(parameter.type);
+                    resolve_sequence(item, ordinary::delta_schema(item.delta_origin), caller);
+                } else {
+                    item = constant_of(item, value_meta(parameter.type), caller, "eval const argument");
+                }
+                supplied[index] = std::move(item);
+            }
+            // Defaults follow all supplied expressions in declaration order.
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                const auto &parameter = target.parameters[index];
+                if (parameter.is_const && supplied[index]) {
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, *supplied[index], callee, range);
+                }
+            }
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                if (supplied[index]) { continue; }
+                const auto &parameter = target.parameters[index];
+                supplied[index] = eval_const_expr(parameter.default_value, callee);
+                if (parameter.is_const) {
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, *supplied[index], callee, range);
+                }
+            }
             for (std::size_t pass = 0; pass < 2; ++pass) {
                 for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                     const gir::Parameter &parameter = target.parameters[index];
                     if (parameter.is_const != (pass == 0)) { continue; }
                     if (parameter.is_const) {
                         Slot argument =
-                            bound[index] ? eval_value(*bound[index], caller) : eval_const_expr(parameter.default_value, callee);
+                            std::move(*supplied[index]);
                         callee.bindings[parameter.binding.value] = bind_parameter(parameter, argument, callee, argument.range);
                         continue;
                     }
                     const auto *parameter_schema = schema(parameter.type);
                     ++temporal_inputs;
                     if (bound[index]) {
-                        Slot sequence = eval_value(*bound[index], caller);
+                        Slot sequence = std::move(*supplied[index]);
                         if (sequence.kind != Slot::Kind::Sequence) {
                             fail(Category::Type, sequence.range, "eval drives '" + parameter.name + "' with a harness sequence");
                         }
@@ -2729,7 +2802,7 @@ namespace hgl::wiring
                         resolve_sequence(sequence, ordinary::delta_schema(parameter_schema), caller);
                         inputs.push_back(std::move(sequence.elements));
                     } else {
-                        Slot item = eval_const_expr(parameter.default_value, callee);
+                        Slot item = std::move(*supplied[index]);
                         if (!item.is_const()) { fail(Category::Type, item.range, "a temporal parameter's default is a constant"); }
                         inputs.push_back({convert(item.value, parameter_schema->value_schema, item.range,
                                                   "parameter '" + parameter.name + "'")});

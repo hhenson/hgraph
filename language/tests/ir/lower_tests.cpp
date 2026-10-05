@@ -3737,3 +3737,74 @@ TEST_CASE("recursive generic occurrence validation does not retain provisional s
         }
     }
 }
+
+TEST_CASE("the temporal publication profile admits three leaves recursively", "[ir][typed][temporal]") {
+    for (const std::string leaf : {"civil_datetime", "timezone", "zoned_datetime"}) {
+        for (const std::string &shape : {leaf, "atomic<" + leaf + ">", "list<" + leaf + ", 2>",
+                                        "atomic<list<" + leaf + ">>", "map<i64, " + leaf + ">"}) {
+            Lowered unit{"module checks.temporal_profile\nfn identity(value: " + shape + ") -> " + shape +
+                         " => value\ntest admitted { eval(identity, []) }\n"};
+            REQUIRE_FALSE(unit.diagnostics.has_errors());
+            const bool result = complete(unit);
+            INFO(unit.diagnostics.render(unit.file));
+            CHECK(result);
+        }
+    }
+    Lowered rejected{"module checks.temporal_profile\nfn identity(value: zoned_time) -> zoned_time => value\ntest rejected { eval(identity, []) }\n"};
+    REQUIRE_FALSE(rejected.diagnostics.has_errors());
+    CHECK_FALSE(complete(rejected));
+    CHECK(rejected.diagnostics.render(rejected.file).find("publication profile") != std::string::npos);
+}
+
+TEST_CASE("generic delta equality checks its concrete publication origin", "[ir][typed][temporal]") {
+    for (const std::string origin : {"i64", "timezone", "list<i64, 2>"}) {
+        Lowered unit{"module checks.delta_equality\n"
+            "struct Publication<T> { value: delta<T> }\n"
+            "const fn equal<T>(a: Publication<T>, b: Publication<T>) -> bool => a.value == b.value\n"
+            "const fn check(a: Publication<" + origin + ">, b: Publication<" + origin + ">) -> bool => equal(a, b)\n"};
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        const bool result = complete(unit);
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(result == (origin != "list<i64, 2>"));
+    }
+}
+
+TEST_CASE("typed locals fix ordinary and temporal categories", "[ir][typed][locals][category]") {
+    const std::vector<std::string> rejected{
+        "fn f(x:i64)->i64 {var r:i64=1\n r=x\n return x}",
+        "fn f(x:i64)->i64 {var r:i64=x\n r=1\n return x}",
+        "fn f(x:i64)->i64 {var r=1\n if true {r=x}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r=1\n if c {r=2}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r=x\n if c {r=2}\n return x}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n r=2\n return r}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n r+=1\n r=2\n return r}",
+        "fn f(const c:bool,x:i64)->i64 {var r:i64\n if c {r=1}else{r=x}\n return r}",
+        "fn f(x:i64)->i64 {var r:i64\n r=1\n r=x\n return r}",
+        "fn f(x:i64)->i64 {when {let r:atomic<tuple<i64,i64>> = (1,2)\n return x}}",
+        "struct Pair { x:i64 }\n fn f(x:Pair)->Pair {var r=x\n r.x=1\n return r}",
+    };
+    for (const auto &source : rejected) {
+        INFO(source);
+        Lowered lowered{"module categories\n" + source};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.has_errors());
+    }
+    const std::vector<std::string> accepted{
+        "fn f(x:i64)->i64 {var r:i64=x\n r+=1\n return r}",
+        "fn f(x:i64)->i64 {var r:i64\n r=1\n r=2\n return x+r}",
+        "fn f(c:bool,x:i64)->i64 {var r:i64\n if c {r=1\n r=2\n r+=1}else{r=x}\n return r}",
+        "fn f(c:bool,x:i64)->i64 {if c {var r=1\n r=2\n x+r}else{x}}",
+        "fn f(const c:bool,x:i64)->i64 {var r=1\n if c {r=2}\n return x+r}",
+        "fn f(x:atomic<tuple<i64,i64>>)->i64 {when {let r=x\n return r[0]}}",
+        "fn f(x:i64)->i64 {when {var r=1\n r=x\n return r}}",
+    };
+    for (const auto &source : accepted) {
+        INFO(source);
+        Lowered lowered{"module categories\n" + source};
+        require_clean(lowered);
+        CHECK(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK_FALSE(lowered.diagnostics.has_errors());
+    }
+}

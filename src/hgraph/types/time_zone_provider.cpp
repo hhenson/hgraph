@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgraph
@@ -46,6 +47,8 @@ namespace hgraph
                 return (*this)(std::string_view{value});
             }
         };
+
+        using ZoneCatalog = std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>;
 
 #if defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
         using ZoneAliasMap = std::unordered_map<
@@ -278,6 +281,9 @@ namespace hgraph
             StdChronoTimeZoneProvider()
                 : version_(std::chrono::get_tzdb().version)
             {
+                const auto &database = std::chrono::get_tzdb();
+                for (const auto &zone : database.zones) { catalog_.emplace(zone.name()); }
+                for (const auto &link : database.links) { catalog_.emplace(link.name()); }
             }
 
             [[nodiscard]] std::string_view version() const noexcept override
@@ -344,6 +350,9 @@ namespace hgraph
             [[nodiscard]] const std::chrono::time_zone *locate(
                 ZoneId zone) const
             {
+                if (!catalog_.contains(zone.name())) {
+                    throw std::invalid_argument("unknown time-zone '" + std::string{zone.name()} + "'");
+                }
                 return native_time_zone_cache().locate(
                     zone, [](std::string_view name) {
                         try
@@ -362,6 +371,7 @@ namespace hgraph
             }
 
             std::string version_;
+            ZoneCatalog catalog_;
         };
 #elif defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
         class DateTzTimeZoneProvider final : public TimeZoneProvider
@@ -371,6 +381,15 @@ namespace hgraph
                 : version_(date::get_tzdb().version),
                   aliases_(load_zone_aliases())
             {
+                const auto &database = date::get_tzdb();
+                for (const auto &zone : database.zones) { catalog_.emplace(zone.name()); }
+#if !USE_OS_TZDB
+                for (const auto &link : database.links) { catalog_.emplace(link.name()); }
+#endif
+                for (const auto &[alias, target] : aliases_) {
+                    static_cast<void>(target);
+                    catalog_.emplace(alias);
+                }
             }
 
             [[nodiscard]] std::string_view version() const noexcept override
@@ -436,6 +455,9 @@ namespace hgraph
           private:
             [[nodiscard]] const date::time_zone *locate(ZoneId zone) const
             {
+                if (!catalog_.contains(zone.name())) {
+                    throw std::invalid_argument("unknown time-zone '" + std::string{zone.name()} + "'");
+                }
                 return native_time_zone_cache().locate(
                     zone, [this](std::string_view name) {
                         std::string candidate{name};
@@ -468,6 +490,7 @@ namespace hgraph
             }
 
             std::string version_;
+            ZoneCatalog catalog_;
             const ZoneAliasMap aliases_;
         };
 #endif

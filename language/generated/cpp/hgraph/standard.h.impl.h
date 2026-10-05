@@ -2928,19 +2928,10 @@ namespace hgraph_::std_
                     hgl::ordinary::PreparedValuePlan{view.scalars().as_bundle().at(0).binding().schema()}.retain(
                         view.scalars().as_bundle().at(0));
                 hgl_prepared.hgl_plan_0 = hgl::ordinary::PreparedValuePlan{view.scalars().as_bundle().at(0).binding().schema()};
-                hgl_prepared.hgl_plan_1 = hgl::ordinary::PreparedValuePlan{hgraph::TypeRegistry::instance().bundle(
-                    "hgraph.std", ([&]() {
-                        std::string hgl_name{"TimedValue"};
-                        hgl_name += '[';
-                        hgl_name += (hgl::ordinary::origin_schema(view.output(hgraph::MIN_ST).schema()))->name();
-                        hgl_name += ']';
-                        return hgl_name;
-                    }()),
-                    {{"time", hgraph::scalar_descriptor<hgraph::DateTime>::value_meta()},
-                     {"value", hgl::ordinary::delta_schema(view.output(hgraph::MIN_ST).schema())}},
-                    {}, false, "__type__", {hgl::ordinary::origin_schema(view.output(hgraph::MIN_ST).schema())})};
-                hgl_prepared.hgl_plan_2 =
-                    hgl::ordinary::PreparedValuePlan{hgl::ordinary::delta_schema(view.output(hgraph::MIN_ST).schema())};
+                hgl_prepared.hgl_plan_1 =
+                    hgl::ordinary::PreparedValuePlan{(view.scalars().as_bundle().at(0).binding().schema())->element_type};
+                hgl_prepared.hgl_plan_2 = hgl::ordinary::PreparedValuePlan{
+                    ((view.scalars().as_bundle().at(0).binding().schema())->element_type)->fields[1].type};
                 hgl_prepared.hgl_delta_plan_0 = hgl::ordinary::PreparedDeltaPlan{view.output(hgraph::MIN_ST).schema()};
             }
         };

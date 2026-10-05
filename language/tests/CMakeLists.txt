@@ -365,6 +365,24 @@ hgl_apply_warnings(hgl_codegen_tests)
 
 add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 
+add_test(NAME hgraph_language_contextual_binding_cases
+    COMMAND ${CMAKE_COMMAND} -DHGL=$<TARGET_FILE:hgl>
+        -DCASES=${HGRAPH_SPEC}/compiler/contextual_bindings
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/contextual-binding-cases
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/contextual_bindings.cmake)
+hgl_add_module(hgl_contextual_binding_fixture STATIC HGL codegen/contextual-bindings.hgl)
+hgl_apply_warnings(hgl_contextual_binding_fixture)
+add_executable(hgl_contextual_binding_tests codegen/generated_contextual_binding_tests.cpp)
+target_link_libraries(hgl_contextual_binding_tests PRIVATE hgl_contextual_binding_fixture hgl::wiring Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_contextual_binding_tests)
+hgl_apply_warnings(hgl_contextual_binding_tests)
+add_test(NAME hgraph_language_contextual_binding_generated COMMAND hgl_contextual_binding_tests)
+if(UNIX)
+    add_test(NAME hgraph_language_contextual_binding_direct
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/contextual-bindings.hgl)
+endif()
+
+
 # ... and what that C++ does once built: the parity and scalar runtime fixtures
 # emitted and compiled through the same `hgl_add_module()` a package uses,
 # under the repository's warnings. hgraph's harness evaluates graph parity
@@ -754,6 +772,11 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/control.hgl
             --part ${HGRAPH_STD}/tests/stream.hgl
             --part ${HGRAPH_STD}/tests/temporal.hgl
+            --part ${HGRAPH_STD}/tests/temporal_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
+            --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
+            --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl
+            --part ${HGRAPH_STD}/tests/record_observation_values.hgl
             --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
     add_test(NAME hgraph_language_test_operator_bodies
         COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${HGRAPH_STD}/operators.hgl

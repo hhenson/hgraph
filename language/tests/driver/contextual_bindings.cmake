@@ -1,0 +1,37 @@
+file(READ "${CASES}/cases.json" manifest)
+string(JSON count LENGTH "${manifest}")
+math(EXPR last "${count} - 1")
+foreach(index RANGE ${last})
+    string(JSON name GET "${manifest}" ${index} id)
+    string(JSON source GET "${manifest}" ${index} file)
+    string(JSON expectation GET "${manifest}" ${index} check)
+    execute_process(COMMAND "${HGL}" check "${CASES}/${source}"
+        RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+    if(expectation STREQUAL "reject")
+        if(result EQUAL 0 OR NOT error MATCHES "type:")
+            message(FATAL_ERROR "${name} requires a checking type error: ${output}${error}")
+        endif()
+    else()
+        if(NOT result EQUAL 0)
+            message(FATAL_ERROR "${name} must check: ${output}${error}")
+        endif()
+        execute_process(COMMAND "${HGL}" emit-cpp "${CASES}/${source}" --out-dir "${OUT}/${name}"
+            RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+        if(NOT result EQUAL 0)
+            message(FATAL_ERROR "${name} must emit: ${output}${error}")
+        endif()
+        string(JSON run_test ERROR_VARIABLE missing GET "${manifest}" ${index} test)
+        # Runtime node execution uses the existing Unix-only scripted native
+        # loader. The compiled contextual-binding fixture covers both node cases,
+        # including ordinary numeric initialization and reassignment, on Windows.
+        if(NOT missing AND run_test AND
+           (UNIX OR NOT name MATCHES "^(node_scalar_local|ordinary_widening)$"))
+            execute_process(COMMAND "${HGL}" test "${CASES}/${source}"
+                RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+            if(NOT result EQUAL 0)
+                message(FATAL_ERROR "${name} must execute: ${output}${error}")
+            endif()
+        endif()
+    endif()
+endforeach()
+message(STATUS "${count} contextual binding cases passed")

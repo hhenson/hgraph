@@ -1,0 +1,74 @@
+module checks.contextual_bindings
+
+export fn aliases(first: i64, second: i64) -> i64 {
+    var selected: i64 = first
+    let original = selected
+    selected = second
+    selected += 1
+    return original + selected
+}
+
+export fn static_rebind(first: i64, second: i64, const choose: bool) -> i64 {
+    var selected = first
+    if choose { selected = second }
+    return selected
+}
+
+export fn ordinary(value: i64, const choose: bool) -> i64 {
+    var offset: i64
+    if choose { offset = 1 } else { offset = 3 }
+    offset += 1
+    return value + offset
+}
+
+export fn branch_result(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = 1
+        result = 2
+        let previous = result
+        result += 1
+        result = previous + result
+    } else { result = value }
+    return result
+}
+
+export fn node_local(value: i64) -> i64 {
+    when {
+        var local: i64
+        if value > 0 { local = value } else { local = 0 }
+        let original = local
+        local += 1
+        return original + local
+    }
+}
+
+export fn ordinary_widening(value: f64) -> f64 {
+    when {
+        var local: f64 = 1
+        local = 2
+        return value + local
+    }
+}
+
+export fn atomic_input(value: atomic<tuple<i64, i64>>) -> atomic<tuple<i64, i64>> {
+    when {
+        var local: tuple<i64, i64> = value
+        let original = local
+        local = (9, 10)
+        return original
+    }
+}
+
+test contextual_graphs {
+    assert eval(aliases, first: [1, 2], second: [10, 20]) == [12, 23]
+    assert eval(static_rebind, first: [1, 2], second: [10, 20], choose: true) == [10, 20]
+    assert eval(static_rebind, first: [1, 2], second: [10, 20], choose: false) == [1, 2]
+    assert eval(ordinary, value: [1, 2], choose: true) == [3, 4]
+    assert eval(ordinary, value: [1, 2], choose: false) == [5, 6]
+    assert eval(branch_result, condition: [true, false], value: [10, 20]) == [5, 20]
+    assert eval(node_local, value: [-1, 2]) == [1, 5]
+    assert eval(ordinary_widening, value: [1.0, 2.0]) == [3.0, 4.0]
+    let observed = eval(atomic_input, value: [(1, 2), (3, 4)])
+    assert observed == [(1, 2), (3, 4)]
+}

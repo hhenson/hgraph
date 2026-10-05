@@ -517,7 +517,7 @@ TEST_CASE("traversal analysis separates loop locals from escaping control flow",
 module checks.traversal_escape
 
 fn examine(samples: list<f64, 3>) -> f64 {
-    var result: f64 = 0.0
+    var result: f64 = samples[0]
     for sample in elements(samples) {
         let local = sample
         result = local
@@ -580,7 +580,7 @@ TEST_CASE("traversal analysis owns the first-pass loop rules", "[hgraph-ir][cont
 module checks.traversal_rules
 
 fn examine(book: map<str, f64>, samples: list<f64, 3>, const scale: f64) -> f64 {
-    var result: f64 = 0.0
+    var result: f64 = samples[0]
     for value in values(book) {
         result = value * scale
     }
@@ -703,7 +703,7 @@ module checks.unread_local
 
 fn examine(value: f64) -> f64 {
     let doubled = value * 2.0
-    var written: f64 = 0.0
+    var written: f64 = value
     written = value
     value
 }
@@ -717,16 +717,17 @@ fn examine(value: f64) -> f64 {
 module checks.read_local
 
 fn examine(value: f64) -> f64 {
-    var total: f64 = 0.0
+    var total: f64 = value
     total += value
     let scaled = total * 2.0
     scaled
 }
 )"};
+        REQUIRE(lowered.graph);
         CHECK_FALSE(has_message(lowered.diagnostics, "is declared but never read"));
     }
 
-    SECTION("an assignment place must be a plain binding") {
+    SECTION("temporal projection writes reject before graph lowering") {
         Lowered lowered{R"(
 module checks.assignment_rule
 
@@ -738,7 +739,7 @@ fn examine(value: f64) -> f64 {
     value
 }
 )"};
-        CHECK(has_message(lowered.diagnostics, "assignment targets a local in the first pass"));
+        CHECK(has_message(lowered.diagnostics, "a temporal local permits connection rebinding, not mutation through a projection"));
     }
 
     SECTION("map(...) with an anonymous function takes temporal map inputs of matching arity") {

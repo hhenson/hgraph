@@ -161,7 +161,7 @@ namespace hgl::ir::detail
         const Type &lhs = module_.type(pattern);
         const Type &rhs = module_.type(actual);
         if (lhs.kind == TypeKind::Delta && lhs.children.size() == 1U &&
-            rhs.kind == TypeKind::Scalar && rhs.scalar <= ScalarType::Duration) {
+            rhs.kind == TypeKind::Scalar && (rhs.scalar <= ScalarType::ZonedDateTime || rhs.scalar == ScalarType::TimeZone)) {
             return unify_as(lhs.children.front(), actual, inference);
         }
         if (lhs.kind == TypeKind::Reference && rhs.kind != TypeKind::Reference && lhs.children.size() == 1U) {
