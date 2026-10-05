@@ -639,3 +639,19 @@ const fn native_family_capture() -> NativePublicationFamily {
     let member: NativePublicationFamily = NativePublicationFirst(label: "cold", items: [])
     return member
 }
+
+struct NativeCompositeKey { number: i64
+    label: str
+    flag: bool = null }
+export fn native_composite_key_forward(value: map<NativeCompositeKey, i64>) -> map<NativeCompositeKey, i64> => enum_generic_forward(value)
+const fn native_composite_key_recipe() -> delta<map<NativeCompositeKey, i64>> {
+    let key = NativeCompositeKey(number: 1, label: "one")
+    return delta<map<NativeCompositeKey, i64>>(upsert: [key: 7, NativeCompositeKey(number: 1, label: "one", flag: false): 8])
+}
+struct NativeZoneKey { zone: timezone
+    number: i64 }
+const fn native_zone_key_recipe() -> delta<set<NativeZoneKey>> {
+    let key = NativeZoneKey(zone: @[US/Eastern], number: 1)
+    let alias = key
+    return delta<set<NativeZoneKey>>(added: [alias])
+}

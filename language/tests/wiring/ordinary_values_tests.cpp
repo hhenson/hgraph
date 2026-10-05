@@ -312,3 +312,37 @@ TEST_CASE("family preflight rejects unrelated native payloads before publication
     CHECK(retained.view().concrete().schema() == member);
     CHECK(plan.index(retained.view(), 0).checked_as<Int>() == 1);
 }
+
+TEST_CASE("composite keys reject deep NaN and compare full retained values", "[ordinary][composite-keys]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    const auto *floating = scalar_descriptor<Float>::value_meta();
+    const auto *pair = registry.tuple({scalar_descriptor<Int>::value_meta(), floating});
+    const auto *key = registry.bundle("ordinary.keys", "Key", {{"pair", pair}});
+    const PreparedValuePlan pair_plan{pair}, key_plan{key};
+    const auto make_key = [&](Float value) {
+        const Value one{Int{1}}, number{value};
+        std::array parts{std::pair<std::size_t, ValueView>{0, one.view()}, std::pair<std::size_t, ValueView>{1, number.view()}};
+        auto tuple = pair_plan.bundle(parts);
+        std::array fields{std::pair<std::size_t, ValueView>{0, tuple.view()}};
+        return key_plan.bundle(fields);
+    };
+    auto first = make_key(0.0), duplicate = make_key(-0.0), different = make_key(1.0);
+    ScalarKeySet keys{key_plan.binding()};
+    CHECK_NOTHROW(keys.insert(first.view()));
+    CHECK_THROWS_WITH(keys.insert(duplicate.view()), "duplicate or overlapping delta member, key or index");
+    CHECK_NOTHROW(keys.insert(different.view()));
+    auto nan = make_key(std::numeric_limits<Float>::quiet_NaN());
+    CHECK_THROWS_WITH(keys.insert(nan.view()), "NaN collection keys are outside the publication profile");
+    CHECK_THROWS_AS(validate_key_schema(registry.list(floating)), std::invalid_argument);
+    const auto *shape = registry.tss(key);
+    SetBuilder added{key_plan.binding()}, removed{key_plan.binding()};
+    added.insert(first.view());
+    BundleBuilder payload{ValuePlanFactory::instance().type_for(shape->delta_value_schema)};
+    payload.set(0, added.build().view()).set(1, removed.build().view());
+    auto delta = payload.build();
+    hgl::wiring::DeltaTrace trace;
+    CHECK_NOTHROW(trace.accept(shape, delta.view()));
+    CHECK_THROWS_WITH(trace.accept(shape, delta.view()), "addition of a present set member");
+}

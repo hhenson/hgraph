@@ -3863,12 +3863,39 @@ namespace hgl::ir
                 return admitted;
             }
 
-            bool admitted_scalar_key(TypeId id) {
+            bool admitted_scalar_key(TypeId id, std::unordered_set<std::uint32_t> &visiting) {
                 id = canonical(id);
                 if (!id.valid()) { return false; }
-                const auto &shape = type(id);
-                return shape.kind == TypeKind::Scalar ||
-                    (shape.kind == TypeKind::Symbol && shape.symbol.valid() && module_.symbol(shape.symbol).kind == SymbolKind::Enum);
+                const Type shape = type(id);
+                if (shape.kind == TypeKind::Scalar ||
+                    (shape.kind == TypeKind::Symbol && shape.symbol.valid() && module_.symbol(shape.symbol).kind == SymbolKind::Enum)) {
+                    return true;
+                }
+                if (!visiting.insert(id.value).second) { return false; }
+                bool admitted = false;
+                if (shape.kind == TypeKind::Tuple) {
+                    admitted = true;
+                    for (TypeId child : shape.children) { admitted = admitted && admitted_scalar_key(child, visiting); }
+                } else if (shape.kind == TypeKind::Symbol && shape.symbol.valid()) {
+                    const auto &symbol = module_.symbol(shape.symbol);
+                    const auto *structure = symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
+                    const auto *imported = imported_struct_decl(shape.symbol);
+                    if (structure || imported) {
+                        admitted = !(structure ? structure->abstract : imported->abstract);
+                        const auto fields = structure ? structure->fields : imported->fields;
+                        for (const auto &field : fields) {
+                            const auto field_type = constraint_solver_.field_type({}, id, field.name);
+                            admitted = admitted && !field.recursive && field_type && admitted_scalar_key(*field_type, visiting);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return admitted;
+            }
+
+            bool admitted_scalar_key(TypeId id) {
+                std::unordered_set<std::uint32_t> visiting;
+                return admitted_scalar_key(id, visiting);
             }
 
             // Provider-dependent values are compared only after cold materialization.
@@ -3927,6 +3954,42 @@ namespace hgl::ir
                 return admitted;
             }
 
+            bool constant_key_recipe(ExprId id, std::unordered_set<std::uint32_t> &visiting) {
+                if (!id.valid() || !visiting.insert(id.value).second) { return false; }
+                const auto &expression = module_.expr(id);
+                bool constant = expression.phase == Phase::Constant;
+                if (!constant) {
+                    if (const auto *reference = std::get_if<SymbolRef>(&expression.node);
+                        reference && module_.symbol(reference->symbol).kind == SymbolKind::LocalLet) {
+                        const auto found = local_contexts_.find(reference->symbol.value);
+                        if (found != local_contexts_.end()) {
+                            if (const auto *local = std::get_if<LocalDecl>(&module_.stmts[found->second.declaration.value].node)) {
+                                constant = constant_key_recipe(local->init, visiting);
+                            }
+                        }
+                    } else if (const auto *tuple = std::get_if<Tuple>(&expression.node)) {
+                        constant = std::ranges::all_of(tuple->elements, [&](ExprId child) { return constant_key_recipe(child, visiting); });
+                    } else if (expression.operation.kind == OperationKind::Constructor) {
+                        const auto arguments_constant = [&](const auto &arguments) {
+                            return std::ranges::all_of(arguments, [&](const Argument &argument) {
+                                return constant_key_recipe(argument.value, visiting);
+                            });
+                        };
+                        if (const auto *call = std::get_if<Call>(&expression.node)) { constant = arguments_constant(call->arguments); }
+                        else if (const auto *construct = std::get_if<Construct>(&expression.node)) {
+                            constant = !construct->delta && arguments_constant(construct->arguments);
+                        }
+                    }
+                }
+                visiting.erase(id.value);
+                return constant;
+            }
+
+            bool constant_key_recipe(ExprId id) {
+                std::unordered_set<std::uint32_t> visiting;
+                return constant_key_recipe(id, visiting);
+            }
+
             void check_collection_delta(Expr &expression, const Construct &node, TypeId origin) {
                 const Type shape = type(origin);
                 const bool growing = shape.kind == TypeKind::List && (shape.unbounded || !shape.size.valid());
@@ -3950,7 +4013,7 @@ namespace hgl::ir
                         }
                         Expr &key = check_expr(key_id);
                         if (!same(item_type, key.type)) { type_error(key.range, "delta key, member or index requires its exact declared type"); }
-                        if (key.phase != Phase::Constant ||
+                        if (!constant_key_recipe(key_id) ||
                             ((shape.kind == TypeKind::List || shape.kind == TypeKind::Tuple) && !key.constant)) {
                             type_error(key.range, "delta members, keys and indices must be constants");
                         }
@@ -3997,7 +4060,7 @@ namespace hgl::ir
 
             void check_ordinary_collection(Expr &expression, const Construct &node, TypeId applied) {
                 const Type shape = type(applied);
-                if (!admitted_scalar_key(shape.children[0])) { type_error(expression.range, "ordinary collection keys require admitted scalar types"); }
+                if (!admitted_scalar_key(shape.children[0])) { type_error(expression.range, "ordinary collection keys require admitted scalar or finite composite types"); }
                 if (node.arguments.size() != 1U || node.arguments.front().name != "items") {
                     type_error(expression.range, "ordinary collection construction requires exactly one named items argument");
                     return;

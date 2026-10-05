@@ -673,3 +673,46 @@ TEST_CASE("generated family publications retain concrete tags and optional field
     const auto cold = runtime::hgl_values::native_family_capture_hgl_value();
     CHECK(cold.view().concrete().schema() == first.schema());
 }
+
+TEST_CASE("generated composite keys preserve optional identity and repeated updates", "[codegen][runtime][composite-keys]") {
+    session();
+    auto recipe = runtime::hgl_values::native_composite_key_recipe_hgl_value();
+    Value payload{recipe.as_bundle().at(0)};
+    using Key = runtime::NativeCompositeKey::value_type;
+    const auto updates = values<Value>(payload, none, payload);
+    const auto actual = eval_node<runtime::operators::native_composite_key_forward, TSD<Key, TS<Int>>>(updates);
+    REQUIRE(actual[0]);
+    const auto a = actual[0]->as_bundle().at(1).as_map();
+    const auto b = payload.as_bundle().at(1).as_map();
+    for (const auto entry : a) {
+        const auto &key = entry.first;
+        INFO("key hash=" << key.hash() << " schema=" << key.schema()->name());
+        CHECK(b.contains(key));
+    }
+    CHECK_OUTPUT(actual, updates);
+    CHECK(payload.as_bundle().at(1).as_map().size() == 2);
+}
+
+TEST_CASE("composite provider keys retain one cold initializer across aliases", "[codegen][runtime][composite-keys]") {
+    struct CountingProvider final : TimeZoneProvider {
+        std::shared_ptr<const TimeZoneProvider> underlying{make_time_zone_provider()};
+        mutable std::size_t contains_calls{};
+        std::string_view version() const noexcept override { return underlying->version(); }
+        bool contains(ZoneId zone) const noexcept override { ++contains_calls; return underlying->contains(zone); }
+        OffsetInfo at(Instant instant, ZoneId zone) const override { return underlying->at(instant, zone); }
+        LocalResolution resolve(CivilDateTime local, ZoneId zone) const override { return underlying->resolve(local, zone); }
+    };
+    session();
+    GlobalState state;
+    auto provider = std::make_shared<CountingProvider>();
+    set_time_zone_provider(state.view(), provider);
+    GlobalContext context{state};
+    const auto recipe = runtime::hgl_values::native_zone_key_recipe_hgl_value();
+    CHECK(provider->contains_calls == 1);
+    const auto members = recipe.as_bundle().at(0).as_bundle().at(0).as_set();
+    REQUIRE(members.size() == 1);
+    for (const auto member : members) {
+        CHECK(member.as_bundle().field("zone").checked_as<ZoneId>() == ZoneId{"US/Eastern"});
+    }
+    CHECK(provider->contains_calls == 1);
+}

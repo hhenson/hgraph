@@ -23,6 +23,35 @@ namespace hgl::ordinary
     template <typename Shape> struct Held {};
     template <typename Shape> struct Origin {};
 
+    inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema,
+                                    std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
+        if (schema->is_owned() || schema->is_abstract_bundle() || !schema->is_hashable() || !schema->is_equatable()) {
+            throw std::invalid_argument("unsupported collection key type");
+        }
+        const auto kind = schema->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            if (!visiting.insert(schema).second) { throw std::invalid_argument("recursive collection key type"); }
+            for (std::size_t i = 0; i < schema->field_count; ++i) { validate_key_schema(schema->fields[i].type, visiting); }
+            visiting.erase(schema);
+            return;
+        }
+        const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Int>::value_meta(), hgraph::scalar_descriptor<hgraph::Float>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Str>::value_meta(), hgraph::scalar_descriptor<hgraph::Date>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::Time>::value_meta(), hgraph::scalar_descriptor<hgraph::DateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::TimeDelta>::value_meta(), hgraph::scalar_descriptor<hgraph::CivilDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZoneId>::value_meta(), hgraph::scalar_descriptor<hgraph::ZonedDateTime>::value_meta(),
+            hgraph::scalar_descriptor<hgraph::ZonedTime>::value_meta()};
+        if (!schema->is_enum() && std::ranges::find(leaves, schema) == leaves.end()) {
+            throw std::invalid_argument("unsupported collection key type");
+        }
+    }
+
+    inline void validate_key_schema(const hgraph::ValueTypeMetaData *schema) {
+        std::unordered_set<const hgraph::ValueTypeMetaData *> visiting;
+        validate_key_schema(schema, visiting);
+    }
+
     inline void validate_atomic_schema(const hgraph::ValueTypeMetaData *schema,
                                        std::unordered_set<const hgraph::ValueTypeMetaData *> &visiting) {
         const std::array leaves{hgraph::scalar_descriptor<hgraph::Bool>::value_meta(),
@@ -48,13 +77,9 @@ namespace hgl::ordinary
         } else if (kind == hgraph::ValueTypeKind::List && !schema->is_variadic_tuple() && !hgraph::TypeRegistry::is_array(schema)) {
             validate_atomic_schema(schema->element_type, visiting);
         } else if (kind == hgraph::ValueTypeKind::Set) {
-            if (!schema->element_type->is_enum() && std::ranges::find(leaves, schema->element_type) == leaves.end()) {
-                throw std::invalid_argument("unsupported atomic set member type");
-            }
+            validate_key_schema(schema->element_type);
         } else if (kind == hgraph::ValueTypeKind::Map) {
-            if (!schema->key_type->is_enum() && std::ranges::find(leaves, schema->key_type) == leaves.end()) {
-                throw std::invalid_argument("unsupported atomic map key type");
-            }
+            validate_key_schema(schema->key_type);
             validate_atomic_schema(schema->element_type, visiting);
         } else if ((kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) &&
                    !schema->is_abstract_bundle()) {
@@ -69,13 +94,22 @@ namespace hgl::ordinary
         if (key.schema() == hgraph::scalar_descriptor<hgraph::Float>::value_meta() && std::isnan(key.checked_as<hgraph::Float>())) {
             throw std::invalid_argument("NaN collection keys are outside the publication profile");
         }
+        const auto kind = key.schema()->try_value_kind();
+        if (kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
+            const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(key.binding(), "collection key");
+            for (std::size_t i = 0; i < ops->size(ops->context, key.data()); ++i) {
+                if (ops->element_valid && !ops->element_valid(ops->context, key.data(), i)) { continue; }
+                const hgraph::ValueView child{ops->element_binding(ops->context, key.data(), i), ops->element_at(ops->context, key.data(), i)};
+                if (child.valid()) { validate_scalar_key(child); }
+            }
+        }
     }
 
     // One owning hash set spans every argument in a delta recipe. This catches
     // duplicates and overlap after provider-dependent keys become real values.
     class ScalarKeySet {
       public:
-        explicit ScalarKeySet(hgraph::ValueTypeRef binding) : binding_{binding}, seen_{binding} {}
+        explicit ScalarKeySet(hgraph::ValueTypeRef binding) : binding_{binding}, seen_{binding} { validate_key_schema(binding.schema()); }
         void insert(const hgraph::ValueView &key) {
             if (key.schema() != binding_.schema()) { throw std::invalid_argument("delta key requires its exact declared type"); }
             validate_scalar_key(key);
@@ -106,9 +140,9 @@ namespace hgl::ordinary
             }
             const auto kind = value.schema()->try_value_kind();
             if (kind == hgraph::ValueTypeKind::Map) {
-                for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); pending.push_back({child.binding(), child.data()}); }
+                for (const auto [key, child] : value.as_map()) { validate_scalar_key(key); pending.push_back({key.binding(), key.data()}); pending.push_back({child.binding(), child.data()}); }
             } else if (kind == hgraph::ValueTypeKind::Set) {
-                for (const auto key : value.as_set()) { validate_scalar_key(key); }
+                for (const auto key : value.as_set()) { validate_scalar_key(key); pending.push_back({key.binding(), key.data()}); }
             } else if (kind == hgraph::ValueTypeKind::List || kind == hgraph::ValueTypeKind::Tuple || kind == hgraph::ValueTypeKind::Bundle) {
                 const auto *ops = hgraph::checked_value_ops<hgraph::IndexedValueOps>(value.binding(), "atomic publication value");
                 const auto count = ops->size(ops->context, value.data());
@@ -153,18 +187,13 @@ namespace hgl::ordinary
                     break;
                 }
                 case hgraph::TSTypeKind::TSS:
-                    if (!shape->value_schema->element_type->is_enum() &&
-                        std::ranges::find(leaves, shape->value_schema->element_type) == leaves.end()) {
-                        throw std::invalid_argument("ordinary set deltas require scalar members");
-                    }
+                    validate_key_schema(shape->value_schema->element_type);
                     break;
                 case hgraph::TSTypeKind::TSL:
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSD:
-                    if (!shape->key_type()->is_enum() && std::ranges::find(leaves, shape->key_type()) == leaves.end()) {
-                        throw std::invalid_argument("ordinary map deltas require scalar keys");
-                    }
+                    validate_key_schema(shape->key_type());
                     pending.push_back(shape->element_ts());
                     break;
                 case hgraph::TSTypeKind::TSB:
@@ -277,10 +306,10 @@ namespace hgl::ordinary
             return hgraph::intern_value_type(*schema, hgraph::mutable_list_plan(element), hgraph::mutable_list_ops());
         }
         if (kind == hgraph::ValueTypeKind::Map) {
-            return hgraph::compact_map_type(storage_binding(schema->key_type), storage_binding(schema->element_type));
+            return hgraph::compact_map_type(factory.type_for(schema->key_type), storage_binding(schema->element_type));
         }
         if (kind == hgraph::ValueTypeKind::Set) {
-            return hgraph::compact_set_type(storage_binding(schema->element_type));
+            return hgraph::compact_set_type(factory.type_for(schema->element_type));
         }
         if (kind == hgraph::ValueTypeKind::Bundle || kind == hgraph::ValueTypeKind::Tuple) {
             std::vector<hgraph::ValueTypeRef> fields;
@@ -311,8 +340,14 @@ namespace hgl::ordinary
                     fields_.emplace_back(indexed_->element_binding(indexed_->context, nullptr, index));
                 }
             }
-            if (binding.schema()->element_type != nullptr) { element_ = storage_binding(binding.schema()->element_type); }
-            if (binding.schema()->key_type != nullptr) { key_ = storage_binding(binding.schema()->key_type); }
+            if (binding.schema()->element_type != nullptr) {
+                element_ = kind == hgraph::ValueTypeKind::Set
+                    ? hgraph::ValuePlanFactory::instance().type_for(binding.schema()->element_type)
+                    : storage_binding(binding.schema()->element_type);
+            }
+            if (binding.schema()->key_type != nullptr) {
+                key_ = hgraph::ValuePlanFactory::instance().type_for(binding.schema()->key_type);
+            }
         }
         [[nodiscard]] hgraph::ValueTypeRef binding() const noexcept { return binding_; }
         [[nodiscard]] hgraph::ValueTypeRef field_binding(std::size_t index) const { return fields_.at(index).binding(); }

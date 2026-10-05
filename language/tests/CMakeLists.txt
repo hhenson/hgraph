@@ -769,6 +769,14 @@ if(UNIX)
             --part ${HGRAPH_STD}/replay_record.hgl
             --part ${HGRAPH_STD}/impl/replay_record.hgl
             --part ${HGRAPH_STD}/tests/standard.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_scalars.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_defaults.hgl
+            --part ${HGRAPH_STD}/tests/pass_through_structural.hgl
+            --part ${HGRAPH_STD}/tests/replay_record.hgl
+            --part ${HGRAPH_STD}/tests/atomic_scalar_values.hgl
+            --part ${HGRAPH_STD}/tests/atomic_eval_values.hgl
+            --part ${HGRAPH_STD}/tests/atomic_replay_values.hgl
+            --part ${HGRAPH_STD}/tests/ordinary_replay_values.hgl
             --part ${HGRAPH_STD}/tests/control.hgl
             --part ${HGRAPH_STD}/tests/stream.hgl
             --part ${HGRAPH_STD}/tests/temporal.hgl
@@ -783,6 +791,8 @@ if(UNIX)
             --part ${HGRAPH_STD}/tests/optional_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_atomic_values.hgl
             --part ${HGRAPH_STD}/tests/abstract_atomic_values.hgl
+            --part ${HGRAPH_STD}/tests/composite_key_values.hgl
+            --part ${HGRAPH_STD}/tests/prepared_key_alias_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_structural_values.hgl
             --part ${HGRAPH_STD}/tests/temporal_retention_values.hgl
             --part ${HGRAPH_STD}/tests/recursive_eval_values.hgl

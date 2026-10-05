@@ -31,8 +31,8 @@ namespace hgl::wiring {
                     const auto added = parts.at(0).as_set();
                     const auto removed = parts.at(1).as_set();
                     require(!added.empty() || !removed.empty(), "empty set publication");
-                    for (const auto key : added) { ordinary::validate_scalar_key(key); }
-                    for (const auto key : removed) { ordinary::validate_scalar_key(key); }
+                    for (const auto key : added) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
+                    for (const auto key : removed) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto value : added) {
                         require(!members_.contains(value), "addition of a present set member");
                         require(!removed.contains(value), "overlapping set membership changes");
@@ -100,8 +100,8 @@ namespace hgl::wiring {
                     const auto removed = parts.at(0).as_set();
                     const auto modified = parts.at(1).as_map();
                     require(!removed.empty() || !modified.empty(), "empty map publication");
-                    for (const auto key : removed) { ordinary::validate_scalar_key(key); }
-                    for (const auto [key, child] : modified) { ordinary::validate_scalar_key(key); }
+                    for (const auto key : removed) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
+                    for (const auto [key, child] : modified) { ordinary::validate_scalar_key(key); ordinary::validate_complete_value(key, optional); }
                     for (const auto key : removed) {
                         require(keyed_children_.contains(key), "removal of an absent map key");
                         require(!modified.contains(key), "overlapping map key changes");

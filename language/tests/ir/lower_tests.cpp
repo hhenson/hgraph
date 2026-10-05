@@ -3552,7 +3552,7 @@ TEST_CASE("ordinary value extensions preserve delta identity and lexical access"
     const std::vector<std::string> rejected{
         "const fn value() -> i64 { let xs = []\nreturn 1 }\n",
         "const fn value(x: delta<list<ref<i64>>>) -> i64 => 1\n",
-        "const fn value(x: delta<map<tuple<i64, i64>, i64>>) -> i64 => 1\n",
+        "const fn value(x: delta<map<list<i64>, i64>>) -> i64 => 1\n",
         "const fn value() -> delta<map<i64, i64>> => delta<map<i64, i64>>(upsert: [1: 2], remove: [1])\n",
         "const fn value() -> delta<list<i64, 2>> => delta<list<i64, 2>>(items: [2: 3])\n",
         "const fn value() -> i64 { let xs: list<i64> = []\npush(xs, 1)\nreturn 1 }\n",
@@ -3646,7 +3646,7 @@ fn update(value: i64, const left: str, const right: str) {
 }
 
 TEST_CASE("eval checks publication profile boundaries before graph construction", "[ir][typed][harness]") {
-    for (const std::string shape : {"atomic<set<tuple<i64, i64>>>", "ref<i64>", "list<ref<i64>>", "map<tuple<i64, i64>, i64>", "Node"}) {
+    for (const std::string shape : {"atomic<set<list<i64>>>", "ref<i64>", "list<ref<i64>>", "map<list<i64>, i64>", "Node"}) {
         Lowered unit{"module checks.eval_shape\nstruct Node { value: i64\nnext: atomic<Node> = null }\n"
             "fn identity(value: " + shape + ") -> " + shape + " => value\n"
             "test rejected { eval(identity, value: []) }\n"};
@@ -3711,8 +3711,8 @@ TEST_CASE("finite atomic publications and generic shape arguments are checked", 
         "struct Box<T> { value: T }\nfn value(x: Box<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Mixed<T> { value: T\npublication: delta<T> }\nfn value(x: Mixed<atomic<list<i64>>>) -> i64 => 1\n",
         "struct Unused<T> {}\nfn value(x: Unused<atomic<list<i64>>>) -> i64 => 1\n",
-        "const fn value(x: delta<atomic<set<tuple<i64, i64>>>>) -> i64 => 1\n",
-        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<tuple<i64, i64>>>) -> atomic<set<tuple<i64, i64>>> => pass(x)\n",
+        "const fn value(x: delta<atomic<set<list<i64>>>>) -> i64 => 1\n",
+        "fn pass<T>(x: T) -> T { when { return delta_value(x) } }\nfn bad(x: atomic<set<list<i64>>>) -> atomic<set<list<i64>>> => pass(x)\n",
         "struct Publication<T> { value: delta<T> }\nconst fn value() { let x = Publication(value: [1, 2]) }\n"
     };
     for (const auto &source : rejected) {
@@ -3904,7 +3904,7 @@ TEST_CASE("ordinary set and map constructors require exact typed items", "[ir][t
         "const fn f() -> map<f64, i64> => map<f64, i64>(items: [1: 2])",
         "const fn f() -> map<str, i64> => map<str, i64>(items: [1])",
         "const fn f() -> set<str> => set<str>(items: [\"key\": 1])",
-        "const fn f() -> set<tuple<i64, i64>> => set<tuple<i64, i64>>(items: [])"
+        "const fn f() -> set<list<i64>> => set<list<i64>>(items: [])"
     }) {
         Lowered unit{"module checks.atomic_collections\n" + source + "\n"};
         INFO(source);
@@ -4005,4 +4005,30 @@ test accepted {
     const bool result = complete(admitted);
     INFO(admitted.diagnostics.render(admitted.file));
     CHECK(result);
+}
+
+TEST_CASE("composite keys retain finite complete exact type restrictions", "[ir][typed][composite-keys]") {
+    for (const std::string shape : {"list<i64>", "RecursiveKey", "FamilyKey", "ref<i64>"}) {
+        Lowered unit{"module checks.keys\nstruct RecursiveKey { next: atomic<RecursiveKey> = null }\n"
+            "abstract struct FamilyKey { value: i64 }\nfn forward(x: set<" + shape + ">) -> set<" + shape + "> => x\n"
+            "test rejected { eval(forward, []) }\n"};
+        INFO(shape);
+        if (!unit.diagnostics.has_errors()) { CHECK_FALSE(complete(unit)); }
+        CHECK(unit.diagnostics.has_errors());
+    }
+    Lowered mismatch{R"(
+module checks.nominal_key
+struct Key { value: i64 }
+struct Other { value: i64 }
+const fn bad() -> delta<set<Key>> => delta<set<Key>>(added: [Other(value: 1)])
+)"};
+    CHECK_FALSE(complete(mismatch));
+    CHECK(mismatch.diagnostics.has_errors());
+    for (const std::string binding : {"var key = Key(value: 1)", "let key = input"}) {
+        Lowered runtime_key{"module checks.dynamic_key\nstruct Key { value: i64 }\n"
+            "const fn bad(input: Key) -> delta<set<Key>> { " + binding +
+            "\nreturn delta<set<Key>>(added: [key]) }\n"};
+        if (!runtime_key.diagnostics.has_errors()) { CHECK_FALSE(complete(runtime_key)); }
+        CHECK(runtime_key.diagnostics.has_errors());
+    }
 }
