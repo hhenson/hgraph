@@ -456,6 +456,28 @@ TEST_CASE("generated generic compositions preserve scalar and structural signal 
                  values<Int>(1, none, 2));
 }
 
+namespace {
+    struct NativeGeneratedEnumForward {
+        static constexpr auto name = "native_generated_enum_forward";
+        static void eval(In<"value", TS<runtime::RuntimeMode>> value, Out<TS<runtime::RuntimeMode>> out) {
+            const runtime::RuntimeMode member = value.value();
+            out.set(member);
+        }
+    };
+}
+
+TEST_CASE("generated enums support typed native input and output", "[codegen][runtime][enum]") {
+    session();
+    using Mode = runtime::RuntimeMode;
+    const auto low = Mode::member(INT64_MIN);
+    const auto high = Mode::member(INT64_MAX);
+    const auto first = Mode::member(-7);
+    const auto arrivals = values<Value>(low, none, first, first, high);
+    using NativeEnumOperator = Operator<"native_generated_enum_forward", In<"value", TS<Mode>>, Out<TS<Mode>>>;
+    register_overload<NativeEnumOperator, NativeGeneratedEnumForward>();
+    CHECK_OUTPUT((eval_node<NativeEnumOperator, TS<Mode>>(arrivals)), arrivals);
+}
+
 TEST_CASE("generated public enum markers retain nominal schemas and owning values", "[codegen][runtime][enum]") {
     session();
     using Mode = runtime::RuntimeMode;
