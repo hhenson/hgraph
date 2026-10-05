@@ -4,6 +4,7 @@
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 #include "wiring/backend.h"
+#include "wiring/delta_trace.h"
 #include "wiring/operator_types.h"
 
 #include <hgraph/lib/std/operators/collection.h>
@@ -14,6 +15,7 @@
 #include <hgl/global_key_preflight.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -1502,6 +1504,43 @@ test identity {
     INFO(unit.diagnostics.render(unit.file));
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("native publication admission rejects NaN collection keys", "[wiring][scalar-keys]") {
+    using namespace hgraph;
+    using namespace hgl::ordinary;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = ValuePlanFactory::instance();
+    const auto *floating = scalar_descriptor<Float>::value_meta();
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto binding = factory.type_for(floating);
+    const Value nan{std::numeric_limits<Float>::quiet_NaN()};
+    SetBuilder nan_members{binding};
+    nan_members.insert(nan.view());
+    const auto present = nan_members.build();
+    const auto empty = SetBuilder{binding}.build();
+    const auto *set_shape = registry.tss(floating);
+    const PreparedValuePlan set_plan{set_shape->delta_value_schema};
+    for (bool removing : {false, true}) {
+        const std::array fields{std::pair<std::size_t, ValueView>{0, removing ? empty.view() : present.view()},
+            std::pair<std::size_t, ValueView>{1, removing ? present.view() : empty.view()}};
+        const auto payload = set_plan.bundle(fields);
+        hgl::wiring::DeltaTrace trace;
+        CHECK_THROWS_WITH(trace.accept(set_shape, payload.view()), "NaN collection keys are outside the publication profile");
+    }
+    const auto *map_shape = registry.tsd(floating, registry.ts(integer));
+    const PreparedValuePlan map_plan{map_shape->delta_value_schema};
+    MapBuilder entries{binding, factory.type_for(integer)};
+    entries.set_item(nan.view(), Value{Int{1}}.view());
+    const auto modified = entries.build();
+    const auto no_updates = MapBuilder{binding, factory.type_for(integer)}.build();
+    for (bool removing : {false, true}) {
+        const std::array fields{std::pair<std::size_t, ValueView>{0, removing ? present.view() : empty.view()},
+            std::pair<std::size_t, ValueView>{1, removing ? no_updates.view() : modified.view()}};
+        const auto payload = map_plan.bundle(fields);
+        hgl::wiring::DeltaTrace trace;
+        CHECK_THROWS_WITH(trace.accept(map_shape, payload.view()), "NaN collection keys are outside the publication profile");
+    }
 }
 
 TEST_CASE("direct scalar keys compare cold values and preserve failure order", "[wiring][scalar-keys]") {
