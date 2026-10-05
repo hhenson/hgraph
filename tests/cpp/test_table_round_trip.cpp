@@ -25,7 +25,7 @@
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/value/table_codec.h>
 
-#include <arrow/array.h>
+#include <arrow/api.h>
 #include <arrow/table.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,8 @@ namespace
         result.push_back(sample_of<CivilDateTime>("CivilDateTime", CivilDateTime{day, 1, 30}));
         result.push_back(sample_of<Period>("Period", Period{1, -2, 3}));
         result.push_back(sample_of<ZoneId>("ZoneId", ZoneId{"America/New_York"}));
+        result.push_back(sample_of<ZonedTime>(
+            "ZonedTime", ZonedTime{time_of_day(1, 30, 0, 123'456), ZoneId{"US/Eastern"}}));
         result.push_back(sample_of<ZonedDateTime>("ZonedDateTime", zoned));
         result.push_back(sample_of<InstantRange>("InstantRange", instants_a));
         result.push_back(sample_of<CivilDateRange>("CivilDateRange", dates_a));
@@ -174,6 +177,50 @@ TEST_CASE("table codec: the round trip covers every supported leaf type")
     // Catches the reverse too: a leaf REMOVED from the codec leaves a sample
     // behind that no longer proves anything.
     CHECK(covered.size() == supported.size());
+}
+
+TEST_CASE("table codec: zoned time retains exact wall time and zone without an instant")
+{
+    for (const auto &value : {
+             ZonedTime{time_of_day(0, 0), ZoneId{"UTC"}},
+             ZonedTime{time_of_day(23, 59, 59, 999'999), ZoneId{"Etc/UTC"}},
+             ZonedTime{time_of_day(2, 30), ZoneId{"US/Eastern"}}})
+    {
+        const auto sample = sample_of<ZonedTime>("zoned time", value);
+        check_recorder_round_trip(sample);
+        check_converter_round_trip(sample);
+        const auto &converter = table_converter(sample.meta);
+        const auto frame = single_row_frame(converter, MIN_ST, MIN_ST, sample.value.view());
+        CHECK(frame.table->schema()->field(2)->type()->ToString() ==
+              "struct<time: time64[us], zone: string>");
+        CHECK_FALSE(frame.table->schema()->metadata()->Contains("hgraph.tzdb.version"));
+    }
+}
+
+TEST_CASE("table codec: a present zoned time rejects missing or invalid components")
+{
+    const auto *meta = scalar_descriptor<ZonedTime>::value_meta();
+    const auto type = table_converter(meta).columns.front().type;
+    const auto schema = arrow::schema({arrow::field("value", type)});
+    const auto decode = [&](std::optional<std::int64_t> micros,
+                            std::optional<std::string> zone) {
+        std::unique_ptr<arrow::ArrayBuilder> builder;
+        REQUIRE(arrow::MakeBuilder(arrow::default_memory_pool(), type, &builder).ok());
+        auto &structure = static_cast<arrow::StructBuilder &>(*builder);
+        REQUIRE(structure.Append().ok());
+        auto &times = static_cast<arrow::Time64Builder &>(*structure.field_builder(0));
+        auto &zones = static_cast<arrow::StringBuilder &>(*structure.field_builder(1));
+        REQUIRE((micros ? times.Append(*micros) : times.AppendNull()).ok());
+        REQUIRE((zone ? zones.Append(*zone) : zones.AppendNull()).ok());
+        std::shared_ptr<arrow::Array> array;
+        REQUIRE(builder->Finish(&array).ok());
+        return read_table_cell(meta, *array, *schema, 0);
+    };
+    CHECK_THROWS_AS(decode(std::nullopt, "UTC"), std::invalid_argument);
+    CHECK_THROWS_AS(decode(0, std::nullopt), std::invalid_argument);
+    CHECK_THROWS_AS(decode(-1, "UTC"), std::invalid_argument);
+    CHECK_THROWS_AS(decode(86'400'000'000, "UTC"), std::invalid_argument);
+    CHECK_THROWS_AS(decode(0, ""), std::invalid_argument);
 }
 
 TEST_CASE("table codec: a sequence leaf round-trips")
